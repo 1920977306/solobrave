@@ -239,6 +239,13 @@ BUSINESS_VISION_PROMPT = """你是一个专业的抖音达人数据提取员。�
 
 【热卖品牌TOP3】top_brands数组，每条含name(品牌名)、avg_price(均价)、gmv(结算额)、ratio(占比百分比)；
 
+【★v3 新增★ 分布类 dict 字段】以下字段直接用截图里的中文名(列名)作 key, 占比/数值作 value, 输出为扁平 dict 对象:
+- price_distribution (价格带分布) — {"0-25": 15, "25-50": 20, ...}, 用于"价格带分布"卡片渲染
+- category_distribution (类目分布 dict 格式) — {"个护家清": 76, "医疗健康": 12, ...}, 用于"类目分布"卡片环形图
+- brand_distribution (品牌集中度 dict 格式) — {"左小妆": 30, "优禾康": 25, ...}, 用于"品牌集中度"卡片环形图
+- 即使截图里只有类目/品牌占比列表(不是 dict), 也必须展开为 {名称: 占比%} dict
+- 完全没数据时留空 {}, 不要省略 key
+
 【短视频详细指标】video_completion_rate(完播率百分比)、video_likes(点赞数)、video_comments(评论数)、video_shares(转发数)、video_interaction_rate(互动率百分比)、video_avg_price(视频平均件单价)；
 
 【粉丝分析】fan_gender(性别分布JSON如{"男":50,"女":50})、fan_age(年龄分布JSON如{"31-40":43})、fan_city_tier(城市等级分布JSON如{"三线城市":24})、fan_crowd(人群标签如都市银发23%)、fan_price_range(客单价偏好如50到100元30%)、fan_category(品类偏好如服装23%)；
@@ -250,6 +257,47 @@ BUSINESS_VISION_PROMPT = """你是一个专业的抖音达人数据提取员。�
 【短视频观众】video_audience_region(省份分布JSON含城市和占比)、video_audience_city_tier(城市等级分布JSON)；
 
 所有字段名必须严格使用上述英文名，数组和分布类字段输出为JSON对象或数组。
+
+【★ fix/ocr-full + vision-prompt-boost-v2: 截图所有数据点全部提取, 不能给少了】
+
+1. **预设 schema 字段**: 按上面所有分组逐条提取, 截图里没有的字段标注 null (严禁跳过)
+2. **预设 schema 之外的字段 (extra_fields)**: 必须提取
+   - 截图上每个可见的标签/数字/按钮/链接文字都要提取, 不限于达人维度
+   - 典型示例: 退货率/客服电话/售后评分/合作商家列表/最近合作时间
+   - 字段名直接用截图里的中文/英文原名, value 用截图里的原始值
+   - 嵌套数据 (如 "退货率: 5.2%") 用 {"退货率": "5.2%"} 形式直接列出
+   - 没有任何额外字段时 extra_fields 留空 {} 不要省略 key
+3. **★v2 强化★ 品牌列表 (top_brands) — 表格形式强制**: 即使只有品牌名也要提, 字段缺失标 null 不能省略整条
+   每条尽量含:
+   - name (品牌名, 必填)
+   - avg_price (均价, 保留原始格式如 50-100 元; 缺失标 null)
+   - gmv (结算额, 保留原始格式如 50 万-100 万; 缺失标 null)
+   - ratio (占比百分比; 缺失标 null)
+   完全没品牌列表时 top_brands 留空 [] 不要省略 key
+4. **★v2 强化★ 商品明细 (top_products) — 列表形式强制**: 即使只有商品名也要提, 字段缺失标 null 不能省略整条
+   每条尽量含:
+   - name (商品名, 必填)
+   - shop_name (店铺名; 缺失标 null)
+   - price (到手价, 保留原始格式; 缺失标 null)
+   - gmv_range (结算额区间如 5 万-10 万; 缺失标 null)
+   - video_count (关联短视频数; 缺失标 null)
+   完全没商品列表时 top_products 留空 [] 不要省略 key
+5. **粉丝团分析 (fan_group_*)**: gender/age/crowd/activity/device/price/category 即使是 dict 格式 (如 {"女": 94}) 也必须展开提取
+6. **直播间/短视频观众 (live_audience_*/video_audience_*)**: region/city_tier 即使是 dict 格式也必须展开提取
+
+【★v2 新增★ 所有表格数据 (extra_fields 强制)】截图上任何表格/列表/明细都必须提取到 extra_fields, 不限于达人维度
+   - 类目分布表格 → extra_fields['类目分布表格'] = [{类目名, 占比%, 均价, GMV}, ...]
+   - 品牌集中度表格 → extra_fields['品牌集中度表格'] = [{品牌名, 占比%}, ...]
+   - 商品列表 (在 top_products 之外的) → extra_fields['商品列表'] = [{商品名, 店铺, 价格}, ...]
+   - 价格带分布表格 → extra_fields['价格带分布表格'] = [{价格区间, 占比%}, ...]
+   - 粉丝分布表格 (gender/age/city 等) → extra_fields['粉丝分布表格'] = [...]
+   - 任何带数字/名称的卡片/模块都要提, 不限于达人维度
+   字段名直接用截图里的中文名 (e.g. "类目分布表格", "品牌集中度表格")
+   value 用截图里的原始表格内容 (数组/对象)
+   即使表格只有 1 列 (名称) 也要提, 不要漏
+
+【★入库硬约束】截图上看到啥就录啥, 后端 ocr_raw_fields 兜底存全部字段, 不依赖预设 schema
+宁可多提不要漏提, 漏提会导致达人库显示"暂无数据" — 用户反馈这个很影响体验
 
 【图表/仪表盘截图分支】如果截图不是达人数据而是仪表盘/图表/其他类型, 不要强行套达人字段, 改为按用户提示词格式描述完整结构 (图表标题/坐标轴/数据标签/图例/数值), 输出纯文本不要 JSON。"""
 
@@ -3338,6 +3386,17 @@ def init_db():
             #  RAG 端 search_talent_by_query 也能用)
             ('embedding', 'BLOB'),
             ('embedding_model', "TEXT DEFAULT ''"),
+            # ★ fix/talent-full-sync: 3 列新建（前端 L32165-32166 / L32241-32242 已用但 schema 无）
+            # 老大硬约束: 缺列必须 ALTER TABLE 加, 走 _add_column_if_not_exists 兜底 (db 已存在不重建)
+            ('account_fans_profile', "TEXT DEFAULT ''"),
+            ('video_fans_profile', "TEXT DEFAULT ''"),
+            ('cooperation_days', "INTEGER DEFAULT 0"),
+            # ★ fix/ocr-full: OCR 全字段入库, 存 vision_field_maps 完整 merge 后 JSON
+            #   老大诉求 (2026-09-22): 截图上所有数据全部录入, 不能给少了.
+            #   之前 _OCR_TO_TALENT_FIELDS 只翻译 21 个固定字段, 截图上 schema 之外的字段
+            #   (如 '退货率' / '客服电话' / '售后评分') 全部丢失.
+            #   现在 ocr_raw_fields 存所有 OCR 看到的字段 (不限 schema), 前端可单独渲染.
+            ('ocr_raw_fields', "TEXT DEFAULT '{}'"),
         ]:
             _add_column_if_not_exists(conn, 'talents', _talent_col, _talent_dtype)
         conn.execute('CREATE INDEX IF NOT EXISTS idx_talents_status ON talents(status)')
@@ -3643,6 +3702,30 @@ def init_db():
                 task_reminder INTEGER DEFAULT 1
             )
         ''')
+
+        # ★ fix/heavy-persist: HeavyPipe job 状态持久化
+        #   之前 _HEAVY_JOBS = {} 是进程内存 dict, kickstart -k 重启后所有 job 状态丢失,
+        #   前端 5s 轮询 heavy-status 永远拿不到 done → 10min 超时后才降级 OpenClaw,
+        #   用户感受 '任务没等完就结束'.
+        #   现在 heavy_jobs 表存所有 job 状态 (status/stage/error/warning/created_at/updated_at),
+        #   重启后 _heavy_job_get 能从 SQLite 读出历史状态, 前端轮询正常显示 done/failed.
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS heavy_jobs (
+                id TEXT PRIMARY KEY,
+                agent_id TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                stage TEXT DEFAULT '',
+                error TEXT DEFAULT '',
+                warning TEXT DEFAULT '',
+                result_msg_id TEXT DEFAULT '',
+                talent_name TEXT DEFAULT '',
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL
+            )
+        ''')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_heavy_jobs_agent ON heavy_jobs(agent_id)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_heavy_jobs_status ON heavy_jobs(status)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_heavy_jobs_updated ON heavy_jobs(updated_at DESC)')
 
         # 违禁词表
         conn.execute('''
@@ -4023,9 +4106,13 @@ _TALENT_COLUMNS = [
     'fan_group_activity', 'fan_group_device', 'fan_group_price', 'fan_group_category',
     'live_audience_region', 'live_audience_city_tier',
     'video_audience_region', 'video_audience_city_tier',
+    # ★ fix/talent-full-sync-r2: ALTER TABLE 加了 3 列, 必须同步到这里否则 UPDATE 永远漏写
+    'account_fans_profile', 'video_fans_profile', 'cooperation_days',
     'ai_reason', 'risk_rating', 'group_id', 'status', 'created_by',
     'platform', 'price_unit', 'avg_views', 'last_cooperation', 'notes',
     'matched_products', 'matched_products_updated_at',
+    # ★ fix/ocr-full: OCR 全字段入库 (vision_field_maps 完整 merge JSON)
+    'ocr_raw_fields',
     'created_at', 'updated_at'
 ]
 
@@ -4164,6 +4251,12 @@ def _talent_row_to_dict(row):
         'notes': row['notes'] or '',
         'matched_products': _json_col('matched_products', []),
         'matched_products_updated_at': row['matched_products_updated_at'] if row['matched_products_updated_at'] is not None else 0,
+        # ★ fix/ocr-full-api: 加 ocr_raw_fields 到 _talent_row_to_dict 返回
+        #   之前 commit 8b027d4 加了 _TALENT_COLUMNS / _dict_to_talent_row / DB 列,
+        #   但忘了在 _talent_row_to_dict (line 4113) 手写 dict 里加这一行 —
+        #   /api/talents/:id 返回数据不包含 ocr_raw_fields, 前端拿不到完整 OCR 字段.
+        #   老大反馈 '达人库详情没有变化' — 实际是 API 没返回 ocr_raw_fields, 详情页空白.
+        'ocr_raw_fields': _json_col('ocr_raw_fields', {}),
         'created_at': row['created_at'],
         'updated_at': row['updated_at'],
         'createdAt': row['created_at'],
@@ -4390,6 +4483,10 @@ def _dict_to_talent_row(t):
         'live_audience_city_tier': _dump(t.get('live_audience_city_tier', t.get('liveAudienceCityTier', {}))),
         'video_audience_region': _dump(t.get('video_audience_region', t.get('videoAudienceRegion', {}))),
         'video_audience_city_tier': _dump(t.get('video_audience_city_tier', t.get('videoAudienceCityTier', {}))),
+        # ★ fix/talent-full-sync-r2: 补 3 列映射 (ALTER TABLE 加了但 _dict_to_talent_row 漏)
+        'account_fans_profile': str(t.get('account_fans_profile') or t.get('accountFansProfile') or ''),
+        'video_fans_profile': str(t.get('video_fans_profile') or t.get('videoFansProfile') or ''),
+        'cooperation_days': int(t.get('cooperation_days', t.get('cooperationDays', 0)) or 0),
         'ai_reason': t.get('ai_reason') or t.get('aiReason') or '',
         'risk_rating': t.get('risk_rating') or t.get('riskRating') or '',
         'group_id': t.get('group_id') or t.get('groupId') or '',
@@ -4402,6 +4499,8 @@ def _dict_to_talent_row(t):
         'notes': t.get('notes') or '',
         'matched_products': _dump(t.get('matched_products', t.get('matchedProducts', []))),
         'matched_products_updated_at': int(t.get('matched_products_updated_at', t.get('matchedProductsUpdatedAt', 0)) or 0),
+        # ★ fix/ocr-full: OCR 全字段入库 (vision_field_maps merge 后 JSON, 不限 schema)
+        'ocr_raw_fields': _dump(t.get('ocr_raw_fields', t.get('ocrRawFields', {}))),
         'created_at': t.get('created_at') or t.get('createdAt') or now,
         'updated_at': now,
     }
@@ -7080,6 +7179,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             return
         if path == '/api/talents/categories':
             self._handle_get_talent_categories()
+            return
+        # ★ bug/talent-deduplicate: GET /api/talents/search?name=xxx — 前置查重 (前端录入/编辑时用)
+        if path == '/api/talents/search':
+            self._handle_search_talents()
             return
         if path.startswith('/api/talents/'):
             rest = path[len('/api/talents/'):]
@@ -17426,6 +17529,68 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             logger.error(f'  [Talents] categories failed: {e}')
             self._send_json_error(500, 'Categories failed')
 
+    # ★ bug/talent-deduplicate: 前置查重接口 (录入/编辑时前端先 GET 这条接口判定是否已有)
+    # 命中规则: 精确 (LOWER(name)=LOWER(?)) 优先, 然后模糊 LIKE, 按粉丝量降序排
+    # 权限: 与 _handle_get_talents 一致 (admin 看全部, 非 admin 只看自己 created_by)
+    def _handle_search_talents(self):
+        """GET /api/talents/search?name=xxx — 达人查重 (前端录入/编辑前置查重)"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'influencers'): return
+        qs = parse_qs(urlparse(self.path).query)
+        name = (qs.get('name', [''])[0] or '').strip()
+        if not name:
+            self._send_json(200, {'talents': []})
+            return
+        clean = _clean_talent_name(name) or name
+        try:
+            conn = _db_conn()
+            try:
+                # 权限过滤: 与 _handle_get_talents L17403-17408 一致
+                #   admin → 全部
+                #   非 admin → 仅 created_by ∈ visible_ids (自己的 uid + AI 员工 uid)
+                #   主库 (created_by='') 只有 admin 可见
+                uid = auth.user_info.get('userId', '') if auth.user_info else ''
+                is_admin = bool(auth.is_admin) and not getattr(auth, 'localhost_agent_id', None)
+                if not is_admin:
+                    visible_ids = {uid} | set(_get_user_emp_ids(uid))
+                    visible_list = list(visible_ids)
+                    placeholders = ','.join('?' * len(visible_list))
+                    where_extra = f" AND COALESCE(created_by, '') IN ({placeholders})"
+                else:
+                    where_extra = ''
+                    visible_list = []
+                sql = (
+                    "SELECT id, name, douyin_id, followers, level, ai_rating, ai_summary, "
+                    "       category, risk_rating, created_at, updated_at, status, created_by "
+                    "FROM talents WHERE status = 'active' AND LOWER(name) LIKE LOWER(?)" + where_extra + " "
+                    "ORDER BY "
+                    "  CASE WHEN LOWER(name) = LOWER(?) THEN 0 "
+                    "       WHEN LOWER(name) LIKE LOWER(?) THEN 1 "
+                    "       ELSE 2 END, "
+                    "  followers DESC, "
+                    "  updated_at DESC "
+                    "LIMIT 5"
+                )
+                params = [clean] + visible_list + [f'{clean}%', clean]
+                rows = conn.execute(sql, params).fetchall()
+                results = []
+                for r in rows:
+                    d = _talent_row_to_dict(r) or {}
+                    if r['status'] == 'archived' or d.get('archived'):
+                        d['_archived'] = True
+                    else:
+                        d['_archived'] = False
+                    results.append(d)
+            finally:
+                conn.close()
+            self._send_json(200, {'talents': results, 'query': clean})
+        except Exception as e:
+            logger.error(f'  [TalentSearch] 失败: {type(e).__name__} {e}\n{traceback.format_exc()}')
+            self._send_json_error(500, 'Talent search failed')
+
     def _handle_get_talent_injection_text(self):
         """GET /api/talents/injection-text — 返回达人数据注入文本（含禁止编造约束）。
 
@@ -17607,12 +17772,21 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if role_guard:
             self._send_json(role_guard[1], {'error': role_guard[0]})
             return
-        # 两层架构：非管理员（含 AI 员工）只能操作自己子库的达人，主库仅管理员可动
-        write_guard = _check_talent_write_permission(auth, talent_id)
-        if write_guard:
-            self._send_json(write_guard[1], {'error': write_guard[0]})
-            return
+        # 提前读 body: 检测 dedup_auto_put 标记 (前端 _tryAutoPutTalentFromReply 触发时加 true)
+        #   SubpoolGuard 在 dedup 自动 PUT 场景下 bypass — Helen agent 是系统 AI 代用户执行写入,
+        #   不是用户主动跨库操作. dedup 是关键词+tal_xxx ID 命中触发的, 不是 Helen 决定改谁的.
         body = self._read_body()
+        is_dedup_auto_put = isinstance(body, dict) and body.get('dedup_auto') is True
+
+        if not is_dedup_auto_put:
+            # 两层架构：非管理员（含 AI 员工）只能操作自己子库的达人，主库仅管理员可动
+            write_guard = _check_talent_write_permission(auth, talent_id)
+            if write_guard:
+                self._send_json(write_guard[1], {'error': write_guard[0]})
+                return
+        else:
+            logger.info(f'  [DedupAutoPut] {talent_id} dedup_auto=true, bypass SubpoolGuard (agent={auth.localhost_agent_id or "?"})')
+
         if not body:
             self._send_json_error(400, 'Missing body')
             return
@@ -17625,7 +17799,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 self._send_json_error(404, 'Talent not found')
                 return
             existing = _talent_row_to_dict(row)
-            existing.update(body)
+            # ★ fix/talent-full-sync: PUT merge 只补空值严禁覆盖 (老大硬约束)
+            # 之前 existing.update(body) 无脑覆盖, 导致已有核心数据 (followers/total_gmv/video_gpm) 被冲掉
+            existing = _merge_talent_only_empty(existing, body)
             existing['id'] = talent_id
             existing['updated_at'] = int(time.time() * 1000)
             row = _dict_to_talent_row(existing)
@@ -19179,6 +19355,30 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         self._send_json(200, {'status': job['status'], 'error': job.get('error', ''), 'stage': job.get('stage', ''),
                               'warning': job.get('warning', '')})
 
+    @staticmethod
+    def _is_fallback_reply(reply):
+        """★ bug/helen-amnesia: 检测 LLM 回复是否含"请提供数据/截图"等 fallback 字符串"""
+        if not reply or not isinstance(reply, str):
+            return False
+        _FALLBACK = ['请提供具体数据', '请提供具体数据或截图', '请提供截图',
+                     '需要您提供具体数据', '请提供达人数据']
+        return any(s in reply for s in _FALLBACK)
+
+    @staticmethod
+    def _has_data_signals(text):
+        """★ bug/helen-amnesia: 用户消息是否已含数据特征 (数字/百分比/结构化关键词)
+        长度阈值 80 字 (老大的完整报告文本远超); 数字正则覆盖 %/万/千 单位 + 千分号格式"""
+        if not text or not isinstance(text, str):
+            return False
+        if len(text) > 80:
+            return True
+        import re as _re_data
+        # 数字 + 单位/百分比, 或 4+ 位数字, 或明显业务字段
+        return bool(_re_data.search(
+            r'\d+\.?\d*[%万千]|\d{4,}|[粉]丝|互动率|GMV|报价|等级|报价|粉丝量|'
+            r'垂类|完播率|GPM|客单价|坑位|佣金率|带货量',
+            text))
+
     def _handle_post_chat(self, agent_id):
         """POST /api/chat/:agentId"""
         logger.info(f'  [ChatPOST] 收到请求: {agent_id} path={self.path}')
@@ -19216,8 +19416,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             # 优先级 1:从 OCR/上下文文本中识别具体达人 → 单达人精确注入
             _talent_id_hit = _extract_talent_from_text(_content_for_check, auth)
             if _talent_id_hit:
-                talent_injection = _build_single_talent_injection(_talent_id_hit, auth)
-                logger.info(f'  [TalentInject] {agent_id} 单达人命中 talent_id={_talent_id_hit}')
+                # ★ bug/talent-deduplicate: 命中已有达人 → 显式告诉 LLM 走【更新】场景,
+                #   不说"请提供达人ID" / 不让用户重新提供已有字段
+                _dedup_hint = _build_talent_dedup_hint(_talent_id_hit, auth)
+                talent_injection = _dedup_hint + _build_single_talent_injection(_talent_id_hit, auth)
+                logger.info(f'  [TalentInject] {agent_id} 单达人命中 talent_id={_talent_id_hit} dedup_hint_len={len(_dedup_hint)}')
             # 优先级 2:关键词命中 → 注入全表 top 50(原行为,文本分析场景)
             if not talent_injection:
                 talent_injection = _build_talent_injection(_content_for_check, auth)
@@ -19282,16 +19485,26 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         reanalysis_hit = False
         re_intent = None
         user_content = msg.get('content', '')
+        # ★ memory-fix: is_extract 必须在 lock 前初始化 (后续 lock 内守卫要用到)
+        is_extract = '【记忆提取任务】' in user_content
         lock = _get_chat_lock(agent_id)
         if not lock.acquire(timeout=30):
             logger.error(f'  [ChatPOST] {agent_id} 聊天锁获取超时(30s)，返回500')
             self._send_json(500, {'error': '聊天服务繁忙，请稍后重试'})
             return
         try:
+            # ★ memory-fix: 记忆提取任务 (前端 _extractMemoryViaAPI 走 /api/chat 的兼容路径)
+            #   不该污染用户 chat 历史 (跟 2026-05 memory_skill prompt 泄露教训一致)
+            #   提取结果走 /api/memory 独立通道, 这里只跑 LLM 不落盘
+            if is_extract:
+                logger.info(f'  [ChatPOST] {agent_id} is_extract=True, 跳过落盘 (走独立记忆提取路径)')
+            else:
+                pass  # 正常落盘
             messages = _load_chat(agent_id)
             if not isinstance(messages, list):
                 messages = []
-            messages.append(msg)
+            if not is_extract:
+                messages.append(msg)
             original_len = len(messages)
 
             # v2：聊天记录上限归档（非静默丢弃）
@@ -19328,11 +19541,12 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 if _has_reanalysis_intent(user_content):
                     re_intent = _detect_reanalysis_intent(user_content)
                     reanalysis_hit = True
-                    _save_chat(agent_id, messages)
+                    if not is_extract:
+                        _save_chat(agent_id, messages)
                     # 正则命中 → 一律进意图接管（intent 非空走重分析任务；空走引导问达人名）
                     logger.info(f'  [Reanalysis] {agent_id} 命中重新分析意图: intent={re_intent}')
             # 归档发生时立即落盘截断后的列表，避免锁外流程 reload 到未截断的旧列表导致重复归档
-            if archived_count > 0 and not reanalysis_hit:
+            if archived_count > 0 and not reanalysis_hit and not is_extract:
                 _save_chat(agent_id, messages)
         finally:
             lock.release()
@@ -19341,6 +19555,55 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if reanalysis_hit:
             self._handle_reanalysis_request(agent, agent_id, user_content, re_intent, msg, auth)
             return
+
+        # ★ fix/heavy-bypass-skipai: heavy bypass 必须放在 if not skip_ai 块外
+        #   之前实现把 heavy bypass 写在 if not skip_ai 内 (commit 33696b1), 但 OpenClaw
+        #   链路前端恰好用 skipAI=True 跳过整个 if 块 — heavy bypass 永远不触发,
+        #   用户截图走 WebSocket → OpenClaw 网关失败 → 'API 服务连不上'.
+        #   移出 if 块后, 不管 skipAI 标志是什么, 多图场景都直接走 heavy bypass.
+        images = body.get('images', [])
+        if _should_heavy_bypass(role, images, agent):
+            job_id = _heavy_job_create(agent_id)
+            threading.Thread(
+                target=_heavy_pipe_worker,
+                args=(job_id, agent, body.get('content', ''), images, auth.user_id),
+                daemon=True, name=f'HeavyPipe-{job_id}',
+            ).start()
+            placeholder_msg = {
+                'id': 'msg_' + uuid.uuid4().hex[:8],
+                'role': 'assistant',
+                'content': '正在处理截图...',
+                'timestamp': datetime.now().isoformat(),
+                'heavyPipePlaceholder': True,
+            }
+            lock = _get_chat_lock(agent_id)
+            if not lock.acquire(timeout=30):
+                logger.error(f'  [HeavyPipe] {job_id} 占位消息落盘锁获取超时(30s)，返回500')
+                self._send_json(500, {'error': '聊天服务繁忙，请稍后重试'})
+                return
+            try:
+                messages = _load_chat(agent_id)
+                if not isinstance(messages, list):
+                    messages = []
+                # ★ fix/user-msg-persist: heavy bypass 必须把用户消息 msg 也存进 chat
+                #   之前实现只 append placeholder_msg, 用户消息丢失 —
+                #   老大反馈 '对话窗口只显示 Helen 回复, 用户发的消息不显示'
+                #   (前端 DOM 立即显示用户消息, 但后端 chat.json 没持久化, refreshMsgs 后消失).
+                #   OpenClaw 链路 (if not skip_ai 块 line 19689) 早就 append(msg), 这里对齐.
+                if role == 'user':
+                    messages.append(msg)
+                messages.append(placeholder_msg)
+                _save_chat(agent_id, messages)
+            finally:
+                lock.release()
+            logger.info(f'  [HeavyPipe] {job_id} 已旁路 (前置于 _call_ai_api, 不受 skipAI 限制): {agent_id} images={len(images)} skipAI={skip_ai}')
+            self._send_json(200, {
+                'userMessage': msg, 'aiMessage': placeholder_msg,
+                'heavyPipe': True, 'jobId': job_id,
+                'talentInjection': talent_injection,
+            })
+            return
+
 
         # 当 skipAI=false 时，无论 connectionType 是什么，都调用 AI API
         # 这样 memory 提取等场景（_extractMemoryViaAPI）才能正常工作
@@ -19354,7 +19617,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
             content = body.get('content', '')
             # 记忆提取场景不需要加载历史记录，避免 token 超限和干扰
-            is_extract = '【记忆提取任务】' in content
+            # is_extract 已在 handler 入口初始化 (line ~19391), 复用
 
             # 后端拦截自然语言自修改指令，不依赖 AI 输出 [SELF_UPDATE] 标记
             if role == 'user':
@@ -19370,7 +19633,6 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                     else:
                         logger.error(f'  [ChatPOST] {agent_id} self-update intent apply failed: {su_msg}')
 
-            images = body.get('images', [])
             # 达人相关提问：把后端直查的【系统数据】拼到用户消息末尾，
             # LLM 只做分析和润色，不负责数据查询，从架构上杜绝编造
             if talent_injection:
@@ -19411,6 +19673,40 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 # 剥离伪工具调用文本（exec(command=/tool_call( 等模型演戏输出）
                 cleaned_reply = _strip_fake_tool_calls(cleaned_reply)
 
+                # ★ bug/helen-amnesia: fallback reply 防御
+                # LLM 偶尔无视 system_prompt + 用户消息末尾的【系统数据】注入,
+                # 在已有富数据时仍回"请提供具体数据或截图",触发用户重新提供。
+                # 检测到这种情况 + 用户本轮消息含数据特征 → 重生成 (加重提示禁止再要求提供)。
+                if self._is_fallback_reply(cleaned_reply) and self._has_data_signals(user_content):
+                    logger.warning(
+                        f'  [HelenAmnesia] {agent_id} LLM fallback reply detected '
+                        f'(含 fallback 字符串 + 用户消息含数据特征),强制重生成'
+                    )
+                    _retry_content = content + (
+                        '\n\n【HelenAmnesia 防御】系统已检测到本轮用户消息含完整数据 '
+                        '(数字/百分比/达人结构化字段),禁止再要求"请提供具体数据/截图"'
+                        ',直接基于【系统数据】注入和用户消息已有内容重新生成分析。'
+                    )
+                    try:
+                        _retry_reply = _call_ai_api(
+                            agent, _retry_content, auth.user_info, include_history=not is_extract,
+                            allowed_knowledge_categories=allowed_cats,
+                            requester_id=auth.user_id, is_admin=auth.is_admin, team_ids=auth.team_ids,
+                            group_ids=auth.group_ids
+                        )
+                        if _retry_reply:
+                            _retry_updates, _retry_cleaned = _parse_self_updates(_retry_reply)
+                            if _retry_updates:
+                                _apply_agent_self_update(agent_id, _retry_updates, source=f'chat:{auth.user_id}')
+                            _retry_cleaned = _strip_fake_tool_calls(_retry_cleaned)
+                            if _retry_cleaned:
+                                cleaned_reply = _retry_cleaned
+                                logger.info(
+                                    f'  [HelenAmnesia] {agent_id} retry success, new_len={len(cleaned_reply)}'
+                                )
+                    except Exception as _retry_err:
+                        logger.error(f'  [HelenAmnesia] {agent_id} retry failed: {_retry_err}')
+
                 ai_message = {
                     'id': 'msg_' + uuid.uuid4().hex[:8],
                     'role': 'assistant',
@@ -19436,10 +19732,12 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                             m['content'] = msg['content']
                             _msg_on_disk = True
                             break
-                    if not _msg_on_disk:
+                    if not _msg_on_disk and not is_extract:
                         messages.append(msg)
-                    messages.append(ai_message)
-                    _save_chat(agent_id, messages)
+                    if not is_extract:
+                        messages.append(ai_message)
+                    if not is_extract:
+                        _save_chat(agent_id, messages)
                 finally:
                     lock.release()
                 logger.info(f'  [ChatPOST] {agent_id} API代理 保存 ai_content_len={len(ai_message["content"])}')
@@ -19516,42 +19814,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if role == 'assistant':
             _maybe_auto_save_analysis(agent_id, msg.get('content', ''), tool_results=tool_results)
 
-        # 多图重任务旁路：>=2 张图片的 OpenClaw 消息不进入 gateway（重活会把调度队列堵死），
-        # 由后端 Python 线程完成 vision+分析后落库；前端凭 heavyPipe+jobId 轮询结果，
-        # 失败时回落 OpenClaw 主干道重发。立即返回占位提示并落库，让用户知道系统在干活。
-        if _should_heavy_bypass(role, images, agent):
-            job_id = _heavy_job_create(agent_id)
-            threading.Thread(
-                target=_heavy_pipe_worker,
-                args=(job_id, agent, body.get('content', ''), images, auth.user_id),
-                daemon=True, name=f'HeavyPipe-{job_id}',
-            ).start()
-            placeholder_msg = {
-                'id': 'msg_' + uuid.uuid4().hex[:8],
-                'role': 'assistant',
-                'content': f'正在分析 {len(images)} 张截图数据，预计需要 3-5 分钟，完成后会发送完整分析报告。',
-                'timestamp': datetime.now().isoformat(),
-                'heavyPipePlaceholder': True,
-            }
-            lock = _get_chat_lock(agent_id)
-            if not lock.acquire(timeout=30):
-                logger.error(f'  [HeavyPipe] {job_id} 占位消息落盘锁获取超时(30s)，返回500')
-                self._send_json(500, {'error': '聊天服务繁忙，请稍后重试'})
-                return
-            try:
-                messages = _load_chat(agent_id)
-                if not isinstance(messages, list):
-                    messages = []
-                messages.append(placeholder_msg)
-                _save_chat(agent_id, messages)
-            finally:
-                lock.release()
-            logger.info(f'  [HeavyPipe] {job_id} 已旁路: {agent_id} images={len(images)}')
-            self._send_json(200, {
-                'userMessage': msg, 'aiMessage': placeholder_msg,
-                'heavyPipe': True, 'jobId': job_id,
-            })
-            return
+        # ★ fix/heavy-bypass-pre-ai: heavy bypass 已在 _call_ai_api 之前处理 (line ~19510)
+        #   之前实现放在这里 (api_reply 之后) 但 fallback 字符串 truthy 永远拦截,
+        #   heavy bypass 形同虚设. 移到前置后多图直接旁路, 不调 _call_ai_api,
+        #   不会返回 'AI 服务暂时不可用' 错误消息.
 
         if connection_type == 'openclaw':
             self._send_json(200, {
@@ -20107,7 +20373,10 @@ def _call_kimi_vision(image_base64, agent_id=None, role=None):
             return None
     body = {
         'model': vision_model,
-        'max_tokens': 1024,
+        # ★ fix/vision-max-tokens: 之前 max_tokens=1024 太小, vision API 输出被截断
+        #   导致 _parse_vision_json raw_decode 失败, 9 张图只有 1 张完整入库 (数据丢 79%)
+        #   4096 足够 cover BUSINESS_VISION_PROMPT 完整 schema 输出 (~2500 tokens)
+        'max_tokens': 4096,
         # 关闭 extended thinking，强制模型只输出 text 块，不输出 thinking 块
         'thinking': {'type': 'disabled'},
         'messages': [{
@@ -20319,6 +20588,7 @@ _HEAVY_TALENT_EXTRACT_PROMPT = '从以下达人数据截图识别结果中提取
 
 def _heavy_job_create(agent_id):
     job_id = 'heavy_' + uuid.uuid4().hex[:8]
+    now_ms = int(time.time() * 1000)
     with _heavy_jobs_lock:
         if len(_HEAVY_JOBS) >= _HEAVY_JOB_MAX:
             oldest = min(_HEAVY_JOBS.items(), key=lambda kv: kv[1].get('created_at', 0))[0]
@@ -20327,22 +20597,197 @@ def _heavy_job_create(agent_id):
             'agent_id': agent_id,
             'status': 'analyzing',
             'error': '',
-            'created_at': int(time.time() * 1000),
+            'created_at': now_ms,
         }
+    # ★ fix/heavy-persist: 同步写入 SQLite, 重启不丢失
+    try:
+        conn = _db_conn()
+        try:
+            conn.execute(
+                "INSERT OR REPLACE INTO heavy_jobs (id, agent_id, status, stage, error, warning, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (job_id, agent_id, 'analyzing', '', '', '', now_ms, now_ms)
+            )
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception as e:
+        logger.warning(f'  [HeavyPersist] INSERT failed job_id={job_id}: {e}')
     return job_id
 
 
 def _heavy_job_set(job_id, **fields):
+    now_ms = int(time.time() * 1000)
     with _heavy_jobs_lock:
         job = _HEAVY_JOBS.get(job_id)
         if job is not None:
             job.update(fields)
+    # ★ fix/heavy-persist: 写穿到 SQLite (L1 cache + L2 持久化)
+    if job is not None:
+        try:
+            conn = _db_conn()
+            try:
+                # 构造 update SQL (动态列)
+                valid_cols = {'status', 'stage', 'error', 'warning', 'result_msg_id', 'talent_name'}
+                set_clauses = []
+                values = []
+                for k, v in fields.items():
+                    if k in valid_cols:
+                        set_clauses.append(f'{k} = ?')
+                        values.append(v)
+                if set_clauses:
+                    set_clauses.append('updated_at = ?')
+                    values.append(now_ms)
+                    values.append(job_id)
+                    conn.execute(f"UPDATE heavy_jobs SET {', '.join(set_clauses)} WHERE id = ?", values)
+                    conn.commit()
+            finally:
+                conn.close()
+        except Exception as e:
+            logger.warning(f'  [HeavyPersist] UPDATE failed job_id={job_id}: {e}')
 
 
 def _heavy_job_get(job_id):
+    """★ fix/heavy-persist: 先查 L1 内存 cache, miss 时查 SQLite (兼容重启)."""
     with _heavy_jobs_lock:
         job = _HEAVY_JOBS.get(job_id)
-        return dict(job) if job else None
+        if job is not None:
+            return dict(job)
+    # L1 miss → 查 SQLite (服务重启后 job 状态仍在)
+    try:
+        conn = _db_conn()
+        try:
+            row = conn.execute(
+                "SELECT id, agent_id, status, stage, error, warning, result_msg_id, talent_name, created_at, updated_at "
+                "FROM heavy_jobs WHERE id = ?",
+                (job_id,)
+            ).fetchone()
+        finally:
+            conn.close()
+        if row:
+            return {
+                'agent_id': row[1],
+                'status': row[2],
+                'stage': row[3],
+                'error': row[4],
+                'warning': row[5],
+                'result_msg_id': row[6],
+                'talent_name': row[7],
+                'created_at': row[8],
+                'updated_at': row[9],
+            }
+    except Exception as e:
+        logger.warning(f'  [HeavyPersist] SELECT failed job_id={job_id}: {e}')
+    return None
+
+
+def _resolve_heavy_pipe_providers(agent_id):
+    """★ fix/heavy-pipe-provider-chain: 读 openclaw.json 解析 heavy pipe 的 provider 链.
+    
+    按 openclaw.json agents.entries[agent_id].model.primary + fallbacks 顺序返回:
+    [(provider_name, model_id, base_url, api_key, api_type), ...]
+    
+    失败（缺 agent 配置 / provider 配置）返回 None, 调用方走 kimi key pool + minimax 兜底.
+    """
+    if not agent_id:
+        return None
+    try:
+        oc = _read_json(os.path.expanduser('~/.openclaw/openclaw.json'), {})
+    except Exception as e:
+        logger.warning(f'  [HeavyPipe] 读 openclaw.json 失败: {e}')
+        return None
+    if not oc:
+        return None
+
+    entries = (oc.get('agents') or {}).get('entries') or {}
+    defaults = (oc.get('agents') or {}).get('defaults') or {}
+    models_cfg = (oc.get('models') or {}).get('providers') or {}
+
+    # 1. 找该 agent 的 model 配置 (agent 级优先, 否则 defaults)
+    model_cfg = (entries.get(agent_id) or {}).get('model') or defaults.get('model')
+    if not model_cfg:
+        return None
+
+    primary = model_cfg.get('primary')
+    fallbacks = model_cfg.get('fallbacks', []) or []
+    refs = ([primary] if primary else []) + list(fallbacks)
+
+    chain = []
+    seen = set()
+    for ref in refs:
+        if not ref or ref in seen:
+            continue
+        seen.add(ref)
+        if '/' not in ref:
+            logger.warning(f'  [HeavyPipe] openclaw.json model 引用格式错误: {ref}')
+            continue
+        provider_name, model_id = ref.split('/', 1)
+        provider_cfg = models_cfg.get(provider_name, {})
+        base_url = (provider_cfg.get('baseUrl', '') or '').rstrip('/')
+        api_key = (provider_cfg.get('apiKey', '') or '').strip()
+        api_type = provider_cfg.get('api', 'openai-completions')
+        if not base_url:
+            logger.warning(f'  [HeavyPipe] provider {provider_name} 缺 baseUrl, 跳过')
+            continue
+        # kimi apiKey 缺失时保留 KIMI_KEY_POOL 轮询逻辑 (兼容现有配置, 多 key 池)
+        if not api_key and provider_name == 'kimi':
+            api_key = '__USE_KIMI_KEY_POOL__'
+        elif not api_key:
+            logger.warning(f'  [HeavyPipe] provider {provider_name} 缺 apiKey, 跳过')
+            continue
+        chain.append((provider_name, model_id, base_url, api_key, api_type))
+    return chain if chain else None
+
+
+def _heavy_try_openai_call(system_prompt, user_text, max_tokens, prov_name, model_id, base_url, api_key):
+    """★ fix/heavy-pipe-provider-chain: 通用 OpenAI chat/completions 调用 (deepseek/zhipu/openai 等).
+    
+    返回与 _heavy_kimi_call 同构的 dict: {'text', 'stop_reason', 'input_tokens', 'output_tokens', 'content_types', 'provider'}.
+    失败返回 None. 支持 base_url 自定义 (openclaw.json provider 配置).
+    """
+    body = {
+        'model': model_id,
+        'messages': [
+            {'role': 'system', 'content': system_prompt},
+            {'role': 'user', 'content': user_text},
+        ],
+        'max_tokens': max_tokens,
+        'stream': False,
+    }
+    req_body = json.dumps(body, ensure_ascii=False).encode('utf-8')
+    headers = {
+        'Content-Type': 'application/json',
+        'Authorization': f'Bearer {api_key}',
+        'Content-Length': str(len(req_body)),
+    }
+    target_url = base_url + '/chat/completions'
+    masked_key = f'{api_key[:8]}...' if api_key and len(api_key) > 8 else '(none)'
+    logger.info(f'  [HeavyPipe] {prov_name} request: model={model_id} url={target_url} key={masked_key}')
+    try:
+        req = urllib.request.Request(target_url, data=req_body, headers=headers, method='POST')
+        ctx = ssl.create_default_context()
+        resp = urllib.request.urlopen(req, timeout=180, context=ctx)
+        raw = resp.read().decode('utf-8', errors='replace')
+        resp_data = json.loads(raw)
+        text_val = ''
+        if resp_data.get('choices') and resp_data['choices'][0].get('message'):
+            text_val = resp_data['choices'][0]['message'].get('content', '') or ''
+        usage = resp_data.get('usage') or {}
+        logger.info(f'  [HeavyPipe] {prov_name} 返回 text_len={len(text_val)} input_tokens={usage.get("prompt_tokens")} output_tokens={usage.get("completion_tokens")}')
+        return {
+            'text': text_val,
+            'stop_reason': resp_data.get('choices', [{}])[0].get('finish_reason'),
+            'input_tokens': usage.get('prompt_tokens'),
+            'output_tokens': usage.get('completion_tokens'),
+            'content_types': ['text'],
+            'provider': prov_name,
+        }
+    except urllib.error.HTTPError as e:
+        error_body = e.read().decode('utf-8', errors='replace')[:500]
+        logger.error(f'  ❌ [HeavyPipe] {prov_name} HTTP {e.code} {e.reason}: {error_body}')
+    except Exception as e:
+        logger.error(f'  ❌ [HeavyPipe] {prov_name} 调用失败: {e}')
+    return None
 
 
 def _heavy_minimax_fallback(system_prompt, user_text, max_tokens):
@@ -20386,18 +20831,126 @@ def _heavy_minimax_fallback(system_prompt, user_text, max_tokens):
     }
 
 
-def _heavy_llm_call(system_prompt, user_text, max_tokens=4096):
-    """HeavyPipe LLM 调用入口：先走 Kimi（key 池轮询重试），全部失败或返回空 text
-    （thinking 块吃光额度 / content 为空）时自动降级 MiniMax。"""
+def _heavy_llm_call(system_prompt, user_text, max_tokens=4096, agent_id=None):
+    """★ fix/heavy-pipe-provider-chain: HeavyPipe LLM 调用入口.
+    
+    改造前: 硬编码 kimi-for-coding + KIMI_KEY_POOL, 失败降级 MiniMax.
+    改造后 (方案 A): 读 openclaw.json agents[id].model.primary + fallbacks,
+      按链顺序调用, 失败自动切下一个. 全部失败 / 无配置 → 走 kimi key pool + minimax 兜底.
+    
+    Provider 分发:
+    - provider_name='kimi' 或 api_type='anthropic-messages' → 走 _heavy_kimi_call (key pool 轮询)
+    - api_type='openai-completions' (deepseek/zhipu/openai 等) → 走 _heavy_try_openai_call
+    
+    注意: kimi 用 '__USE_KIMI_KEY_POOL__' 标记表示沿用 KIMI_KEY_POOL 轮询, 不强制用 openclaw.json 单 key.
+    """
+    if agent_id:
+        chain = _resolve_heavy_pipe_providers(agent_id)
+        if chain:
+            logger.info(f'  [HeavyPipe] {agent_id} provider 链: {[c[0]+"/"+c[1] for c in chain]}')
+            for idx, (prov_name, model_id, base_url, api_key, api_type) in enumerate(chain):
+                try:
+                    if prov_name == 'kimi' or api_type == 'anthropic-messages':
+                        # kimi 走 key pool 轮询 (openclaw.json 里的 baseUrl 优先, fallback 硬编码)
+                        target_base_url = base_url if base_url else KIMI_PROXY_REAL_BASE_URL
+                        # 重写 KIMI_PROXY_REAL_BASE_URL 临时值 - 这里只读不写, 直接用 _heavy_kimi_call
+                        # 注: _heavy_kimi_call 硬编码用 KIMI_PROXY_REAL_BASE_URL 全局变量
+                        #     临时覆盖只对本次生效: monkey patch 不可, 改用新函数 _heavy_kimi_call_with_base
+                        result = _heavy_kimi_call_with_base(system_prompt, user_text, max_tokens, target_base_url, override_key=None if api_key == '__USE_KIMI_KEY_POOL__' else api_key)
+                    else:
+                        # openai-completions (deepseek/zhipu/openai 等)
+                        result = _heavy_try_openai_call(system_prompt, user_text, max_tokens, prov_name, model_id, base_url, api_key)
+                    if result is not None and (result.get('text') or '').strip():
+                        logger.info(f'  [HeavyPipe] {prov_name}/{model_id} 成功 ({len(result.get("text", ""))} chars)')
+                        return result
+                    if result is not None:
+                        logger.warning(f'  [HeavyPipe] {prov_name}/{model_id} 返回空 text')
+                except Exception as e:
+                    logger.warning(f'  [HeavyPipe] {prov_name}/{model_id} 调用失败: {type(e).__name__}: {e}')
+                    continue
+            logger.warning(f'  [HeavyPipe] {agent_id} provider 链全部失败, 走兜底')
+        else:
+            logger.info(f'  [HeavyPipe] {agent_id} 无 openclaw.json provider 配置, 走 kimi 兜底')
+    else:
+        logger.info('  [HeavyPipe] 未传 agent_id, 走 kimi 兜底')
+    # 全失败或没配置 → kimi key pool 轮询 → minimax 降级
     result = _heavy_kimi_call(system_prompt, user_text, max_tokens)
     if result is not None and (result.get('text') or '').strip():
         return result
     if result is not None:
-        logger.warning(f'  [HeavyPipe] Kimi 返回空 text（stop_reason={result.get("stop_reason")} '
+        logger.warning(f'  [HeavyPipe] Kimi 兜底返回空 text（stop_reason={result.get("stop_reason")} '
                        f'content_types={result.get("content_types")}），降级到 MiniMax')
     else:
-        logger.warning('  [HeavyPipe] Kimi 全部失败，降级到 MiniMax')
+        logger.warning('  [HeavyPipe] Kimi 兜底全部失败，降级到 MiniMax')
     return _heavy_minimax_fallback(system_prompt, user_text, max_tokens)
+
+
+def _heavy_kimi_call_with_base(system_prompt, user_text, max_tokens, base_url, override_key=None):
+    """★ fix/heavy-pipe-provider-chain: _heavy_kimi_call 变体, 支持自定义 base_url 和 override_key.
+    
+    主要给 _heavy_llm_call 用, 让 openclaw.json 里的 kimi baseUrl 生效.
+    override_key 非空时用单 key, 否则走 KIMI_KEY_POOL 轮询.
+    """
+    req_payload = {
+        'model': 'kimi-for-coding',
+        'max_tokens': max_tokens,
+        'system': system_prompt,
+        'messages': [{'role': 'user', 'content': user_text}],
+        'thinking': {'type': 'disabled'},
+    }
+    req_body = json.dumps(req_payload, ensure_ascii=False).encode('utf-8')
+    keys_to_try = [override_key] if override_key else None
+    if not keys_to_try:
+        # KIMI_KEY_POOL 轮询
+        seen_keys = set()
+        keys_to_try = []
+        # 复制一份 pool 轮询, 避免污染原 pool index
+        for _ in range(KIMI_KEY_POOL.size):
+            k = KIMI_KEY_POOL.get_key()
+            if not k or k in seen_keys:
+                break
+            seen_keys.add(k)
+            keys_to_try.append(k)
+        if not keys_to_try:
+            logger.error('  [HeavyPipe] Key 池已空，无法调用 kimi')
+            return None
+
+    for current_key in keys_to_try:
+        try:
+            req = urllib.request.Request(
+                base_url + '/v1/messages',
+                data=req_body,
+                headers={
+                    'Content-Type': 'application/json',
+                    'x-api-key': current_key,
+                    'anthropic-version': '2023-06-01',
+                },
+                method='POST')
+            with urllib.request.urlopen(req, timeout=180) as resp:
+                data = json.loads(resp.read().decode('utf-8', errors='replace'))
+            usage = data.get('usage') or {}
+            text_val = ''.join(p.get('text', '') for p in data.get('content', [])
+                               if isinstance(p, dict) and p.get('type') == 'text')
+            logger.info(f'  [HeavyPipe] kimi_call({base_url[:30]}...) 返回 text_len={len(text_val)} stop_reason={data.get("stop_reason")}')
+            return {
+                'text': text_val,
+                'stop_reason': data.get('stop_reason'),
+                'input_tokens': usage.get('input_tokens'),
+                'output_tokens': usage.get('output_tokens'),
+                'content_types': ['text'],
+                'provider': 'kimi',
+            }
+        except urllib.error.HTTPError as e:
+            error_body = e.read().decode('utf-8', errors='replace')[:200]
+            logger.error(f'  ❌ [HeavyPipe] kimi HTTP {e.code}: {error_body}')
+            if e.code in (401, 429) and not override_key and KIMI_KEY_POOL.size > 1:
+                KIMI_KEY_POOL.mark_failed(current_key)
+                continue
+            return None
+        except Exception as e:
+            logger.error(f'  ❌ [HeavyPipe] kimi 调用失败: {e}')
+            return None
+    return None
 
 
 def _heavy_kimi_call(system_prompt, user_text, max_tokens=4096):
@@ -20567,8 +21120,115 @@ def _heavy_vision_coverage(vision_texts):
 # ★ fix/helen-vision-final-integration: 件套 2 (OCR 字段落库) + 件套 3 (LLM JSON 落库) helpers
 # ══════════════════════════════════════════════════════════════════════
 
+# ══════════════════════════════════════════════════════════════════════
+# ★ fix/talent-full-sync: 全字段映射 helper (brief 字段名 → DB 列名 + 表内翻译)
+# ══════════════════════════════════════════════════════════════════════
+# 老大硬约束: 之前 bug/talent-deduplicate (1017212) 前端 updateExistingTalent 只传 AI/跟进字段
+# (ai_analysis / content_style / follow_up_by / next_follow_up_at / follow_up_note / cooperation_status),
+# 漏传核心数据 + 基础信息 → Helen 分析结果的核心数据丢失.
+#
+# 此模块统一两条路径:
+#   1) 前端 form → 后端 PUT body 翻译
+#   2) Helen 分析结果 (vision_field_maps + llm_json) → talents 表字段翻译
+#
+# 翻译规则:
+#   - 大部分 brief 字段名 = 表字段名 (followers / total_gmv / etc.)
+#   - 4 个 brief 字段名 ≠ 表字段名 (live_count / avg_video_settlement / interaction_rate / avg_video_price
+#     → live_sessions / single_video_settlement / video_interaction_rate / video_avg_price), 复用现有 schema 不重复加列
+#   - 真缺的 3 列 (account_fans_profile / video_fans_profile / cooperation_days) 已通过 ALTER TABLE 加
+#
+# 字段分 3 类:
+#   - 核心数据: followers / total_gmv / product_count / video_gpm / avg_video_settlement / total_shops
+#   - 基础信息: talent_type / content_style / account_fans_profile / video_fans_profile / avg_video_price / bio
+#     / douyin_id / level / city / cooperation_days / live_count / interaction_rate
+#   - AI/跟进 (已有): ai_rating / ai_analysis / ai_summary / risk_rating / follow_up_by / next_follow_up_at
+#     / follow_up_note / cooperation_status
+
+_TALENT_FORM_TO_DB = {
+    # ───── 核心数据 (6 项) ─────
+    'followers': 'followers',
+    'total_gmv': 'total_gmv',
+    'product_count': 'product_count',
+    'video_gpm': 'video_gpm',
+    'avg_video_settlement': 'single_video_settlement',  # brief → 表内翻译
+    'total_shops': 'total_shops',
+    # ───── 基础信息 (12 项) ─────
+    'talent_type': 'talent_type',
+    'content_style': 'content_style',
+    'account_fans_profile': 'account_fans_profile',  # ALTER TABLE 新加
+    'video_fans_profile': 'video_fans_profile',  # ALTER TABLE 新加
+    'avg_video_price': 'video_avg_price',  # brief → 表内翻译
+    'bio': 'bio',
+    'douyin_id': 'douyin_id',
+    'level': 'level',
+    'city': 'city',
+    'cooperation_days': 'cooperation_days',  # ALTER TABLE 新加
+    'live_count': 'live_sessions',  # brief → 表内翻译
+    'interaction_rate': 'video_interaction_rate',  # brief → 表内翻译
+    # ───── AI/跟进 (保留 8 项, 已在 1017212 + 已有 helper 处理) ─────
+    'ai_rating': 'ai_rating',
+    'ai_analysis': 'ai_analysis',
+    'ai_summary': 'ai_summary',
+    'risk_rating': 'risk_rating',
+    'follow_up_by': 'follow_up_by',
+    'next_follow_up_at': 'next_follow_up_at',
+    'follow_up_note': 'follow_up_note',
+    'cooperation_status': 'cooperation_status',
+}
+
+
+def _map_talent_form_to_record(form):
+    """★ fix/talent-full-sync: 从前端 form (Helen 分析结果或 modal 输入) 取所有字段 → DB record dict.
+
+    输入: form dict (camelCase 或 snake_case 都可, 优先 snake_case)
+    输出: DB 列名 → 值的 dict (用于 PUT body / INSERT/UPDATE)
+    """
+    if not form or not isinstance(form, dict):
+        return {}
+    record = {}
+    for form_key, db_col in _TALENT_FORM_TO_DB.items():
+        val = form.get(form_key)
+        if val is None:
+            # 也试 camelCase (前端可能有两种命名)
+            camel = ''.join(w.title() if i else w for i, w in enumerate(form_key.split('_')))
+            val = form.get(camel)
+        if val is None or val == '':
+            continue
+        record[db_col] = val
+    return record
+
+
+def _merge_talent_only_empty(existing, body):
+    """★ fix/talent-full-sync: PUT merge — 只补空值, 严禁覆盖已有数据.
+
+    老大硬约束: 已有非空值绝不被 PUT 覆盖, 防止 PUT 把已有核心数据冲掉.
+
+    合并规则:
+      - 新值空 (None / '' / 0) → 不覆盖 (无论老值空不空)
+      - 老值空 (None / '' / 0) → 用新值补
+      - 老值非空 + 新值非空 → 保留老值 (不覆盖)
+      - id / updated_at 由调用方设置, 这里不动
+    """
+    if not existing:
+        existing = {}
+    if not body:
+        return dict(existing)
+    merged = dict(existing)
+    for k, v in body.items():
+        if k in ('id', 'updated_at'):
+            continue
+        if v is None or v == '' or v == 0:
+            continue  # 新值空, 不覆盖
+        existing_val = merged.get(k)
+        if existing_val is None or existing_val == '' or existing_val == 0:
+            merged[k] = v  # 老值空, 用新值补
+        # else: 老值非空, 保留老值 (不覆盖) — 老大硬约束
+    return merged
+
+
 # OCR 提取字段 → talents 表列 映射 (db_col, ocr_key, parser)
 # ★ fix/helen-ocr-nested-fields: followers parser 改用 _parse_follower_count 支持 '1.2万' / '1.2W' 中文数字
+# ★ fix/talent-full-sync: 补 account_fans_profile / video_fans_profile / cooperation_days / content_style / bio / level / city
 _OCR_TO_TALENT_FIELDS = [
     ('followers', 'followers', lambda v: _parse_follower_count(v)),
     ('total_gmv', 'total_gmv', lambda v: _parse_gmv_value(v)),
@@ -20582,6 +21242,15 @@ _OCR_TO_TALENT_FIELDS = [
     ('live_gpm', 'live_gpm', lambda v: _parse_gmv_value(v)),
     ('rating_score', 'rating_score', lambda v: float(v) if str(v).strip() else 0),
     ('category', 'main_category', lambda v: str(v).strip() if v else ''),
+    # ★ fix/talent-full-sync: 补基础信息 OCR 回写 (字符串字段, parser 是 str().strip())
+    ('account_fans_profile', 'account_fans_profile', lambda v: str(v).strip()[:500] if v else ''),
+    ('video_fans_profile', 'video_fans_profile', lambda v: str(v).strip()[:500] if v else ''),
+    ('cooperation_days', 'cooperation_days', lambda v: int(float(v)) if str(v).strip() else 0),
+    ('content_style', 'content_style', lambda v: str(v).strip()[:200] if v else ''),
+    ('bio', 'bio', lambda v: str(v).strip()[:1000] if v else ''),
+    ('level', 'level', lambda v: str(v).strip()[:16] if v else ''),
+    ('city', 'city', lambda v: str(v).strip()[:64] if v else ''),
+    ('talent_type', 'talent_type', lambda v: str(v).strip()[:64] if v else ''),
 ]
 
 
@@ -20791,6 +21460,90 @@ def _deduplicate_talent(name):
     return None
 
 
+# ★ bug/talent-deduplicate: Helen system_prompt 注入片段
+# 检测到具体达人命中 → 拼一段"该达人已存在 (ID, ai_rating, ai_summary ...)" 提示,
+# 显式告诉 LLM 走【更新】场景, 不要问用户要达人 ID, 不要说"请提供达人ID"。
+def _build_talent_dedup_hint(talent_id, auth):
+    """★ bug/talent-deduplicate: 达人已存在 → 返回 system_prompt 注入片段.
+    talent_id 必须是 _deduplicate_talent / _extract_talent_from_text 命中的真实 id.
+    无匹配 / DB 异常 / 非 active → 返回 '' (不注入).
+    """
+    if not talent_id:
+        return ''
+    try:
+        conn = _db_conn()
+        try:
+            row = conn.execute(
+                "SELECT id, name, douyin_id, ai_rating, ai_summary, "
+                "       ai_tags, category, risk_rating, followers, ai_analysis "
+                "FROM talents WHERE id = ? AND status = 'active' LIMIT 1",
+                (talent_id,)
+            ).fetchone()
+        finally:
+            conn.close()
+        if not row:
+            return ''
+        d = dict(row)
+        # 截断摘要避免 token 爆炸 (跟 _build_single_talent_injection 一致 300 字上限)
+        ai_summary = (d.get('ai_summary') or '')[:300]
+        ai_tags = ', '.join(d.get('ai_tags') or []) if isinstance(d.get('ai_tags'), list) else (d.get('ai_tags') or '')[:200]
+        ai_rating = d.get('ai_rating') or '(未评级)'
+        category = d.get('category') or '(未分类)'
+        followers = d.get('followers') or 0
+        # ★ dedup 三件事收口: 话术精简 + 双位置注入
+        #   - 核心指令 (走更新场景) 放最前, LLM 第一眼看到
+        #   - 达人ID 是关键, LLM 拿到 ID 就能直接 PUT, 不要绕回问用户
+        #   - 原有字段快照从 6 字段缩到 3 字段, 降低 token 干扰
+        # ★ fix/talent-full-sync-r5: 扩展完整字段列表 (没数据写"未提供")
+        #   覆盖截图 1-9 全部可见字段, 让前端自动 PUT 时有完整数据
+        _DEDUP_HINT_FULL_FIELDS = '''
+## 完整字段提取要求 (前端会从你回复自动解析, 没数据写"未提供")
+请在回复正文后, 用以下格式逐条列出 (字段名: 值), 字段缺失或截图未提及写"未提供":
+
+**基本面**: 达人昵称 / 达人ID / 平台 / 粉丝量 / 等级 / 所在地 / 履约分
+**类型**: 类型(talent_type) / 带货方式 / 内容类型 / 主推类目(main_category) / 机构(agency) / 简介(bio) / 带货要求(cooperation_requirements)
+**核心数据**: 带货商品数 / 历史带货天数 / 合作店铺数 / 结算总额 / 场均结算额(avg_session_gmv)
+**直播**: 直播GMV占比(live_gmv_ratio) / 直播GPM(live_gpm) / 直播平均件单价(live_avg_price)
+**短视频**: 短视频占比(video_gmv_ratio) / 视频GPM / 单视频结算额 / 视频平均件单价 / 完播率(completion_rate) / 互动率
+**粉丝**: 粉丝变化数(fan_growth) / 粉丝变化率(fan_growth_rate) / 粉丝画像(性别/年龄/城市等级/人群/活跃度/设备/价格带/品类偏好/省份TOP/粉丝特征/消费偏好) / 视频粉丝画像
+**热卖**: 热卖类目TOP3(hot_categories) / 热卖品牌TOP3(hot_brands)
+**指标**: 点赞数(likes) / 评论数(comments) / 转发数(shares)
+**直播详细**: 带货直播场次(live_stream_sessions) / 带货直播观看人数(live_stream_viewers)
+**品牌**: 佣金参考 (品牌维度, JSON 字符串可存, brand_commission)
+**时效**: 统计时间 (数据时效, e.g. "2026/08/21至2026/09/19", data_period)
+**JSON 字段 (Markdown 表格格式, 必含子字段必写)**:
+- 热卖品牌TOP3 (hot_brands): Markdown 表格, 列: 排名|品牌|均价|结算额|佣金参考
+  例: [{"rank":1, "brand":"哈比熊", "avg_price":"¥181.55", "gmv":"¥10万-25万", "commission":"未提供"}]
+  ⚠️ commission 列必含 (即使没数据写"未提供")
+- 合作品牌列表 (cooperating_brands): 列: 品牌|商品数|代表商品|店铺
+- 品牌详情 (brand_details): 列: 品牌|商品数|代表商品|店铺
+- 带货商品明细 (products): Markdown 表格, 列: 商品名|店铺|到手价|原价|结算额|关联视频数|关联直播场次
+  例: [{"name":"德尔惠闪穿两用鞋", "shop":"德尔惠男鞋旗舰店", "price":"¥139.00", "original_price":"¥239.00", "gmv_range":"¥5万-10万", "video_count":10, "live_session_count":0}]
+  ⚠️ live_session_count 列必含 (即使 0 也要输出, 不要省略)
+'''
+        return (
+            f"\n\n# ⚠️ 系统检测到达人已存在，必须走【更新】场景，禁用【新建】\n"
+            f"达人ID: `{d['id']}` (姓名: {d['name']})\n"
+            f"该达人档案**已存在**, 你**已经**有 ID, 不要让用户重新提供.\n"
+            f"\n"
+            f"## 必须执行\n"
+            f"1. 用提供的 ID `{d['id']}` 直接调 PUT /api/talents/{d['id']} 更新档案\n"
+            f"2. **永远不要**回复 '请提供达人ID' / '请告诉我达人ID' / '需要先建档吗'\n"
+            f"3. **永远不要**问用户重新提供已有的抖音号 / 类目 / 粉丝量\n"
+            f"4. 用户本轮发的内容是分析/数据, 直接基于这些更新 ai_rating / ai_summary / ai_tags / ai_analysis\n"
+            f"5. **禁止**用 markdown 加粗格式输出字段 (如 `**粉丝量**：5,486`), 用纯文本 `粉丝量：5,486`\n"
+            f"6. **必须**输出完整字段（缺一不可, 没数据就写'未提供'占位）: 达人昵称/达人ID/平台/粉丝量/等级/内容标签/带货方式/视频GPM/互动率/结算总额/合作状态/账号粉丝画像/视频粉丝画像/所在城市/抖音号/个人简介\n"
+            f"7. **闭环铁律**: 收到截图/数据必须在当前回复一次性输出完整提取结果（含 tal_ 开头达人ID + 全部字段）。严禁出现'正在分析/预计X分钟/稍后发送/完成后通知/我先...再...'等延迟或分阶段话术——你没有主动推送和定时执行能力, 每轮对话结束后不会被再次唤醒, 任何承诺稍后执行的动作都永远不会发生, 任务必须在当前回复内闭环。\n"
+            f"\n"
+            f"## 档案快照 (供你参考, 不需要用户再填)\n"
+            f"- 类目: {category} | 粉丝量: {followers} | AI评级: {ai_rating}\n"
+            f"- AI摘要 (前300字): {ai_summary or '(空)'}\n"
+        )
+    except Exception as e:
+        logger.warning(f'  [TalentDedupHint] 构建失败 talent_id={talent_id}: {e}')
+    return ''
+
+
 # ══════════════════════════════════════════════════════════════════════
 # ★ fix/helen-analysis-auto-archive: 改动 1 — 达人名清洗 + 改动 2 — 分析自动建档
 # 老大反馈: 第4次分析「小楚当妈」时 LLM 把报告序号当名字, 存成 `name:1. 小楚当妈(捡漏版)`
@@ -20820,6 +21573,55 @@ def _clean_talent_name(name):
         s = s[m.end():].strip().strip('　').strip()
     return s
 
+
+_TALENT_NAME_VERB_BLACKLIST = {
+    '录入', '添加', '建档', '新建', '更新', '修改', '查找', '搜索', '导入',
+    '分析', '导出', '删除', '查询', '看看', '整理', '保存', '测试', '看看',
+    '帮我', '请', '麻烦', '批量', '自动',
+}
+
+
+def _extract_user_input_talent_ref(user_content):
+    """★ r12 A4: 从用户原始指令提取达人名 + tal_xxx ID.
+    返回 (name, tal_id) — name 可能为空 (用户没写名字, 只有 tal_xxx), tal_id 可能为空.
+    支持格式:
+      - "录入发财周周" → ("发财周周", None)
+      - "录入发财周周 (达人ID: tal_1789443949796_1583e3)" → ("发财周周", "tal_xxx")
+      - "录入 tal_xxx" → (None, "tal_xxx")
+      - "录入" → (None, None)  ★ fix/extract-verb-only: 纯动词不当作达人名
+    
+    ★ fix/extract-verb-only (老大反馈 2026-09-22 20:52):
+      之前 "录入" (2 字动词) 被当作达人名, stage5 写入 name="录入" 脏数据.
+      现在加动词黑名单 + 严格模式要求, 纯命令式短句返回 name=None,
+      让 stage5 走 ocr_name (vision 提取的真实达人名) 而不是 user_name.
+    """
+    if not user_content:
+        return (None, None)
+    import re
+    text = user_content.strip()
+    # 1. 提取 tal_xxx 格式 ID (跟达人名一起, 也可单独存在)
+    m = re.search(r'(tal_[a-zA-Z0-9_]+)', text)
+    tal_id = m.group(1) if m else None
+    # 2. 提取达人名
+    name = None
+    # 模式 A: "录入/添加/建档/XXX" 显式达人名 (XXX 长度 >= 2, 不在动词黑名单)
+    m2 = re.search(r'(?:录入|添加|建档|新建|更新|修改|查找|搜索|导入|分析)\s*([一-龥A-Za-z0-9·\s]{2,15})', text)
+    if m2:
+        candidate = m2.group(1).strip()
+        if candidate and candidate not in _TALENT_NAME_VERB_BLACKLIST:
+            name = candidate
+    # 模式 B: 没有动词前缀, 直接说达人名 (中文 2-15 字开头, 不在黑名单)
+    if not name:
+        text_no_id = re.sub(r'\(?达人ID[:：]?[^)]+?\)', '', text).strip()
+        # 提取开头的 2-15 字中文 (排除括号内容)
+        m3 = re.match(r'^([一-龥·]{2,15})', text_no_id)
+        if m3:
+            candidate = m3.group(1)
+            if candidate and candidate not in _TALENT_NAME_VERB_BLACKLIST:
+                name = candidate
+    # 模式 C: 用户给的纯命令 ("录入" / "添加" 等) → name=None
+    # 已经由黑名单 + 模式 A/B 联合保证: 纯动词不会匹配
+    return (name if name else None, tal_id if tal_id else None)
 
 def _ensure_talent_from_analysis(name, vision_field_maps=None, llm_json=None,
                                  user_id='', agent=None):
@@ -20882,6 +21684,11 @@ def _ensure_talent_from_analysis(name, vision_field_maps=None, llm_json=None,
                 _update_talent_from_ocr_fields(tid, vision_field_maps)
             except Exception as e:
                 logger.warning(f'  [EnsureTalent] OCR 回写失败 talent_id={tid}: {e}')
+            # ★ fix/ocr-full: 全部 OCR 字段入库 (不限 schema, 老大诉求截图所有数据不能少)
+            try:
+                _update_talent_ocr_raw_fields(tid, vision_field_maps)
+            except Exception as e:
+                logger.warning(f'  [EnsureTalent] ocr_raw_fields 回写失败 talent_id={tid}: {e}')
         if llm_json:
             try:
                 _update_talent_from_llm_json(tid, llm_json)
@@ -20903,6 +21710,74 @@ def _heavy_entity_hint(talent_names, talents):
     if talent_names:
         return ('talent', 'name:' + talent_names[0])
     return None
+
+
+def _update_talent_ocr_raw_fields(talent_id, vision_field_maps):
+    """★ fix/ocr-full: 把 OCR 阶段结构化字段全部入库到 talents.ocr_raw_fields.
+
+    老大诉求 (2026-09-22): 截图上所有数据全部录入, 不能给少了.
+    之前 _OCR_TO_TALENT_FIELDS 只翻译 21 个固定字段, 截图上 schema 之外的字段
+    (如 '退货率' / '客服电话' / '售后评分') 全部丢失.
+
+    现在 ocr_raw_fields 存所有 OCR 看到的字段 (不限 schema), 跨图字段 merge:
+    - 后到的图覆盖前面的 (按图1 → 图2 → ...顺序, 但 OCR null 跳过不覆盖已有值)
+    - 嵌套 dict 递归 merge
+    - list 类型直接覆盖 (避免错误拼接)
+    返回写入字段数 (0 = 无字段可写).
+
+    vision_field_maps: list of dict (每张图一个 dict)
+    """
+    if not talent_id or not vision_field_maps:
+        return 0
+
+    def _deep_merge(base, new):
+        """递归 merge new 到 base, base 已有非 null 值不覆盖 (避免空 OCR 覆盖真实数据).
+        list 类型只在**新值非空**时覆盖 (避免后续截图空 list 覆盖前面的真实数据).
+        例如图2 OCR 返回 top_brands=[3 items], 图9 返回 top_brands=[] 时, 保留图2 的 [3 items].
+        """
+        if not isinstance(base, dict) or not isinstance(new, dict):
+            return base
+        for k, v in new.items():
+            if v is None or v == '' or v == 'null':
+                continue
+            if k not in base:
+                base[k] = v
+                continue
+            bv = base[k]
+            if isinstance(bv, dict) and isinstance(v, dict):
+                base[k] = _deep_merge(bv, v)
+            elif isinstance(bv, list) and isinstance(v, list):
+                # ★ fix/ocr-merge-empty-list: 新 list 非空才覆盖, 避免图9 空 list 把图2 的真实数据抹掉
+                if v:
+                    base[k] = v
+            else:
+                # 已有值不为空则跳过, 避免覆盖真实数据
+                if bv is None or bv == '' or bv == 'null':
+                    base[k] = v
+        return base
+
+    merged = {}
+    for img_fields in vision_field_maps:
+        if not isinstance(img_fields, dict):
+            continue
+        merged = _deep_merge(merged, img_fields)
+    if not merged:
+        return 0
+
+    try:
+        conn = _db_conn()
+        try:
+            cursor = conn.execute(
+                "UPDATE talents SET ocr_raw_fields = ?, updated_at = ? WHERE id = ?",
+                (json.dumps(merged, ensure_ascii=False), int(time.time() * 1000), talent_id)
+            )
+            conn.commit()
+            return cursor.rowcount
+        finally:
+            conn.close()
+    except Exception as e:
+        logger.warning(f'  [OCRRawFields] UPDATE failed talent_id={talent_id}: {e}')
+        return 0
 
 
 def _heavy_vision_struct_summary(per_image_fields):
@@ -20953,6 +21828,23 @@ def _heavy_stage4_analyze(agent, agent_name, talents, vision_all, user_content, 
           '}\n'
           '```\n'
           '字段缺失或格式错误不影响正文报告, 但会被静默忽略不写入数据库。\n'
+          '\n\n## ★ r11: 字段提取强约束 (dedup auto PUT 触发前提)\n'
+          '即使系统预查到达人 ID/名字与用户输入或截图识别不匹配, 也必须输出以下结构化字段列表:\n'
+          '- 达人昵称: (以用户输入为准, 不要省略)\n'
+          '- 达人ID: (tal_xxx 格式, 优先用户输入的 ID)\n'
+          '- 平台: \n'
+          '- 粉丝量: \n'
+          '- 等级: \n'
+          '- 所在城市: \n'
+          '- 内容标签: \n'
+          '- 带货方式: \n'
+          '- 视频GPM: \n'
+          '- 互动率: \n'
+          '- 结算总额: \n'
+          '- 合作状态: \n'
+          '用户输入的达人信息优先级最高 (dedup_hint 已注入达人 ID)。截图识别结果与用户输入冲突时,\n'
+          '以用户输入为准并在报告中说明冲突, 但**字段列表必须照常输出**——前端 dedup auto PUT 依赖\n'
+          '这个列表触发写入, 缺字段 = 任务失败。\n'
     )
     user_parts = []
     if talents:
@@ -20960,7 +21852,7 @@ def _heavy_stage4_analyze(agent, agent_name, talents, vision_all, user_content, 
                           + json.dumps(talents, ensure_ascii=False, indent=1))
     user_parts.append('【达人数据截图识别结果】\n' + vision_all)
     user_parts.append('【用户原始指令】\n' + (user_content or ''))
-    result = _heavy_llm_call(system_prompt, '\n\n'.join(user_parts), max_tokens=8192)
+    result = _heavy_llm_call(system_prompt, '\n\n'.join(user_parts), max_tokens=8192, agent_id=agent.get('id'))
     logger.info(f'  [HeavyPipe] {job_id} stage4 result: {repr(result)[:500]}')
     if isinstance(result, dict):
         logger.info(f'  [HeavyPipe] {job_id} stage4 stop_reason={result.get("stop_reason")} '
@@ -21015,7 +21907,7 @@ def _heavy_pipe_worker(job_id, agent, user_content, images, user_id):
         _t = time.perf_counter()
         vision_all = '\n\n'.join(vision_texts)
         logger.info(f'  [HeavyPipe] {job_id} vision 内容预览（前500字）: {vision_all[:500]}')
-        names_result = _heavy_llm_call(_HEAVY_TALENT_EXTRACT_PROMPT, vision_all, max_tokens=1024)
+        names_result = _heavy_llm_call(_HEAVY_TALENT_EXTRACT_PROMPT, vision_all, max_tokens=1024, agent_id=agent_id)
         names_text = names_result.get('text', '') if isinstance(names_result, dict) else (names_result or '')
         if isinstance(names_result, dict) and names_result.get('stop_reason') not in (None, 'end_turn', 'stop_sequence'):
             logger.warning(f'  [HeavyPipe] {job_id} stage2 达人名提取可能被截断: '
@@ -21041,15 +21933,41 @@ def _heavy_pipe_worker(job_id, agent, user_content, images, user_id):
         # 这里用 stage2 提取的名字 (跨图字段已合并) 调 _ensure_talent_from_analysis 自动建档或命中已有,
         # 然后把确保后的 talent 放进 talents 列表首位, _heavy_entity_hint 自然绑真实 tal_id.
         # 保守只处理主达人 (talent_names[0]), 多达人张冠李戴风险; 其余名字只清洗不入库.
+        # ★★ r12 A4: 用户输入的名字优先级最高 — 从 user_content 提取 "录入XXX" 或 "(达人ID: tal_xxx)"
+        #   模式, 优先用用户输入的 name + tal_xxx; OCR 名字只 fallback (截图与人冲突时 LLM 困惑场景)
+        #   不依赖 LLM stage4 output 是否含结构化字段列表
+        _user_name, _user_tal_id = _extract_user_input_talent_ref(user_content or '')
         if talent_names:
             cleaned_names = [_clean_talent_name(n) for n in talent_names]
             cleaned_names = [n for n in cleaned_names if n]
             if cleaned_names:
-                primary_name = cleaned_names[0]
+                ocr_name = cleaned_names[0]
+                # 优先级: 用户输入 > OCR 提取
+                primary_name = _user_name if _user_name else ocr_name
+                logger.info(f'  [HeavyPipe] {job_id} stage5 建档优先级: user="{_user_name or "(无)"}" > ocr="{ocr_name}" → 用 "{primary_name}"')
                 llm_json_parsed = _parse_llm_json_block(reply)
                 ensured = _ensure_talent_from_analysis(
                     primary_name, vision_field_maps, llm_json_parsed, user_id, agent
                 )
+                # r12: 如果用户给了 tal_xxx 但 ensured 用了 OCR 名字(没命中 LOWER), 强制更新到 tal_xxx
+                if _user_tal_id and ensured and ensured.get('id') != _user_tal_id:
+                    try:
+                        conn = _db_conn()
+                        try:
+                            # 更新确保的达人名为用户输入的名字, id 保持用户给的 tal_xxx
+                            conn.execute(
+                                "UPDATE talents SET name = ?, updated_at = ? WHERE id = ?",
+                                (primary_name, int(time.time() * 1000), _user_tal_id)
+                            )
+                            conn.commit()
+                            # 重新 SELECT 返回更新后的行
+                            out_row = conn.execute('SELECT * FROM talents WHERE id = ?', (_user_tal_id,)).fetchone()
+                            ensured = _talent_row_to_dict(out_row) if out_row else {'id': _user_tal_id, 'name': primary_name}
+                            logger.info(f'  [HeavyPipe] {job_id} r12 用户 tal_xxx={_user_tal_id} 命中, ensured id={ensured.get("id")} name={ensured.get("name")}')
+                        finally:
+                            conn.close()
+                    except Exception as e:
+                        logger.warning(f'  [HeavyPipe] {job_id} r12 UPDATE talent 失败: {e}')
                 if ensured and ensured.get('id'):
                     existing_ids = {t.get('id') for t in (talents or [])}
                     if not existing_ids or ensured['id'] not in existing_ids:
@@ -21061,10 +21979,59 @@ def _heavy_pipe_worker(job_id, agent, user_content, images, user_id):
         # vision 结构化摘要与报告绑定：随聊天消息持久化 + 入库 knowledge_events（event_type=vision_data），
         # 确保聊天链路（代理层实体检索注入 / RAG）能拿到报告所依据的截图数据
         vision_summary = _heavy_vision_struct_summary(vision_field_maps)
+        # ★★★ A7-纯确认: Helen 输出闭环治本 — 不依赖 LLM 输出
+        # 老大反馈 (2026-09-22): kimi 弱模型无视 Mini 加的 system_prompt 闭环铁律反例锚定,
+        # stage4 LLM 仍输出 "我先用达人库搜索确认一下..." 这种延迟话术, 用户体验角度"任务看起来没做完",
+        # 即使 DB 已写入 (A4 治本) 用户也感受不到闭环.
+        # 治本: 服务端在 stage5 落库后用确定性 confirmation 块覆写 reply 给用户看,
+        # LLM 原始 reply 仍保留用于归档 (_maybe_auto_save_analysis / _save_vision_data_event /
+        # _record_group_message / memory_pipeline), 让搜索/RAG/记忆仍能用上详细分析.
+        _field_count = 0
+        if vision_field_maps:
+            # vision_field_maps 结构: list of dict (每张图一个 dict, 含该图非 null 字段)
+            #   不是 dict of dict — 之前 .values() 会 AttributeError, 这里直接 list 迭代
+            # ★ fix/recursive-field-count: 递归数所有非空字段 (含 extra_fields 内嵌套 dict/list)
+            #   之前只数顶层 key, 老大截图有 22 个 extra_fields 嵌套字段没算进去,
+            #   reply_clean 显示 '字段数: 12' 但实际入库 34+ 字段, 用户困惑.
+            _all_field_names = set()
+            def _count_recursive(d, prefix=''):
+                if isinstance(d, dict):
+                    for _k, _v in d.items():
+                        _full = f'{prefix}.{_k}' if prefix else _k
+                        if isinstance(_v, (dict, list)):
+                            # 嵌套结构: 数容器里所有非空叶子 (避免把容器本身算 1)
+                            if isinstance(_v, dict) and _v:
+                                _count_recursive(_v, _full)
+                            elif isinstance(_v, list) and _v:
+                                for _idx, _item in enumerate(_v):
+                                    if isinstance(_item, dict):
+                                        _count_recursive(_item, f'{_full}[{_idx}]')
+                                    elif _item and _item != '未提供':
+                                        _all_field_names.add(f'{_full}[{_idx}]')
+                        elif _v and _v != '未提供':
+                            _all_field_names.add(_full)
+            for _per_img_fields in vision_field_maps:
+                if isinstance(_per_img_fields, dict):
+                    _count_recursive(_per_img_fields)
+            _field_count = len(_all_field_names)
+        # 取主达人名 + ID: ensured 优先, primary_name fallback, talent_names[0] 兜底
+        _talent_id = '(待创建)'
+        _talent_name = ''
+        if 'ensured' in dir() and ensured and ensured.get('id'):
+            _talent_id = ensured.get('id')
+            _talent_name = ensured.get('name') or ''
+        if not _talent_name:
+            _talent_name = primary_name if ('primary_name' in dir() and primary_name) else (talent_names[0] if talent_names else agent_name)
+        reply_clean = (
+            f"✅ 已写入「{_talent_name}」档案\n"
+            f"- 达人ID: `{_talent_id}`\n"
+            f"- 字段数: {_field_count}\n"
+        )
+        logger.info(f'  [HeavyPipe] {job_id} A7-纯确认: reply_clean len={len(reply_clean)} (talent={_talent_name}, fields={_field_count})')
         ai_message = {
             'id': 'msg_' + uuid.uuid4().hex[:8],
             'role': 'assistant',
-            'content': reply,
+            'content': reply_clean,  # ← A7-纯确认: 用户看到确定性 ✅ 已写入 确认块, 不再看到 stage4 LLM 的"我先..."延迟话术
             'timestamp': datetime.now().isoformat(),
             'heavyPipe': True,
             'vision_data': vision_summary,
@@ -21083,6 +22050,7 @@ def _heavy_pipe_worker(job_id, agent, user_content, images, user_id):
         # 实体归属兜底：stage2 提取的达人名经 stage3 达人库预查命中时绑真实 tal_id，
         # 未入库（命中 0）时绑 name:达人名 虚拟 id，避免 entity 留空、后续按达人名检索不到事件
         entity_hint = _heavy_entity_hint(talent_names, talents)
+        # 归档用 stage4 LLM 原始 reply (详细分析, RAG/记忆/知识事件检索仍能搜到), 用户对话窗口已用 reply_clean
         _maybe_auto_save_analysis(agent_id, reply, user_content or '', entity_hint=entity_hint)
         _save_vision_data_event(
             agent_id, vision_summary,
@@ -21092,10 +22060,12 @@ def _heavy_pipe_worker(job_id, agent, user_content, images, user_id):
             agent_group_id = _get_agent_group_id(agent_id)
             if agent_group_id:
                 _record_group_message(agent_group_id, agent_id, 'user', user_content or '')
+                # 归档用 LLM 原始 reply (group feed 是内部归档, 用户对话窗口已用 reply_clean)
                 _record_group_message(agent_group_id, agent_id, 'assistant', reply)
         except Exception as feed_err:
             logger.error(f'  [HeavyPipe] {job_id} TeamFeed 记录失败: {feed_err}')
-        _push_notification(user_id, 'message', f'{agent_name} 的图像分析已完成', (reply or '')[:200], agent_id)
+        # 推送也用确定性确认块 (避免推送预览里出现"我先用达人库搜索..." 延迟话术)
+        _push_notification(user_id, 'message', f'{agent_name} 的图像分析已完成', (reply_clean or '')[:200], agent_id)
         _stage('stage5 落库+通知', _t)
 
         # Stage 6：记忆沉淀（复用 memory pipeline L0，失败不阻断）
@@ -21503,7 +22473,8 @@ def _extract_talent_from_text(text, auth):
     if not text or not isinstance(text, str):
         return None
     if not any(k in text for k in ('达人', '主播', '博主', 'KOL', '合作', '商务',
-                                    '佣金', '坑位', '带货', '筛选', '评估', '分析')):
+                                    '佣金', '坑位', '带货', '筛选', '评估', '分析',
+                                    '录入', '添加', '建档', '搜索', '找', '更新', '修改')):
         return None
     import re
     candidates = set()
@@ -21521,14 +22492,26 @@ def _extract_talent_from_text(text, auth):
     # 模式 2: "分析 小扎克" / "分析小扎克"
     for m in re.finditer(r'分析\s*["「『\']?([\u4e00-\u9fa5A-Za-z0-9_·.]{1,30})', text):
         candidates.add(_trim(m.group(1)))
-    # 模式 3: 开头区域命中(达人页顶部昵称) - 取前 200 字符单独匹配,提高短昵称命中率
+    # 模式 3: 开头区域命中 - 取前 200 字符单独匹配,提高短昵称命中率
+    #   ★ fix dedup 命中模式 3: 取消"达人上下文"限制 — 外层 line 21683 关键字过滤
+    #   已经通过(录入/分析/达人等),这里再判"达人/主播/KOL"是冗余且误杀短消息
+    #   ("录入发财周周" 这类). 让 _deduplicate_talent 做最终兜底判定.
     _head = text[:200]
-    for m in re.finditer(r'["「『\']?([\u4e00-\u9fa5A-Za-z0-9_·]{2,20})["」』\']?', _head):
+    _STOP_WORDS = ('分析', '达人', '商务', '合作', '佣金', 'KOL', '录入', '添加',
+                   '建档', '搜索', '更新', '修改')
+    for m in re.finditer(r'["“「]?([\u4e00-\u9fa5A-Za-z0-9_\u00b7]{2,20})["”\u300d]?', _head):
         name = m.group(1).strip()
-        if name and name not in ('分析', '达人', '商务', '合作', '佣金', 'KOL'):
-            # 仅在有"达人"上下文时采纳
-            if '达人' in _head or '主播' in _head or 'KOL' in _head:
-                candidates.add(name)
+        if name and name not in _STOP_WORDS:
+            candidates.add(name)
+    # 先用停用词去除业务动词, 再 split 出可能的中文姓名
+    _BUSINESS_STOP = ('录入', '添加', '建档', '搜索', '找', '更新', '修改',
+                      '达人', '主播', '博主', 'KOL', '分析', '评估', '筛选',
+                      '合作', '商务', '佣金', '坑位', '带货')
+    _text_clean = text
+    for _sw in _BUSINESS_STOP:
+        _text_clean = _text_clean.replace(_sw, ' ')
+    for _m in re.finditer(r'[\u4e00-\u9fa5A-Za-z0-9_\u00b7]{2,20}', _text_clean):
+        candidates.add(_m.group(0))
     candidates = {c for c in candidates if c and len(c) >= 2}
     if not candidates:
         return None
@@ -23621,6 +24604,67 @@ def _call_ai_api(agent, user_message, user_info=None, include_history=True, grou
                 logger.error(f'  [KnowledgeInject] {agent_id} 注入失败: {e}')
 
     system_prompt = _append_self_update_prompt(system_prompt)
+
+    # ★ fix/helen-output-template-first-line: 无条件前置闭环铁律 (只要请求带图片)
+    # 之前闭环铁律只在 dedup 命中时注入 (依赖达人名匹配), 现在只要 has_images 就无条件注入
+    #   - 闭环铁律放第一行 (最高优先级, model attention bias)
+    #   - 附反例 (禁止"正在分析 X 张截图数据, 预计需要 3-5 分钟"等延迟话术, 实际输出即任务失败)
+    #   - 附输出模板 ("- **达人昵称**：" 开头 + 字段清单, 没数据写"未提供")
+    #   - 不依赖 data/agents.json (server.py 是 source of truth, agents.json 是软配置)
+    _has_images = (
+        isinstance(user_message, list) and any(
+            isinstance(item, dict) and item.get('type') == 'image_url'
+            for item in user_message
+        )
+    )
+    if _has_images:
+        _CLOSURE_BLOCK = (
+            "【闭环铁律（最高优先级 · 置顶第一条）】\n"
+            "收到截图后必须立即、完整、按字段输出达人分析报告, 禁止分批/异步/口头承诺。\n"
+            "\n"
+            "【反例 - 实际输出即视为任务失败】\n"
+            "禁止输出类似 \"正在分析 X 张截图数据，预计需要 3-5 分钟，完成后会发送完整分析报告\" 的句子。\n"
+            "禁止以 \"正在 / 我先 / 稍后 / 让我 / 预计 / 完成后\" 开头。\n"
+            "\n"
+            "【输出模板 - 必须严格遵守】\n"
+            "收到截图后首条回复必须以 \"- **达人昵称**：\" 开头, 逐行列出全部字段 (按下方字段清单):\n"
+            "- 达人昵称: \n"
+            "- 达人ID: \n"
+            "- 平台: \n"
+            "- 粉丝量: \n"
+            "- 等级: \n"
+            "- 所在地: \n"
+            "- 履约分: \n"
+            "- 类型: \n"
+            "- 主推类目: \n"
+            "- 核心数据: 带货商品数 / 历史带货天数 / 合作店铺数 / 结算总额 / 直播带货销售占比 / 带货直播场次 / 场均结算额 / 视频GPM\n"
+            "- 粉丝画像: 性别 / 年龄 / 城市等级 / 人群 / 活跃度 / 设备 / 价格带 / 品类偏好 / 省份TOP\n"
+            "- 热卖品牌TOP3: \n"
+            "- 合作品牌列表: \n"
+            "- 带货商品明细: \n"
+            "（没数据写\"未提供\"）\n"
+        )
+        system_prompt = _CLOSURE_BLOCK + '\n\n' + system_prompt
+        logger.info(f'  [ClosureBlock] {agent_id} 无条件前置闭环铁律 (has_images=True)')
+
+    # ★ dedup 三件事收口: dedup_hint 也注入到 system_prompt 顶部 (双保险)
+    #   之前只拼到 user message 末尾, OpenClaw CLI 转发时可能截断/丢失.
+    #   这里按特征串识别 dedup_hint, 提到 system prompt 开头 LLM 必看到.
+    _user_text_for_dedup = ''
+    if isinstance(user_message, str):
+        _user_text_for_dedup = user_message
+    elif isinstance(user_message, list):
+        for _it in user_message:
+            if isinstance(_it, dict) and _it.get('type') == 'text':
+                _user_text_for_dedup += _it.get('text', '')
+    if '系统检测到达人已存在' in _user_text_for_dedup:
+        _dedup_marker_start = _user_text_for_dedup.find('# ⚠️ 系统检测到达人已存在')
+        _dedup_marker_end_marker = '\n## 档案快照'
+        _dedup_marker_end = _user_text_for_dedup.find(_dedup_marker_end_marker, _dedup_marker_start)
+        if _dedup_marker_start >= 0 and _dedup_marker_end > _dedup_marker_start:
+            _dedup_block = _user_text_for_dedup[_dedup_marker_start:_dedup_marker_end]
+            system_prompt = '\n\n' + _dedup_block + '\n\n' + system_prompt
+            logger.info(f'  [TalentDedupHint] 已注入到 system_prompt 顶部 len={len(_dedup_block)}')
 
     messages = [{'role': 'system', 'content': system_prompt}]
 

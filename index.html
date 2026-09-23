@@ -1895,7 +1895,7 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .talents-mid-card { position: relative; padding-left: 18px; }
 .talent-rating-bar { position: absolute; left: 0; top: 14px; bottom: 14px; width: 6px; border-radius: 0 3px 3px 0; }
 .talent-rating-bar.rating-A { background: #34C759; }
-.talent-rating-bar.rating-B { background: #007AFF; }
+.talent-rating-bar.rating-B { background: #1677ff; }
 .talent-rating-bar.rating-C { background: #FFCC00; }
 .talent-rating-bar.rating-D { background: #8E8E93; }
 .tcard-metrics { display: flex; gap: 8px; padding: 10px 0; border-top: 0.5px solid var(--separator); border-bottom: 0.5px solid var(--separator); }
@@ -2697,6 +2697,8 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   word-break: break-all;
 }
 .talents-info-item .value.empty { color: #c9cdd4; }
+/* ★ feature/influencer-form-validation: 详情页基础信息空值高亮 (用项目 --warning token) */
+.talents-info-item .value.value-empty { color: var(--warning); font-weight: 500; }
 .talents-overview-tags {
   display: flex;
   flex-wrap: wrap;
@@ -4467,62 +4469,65 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   }
 
   /* .left-nav: 左侧 56px 侧栏 → 底部 56px tab bar (10 个 icon 横向铺开)
-     关键: z-index 300 盖在主区上方, position fixed 不参与 flex 布局 → 主区 100% 宽 */
+     关键: z-index 300 盖在主区上方, position fixed 不参与 flex 布局 → 主区 100% 宽
+     fix/responsive-shell-collapse-r3: 对话页 r2 不生效(同一 DOM/CSS 在达人库页生效)
+     → 全部加 !important 拦截任何被遗漏的 specificity / inline style override.
+     仍有兜底 JS forceResponsiveShell() 见 init 段. */
   .left-nav {
-    position: fixed;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    width: 100%;
-    height: 56px;
-    flex-direction: row;
-    justify-content: space-around;
-    padding: 0 4px;
-    border-right: none;
-    border-top: 0.5px solid var(--separator);
-    z-index: 300;
+    position: fixed !important;
+    bottom: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    width: 100% !important;
+    height: 56px !important;
+    flex-direction: row !important;
+    justify-content: space-around !important;
+    padding: 0 4px !important;
+    border-right: none !important;
+    border-top: 0.5px solid var(--separator) !important;
+    z-index: 300 !important;
     background: var(--left-nav-bg, #2e2e33);
   }
   .left-nav-top {
-    flex-direction: row;
-    gap: 0;
-    flex: 1;
-    justify-content: space-around;
-    padding: 0 4px;
+    flex-direction: row !important;
+    gap: 0 !important;
+    flex: 1 !important;
+    justify-content: space-around !important;
+    padding: 0 4px !important;
   }
   .left-nav-bottom {
-    display: none;
+    display: none !important;
   }
 
   /* 10 个 nav-item 在 375/400 宽需要缩, 否则会溢出
      375 / 10 = 37.5px per item (理论), 实际 space-around 留 gap → 32×32 + svg 16×16 留足 padding */
   .nav-item {
-    width: 32px;
-    height: 32px;
-    border-radius: 8px;
-    flex-shrink: 0;
+    width: 32px !important;
+    height: 32px !important;
+    border-radius: 8px !important;
+    flex-shrink: 0 !important;
   }
   .nav-item svg {
-    width: 18px;
-    height: 18px;
+    width: 18px !important;
+    height: 18px !important;
   }
   .nav-item.active::before {
-    left: 50%;
-    top: auto;
-    bottom: 2px;
-    transform: translateX(-50%);
-    width: 14px;
-    height: 2px;
-    border-radius: 2px;
+    left: 50% !important;
+    top: auto !important;
+    bottom: 2px !important;
+    transform: translateX(-50%) !important;
+    width: 14px !important;
+    height: 2px !important;
+    border-radius: 2px !important;
   }
 
   /* 主区让出底部 56px tab bar 空间 (避免内容被遮挡) */
   .app-container {
-    padding-bottom: 56px;
-    box-sizing: border-box;
+    padding-bottom: 56px !important;
+    box-sizing: border-box !important;
   }
   .app-main {
-    padding-bottom: 56px;
+    padding-bottom: 56px !important;
   }
 }
 
@@ -4801,10 +4806,87 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 
 /* = --bp-md 768px, 改断点同步 tokens.css / */
 @media (max-width: 768px) {
-  .chat-topbar { padding: 0 12px; height: 28px; font-size: 10px; }
+  .chat-topbar { padding: 0 8px; height: 28px; font-size: 10px; }
   .chat-topbar-agent-role { display: none; }
   .chat-topbar-team-label { display: none; }
+
+  /* ★ fix/iphone16-visual-polish: chat-topbar-team (6 个 AI 员工 + label) 折叠成 toggle icon
+     默认隐藏 6 个 .chat-topbar-agent, 只显示 chat-topbar-team-toggle button
+     点击 toggle → 加 .expanded class → 显示 6 个 agent (popover 形式, 不占 chat-topbar 高度) */
+  .chat-topbar-team {
+    position: relative;
+    flex-shrink: 0;
+  }
+  .chat-topbar-team-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    height: 20px;
+    padding: 0 8px;
+    border-radius: 10px;
+    background: rgba(0, 122, 255, 0.10);
+    border: none;
+    cursor: pointer;
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--accent, #007AFF);
+    gap: 4px;
+    white-space: nowrap;
+  }
+  .chat-topbar-team-toggle::before {
+    content: "👥";
+    font-size: 12px;
+  }
+  .chat-topbar-team.expanded .chat-topbar-team-toggle::before {
+    content: "✕";
+  }
+  .chat-topbar-team .chat-topbar-agent {
+    display: none;
+  }
+  .chat-topbar-team.expanded .chat-topbar-agent {
+    display: flex;
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    min-width: 160px;
+    flex-direction: column;
+    gap: 4px;
+    padding: 8px;
+    background: var(--bg-elevated, #fff);
+    border: 0.5px solid var(--separator);
+    border-radius: 10px;
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.12);
+    z-index: 200;
+  }
+  .chat-topbar-team.expanded .chat-topbar-agent {
+    /* 覆盖桌面默认 (L4704) 的 inline-flex, 让 popover 是 column */
+    flex-direction: row;
+  }
+  .chat-topbar-team.expanded .chat-topbar-agent {
+    /* 让 agent 水平排列更紧凑 */
+    width: auto;
+    padding: 4px 8px;
+    gap: 6px;
+    align-items: center;
+  }
+  .chat-topbar-team.expanded .chat-topbar-agent-name {
+    font-size: 12px;
+  }
+
+  /* ★ fix/iphone16-visual-polish: 任务页右上"返回"按钮 ≤768 隐藏 (移动端用左滑/系统手势) */
+  #tasksRightActions .module-action-btn {
+    display: none !important;
+  }
 }
+
+/* ★ fix/iphone16-visual-polish-2: 桌面端隐藏 toggle button
+   HTML button 默认 display: inline-block, 桌面端 (≥769) 没设 fallback 会渲染出 "👥 6" 小按钮
+   且 JS toggleChatTopbarTeam 在 ≥769 直接 return 无功能
+   桌面端 chat-topbar 默认就显示完整 6 个 agent, 不需要 toggle 折叠 */
+@media (min-width: 769px) {
+  .chat-topbar-team-toggle { display: none; }
+}
+
 .chat-header-left { display: flex; align-items: center; gap: 10px; }
 .chat-header-v2 .avatar { width: 36px; height: 36px; font-size: 16px; }
 .chat-header-v2 .chat-header-info { display: flex; flex-direction: column; gap: 2px; }
@@ -6125,8 +6207,13 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 /* = --bp-md 768px, 改断点同步 tokens.css / */
 @media (max-width: 768px) {
   /* Sidebar becomes drawer */
-  .app-sidebar { position: fixed; left: -100%; width: 80%; max-width: 300px; height: 100vh; z-index: 350; transition: left 0.3s cubic-bezier(0.25, 0.1, 0.25, 1); }
-  .app-sidebar.open { left: 0; }
+  /* ★ fix/chat-page-tab-bar-768px: 对话页 .app-sidebar 默认隐藏 (覆盖 switchModule L34273
+     inline display:flex), 让对话页跟达人库/商品页一致 (≤768 时 hide, hamburger 触发 .open 展开)
+     - !important 覆盖 inline style (L34273 无 !important)
+     - desktop ≥769 .app-sidebar 不受本规则影响 (默认 position: relative + display: flex + width: 280px)
+     - .open 状态保留 drawer 展开行为, 加 display:flex !important */
+  .app-sidebar { display: none !important; position: fixed; left: -100%; width: 80%; max-width: 300px; height: 100vh; z-index: 350; transition: left 0.3s cubic-bezier(0.25, 0.1, 0.25, 1); }
+  .app-sidebar.open { display: flex !important; left: 0; }
   .app-sidebar::after { content: ''; position: fixed; inset: 0; background: rgba(0,0,0,0.5); opacity: 0; pointer-events: none; transition: opacity 0.3s; z-index: -1; }
   .app-sidebar.open::after { opacity: 1; pointer-events: auto; }
   
@@ -7659,6 +7746,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 .product-modal-field label { display: block; font-size: 12px; color: var(--text-secondary); margin-bottom: 4px; }
 .product-modal-field.required label { color: var(--text-primary); }
 .product-modal-field.required label::after { content: ' *'; color: #FF3B30; }
+/* ★ feature/influencer-form-validation: 4 字段必填校验不通过时的高亮 */
+.field-missing { border-color: #FF3B30 !important; box-shadow: 0 0 0 2px rgba(255,59,48,0.25); }
 .product-modal-field input, .product-modal-field select, .product-modal-field textarea { width: 100%; padding: 8px 12px; border-radius: 8px; border: 0.5px solid var(--separator); font-size: 14px; background: var(--bg-primary); box-sizing: border-box; }
 .product-modal-field textarea { resize: vertical; min-height: 72px; }
 .product-modal-tip { background: var(--accent-light); color: var(--accent); padding: 10px 12px; border-radius: 8px; font-size: 12px; margin-bottom: 14px; line-height: 1.5; }
@@ -8010,7 +8099,7 @@ window.doLogin = function () {
 /* ====== CSS 变量(tokens 替代) ====== */
 :root {
   --color-rating-a: #34C759;
-  --color-rating-b: #007AFF;
+  --color-rating-b: #1677ff;
   --color-rating-c: #FFCC00;
   --color-rating-d: #8E8E93;
   --color-text-tertiary: #AEAEB2;
@@ -8094,7 +8183,7 @@ window.doLogin = function () {
 }
 .talent-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
 .talent-card[data-rating="A"] { --rating-color: #34C759; }
-.talent-card[data-rating="B"] { --rating-color: #007AFF; }
+.talent-card[data-rating="B"] { --rating-color: #1677ff; }
 .talent-card[data-rating="C"] { --rating-color: #FFCC00; }
 .talent-card[data-rating="D"] { --rating-color: #8E8E93; }
 .talent-card[data-rating="unrated"] { --rating-color: #AEAEB2; }
@@ -8115,7 +8204,7 @@ window.doLogin = function () {
   flex-shrink: 0; overflow: hidden;
 }
 .talent-card[data-rating="A"] .avatar-neutral { border-color: #34C759; }
-.talent-card[data-rating="B"] .avatar-neutral { border-color: #007AFF; }
+.talent-card[data-rating="B"] .avatar-neutral { border-color: #1677ff; }
 .talent-card[data-rating="C"] .avatar-neutral { border-color: #FFCC00; }
 .talent-card[data-rating="D"] .avatar-neutral { border-color: #8E8E93; }
 .talent-card[data-rating="unrated"] .avatar-neutral { color: #AEAEB2; border-color: #AEAEB2; border-style: dashed; }
@@ -8128,7 +8217,7 @@ window.doLogin = function () {
   background: transparent; letter-spacing: 0.3px;
 }
 .talent-card[data-rating="A"] .rating-chip { color: #34C759; border-color: #34C759; }
-.talent-card[data-rating="B"] .rating-chip { color: #007AFF; border-color: #007AFF; }
+.talent-card[data-rating="B"] .rating-chip { color: #1677ff; border-color: #1677ff; }
 .talent-card[data-rating="C"] .rating-chip { color: #FFCC00; border-color: #FFCC00; }
 .talent-card[data-rating="D"] .rating-chip { color: #8E8E93; border-color: #8E8E93; }
 .talent-card[data-rating="unrated"] .rating-chip {
@@ -10243,7 +10332,10 @@ window.doLogin = function () {
         </div>
         <div class="product-modal-field"><label>所在城市</label><input type="text" id="talentCity" placeholder="输入所在城市"></div>
         <div class="product-modal-field"><label>达人简介</label><textarea id="talentBio" placeholder="输入达人简介"></textarea></div>
-        <div class="product-modal-field"><label>短视频特征</label><textarea id="talentContentStyle" placeholder="例如：带货场景、纯内容、真实测评+日常vlog、韩系简约风等"></textarea></div>
+        <div class="product-modal-field required"><label>内容类型</label><input type="text" id="talentType" placeholder="如：达人号、带货号、剧情号"></div>
+        <div class="product-modal-field required"><label>内容风格</label><textarea id="talentContentStyle" placeholder="例如：带货场景、纯内容、真实测评+日常vlog、韩系简约风等"></textarea></div>
+        <div class="product-modal-field required"><label>账号粉丝特征</label><textarea id="accountFansProfile" placeholder="账号粉丝特征，如：25-35岁女性为主，一二线城市"></textarea></div>
+        <div class="product-modal-field required"><label>短视频粉丝特征</label><textarea id="videoFansProfile" placeholder="短视频粉丝特征，如：18-24岁女性，看完率显著提升"></textarea></div>
         <div class="product-modal-field"><label>AI 分析</label><textarea id="talentAIAnalysis" placeholder="输入 AI 综合分析"></textarea></div>
       </div>
       <div class="product-modal-section">
@@ -10584,6 +10676,8 @@ window.doLogin = function () {
 <div class="chat-topbar" id="chatTopbar">
   <div class="chat-topbar-section chat-topbar-team" id="chatTopbarTeam">
     <span class="chat-topbar-team-label">AI 团队</span>
+    <!-- ★ fix/iphone16-visual-polish: ≤768 折叠按钮 (默认隐藏 6 个 .chat-topbar-agent, 点击 toggle 展开) -->
+    <button class="chat-topbar-team-toggle" id="chatTopbarTeamToggle" onclick="toggleChatTopbarTeam()" aria-label="切换AI团队">6</button>
     <div class="chat-topbar-agent" data-agent="main">
       <span class="chat-topbar-agent-dot online"></span>
       <span class="chat-topbar-agent-name">main</span>
@@ -13794,6 +13888,31 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr, images, ch
       }
     }, lifecycleOptions), TIMEOUT_CHAT_MS, 'chat');
     
+    // ★ dedup 三件事收口: 检测 OpenClaw LLM fallback 自动 retry 一次
+    //   fallback 触发条件: reply 是固定文案 "抱歉，我暂时无法处理..." 或 isError=true
+    //   retry 时换 fallbackKey 避免覆盖主链 session, 并给 LLM 提示这是 retry
+    if (chatResult.reply && chatResult.reply.indexOf('抱歉，我暂时无法处理') !== -1 && !chatResult.isError) {
+      console.warn('[OpenClaw] 检测到 fallback 文案 (chainDepth=' + chainDepth + '), 自动 retry 一次');
+      try {
+        var retrySessionKey = 'agent:' + emp.id + ':chat:retry_' + Date.now();
+        var retryResult = await _withTimeout(_sendChatWaitForLifecycle(retrySessionKey, fullMessage + '\n\n[系统提示: 上一次LLM未遵守system_prompt中的达人ID,请用 PUT /api/talents/<ID> 直接更新,不要让用户重新提供]', {
+          onStream: function () {},
+          onPhase: function () {},
+          onToolStart: function () {},
+          onToolEnd: function () {},
+          onLifecycleEnd: function () {}
+        }), TIMEOUT_CHAT_MS, 'chat:retry');
+        if (retryResult && retryResult.reply && retryResult.reply.indexOf('抱歉，我暂时无法处理') === -1) {
+          chatResult = retryResult;
+          console.log('[OpenClaw] retry 成功, 用 retry 的 reply');
+        } else {
+          console.warn('[OpenClaw] retry 后仍 fallback 或失败, 用原 reply');
+        }
+      } catch (retryErr) {
+        console.warn('[OpenClaw] retry 异常:', retryErr);
+      }
+    }
+
     _doHandle(chatResult.reply, chatResult.isError);
     restoreOnline();
   } catch (e) {
@@ -14280,6 +14399,13 @@ document.addEventListener('DOMContentLoaded', function () {
   // 初始化侧边栏拖拽调整
   initSidebarResizers();
   applySidebarWidth(getSidebarWidth());
+  // fix/responsive-shell-collapse-r3: 初次入场即按下响应式 shell(不动 r2 CSS,
+  // 仅 inline 加固 .left-nav, 拦截对话页 @media 失效场景)
+  if (typeof forceResponsiveShell === 'function') forceResponsiveShell();
+  // 监听 resize(横竖屏切换 / PC 拖窗口): < 768 ↔ >= 769 边界重排
+  window.addEventListener('resize', function () {
+    if (typeof forceResponsiveShell === 'function') forceResponsiveShell();
+  });
   // 默认切换到消息模块（Feishu三栏布局）
   setTimeout(function() { switchModule('messages'); }, 100);
 
@@ -18135,6 +18261,10 @@ function _sendChatWaitForLifecycle(sessionKey, prompt, callbacks, options) {
             lifecycleError = (data.data.phase === 'error') && !fullReply;
             openclaw.off('agent', handler);
             if (lifecycleTimeout) clearTimeout(lifecycleTimeout);
+            // ★ r6: dedup 自动 PUT 时机修复 — lifecycle end 时用完整 fullReply 跑一次
+            //   onStream 首次 delta 调 displayAIReply 时 replyText 只是部分文本, 双条件/字段提取都 miss
+            //   完整 reply 才到时再调一次, 保证 dedup 真生效
+            if (fullReply) _tryAutoPutTalentFromReply(fullReply);
             resolve({ reply: fullReply, isError: lifecycleError, lifecycleEnded: true, fullReply: fullReply });
             done();
           }
@@ -24321,6 +24451,14 @@ function toggleSidebar() {
   document.querySelector('.app-sidebar').classList.toggle('open');
 }
 
+// ★ fix/iphone16-visual-polish: ≤768 时点 chat-topbar-team 切换 6 个 AI 员工 agent 展开/收起
+// 默认隐藏 6 个 .chat-topbar-agent, 加 .expanded class 显示 popover (CSS @media 块控制)
+function toggleChatTopbarTeam() {
+  if (window.innerWidth > 768) return;  // 桌面直接放行, 6 个 agent 默认横向铺开
+  var team = document.getElementById('chatTopbarTeam');
+  if (team) team.classList.toggle('expanded');
+}
+
 // CountTo Animation
 function countTo(el, end, duration = 1500, prefix = '', suffix = '') {
   const start = 0;
@@ -25891,7 +26029,300 @@ function rollbackKnowledgeVersion(docId, version) {
   });
 }
 
+// ★ fix/talent-full-sync-r3: dedup 路径前端自动 PUT
+// Helen system_prompt 注入 dedup_hint (server _build_talent_dedup_hint L21053) 时, LLM 回复会含:
+//   "已为达人 `tal_xxx` (姓名: XXX) 更新档案, ..." + 字段值 (粉丝量/GMV/GPM/...)
+// 前端解析后直接 PUT /api/talents/{id}, 不依赖用户手动点 modal 确认.
+// 后端 _merge_talent_only_empty 只补空值严禁覆盖 (r2 修复), 自动 PUT 安全.
+//
+// LLM 回复格式约定 (宽松 regex, 容错):
+//   "达人ID: `tal_xxx`" → talent_id
+//   "粉丝量: 5486" / "粉丝 5486" / "5486 粉丝" → followers
+//   "总GMV: 50万" / "结算总额: 50万-100万" → total_gmv
+//   "视频GPM: 50-100" / "GPM: 50" → video_gpm
+//   "带货商品数: 63" / "商品数: 63" → product_count
+//   "合作店铺数: 41" / "关联店铺数: 41" → total_shops
+//   "单视频结算额: 1000-2500" → single_video_settlement
+//   "互动率: 0.32%" → video_interaction_rate
+//   "直播场次: 0" / "直播 0 场" → live_sessions
+//   "带货天数: 372" / "372 天" → cooperation_days
+//   "内容类型: 带货号" → talent_type
+//   "内容风格: 好物分享" → content_style
+//   "账号粉丝特征: 25-35岁女性" → account_fans_profile
+//   "短视频粉丝特征: 18-24岁" → video_fans_profile
+//   "抖音号: abc" → douyin_id
+//   "等级: B级" / "LV3" → level
+//   "所在地: 上海" / "城市: 上海" → city
+//   "备注: ..." → bio
+//
+// 不依赖后端改 dedup_hint (避免耦合 bug/talent-deduplicate 1017212)
+// 用户手动 modal 流程 (updateExistingTalent) 保留, 两条路径并存
+
+function _parseFollowerCountLLM(v) {
+    // 复用 solobrave-server.py _parse_follower_count 逻辑 (LLM 回复可能用 '1.2万' / '5,486')
+    var s = String(v || '').toLowerCase().trim().replace(/[,\s]/g, '');
+    if (!s) return 0;
+    try {
+        if (s.indexOf('万') >= 0 || s.indexOf('w') >= 0) {
+            return Math.floor(parseFloat(s.replace(/[万千wW]/g, '')) * 10000);
+        }
+        return parseInt(s) || 0;
+    } catch (e) { return 0; }
+}
+
+function _parseMarkdownTableLLM(text) {
+    // ★ merge fix/talent-full-sync-r7+r8 (Mini cherry-pick): Markdown 表格 / JSON 块 → JSON 字符串
+    // LLM 输出格式多样 (Markdown 表格 / 单行逗号分隔 / JSON 块), 容错处理
+    if (!text || typeof text !== 'string') return null;
+    var trimmed = text.trim();
+    if (!trimmed) return null;
+    // 1. 已是 JSON 格式 (LLM 输出 ```json ... ```) → 直接验证
+    if (trimmed.charAt(0) === '[' || trimmed.charAt(0) === '{') {
+        try { return JSON.stringify(JSON.parse(trimmed), null, 0); } catch (e) { /* fallback */ }
+    }
+    // 2. Markdown 表格 (含 | 分隔符) → 解析
+    var lines = trimmed.split('\n').map(function (l) { return l.trim(); }).filter(Boolean);
+    var tableLines = lines.filter(function (l) { return l.indexOf('|') >= 0 && !l.match(/^[\|\s\-:]+$/); });
+    if (tableLines.length < 2) {
+        // 3. 单行: 逗号 / 中文逗号分隔
+        if (/[,，]/.test(trimmed)) {
+            var items = trimmed.split(/[,，]/).map(function (s) { return s.trim(); }).filter(Boolean);
+            return JSON.stringify(items);
+        }
+        return null;
+    }
+    var headers = tableLines[0].split('|').map(function (s) { return s.trim(); }).filter(Boolean);
+    if (headers.length === 0) return null;
+    var rows = [];
+    for (var i = 1; i < tableLines.length; i++) {
+        var cells = tableLines[i].split('|').map(function (s) { return s.trim(); }).filter(Boolean);
+        var item = {};
+        for (var j = 0; j < headers.length; j++) {
+            item[headers[j]] = cells[j] || '';
+        }
+        rows.push(item);
+    }
+    return JSON.stringify(rows, null, 0);
+}
+
+function _extractTalentFieldsFromLLMReply(reply) {
+    if (!reply || typeof reply !== 'string') return null;
+    var fields = {};
+    var t;
+
+    // ───── 达人 ID (触发前提) ─────
+    // LLM 实际回复格式:
+    //   A) "已为达人 `tal_xxx` (姓名: XXX) 更新档案..." (反引号 + 姓名: 配对)
+    //   B) "达人ID: `tal_xxx` (姓名: XXX) 更新档案..." (system_prompt 引导)
+    //   C) "已更新档案, 达人 ID: tal_xxx" (fallback)
+    // 优先匹配 A 格式 (反引号 + 姓名: 紧跟), 再 fallback 到 达人ID
+    t = reply.match(/[`'"]?(tal_[a-zA-Z0-9_]+)[`'"]?\s*\(姓名:/);
+    if (!t) {
+        t = reply.match(/达人ID[：:\s*]*[`'"]?(tal_[a-zA-Z0-9_]+|[a-zA-Z0-9_]{8,})[`'"]?/);
+    }
+    if (!t) return null;  // 没达人 ID → 不是 dedup 触发场景, 跳过
+    fields._talent_id = t[1];
+    var talentId = fields._talent_id;
+
+    // ───── (触发判定已移至 _tryAutoPutTalentFromReply, r4 双条件结构匹配) ─────
+    // 原本这里有 c6ce501 的关键词 regex `/(已为.*达人.*更新|已更新.*档案|直接调\s*PUT|PUT\s*\/api\/talents)/`
+    // r4 删了, 改用更鲁棒的双条件: 达人 ID 格式 + dedup context 关键词 (AND)
+    // (见 _tryAutoPutTalentFromReply L26155 起的双条件判定)
+
+    // ───── 核心数据 ─────
+    t = reply.match(/粉丝[量]?[：:\s*]*([0-9,\.万千]+)/);
+    if (t) fields.followers = _parseFollowerCountLLM(t[1]);
+
+    t = reply.match(/(结算总额|总GMV|GMV总额)[：:\s*]*[¥￥]?([0-9,\-万千]+)/);
+    if (t) fields.total_gmv = t[2];
+
+    t = reply.match(/(带货商品数|商品数)[：:\s*]*([0-9]+)/);
+    if (t) fields.product_count = parseInt(t[2]) || 0;
+
+    t = reply.match(/(合作店铺数|关联店铺数)[：:\s*]*([0-9]+)/);
+    if (t) fields.total_shops = parseInt(t[2]) || 0;
+
+    t = reply.match(/(?:视频\s*GPM|GPM)[：:\s*]*([0-9,\-]+)/);
+    if (t) fields.video_gpm = t[1];
+
+    t = reply.match(/(?:单视频结算额|单视频结算)[：:\s*]*[¥￥]?([0-9,\-]+)/);
+    if (t) fields.single_video_settlement = t[1];
+
+    t = reply.match(/互动率[：:\s*]*([0-9\.]+)\s*%/);
+    if (t) fields.video_interaction_rate = (parseFloat(t[1]) || 0) / 100;
+
+    t = reply.match(/(?<!\S)直播(?:场次|场数|场|次|数)?[：:\s*]*([0-9]+)/);
+    if (t) fields.live_sessions = parseInt(t[1]) || 0;
+
+    t = reply.match(/带货天数[：:\s*]*([0-9]+)/);
+    if (t) fields.cooperation_days = parseInt(t[1]) || 0;
+
+
+    // ───── 基础信息 ─────
+    t = reply.match(/内容类型[：:\s*]*([^\n,。；]+)/);
+    if (t) fields.talent_type = t[1].trim();
+
+    t = reply.match(/内容风格[：:\s*]*([^\n,。；]+)/);
+    if (t) fields.content_style = t[1].trim();
+
+    t = reply.match(/(?:账号粉丝特征|粉丝特征|粉丝画像|账号粉丝画像)[：:\s*]*([^\n,。；]+)/);
+    if (t) fields.account_fans_profile = t[1].trim();
+
+    t = reply.match(/(?:短视频粉丝特征|视频粉丝特征|短视频粉丝画像|视频粉丝画像)[：:\s*]*([^\n,。；]+)/);
+    if (t) fields.video_fans_profile = t[1].trim();
+
+    t = reply.match(/抖音号[：:\s*]*[`'"]?([a-zA-Z0-9_\-\.]+)[`'"]?/);
+    if (t) fields.douyin_id = t[1];
+
+    t = reply.match(/(?:等级|评级)[：:\s*]*(LV\d+|L\d+|[A-D]\s*级|[A-D][级]?)/);
+    if (t) fields.level = t[1].replace(/\s/g, '');
+
+    t = reply.match(/(?:所在地|所在城市|城市)[：:\s*]*([^\n,。；]+)/);
+    if (t) fields.city = t[1].trim();
+
+    // ───── r8: 补全 LLM 实际输出 → DB 列名映射 ─────
+    // LLM 真实回复常见字段 (chat 149): "- **达人昵称**：发财周周" / "- **平台**：抖音"
+    //                              "- **内容标签**：时尚" / "- **合作状态**：available"
+    // 之前 r5 只补了核心数据 + 部分基础信息, 漏了这 4 个常用字段
+    // 用 (?:^|\n)\s*[-*]? 行首锚定, 避免误匹配文中"达人昵称"等关键词
+    t = reply.match(/(?:^|\n)\s*[-*]?\s*(?:\*\*)?达人昵称(?:\*\*)?[：:\s*]*([^\n,。；*]+?)\s*(?:\*\*)?\s*$/m);
+    if (t) fields.name = t[1].trim();
+
+    t = reply.match(/(?:^|\n)\s*[-*]?\s*(?:\*\*)?平台(?:\*\*)?[：:\s*]*([^\n,。；*]+?)\s*(?:\*\*)?\s*$/m);
+    if (t) fields.platform = t[1].trim();
+
+    // 内容标签 (LLM 实际输出名) → content_style (独立匹配, 不跟"内容类型"/"内容风格" OR, 避免顺序冲突)
+    t = reply.match(/(?:^|\n)\s*[-*]?\s*(?:\*\*)?内容标签(?:\*\*)?[：:\s*]*([^\n,。；*]+?)\s*(?:\*\*)?\s*$/m);
+    if (t) fields.content_style = t[1].trim();
+
+    t = reply.match(/(?:^|\n)\s*[-*]?\s*(?:\*\*)?合作状态(?:\*\*)?[：:\s*]*([^\n,。；*]+?)\s*(?:\*\*)?\s*$/m);
+    if (t) fields.cooperation_status = t[1].trim();
+
+    t = reply.match(/(?:备注|简介|个人简介|bio)[：:\s*]*([^\n]+)/);
+    if (t) fields.bio = t[1].trim();
+
+    // r9 新增: 带货方式 → talent_type (DB 没"带货方式"列, 映射到 talent_type 最合适)
+    t = reply.match(/(?:^|\n)\s*[-*]?\s*(?:\*\*)?带货方式(?:\*\*)?[：:\s*]*([^\n,。；*]+?)\s*(?:\*\*)?\s*$/m);
+    if (t && !fields.talent_type) fields.talent_type = t[1].trim();
+
+    // ★ merge fix/talent-full-sync-r8 (Mini cherry-pick): 4 JSON 字段 + JSON 子字段兜底
+    //   hot_brands / cooperating_brands / brand_details / products 来自 LLM Markdown 表格
+    //   兜底: LLM 漏列时强制补 commission="未提供" / live_session_count=0
+    t = reply.match(/(?:热卖品牌TOP3|热卖品牌|hot_brands|品牌TOP3)[：:\s*]*\n?([\s\S]*?)(?=\n\n|\n#|$)/);
+    if (t) {
+        var parsed = _parseMarkdownTableLLM(t[1]);
+        if (parsed) {
+            // r8: 兜底 commission 子字段
+            try {
+                var arr = JSON.parse(parsed);
+                if (Array.isArray(arr)) {
+                    arr.forEach(function (item) {
+                        if (!('commission' in item) && !('佣金' in item)) {
+                            item.commission = item.commission || item['佣金'] || '未提供';
+                        }
+                    });
+                    fields.hot_brands = JSON.stringify(arr);
+                } else {
+                    fields.hot_brands = parsed;
+                }
+            } catch (e) { fields.hot_brands = parsed; }
+        } else {
+            fields.hot_brands = t[1].trim().split('\n')[0];
+        }
+    }
+
+    t = reply.match(/(?:合作品牌[列表]|cooperating_brands)[：:\s*]*\n?([\s\S]*?)(?=\n\n|\n#|$)/);
+    if (t) {
+        var parsed = _parseMarkdownTableLLM(t[1]);
+        if (parsed) fields.cooperating_brands = parsed;
+    }
+
+    t = reply.match(/(?:品牌详情|brand_details)[：:\s*]*\n?([\s\S]*?)(?=\n\n|\n#|$)/);
+    if (t) {
+        var parsed = _parseMarkdownTableLLM(t[1]);
+        if (parsed) fields.brand_details = parsed;
+    }
+
+    t = reply.match(/(?:带货商品明细|带货商品列表|带货商品|products|(?<!\| )代表商品)[：:\s*]*\n?([\s\S]*?)(?=\n\n|\n#|$)/);
+    if (t) {
+        var parsed = _parseMarkdownTableLLM(t[1]);
+        if (parsed) {
+            // r8: 兜底 live_session_count 子字段
+            try {
+                var arr = JSON.parse(parsed);
+                if (Array.isArray(arr)) {
+                    arr.forEach(function (item) {
+                        if (!('live_session_count' in item) && !('关联直播场次' in item)) {
+                            item.live_session_count = parseInt(item.live_session_count || item['关联直播场次'] || 0);
+                        }
+                    });
+                    fields.products = JSON.stringify(arr);
+                } else {
+                    fields.products = parsed;
+                }
+            } catch (e) { fields.products = parsed; }
+        }
+    }
+
+    // 去掉内部字段 (talent_id 已经单独提取)
+    delete fields._talent_id;
+
+    return {
+        talent_id: talentId,
+        body: fields
+    };
+}
+
+function _tryAutoPutTalentFromReply(reply) {
+    // ★ fix/talent-full-sync-r4: 双条件结构匹配 (取代 c6ce501 的具体 pattern regex)
+    // 1. 达人 ID 存在: tal_xxx 格式 (单词边界避免匹配 "talents" 等普通词)
+    // 2. dedup context 关键词 (中文, 涵盖老大 brief 的 5 个 + 扩展 2 个)
+    //    老大 brief 列表: 更新 / 录入 / 建档 / 同步 / 写入
+    //    扩展 (dedup 场景同义词): 档案 / 覆盖
+    // 两个条件 AND 满足 → 触发自动 PUT
+    // 单条件满足 → 普通对话 / 提及达人昵称但无 id → 不触发
+    if (!reply || typeof reply !== 'string') return;
+    var talentIdMatch = reply.match(/\b(tal_[a-zA-Z0-9_]+)\b/);
+    if (!talentIdMatch) return;  // ★ 没达人 ID → 普通对话 (含昵称但无 id) 不触发
+    if (!/(更新|录入|建档|同步|写入|档案|覆盖)/.test(reply)) return;  // ★ 没 dedup context → 不触发
+
+    // 双条件满足 → 解析字段 + 自动 PUT
+    var extracted = _extractTalentFieldsFromLLMReply(reply);
+    if (!extracted || !extracted.talent_id) return;  // 解析失败 (理论上不该到这里, 双条件已确保有 id)
+    var talentId = extracted.talent_id;
+    var body = extracted.body;
+    var fieldCount = Object.keys(body).length;
+    if (fieldCount === 0) {
+        console.debug('[AutoPUT] 没提取到任何字段, 跳过 (talent_id=' + talentId + ')');
+        return;
+    }
+    // 异步后台 PUT, 不阻塞 render
+    fetch('/api/talents/' + encodeURIComponent(talentId), {
+        method: 'PUT',
+        credentials: 'include',  // 带 cookie (防御: 部分路径靠 session cookie 而非 header)
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer ' + (localStorage.getItem('sb_auth_token') || '')  // ★ r7: 带 Bearer token, 修 401
+        },
+        // ★ r10: dedup_auto=true 标记让后端 bypass SubpoolGuard (Helen agent 是系统 AI 代写, 不是用户跨库操作)
+        body: JSON.stringify(Object.assign({dedup_auto: true}, body))
+    }).then(function (r) {
+        if (r.ok) {
+            console.log('[AutoPUT] 达人 ' + talentId + ' 自动同步 ' + fieldCount + ' 字段:', Object.keys(body).join(','));
+            // 不弹 toast (避免 Helen 还在回复时打扰用户), 静默成功
+        } else {
+            console.warn('[AutoPUT] PUT 失败 status=' + r.status + ' talent_id=' + talentId);
+        }
+    }).catch(function (e) {
+        console.error('[AutoPUT] 异常 talent_id=' + talentId + ':', e);
+    });
+}
+
 function displayAIReply(replyText, docContext, timeStr, expectedEmpId, citations, chainDepth) {
+  // ★ fix/talent-full-sync-r3: dedup 路径自动 PUT (放在函数最前, 异步后台执行不阻塞 render)
+  if (replyText && typeof replyText === 'string') {
+    _tryAutoPutTalentFromReply(replyText);
+  }
   citations = citations || [];
   chainDepth = chainDepth || 0;
   var area = document.getElementById('messagesArea');
@@ -30788,24 +31219,28 @@ function renderTalentPanelOverview(t) {
   html += '<div class="talents-panel-section">';
   html += '<div class="talents-panel-title">基础信息</div>';
   // 8 项基础信息:任一有值就展示,全空时合并成一行 placeholder
+  // ★ feature/influencer-form-validation: 空值 fallback '-' → '待补充' + 加 empty flag (CSS class value-empty 高亮橙色)
+  // ★ fix/ocr-fallback: talent 表字段为空时, 从 ocr_raw_fields 模糊匹配填充
+  //   (e.g. talent_type 为空 → 试 ocr.talent_type → 试 ocr.main_category)
   var _bi = [
-    {label:'内容类型',     val:t.talent_type || '-',                   full:false},
-    {label:'类目',         val:t.category || mock.category || '-',    full:false},
-    {label:'内容风格',     val:t.content_style || mock.content_style || '-', full:false},
-    {label:'视频结算额占比', val:t.video_settlement_ratio || '-',      full:false},
-    {label:'视频平均件单价', val:t.video_avg_price || '-',             full:false},
-    {label:'账号粉丝特征',  val:t.account_fans_profile || '-',         full:true},
-    {label:'短视频粉丝特征', val:t.video_fans_profile || '-',          full:true},
-    {label:'备注',         val:t.remark || '-',                        full:true},
+    {label:'内容类型',       val:(t.talent_type      || _ocrFallback(t, 'talent_type')      || '待补充'),     empty:!(t.talent_type      || _ocrFallback(t, 'talent_type')),      full:false},
+    {label:'类目',           val:(t.category         || _ocrFallback(t, 'category')         || mock.category || '待补充'), empty:!(t.category         || _ocrFallback(t, 'category')         || mock.category), full:false},
+    {label:'内容风格',       val:(t.content_style    || _ocrFallback(t, 'content_style')    || mock.content_style || '待补充'), empty:!(t.content_style    || _ocrFallback(t, 'content_style')    || mock.content_style), full:false},
+    {label:'视频结算额占比',  val:(t.video_settlement_ratio || _ocrFallback(t, 'video_settlement_ratio') || '待补充'), empty:!(t.video_settlement_ratio || _ocrFallback(t, 'video_settlement_ratio')), full:false},
+    {label:'视频平均件单价',  val:(t.video_avg_price  || _ocrFallback(t, 'video_avg_price')  || '待补充'),     empty:!(t.video_avg_price  || _ocrFallback(t, 'video_avg_price')),  full:false},
+    {label:'账号粉丝特征',   val:(t.account_fans_profile   || _ocrFallback(t, 'account_fans_profile')   || '待补充'), empty:!(t.account_fans_profile   || _ocrFallback(t, 'account_fans_profile')),   full:true},
+    {label:'短视频粉丝特征',  val:(t.video_fans_profile || _ocrFallback(t, 'video_fans_profile') || '待补充'),     empty:!(t.video_fans_profile || _ocrFallback(t, 'video_fans_profile')),     full:true},
+    {label:'备注',           val:(t.remark           || _ocrFallback(t, 'remark')           || '待补充'),     empty:!(t.remark           || _ocrFallback(t, 'remark')),            full:true},
   ];
-  var _biHasAny = _bi.some(function(i){ return i.val && i.val !== '-'; });
+  var _biHasAny = _bi.some(function(i){ return !i.empty; });
   html += '<div class="talents-info-grid">';
   if (!_biHasAny) {
     html += '<div class="talents-info-item full-width placeholder">基础信息待 AI 识别(AI 分析后将自动填充)</div>';
   } else {
     for (var _i = 0; _i < _bi.length; _i++) {
       var _it = _bi[_i];
-      html += '<div class="talents-info-item' + (_it.full ? ' full-width' : '') + '"><label>' + escapeHtml(_it.label) + '</label><div class="value">' + escapeHtml(_it.val) + '</div></div>';
+      // ★ feature/influencer-form-validation: 空值字段加 value-empty class (橙色高亮)
+      html += '<div class="talents-info-item' + (_it.full ? ' full-width' : '') + '"><label>' + escapeHtml(_it.label) + '</label><div class="value' + (_it.empty ? ' value-empty' : '') + '">' + escapeHtml(_it.val) + '</div></div>';
     }
   }
   html += '</div></div>';
@@ -30822,7 +31257,222 @@ function renderTalentPanelOverview(t) {
     if (!t.ai_analysis && ai.risk_warnings) html += '<div class="talents-ai-title" style="margin-top:10px;">风险提示</div><div class="talents-ai-text">' + formatMessageContent(ai.risk_warnings) + '</div>';
   }
   html += '</div>';
+
+  // ★ fix/ocr-full-ui: OCR 截图原始字段面板 (commit 284f6cd 后 API 返回 ocr_raw_fields)
+  //   老大反馈 "达人库详情没有变化" — 实际是 API 没返 ocr_raw_fields, 现在 API 已修,
+  //   但前端还没渲染, 用户看不到截图上识别的所有字段. 这里把所有非空字段列出来.
+  //   extra_fields 嵌套 dict 用 details/summary 折叠 (默认收起, 避免占用太多空间).
+  html += _renderOcrFieldsPanel(t.ocr_raw_fields);
+
   el.innerHTML = html;
+}
+
+
+// ★ fix/ocr-full-ui: OCR 截图原始字段面板 (复用人 talents-info-grid + talents-info-item 类)
+function _renderOcrFieldsPanel(ocrRaw) {
+  if (!ocrRaw || typeof ocrRaw !== 'object') return '';
+  var topEntries = [];   // 顶层标量字段
+  var nestedEntries = []; // 嵌套 dict/list
+  Object.keys(ocrRaw).forEach(function(k) {
+    var v = ocrRaw[k];
+    if (v === null || v === undefined || v === '' || v === '未提供') return;
+    if (typeof v === 'object') {
+      nestedEntries.push({ key: k, value: v });
+    } else {
+      topEntries.push({ key: k, value: v });
+    }
+  });
+  if (topEntries.length === 0 && nestedEntries.length === 0) return '';
+
+  // 嵌套字段叶子计数 (用于 badge 显示)
+  function _countLeaves(v) {
+    if (v === null || v === undefined) return 0;
+    if (typeof v !== 'object') return 1;
+    if (Array.isArray(v)) {
+      var n = 0;
+      v.forEach(function(item) { n += _countLeaves(item); });
+      return n;
+    }
+    var n = 0;
+    Object.keys(v).forEach(function(k) { n += _countLeaves(v[k]); });
+    return n;
+  }
+  var totalLeaves = topEntries.length + nestedEntries.reduce(function(s, x) { return s + _countLeaves(x.value); }, 0);
+
+  // ★ fix/ocr-field-labels: OCR 字段名 → 中文标签映射
+  //   老大反馈 '字段名要显示中文' — DB 里存的是英文 key (followers/total_gmv 等),
+  //   直接展示英文用户看不懂. 这里做中英映射, 没匹配的用原 key 兜底.
+  var OCR_FIELD_LABELS = {
+    name: '达人昵称',
+    douyin_id: '抖音号',
+    city: '所在地',
+    location: '地区',
+    followers: '粉丝量',
+    level: '等级',
+    bio: '简介',
+    tags: '内容标签',
+    main_category: '主营类目',
+    cooperation_status: '合作状态',
+    agency: '所属机构',
+    talent_type: '内容类型',
+    content_style: '内容风格',
+    product_count: '带货商品数',
+    total_history_days: '历史带货天数',
+    total_shops: '合作店铺数',
+    total_gmv: '总结算额',
+    live_ratio: '直播占比',
+    live_sessions: '直播场次',
+    live_views: '直播观看量',
+    video_ratio: '视频占比',
+    video_count: '视频数',
+    video_plays: '视频播放量',
+    single_video_settlement: '单视频结算',
+    video_gpm: '视频 GPM',
+    live_gpm: '直播 GPM',
+    video_settlement_ratio: '视频结算额占比',
+    video_avg_price: '视频平均件单价',
+    video_completion_rate: '视频完播率',
+    video_likes: '视频点赞数',
+    video_comments: '视频评论数',
+    video_shares: '视频转发数',
+    video_interaction_rate: '视频互动率',
+    average_price: '平均件单价',
+    fulfillment_score: '履约分',
+    rating_score: '评分',
+    top_products: '带货商品 TOP',
+    top_categories: '热卖类目 TOP',
+    top_brands: '热卖品牌 TOP',
+    fan_gender: '粉丝性别',
+    fan_age: '粉丝年龄',
+    fan_city_tier: '粉丝城市等级',
+    fan_crowd: '粉丝人群',
+    fan_price_range: '粉丝价格带',
+    fan_category: '粉丝品类偏好',
+    fan_region: '粉丝地域',
+    fan_group_gender: '粉丝团性别',
+    fan_group_age: '粉丝团年龄',
+    fan_group_crowd: '粉丝团人群',
+    fan_group_activity: '粉丝团活跃度',
+    fan_group_device: '粉丝团设备',
+    fan_group_price: '粉丝团价格带',
+    fan_group_category: '粉丝团品类',
+    live_audience_region: '直播间观众地域',
+    live_audience_city_tier: '直播间观众城市等级',
+    video_audience_region: '短视频观众地域',
+    video_audience_city_tier: '短视频观众城市等级',
+    extra_fields: '其他字段 (extra)',
+    account_fans_profile: '账号粉丝特征',
+    video_fans_profile: '短视频粉丝特征',
+    remark: '备注',
+    notes: '备注',
+    bio: '简介',
+  };
+
+  function _label(key) {
+    return OCR_FIELD_LABELS[key] || key;
+  }
+
+  var html = '';
+  html += '<div class="talents-panel-section">';
+  html += '<div class="talents-panel-title">📸 OCR 截图字段 <span style="font-weight:400;color:var(--text-secondary);font-size:12px;margin-left:6px;">(' + totalLeaves + ' 字段)</span></div>';
+
+  // 顶层字段 grid
+  if (topEntries.length > 0) {
+    html += '<div class="talents-info-grid">';
+    topEntries.forEach(function(item) {
+      var val = String(item.value);
+      // 截断过长的值 (避免一行占用太多空间)
+      var truncated = val.length > 120 ? val.slice(0, 120) + '…' : val;
+      html += '<div class="talents-info-item"><label>' + escapeHtml(_label(item.key)) + '</label><div class="value">' + escapeHtml(truncated) + '</div></div>';
+    });
+    html += '</div>';
+  }
+
+  // 嵌套字段格式化: dict → key-value 列表, list → bullet list
+  // ★ fix/ocr-render-dict: 老大反馈 '嵌套 JSON 显示原始数据'
+  //   {"女": 94} 应该显示 '女 94%' 而不是 '{"女":94}' JSON 字符串
+  //   规则: 数字 ≤ 100 自动加 % (粉丝画像/类目占比都是 0-100), >100 不加 (绝对值如粉丝数)
+  //         字符串原样保留 (e.g. "30%")
+  function _formatNestedScalar(v) {
+    if (typeof v === 'number' && !isNaN(v) && v <= 100) return v + '%';
+    return String(v);
+  }
+  function _renderNestedValue(v) {
+    if (v === null || v === undefined) return '';
+    if (typeof v === 'object' && !Array.isArray(v)) {
+      // dict: key-value flex 列表
+      var parts = [];
+      Object.keys(v).forEach(function(k){
+        var val = v[k];
+        var display;
+        if (val !== null && typeof val === 'object') {
+          // 嵌套 dict/list: 递归 + 缩进
+          display = _renderNestedValue(val);
+          parts.push('<div style="padding:4px 0;"><div style="color:var(--text-secondary);font-size:11px;margin-bottom:4px;">' + escapeHtml(k) + '</div><div style="padding-left:10px;border-left:2px solid var(--bg-secondary);">' + display + '</div></div>');
+        } else {
+          display = _formatNestedScalar(val);
+          parts.push('<div style="display:flex;justify-content:space-between;padding:3px 0;font-size:12px;border-bottom:1px solid var(--bg-secondary);"><span style="color:var(--text-secondary);">' + escapeHtml(k) + '</span><span style="color:var(--accent);font-weight:500;">' + escapeHtml(display) + '</span></div>');
+        }
+      });
+      return parts.join('');
+    }
+    if (Array.isArray(v)) {
+      // list: bullet 列表 (数组元素是 dict 时显示 JSON, 是标量时直接展示)
+      var items = v.map(function(item){
+        if (item !== null && typeof item === 'object') {
+          return '<div style="padding:4px 0;font-size:12px;">• ' + escapeHtml(JSON.stringify(item)) + '</div>';
+        }
+        return '<div style="padding:3px 0;font-size:12px;color:var(--text-primary);">• ' + escapeHtml(_formatNestedScalar(item)) + '</div>';
+      });
+      return items.join('');
+    }
+    return '<span>' + escapeHtml(_formatNestedScalar(v)) + '</span>';
+  }
+
+  // 嵌套字段: 每个独立 details 折叠面板, 默认收起
+  if (nestedEntries.length > 0) {
+    html += '<div style="margin-top:14px;">';
+    nestedEntries.forEach(function(item) {
+      var leaves = _countLeaves(item.value);
+      html += '<details style="background:var(--bg-tertiary);border-radius:var(--radius-md);padding:8px 12px;margin-bottom:8px;">';
+      html += '<summary style="cursor:pointer;font-size:13px;color:var(--text-primary);font-weight:500;list-style:none;">';
+      html += '<span style="display:inline-block;width:14px;transition:transform 0.2s;" class="ocr-toggle-icon">▶</span> ';
+      html += escapeHtml(_label(item.key)) + ' <span style="color:var(--text-secondary);font-weight:400;">(' + leaves + ' 字段)</span>';
+      html += '</summary>';
+      html += '<div style="margin:10px 0 0 20px;line-height:1.6;">' + _renderNestedValue(item.value) + '</div>';
+      html += '</details>';
+    });
+    html += '</div>';
+  }
+
+  html += '</div>';
+  return html;
+}
+
+// ★ fix/ocr-fallback: 从 ocr_raw_fields 模糊匹配填充前端 '待补充' 字段
+//   老大反馈 '前端要显示的待补充字段' (内容类型/内容风格/视频平均件单价/账号粉丝特征/短视频粉丝特征/备注)
+//   这些字段 talent 表里空 (legacy 录入没填), 但 ocr_raw_fields 里有同义字段 (talent_type/content_style/...)
+//   这里做 lookup 表, renderTalentPanelOverview 调用 _ocrFallback(t, 'talent_type') 拿到 fallback 值.
+var _OCR_FALLBACK_MAP = {
+  'talent_type':        ['talent_type', 'main_category'],
+  'category':           ['main_category', 'top_categories', 'category'],
+  'content_style':      ['content_style', 'bio'],
+  'video_settlement_ratio': ['video_settlement_ratio'],
+  'video_avg_price':    ['video_avg_price', 'average_price'],
+  'account_fans_profile':   ['account_fans_profile', 'fan_gender', 'fan_age', 'fan_city_tier', 'fan_crowd', 'fan_price_range', 'fan_category'],
+  'video_fans_profile': ['video_fans_profile', 'video_audience_region', 'video_audience_city_tier'],
+  'remark':             ['remark', 'notes'],
+};
+function _ocrFallback(t, field) {
+  var ocr = t && t.ocr_raw_fields;
+  if (!ocr) return '';
+  var keys = _OCR_FALLBACK_MAP[field];
+  if (!keys) return '';
+  for (var i = 0; i < keys.length; i++) {
+    var v = ocr[keys[i]];
+    if (v && typeof v !== 'object') return String(v);
+  }
+  return '';
 }
 
 function renderTalentPanelSales(t) {
@@ -31020,31 +31670,56 @@ function _getTalentPriceDistribution(t, mock) {
 }
 
 function _getTalentCategoryDistribution(t, mock) {
-  // 优先使用达人真实的类目分布数据（key 为类目名称，value 为百分比数字）
-  if (t.category_distribution && typeof t.category_distribution === 'object' && Object.keys(t.category_distribution).length) {
-    return Object.keys(t.category_distribution).map(function(key){
-      return { label: key, value: t.category_distribution[key] };
+  // ★ fix/ocr-distribution-fallback: 优先 t.category_distribution, 兜底 t.ocr_raw_fields.category_distribution
+  //   _OCR_TO_TALENT_FIELDS 没同步 category_distribution (talent 表无此列), OCR dict 必走 ocr_raw_fields
+  var cd = t.category_distribution;
+  if (!cd || typeof cd !== 'object' || !Object.keys(cd).length) {
+    var _ocr = t.ocr_raw_fields || {};
+    cd = _ocr.category_distribution;
+  }
+  if (cd && typeof cd === 'object' && Object.keys(cd).length) {
+    return Object.keys(cd).map(function(key){
+      return { label: key, value: cd[key] };
     });
   }
-  var cats = (t.category || t.fan_category || mock.category || '').split(/[\/，,]/).map(function(s){ return s.trim(); }).filter(Boolean);
-  if (!cats.length) return [];
-  var seed = _hashString(t.id + 'cat');
-  if (cats.length < 2) cats = [cats[0] || '主营类目', '相关类目1', '相关类目2'];
-  var total = 0;
-  var dist = cats.map(function(cat, i){
-    var v = Math.max(5, 30 + (seed >> i) % 40);
-    total += v;
-    return { label: cat, raw: v };
-  });
-  return dist.map(function(item){ return { label: item.label, value: Math.round(item.raw / total * 100) }; });
+  // ★ fix/ocr-distribution-no-demo: 移除 demo 假数据兜底 (老大反馈 2026-09-22)
+  //   之前无数据时回退到 "相关类目1 27%/相关类目2 43%" 是假数据, 误导用户
+  //   现在无数据直接返 [], 前端渲染"暂无数据"
+  return [];
 }
 
 function _getTalentBrandDistribution(t) {
-  // 与 category_distribution 相同的解析逻辑（key 为品牌名称，value 为百分比数字）
-  if (t.brand_distribution && typeof t.brand_distribution === 'object' && Object.keys(t.brand_distribution).length) {
-    return Object.keys(t.brand_distribution).map(function(key){
-      return { label: key, value: t.brand_distribution[key] };
-    });
+  // ★ fix/ocr-distribution-fallback: 优先 t.brand_distribution, 兜底 ocr_raw_fields.brand_distribution (dict)
+  //   OCR v3 (commit d32c7ff) 加了 brand_distribution dict 字段, 直接用 dict 渲染
+  // 1) talent.brand_distribution (dict) — talent 表实际无此列, 跳过
+  var _bd = t.brand_distribution;
+  if (!(_bd && typeof _bd === 'object' && Object.keys(_bd).length)) {
+    var _ocr = t.ocr_raw_fields || {};
+    _bd = _ocr.brand_distribution;
+  }
+  if (_bd && typeof _bd === 'object' && !Array.isArray(_bd) && Object.keys(_bd).length) {
+    return Object.keys(_bd).map(function(key){ return { label: key, value: _bd[key] }; });
+  }
+  // 2) fallback: ocr_raw_fields.top_brands / hot_brands (字段名变体, list 格式)
+  var ocr = t.ocr_raw_fields;
+  if (ocr) {
+    var _src = ocr.top_brands || ocr.hot_brands;
+    if (_src) {
+      if (Array.isArray(_src)) {
+        // list 格式 [{name, ratio, ...}, ...] → 转 {label, value}
+        var _mapped = _src.map(function(item){
+          if (item && typeof item === 'object') {
+            var _name = item.name || item.brand || item.label || '';
+            var _ratio = item.ratio || item.share || item.value || item.percentage || item.pct || 0;
+            return _name ? { label: _name, value: _ratio } : null;
+          }
+          return { label: String(item), value: 0 };
+        }).filter(Boolean);
+        if (_mapped.length) return _mapped;
+      } else if (typeof _src === 'object' && Object.keys(_src).length) {
+        return Object.keys(_src).map(function(key){ return { label: key, value: _src[key] }; });
+      }
+    }
   }
   return [];
 }
@@ -31074,28 +31749,76 @@ function _renderTalentDonut(items) {
 function _loadTalentSalesProducts(t) {
   var section = document.getElementById('talentSalesProductsSection');
   if (!section) return;
-  apiFetch('/api/talents/' + encodeURIComponent(t.id) + '/products?limit=10').then(function(r){return r.json();}).then(function(data){
-    var products = data.products || [];
-    if (products.length === 0) {
+  // ★ fix/ocr-panel-fallback: 内部 _renderProducts 抽出, 支持 API + OCR 兜底两路
+  function _renderProducts(products, sourceLabel) {
+    if (!products || products.length === 0) {
       section.innerHTML = '<div class="talents-panel-title">带货商品列表</div><div class="products-empty"><div class="products-empty-text">暂无带货商品数据</div></div>';
       return;
     }
-    var html = '<div class="talents-panel-title">带货商品列表 (' + products.length + ')</div>';
+    var html = '<div class="talents-panel-title">带货商品列表 (' + products.length + ')' + (sourceLabel ? ' <span style="font-size:11px;color:var(--text-secondary);font-weight:400;">' + sourceLabel + '</span>' : '') + '</div>';
     products.forEach(function(p){
+      // ★ fix/ocr-product-field-mapping: OCR v3 (commit d32c7ff) 5 字段 name+shop_name+price+gmv_range+video_count
+      //   OCR 实际输出字段名: name(必填) + shop_name + price + gmv_range + video_count
+      //   之前只读 p.name/p.brand/p.category/p.price/p.match_reason/p.match_score, OCR 商品字段都没对上
+      //   所以老大反馈: 价格 ¥0.00, 占比 0 (OCR 里明明有 ¥19.90, gmv ¥100万+)
+      var _name = (p && (p.name || p.title || p.product_name)) || '-';
+      var _shop = (p && (p.shop_name || p.shop || p.store)) || '-';
+      var _price = (p && (p.price || p['到手价'] || p.sale_price)) || 0;
+      var _gmv = (p && (p.gmv_range || p.gmv || p['结算额'] || p.settlement)) || '';
+      var _ratio = (p && (p.ratio || p.share || p['占比'] || p.percentage)) || '';
+      var _videoCount = (p && (p.video_count || p['关联短视频数'] || p.videoCount)) || '';
+      var _matchReason = (p && (p.match_reason || p.reason)) || '';
+      var _matchScore = (p && (p.match_score || p.score)) || 0;
+      // 商品元信息: 店铺 · 价格 · 结算额
+      var _metaParts = [_shop];
+      if (_price) _metaParts.push('¥' + (parseFloat(_price) || 0).toFixed(2));
+      if (_gmv) _metaParts.push('结算额 ' + _gmv);
+      var _meta = _metaParts.join(' · ');
+      // 右上角: OCR 模式显示占比, API 模式显示匹配分
+      var _scoreLabel = sourceLabel ? '占比' : '匹配分';
+      var _scoreValue = sourceLabel
+        ? ((parseFloat(_ratio) || 0).toFixed(1) + '%')
+        : (parseFloat(_matchScore) || 0).toFixed(0);
       html += '<div class="talents-product-card">';
-      html += '<div class="talents-product-placeholder" style="background:' + (p.brand === 'COOLCHAP' ? '#FF6B35' : '#165DFF') + ';">' + (p.name || '?').charAt(0) + '</div>';
+      html += '<div class="talents-product-placeholder" style="background:' + (_shop === 'COOLCHAP' ? '#FF6B35' : '#165DFF') + ';">' + (_name || '?').charAt(0) + '</div>';
       html += '<div class="talents-product-info">';
-      html += '<div class="talents-product-name">' + escapeHtml(p.name || '-') + '</div>';
-      html += '<div class="talents-product-meta">' + escapeHtml(p.brand || '-') + ' · ' + escapeHtml(p.category || '未分类') + ' · ¥' + (p.price || 0).toFixed(2) + '</div>';
-      html += '<div class="talents-product-meta" style="margin-top:4px;color:var(--text-secondary);">' + escapeHtml(p.match_reason || '') + '</div>';
+      html += '<div class="talents-product-name">' + escapeHtml(_name) + '</div>';
+      html += '<div class="talents-product-meta">' + escapeHtml(_meta) + '</div>';
+      if (_matchReason) html += '<div class="talents-product-meta" style="margin-top:4px;color:var(--text-secondary);">' + escapeHtml(_matchReason) + '</div>';
+      if (_videoCount && _videoCount !== '0') html += '<div class="talents-product-meta" style="margin-top:2px;color:var(--text-secondary);font-size:11px;">关联视频 ' + escapeHtml(String(_videoCount)) + ' 个</div>';
       html += '</div>';
       html += '<div class="talents-product-score">';
-      html += '<div class="talents-product-score-value">' + (p.match_score || 0).toFixed(0) + '</div>';
-      html += '<div class="talents-mid-score-label">匹配分</div>';
+      html += '<div class="talents-product-score-value">' + escapeHtml(_scoreValue) + '</div>';
+      html += '<div class="talents-mid-score-label">' + escapeHtml(_scoreLabel) + '</div>';
       html += '</div>';
       html += '</div>';
     });
     section.innerHTML = html;
+  }
+  apiFetch('/api/talents/' + encodeURIComponent(t.id) + '/products?limit=10').then(function(r){return r.json();}).then(function(data){
+    var products = data.products || [];
+    if (products.length > 0) {
+      _renderProducts(products, '');
+      return;
+    }
+    // ★ fallback ocr_raw_fields.top_products / hot_products
+    var ocr = t.ocr_raw_fields;
+    if (ocr) {
+      var _tp = ocr.top_products || ocr.hot_products;
+      if (Array.isArray(_tp) && _tp.length) {
+        _renderProducts(_tp, '· OCR 识别');
+        return;
+      }
+      if (_tp && typeof _tp === 'object' && !Array.isArray(_tp) && Object.keys(_tp).length) {
+        // dict 格式 {商品: 占比} → 转成 [{name, ratio}]
+        var _items = Object.keys(_tp).map(function(k){
+          return { name: k, ratio: _tp[k] };
+        });
+        _renderProducts(_items, '· OCR 识别');
+        return;
+      }
+    }
+    _renderProducts([], '');
   }).catch(function(e){
     section.innerHTML = '<div class="talents-panel-title">带货商品列表</div><div class="products-empty"><div class="products-empty-text">加载失败</div></div>';
   });
@@ -31106,9 +31829,29 @@ function renderTalentPanelFans(t) {
   if (!el) return;
   var mock = _getTalentMockData(t);
   var fans = t.fans_profile || mock.fans_profile || {};
+  // ★ fix/ocr-panel-fallback: 老大反馈 '粉丝画像标签页没读 ocr_raw_fields'
+  //   talent 表 fan_gender/fan_age/fan_region/fan_city_tier 等列通常空
+  //   (_OCR_TO_TALENT_FIELDS 只同步 17 个标量字段, 没同步这些 dict 字段)
+  //   OCR 识别的粉丝画像都在 ocr_raw_fields 里, 这里加 ocr_raw_fields 兜底
+  var ocr = t.ocr_raw_fields || {};
+  // _pickOcr: 按顺序找第一个非空值 (dict 类型用 Object.keys.length 判空)
+  function _pickOcrDict() {
+    for (var i = 0; i < arguments.length; i++) {
+      var v = ocr[arguments[i]];
+      if (v && typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length) return v;
+    }
+    return null;
+  }
+  function _pickOcrScalar() {
+    for (var i = 0; i < arguments.length; i++) {
+      var v = ocr[arguments[i]];
+      if (v && (typeof v !== 'object' || Array.isArray(v))) return v;
+    }
+    return '';
+  }
   var html = '';
   function renderDist(title, obj) {
-    if (!obj || Object.keys(obj).length === 0) return '';
+    if (!obj || (typeof obj === 'object' && !Array.isArray(obj) && Object.keys(obj).length === 0)) return '';
     var total = Object.values(obj).reduce(function(a,b){return a + (parseFloat(b)||0);}, 0);
     var section = '<div class="talents-panel-section"><div class="talents-panel-title">' + title + '</div>';
     Object.keys(obj).forEach(function(k){
@@ -31120,8 +31863,8 @@ function renderTalentPanelFans(t) {
     return section;
   }
 
-  // 粉丝画像总览
-  var hasFansData = ((fans.cities && fans.cities.length) || (fans.interest && fans.interest.length) || (t.fan_gender && Object.keys(t.fan_gender).length) || (t.fan_age && Object.keys(t.fan_age).length) || (t.fan_region && Object.keys(t.fan_region).length));
+  // 粉丝画像总览 (加 ocr 兜底)
+  var hasFansData = ((fans.cities && fans.cities.length) || (fans.interest && fans.interest.length) || _pickOcrDict('fan_gender','fan_group_gender') || _pickOcrDict('fan_age','fan_group_age') || _pickOcrDict('fan_region','fan_city_tier','live_audience_city_tier'));
   if (hasFansData) {
     html += '<div class="talents-panel-section">';
     html += '<div class="talents-panel-title">粉丝画像</div>';
@@ -31135,15 +31878,29 @@ function renderTalentPanelFans(t) {
     html += '</div></div>';
   }
 
-  html += renderDist('性别分布', t.fan_gender && Object.keys(t.fan_gender).length ? t.fan_gender : fans.gender);
-  html += renderDist('年龄分布', t.fan_age && Object.keys(t.fan_age).length ? t.fan_age : fans.age);
-  html += renderDist('地域分布', t.fan_region && Object.keys(t.fan_region).length ? t.fan_region : (fans.region || {}));
-  if (t.fan_crowd || t.fan_price_range || t.fan_category) {
+  // ★ ocr 兜底: 性别 / 年龄 / 地域 / 城市等级 / 设备 / 活跃度
+  var _fanGender = (t.fan_gender && Object.keys(t.fan_gender).length) ? t.fan_gender : (_pickOcrDict('fan_gender','fan_group_gender') || fans.gender);
+  var _fanAge = (t.fan_age && Object.keys(t.fan_age).length) ? t.fan_age : (_pickOcrDict('fan_age','fan_group_age') || fans.age);
+  var _fanRegion = (t.fan_region && Object.keys(t.fan_region).length) ? t.fan_region : (_pickOcrDict('fan_region') || (fans.region || {}));
+  html += renderDist('性别分布', _fanGender);
+  html += renderDist('年龄分布', _fanAge);
+  html += renderDist('地域分布', _fanRegion);
+  var _cityTier = _pickOcrDict('fan_city_tier','live_audience_city_tier','video_audience_city_tier');
+  if (_cityTier) html += renderDist('城市等级分布', _cityTier);
+  var _device = _pickOcrDict('fan_group_device');
+  if (_device) html += renderDist('粉丝团设备', _device);
+  var _activity = _pickOcrDict('fan_group_activity');
+  if (_activity) html += renderDist('粉丝团活跃度', _activity);
+  // ★ ocr 兜底: 人群偏好 (标量字段)
+  var _fanCrowd = t.fan_crowd || _pickOcrScalar('fan_crowd','fan_group_crowd');
+  var _fanPrice = t.fan_price_range || _pickOcrScalar('fan_price_range','fan_group_price');
+  var _fanCategory = t.fan_category || _pickOcrScalar('fan_category','fan_group_category');
+  if (_fanCrowd || _fanPrice || _fanCategory) {
     html += '<div class="talents-panel-section"><div class="talents-panel-title">人群偏好</div>';
     html += '<div class="products-detail-grid">';
-    html += '<div class="products-detail-item"><div class="products-detail-label">人群画像</div><div class="products-detail-value">' + escapeHtml(t.fan_crowd || '-') + '</div></div>';
-    html += '<div class="products-detail-item"><div class="products-detail-label">价格带</div><div class="products-detail-value">' + escapeHtml(t.fan_price_range || '-') + '</div></div>';
-    html += '<div class="products-detail-item"><div class="products-detail-label">类目偏好</div><div class="products-detail-value">' + escapeHtml(t.fan_category || '-') + '</div></div>';
+    html += '<div class="products-detail-item"><div class="products-detail-label">人群画像</div><div class="products-detail-value">' + escapeHtml(_fanCrowd || '-') + '</div></div>';
+    html += '<div class="products-detail-item"><div class="products-detail-label">价格带</div><div class="products-detail-value">' + escapeHtml(_fanPrice || '-') + '</div></div>';
+    html += '<div class="products-detail-item"><div class="products-detail-label">类目偏好</div><div class="products-detail-value">' + escapeHtml(_fanCategory || '-') + '</div></div>';
     html += '</div></div>';
   }
   if (!html) html = '<div class="products-empty"><div class="products-empty-text">暂无粉丝画像数据</div></div>';
@@ -31993,6 +32750,10 @@ function createNewTalent() {
   document.getElementById('talentCity').value = '';
   document.getElementById('talentBio').value = '';
   document.getElementById('talentContentStyle').value = '';
+  // ★ feature/influencer-form-validation: 4 必填字段新增
+  document.getElementById('talentType').value = '';
+  document.getElementById('accountFansProfile').value = '';
+  document.getElementById('videoFansProfile').value = '';
   document.getElementById('talentAIAnalysis').value = '';
   document.getElementById('talentContactName').value = '';
   document.getElementById('talentContactPhone').value = '';
@@ -32020,6 +32781,10 @@ function editCurrentTalent() {
     document.getElementById('talentCity').value = t.city || '';
     document.getElementById('talentBio').value = t.bio || '';
     document.getElementById('talentContentStyle').value = t.content_style || t.contentStyle || '';
+    // ★ feature/influencer-form-validation: 4 必填字段回填 (snake_case → camelCase id)
+    document.getElementById('talentType').value = t.talent_type || t.talentType || '';
+    document.getElementById('accountFansProfile').value = t.account_fans_profile || t.accountFansProfile || '';
+    document.getElementById('videoFansProfile').value = t.video_fans_profile || t.videoFansProfile || '';
     document.getElementById('talentAIAnalysis').value = t.ai_analysis || t.ai_summary || '';
     document.getElementById('talentContactName').value = t.contact_name || '';
     document.getElementById('talentContactPhone').value = t.phone || t.contact_phone || '';
@@ -32036,12 +32801,174 @@ function editCurrentTalent() {
 
 function closeTalentModal(e) { if (e && e.target !== e.currentTarget) return; document.getElementById('talentModalOverlay').classList.remove('active'); }
 
+// ★ feature/influencer-form-validation: 4 必填字段校验 (内容类型 / 内容风格 / 账号粉丝特征 / 短视频粉丝特征)
+// 备注保持选填, 不进校验
+function validateTalentForm() {
+  var required = [
+    {id: 'talentType',           label: '内容类型'},
+    {id: 'talentContentStyle',   label: '内容风格'},
+    {id: 'accountFansProfile',   label: '账号粉丝特征'},
+    {id: 'videoFansProfile',     label: '短视频粉丝特征'},
+  ];
+  var missing = [];
+  required.forEach(function(item) {
+    var field = document.getElementById(item.id);
+    if (field && !field.value.trim()) {
+      missing.push(item.label);
+      field.classList.add('field-missing');
+    } else if (field) {
+      field.classList.remove('field-missing');
+    }
+  });
+  if (missing.length) {
+    showToast('请补充必填字段: ' + missing.join('、'), 'error');
+    return false;
+  }
+  return true;
+}
+
 function saveTalent() {
   var id = document.getElementById('talentEditId').value;
   var name = document.getElementById('talentName').value.trim();
   var douyinId = document.getElementById('talentDouyinId').value.trim();
   if (!name) { showToast('请输入达人昵称'); return; }
   if (!douyinId) { showToast('请输入抖音号'); return; }
+  // ★ feature/influencer-form-validation: 4 必填字段校验 (内容类型 / 内容风格 / 账号粉丝特征 / 短视频粉丝特征)
+  if (!validateTalentForm()) return;
+
+  // ★ bug/talent-deduplicate: 新建场景 (id 为空) 前置查重, 命中已有 → confirm 让用户选
+  //   确认 → 调 updateExistingTalent 走更新 (只覆盖 AI 字段, 保留已有基础字段)
+  //   取消 → 继续原新建流程
+  if (!id) {
+    return _preCheckTalentAndSave(name);
+  }
+
+  var nextFollowUpVal = document.getElementById('talentNextFollowUpAt').value;
+  var nextFollowUpAt = nextFollowUpVal ? new Date(nextFollowUpVal).getTime() : 0;
+  var body = {
+    name: name,
+    douyin_id: douyinId,
+    real_name: document.getElementById('talentRealName').value.trim(),
+    followers: parseInt(document.getElementById('talentFollowers').value || '0') || 0,
+    category: document.getElementById('talentCategory').value.trim(),
+    fan_category: document.getElementById('talentCategory').value.trim(),
+    level: document.getElementById('talentLevel').value.trim(),
+    risk_rating: document.getElementById('talentRiskRating').value.trim(),
+    city: document.getElementById('talentCity').value.trim(),
+    bio: document.getElementById('talentBio').value.trim(),
+    content_style: document.getElementById('talentContentStyle').value.trim(),
+    // ★ feature/influencer-form-validation: 4 必填字段新增 (camelCase id → snake_case body field)
+    talent_type: document.getElementById('talentType').value.trim(),
+    account_fans_profile: document.getElementById('accountFansProfile').value.trim(),
+    video_fans_profile: document.getElementById('videoFansProfile').value.trim(),
+    ai_analysis: document.getElementById('talentAIAnalysis').value.trim(),
+    contact_name: document.getElementById('talentContactName').value.trim(),
+    contact_phone: document.getElementById('talentContactPhone').value.trim(),
+    phone: document.getElementById('talentContactPhone').value.trim(),
+    contact_wechat: document.getElementById('talentContactWechat').value.trim(),
+    wechat: document.getElementById('talentContactWechat').value.trim(),
+    contact_email: document.getElementById('talentContactEmail').value.trim(),
+    email: document.getElementById('talentContactEmail').value.trim(),
+    cooperation_status: document.getElementById('talentCooperationStatus').value,
+    follow_up_by: document.getElementById('talentFollowUpBy').value.trim(),
+    next_follow_up_at: nextFollowUpAt,
+    follow_up_note: document.getElementById('talentFollowUpNote').value.trim()
+  };
+  var url = id ? '/api/talents/' + encodeURIComponent(id) : '/api/talents';
+  var method = id ? 'PUT' : 'POST';
+  // 防重复提交：请求完成前禁用保存按钮并显示 loading
+  var btn = document.querySelector('#talentModalOverlay .product-modal-btn.save');
+  if (btn && btn.disabled) return;
+  if (btn) { btn.disabled = true; btn.textContent = '保存中…'; }
+  var restoreBtn = function () { if (btn) { btn.disabled = false; btn.textContent = '保存'; } };
+  apiFetch(url, {method: method, body: JSON.stringify(body)}).then(function(){
+    showToast(id ? '✅ 已更新' : '✅ 达人已录入');
+    closeTalentModal();
+    loadTalents();
+    if (id && _talentCurrentId === id) selectTalentItem(id);
+  }).catch(function(){ showToast('❌ 保存失败'); }).finally(restoreBtn);
+}
+
+// ★ bug/talent-deduplicate: 前置查重 + confirm 路由
+// 新建场景 (saveTalent id='') 先 GET /api/talents/search, 命中已有 → confirm
+// 确认 → updateExistingTalent(走更新, 只覆盖 AI 字段); 取消 → 原 POST 新建流程
+function _preCheckTalentAndSave(name) {
+  // fetch 用原生 (apiFetch 是 wrapper, 但查重是辅助操作, 用原生更直接)
+  fetch('/api/talents/search?name=' + encodeURIComponent(name), {headers: {'Accept': 'application/json'}})
+    .then(function(r){ return r.ok ? r.json() : {talents: []}; })
+    .catch(function(){ return {talents: []}; })
+    .then(function(data){
+      var hits = (data.talents || []).filter(function(t){ return !t._archived; });
+      if (hits.length === 0) {
+        // 没命中 → 走原新建流程
+        return _doCreateTalentPost();
+      }
+      var match = hits[0];
+      var confirmed = window.confirm(
+        '达人「' + match.name + '」已存在 (ID: ' + match.id + ', ' + (match.followers||0) + ' 粉丝)\n\n' +
+        '点击"确定" = 更新档案 (保留已有基础字段, 只覆盖 AI 分析 / 跟进信息)\n' +
+        '点击"取消" = 继续新建新达人记录 (会创建一条新的)'
+      );
+      if (confirmed) {
+        return updateExistingTalent(match.id);
+      }
+      // 取消 → 继续原新建
+      return _doCreateTalentPost();
+    });
+}
+
+// ★ fix/talent-full-sync: 走更新 (传 modal 实际有 input 的全部字段)
+// 之前 bug/talent-deduplicate (1017212) 只传 6 字段漏核心数据, Helen 分析结果的核心数据丢失
+// 现在传 modal 真实存在的 14 个字段 (基础信息 + AI + 跟进), 后端 _merge_talent_only_empty 只补空值严禁覆盖
+// modal 里没 input 的字段 (total_gmv / video_gpm / product_count 等核心数据) 走 Helen OCR 自动回写 (_update_talent_from_ocr_fields)
+function updateExistingTalent(talentId) {
+  var nextFollowUpVal = document.getElementById('talentNextFollowUpAt').value;
+  var nextFollowUpAt = nextFollowUpVal ? new Date(nextFollowUpVal).getTime() : 0;
+  var followersVal = parseInt(document.getElementById('talentFollowers').value, 10);
+  // ───── modal 实际有 input 的字段 (14 个) ─────
+  var body = {
+    // 基础信息 (10 项)
+    douyin_id: document.getElementById('talentDouyinId').value.trim(),
+    followers: isNaN(followersVal) ? 0 : followersVal,
+    talent_type: document.getElementById('talentType').value.trim(),
+    content_style: document.getElementById('talentContentStyle').value.trim(),
+    account_fans_profile: document.getElementById('accountFansProfile').value.trim(),
+    video_fans_profile: document.getElementById('videoFansProfile').value.trim(),
+    bio: document.getElementById('talentBio').value.trim(),
+    level: document.getElementById('talentLevel').value.trim(),
+    city: document.getElementById('talentCity').value.trim(),
+    category: document.getElementById('talentCategory').value.trim(),
+    // AI 字段 (1 项)
+    ai_analysis: document.getElementById('talentAIAnalysis').value.trim(),
+    // 跟进字段 (4 项)
+    follow_up_by: document.getElementById('talentFollowUpBy').value.trim(),
+    next_follow_up_at: nextFollowUpAt,
+    follow_up_note: document.getElementById('talentFollowUpNote').value.trim(),
+    cooperation_status: document.getElementById('talentCooperationStatus').value,
+  };
+  var btn = document.querySelector('#talentModalOverlay .product-modal-btn.save');
+  if (btn && btn.disabled) return Promise.resolve();
+  if (btn) { btn.disabled = true; btn.textContent = '保存中…'; }
+  var restoreBtn = function () { if (btn) { btn.disabled = false; btn.textContent = '保存'; } };
+  return apiFetch('/api/talents/' + encodeURIComponent(talentId), {
+    method: 'PUT',
+    body: JSON.stringify(body)
+  }).then(function(){
+    showToast('✅ 达人「' + document.getElementById('talentName').value.trim() + '」档案已更新');
+    closeTalentModal();
+    loadTalents();
+    if (_talentCurrentId === talentId) selectTalentItem(talentId);
+  }).catch(function(){
+    showToast('❌ 更新失败');
+  }).then(restoreBtn, restoreBtn);
+}
+
+// ★ bug/talent-deduplicate: 原 saveTalent 里"新建"分支 (POST /api/talents) 抽出来
+// 让 _preCheckTalentAndSave 在查重 miss / 用户取消 confirm 后复用
+function _doCreateTalentPost() {
+  var id = document.getElementById('talentEditId').value;
+  var name = document.getElementById('talentName').value.trim();
+  var douyinId = document.getElementById('talentDouyinId').value.trim();
   var nextFollowUpVal = document.getElementById('talentNextFollowUpAt').value;
   var nextFollowUpAt = nextFollowUpVal ? new Date(nextFollowUpVal).getTime() : 0;
   var body = {
@@ -32069,19 +32996,15 @@ function saveTalent() {
     next_follow_up_at: nextFollowUpAt,
     follow_up_note: document.getElementById('talentFollowUpNote').value.trim()
   };
-  var url = id ? '/api/talents/' + encodeURIComponent(id) : '/api/talents';
-  var method = id ? 'PUT' : 'POST';
-  // 防重复提交：请求完成前禁用保存按钮并显示 loading
   var btn = document.querySelector('#talentModalOverlay .product-modal-btn.save');
-  if (btn && btn.disabled) return;
+  if (btn && btn.disabled) return Promise.resolve();
   if (btn) { btn.disabled = true; btn.textContent = '保存中…'; }
   var restoreBtn = function () { if (btn) { btn.disabled = false; btn.textContent = '保存'; } };
-  apiFetch(url, {method: method, body: JSON.stringify(body)}).then(function(){
-    showToast(id ? '✅ 已更新' : '✅ 达人已录入');
+  return apiFetch('/api/talents', {method: 'POST', body: JSON.stringify(body)}).then(function(){
+    showToast('✅ 达人已录入');
     closeTalentModal();
     loadTalents();
-    if (id && _talentCurrentId === id) selectTalentItem(id);
-  }).catch(function(){ showToast('❌ 保存失败'); }).finally(restoreBtn);
+  }).catch(function(){ showToast('❌ 保存失败'); }).then(restoreBtn, restoreBtn);
 }
 
 function deleteCurrentTalent() {
@@ -34180,6 +35103,99 @@ function applySidebarWidth(width) {
   });
 }
 
+// fix/responsive-shell-collapse-r3: 兜底 JS-driven 响应式 shell
+// 背景: 老大复验发现 r2 (≤768 .left-nav 改底部 tab bar) 在达人库页生效,
+// 对话页 .left-nav 仍是 56px 左侧栏, CSS 静态分析(r2 已带 !important)
+// 仍无法定位. 用 JS 直接 inline 强写 .left-nav 样式, 跳过 CSS @media,
+// 任何微信 WebView / 浏览器 CSS 解析异常都拦截.
+// 触发: load(resize 兼容旋转), resize, switchModule 后, 保证模块切换也重排.
+function forceResponsiveShell() {
+  var leftNav = document.querySelector('.left-nav');
+  if (!leftNav) return;
+  var appContainer = document.querySelector('.app-container');
+  var appMain = document.querySelector('.app-main');
+  var navTop = leftNav.querySelector('.left-nav-top');
+  var navBottom = leftNav.querySelector('.left-nav-bottom');
+  var navItems = leftNav.querySelectorAll('.nav-item');
+  var navItemSvgs = leftNav.querySelectorAll('.nav-item svg');
+  var isMobile = window.innerWidth <= 768;
+
+  // 保留的属性白名单(switchModule/applySidebarWidth 可能改 .left-nav 个别属性,
+  // 但本函数仅在 ≤768/≥769 边界改这些字段,其他不动)
+  if (isMobile) {
+    leftNav.style.position = 'fixed';
+    leftNav.style.left = '0';
+    leftNav.style.right = '0';
+    leftNav.style.bottom = '0';
+    leftNav.style.width = '100%';
+    leftNav.style.height = '56px';
+    leftNav.style.flexDirection = 'row';
+    leftNav.style.justifyContent = 'space-around';
+    leftNav.style.padding = '0 4px';
+    leftNav.style.borderRight = 'none';
+    leftNav.style.borderTop = '0.5px solid var(--separator)';
+    leftNav.style.zIndex = '300';
+    if (navTop) {
+      navTop.style.flexDirection = 'row';
+      navTop.style.gap = '0';
+      navTop.style.flex = '1';
+      navTop.style.justifyContent = 'space-around';
+      navTop.style.padding = '0 4px';
+    }
+    if (navBottom) navBottom.style.display = 'none';
+    for (var i = 0; i < navItems.length; i++) {
+      var item = navItems[i];
+      var w = window.innerWidth <= 480 ? '36px' : '32px';
+      item.style.width = w;
+      item.style.height = w;
+      item.style.borderRadius = '8px';
+      item.style.flexShrink = '0';
+      // ::before indicator 由 CSS 控制(不在这里覆盖, 避免内联 !important 污染)
+    }
+    for (var k = 0; k < navItemSvgs.length; k++) {
+      navItemSvgs[k].style.width = '18px';
+      navItemSvgs[k].style.height = '18px';
+    }
+    // 主区让出底部 56px
+    if (appContainer) appContainer.style.paddingBottom = '56px';
+    if (appMain) appMain.style.paddingBottom = '56px';
+  } else {
+    // 桌面端: 清掉 inline style 恢复 r2 之前状态(让 base CSS 接管)
+    leftNav.style.position = '';
+    leftNav.style.left = '';
+    leftNav.style.right = '';
+    leftNav.style.bottom = '';
+    leftNav.style.width = '';
+    leftNav.style.height = '';
+    leftNav.style.flexDirection = '';
+    leftNav.style.justifyContent = '';
+    leftNav.style.padding = '';
+    leftNav.style.borderRight = '';
+    leftNav.style.borderTop = '';
+    leftNav.style.zIndex = '';
+    if (navTop) {
+      navTop.style.flexDirection = '';
+      navTop.style.gap = '';
+      navTop.style.flex = '';
+      navTop.style.justifyContent = '';
+      navTop.style.padding = '';
+    }
+    if (navBottom) navBottom.style.display = '';
+    for (var j = 0; j < navItems.length; j++) {
+      navItems[j].style.width = '';
+      navItems[j].style.height = '';
+      navItems[j].style.borderRadius = '';
+      navItems[j].style.flexShrink = '';
+    }
+    for (var m = 0; m < navItemSvgs.length; m++) {
+      navItemSvgs[m].style.width = '';
+      navItemSvgs[m].style.height = '';
+    }
+    if (appContainer) appContainer.style.paddingBottom = '';
+    if (appMain) appMain.style.paddingBottom = '';
+  }
+}
+
 function initSidebarResizers() {
   getAllSidebars().forEach(function(sb) {
     if (sb.querySelector('.sidebar-resizer')) return;
@@ -34270,7 +35286,12 @@ function switchModule(module) {
   var appSidebar = document.querySelector('.app-sidebar');
   if (module === 'messages') {
     if (chatArea) chatArea.style.display = 'flex';
-    if (appSidebar) appSidebar.style.display = 'flex';
+    // ★ fix/chat-page-tab-bar-768px-r2: ≤768 时 .app-sidebar 隐藏 (跟达人库/商品页 L34292 一致 inline 强制)
+    //  - 之前: 不分 viewport 一律 display: flex → ≤768 主区被 280px 侧栏压缩
+    //  - 现在: ≤768 隐藏, ≥769 显示 (跟达人库/商品 inline 逻辑对齐)
+    //  - 这是 JS-side 防御, 跟 mobile CSS @media .app-sidebar { display: none !important } 互补
+    //    (任一生效即可, 即使 Mac 浏览器 cache 旧 CSS, JS inline 仍 hide)
+    if (appSidebar) appSidebar.style.display = (window.innerWidth <= 768) ? 'none' : 'flex';
     if (employeeList) employeeList.style.display = 'block';
     if (projectList) projectList.style.display = 'none';
     renderEmployeeList();
@@ -34330,6 +35351,9 @@ function switchModule(module) {
   else if (module === 'tasks') loadTasks();
   else if (module === 'settings') renderSettingsMid();
   applySidebarWidth(getSidebarWidth());
+  // fix/responsive-shell-collapse-r3: 模块切换也重排(防止 inline style 被覆盖/不同
+  // 模块里 .app-main 子节点的 layout 改变影响 .left-nav 视觉)
+  if (typeof forceResponsiveShell === 'function') forceResponsiveShell();
 }
 
 function getDefaultGlobalSearchScope(module) {
