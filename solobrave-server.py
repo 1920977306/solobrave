@@ -21727,15 +21727,25 @@ _DIST_FIELDS_NORMALIZE = [
 
 def _normalize_dist_key(key):
     """归一化分布 dict 的 key.
+    - None / 非 str 输入: 返 ''
     - 去"岁"字 (年龄: '31-40岁' → '31-40')
-    - 全角数字 → 半角 ('３１-４０' → '31-40')
+    - 全角数字 → 半角 ('３１-４０' → '31-40'), 全角小数点 '．' → '.'
     - 去全角空格 / 前后 trim
     - 横线归一 (en-dash U+2013 / em-dash U+2014 / 水平线 U+2015 / 减号 U+2212 → '-')
     """
+    if key is None:
+        return ''
     if not isinstance(key, str):
-        return str(key).strip()
+        key = str(key)
     s = key.strip()
-    s = s.translate(str.maketrans('０-９', '0-9'))   # 全角数字 → 半角
+    if not s:
+        return ''
+    # ★ fix/ocr-dist-normalize-bugs (老大 2026-09-24):
+    #   原版用 str.maketrans('０-９', '0-9'), 但 str.maketrans 不识别 range,
+    #   '-' 字符被当作普通字符, 结果只映射了 3 个字符 (０, -, ９), 中间数字漏转.
+    #   修法: 显式列出所有 10 个全角数字 → 半角数字, 包括全角小数点.
+    _FULLWIDTH_DIGITS = str.maketrans('０１２３４５６７８９．', '0123456789.')
+    s = s.translate(_FULLWIDTH_DIGITS)
     s = s.replace('岁', '')                           # 去"岁"字
     s = re.sub(r'[\s\u3000]+', '', s)                 # 去所有空白 (半角空格 + 全角空格)
     s = re.sub(r'[\u2013\u2014\u2015\u2212]', '-', s) # 横线归一
