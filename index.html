@@ -2384,6 +2384,20 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .ai-section { display: flex; flex-direction: column; gap: 10px; }
 .ai-section-title { font-size: 13px; font-weight: 600; color: var(--text-primary); }
 .ai-section-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px; }
+/* ★ fix/ai-report-unverified-precision: 行内克制提示 (段末, 合作建议段被过滤后) */
+.precision-warning-inline {
+  color: var(--color-warning, #f59e0b);
+  font-size: 11px;
+  font-weight: 400;
+  margin-left: 6px;
+  opacity: 0.85;
+  font-style: italic;
+}
+/* ★ fix/ai-report-unverified-precision: 合作建议段过滤后为空 (整段未验证) */
+.ai-advice-section.empty {
+  color: var(--color-text-tertiary, #AEAEB2);
+  font-style: italic;
+}
 .ai-section-list li {
   position: relative;
   padding-left: 22px;
@@ -31074,10 +31088,44 @@ function renderTalentAIReport(text) {
     return formatMessageContent(text);
   }
 
+  // ★ fix/ai-report-unverified-precision: 精修未验证数字处理
+  //   合作建议段: 只删除段落中含意图前缀 (预估/预计/大约/约/左右/大概/估算/预测/推测/假设) + 数字的句子
+  //   断句: 中英文分号句号 ( ; ； . 。 ! ! ? ? \n)
+  //   删除后段落为空 → 显示 "等待 AI 模型修复后重新生成"
+  //   提示文案 (行内克制, 段末): "此段含未验证数字，部分已隐藏"
+  //   风险点与缓解建议段不变 (老大硬约束)
+  function _filterUnverifiedSentences(text) {
+    if (!text) return { filtered: '', hasUnverified: false };
+    var SENTENCE_SPLIT_REGEX = /([;；。.!?！？\n]+)/;
+    var parts = String(text).split(SENTENCE_SPLIT_REGEX);
+    // 重组: 句子 + 分隔符 配对 (parts 长度 = 2*N+1)
+    var sentences = [];
+    for (var i = 0; i < parts.length; i += 2) {
+      var sentence = (parts[i] || '').trim();
+      var sep = parts[i + 1] || '';
+      if (sentence) sentences.push(sentence + sep);
+    }
+    if (!sentences.length) return { filtered: '', hasUnverified: false };
+
+    var UNVERIFIED_INTENT_REGEX = /(预估|预计|大约|大概|约莫|约|左右|近似|估算|预测|推测|假设)[^\n\u3002\uff1b\uff01\uff1f]*?\d/;
+    var filteredSentences = sentences.filter(function (s) { return !UNVERIFIED_INTENT_REGEX.test(s); });
+    var filtered = filteredSentences.join('').trim();
+    var hasUnverified = filteredSentences.length < sentences.length;
+    return { filtered: filtered, hasUnverified: hasUnverified };
+  }
+
+  // ★ fix/ai-report-unverified-precision: 合作建议段行内克制提示 (段末)
+  function _precisionWarningSuffix(hasUnverified) {
+    if (!hasUnverified) return '';
+    return ' <span class="precision-warning-inline">此段含未验证数字，部分已隐藏</span>';
+  }
+
   // ★ ui/talent-detail-redesign-v2-cleanup commit 6 (老大 2026-09-23):
   //   unverified 段整段不渲染, 改为占位 "❓ 此段含未验证数字, 已隐藏"
   //   治本是修改 Helen system_prompt 加 "禁止编造具体数字" 规则 (后端 Mini 端)
   //   前端做防御: 隐藏具体数字段, 等后端修
+  //   注: ★ fix/ai-report-unverified-precision: 仅匹配亮点/潜在问题/风险点保留此行为,
+  //      合作建议段改为精修 (只删含意图前缀句子, 见下方 _filterUnverifiedSentences)
   function _renderUnverifiedPlaceholder(title) {
     return '<div class="ai-section"><div class="ai-section-title">' + escapeHtml(title) + ' <span style="font-size:11px;color:var(--color-status-lost,#FF3B30);font-weight:400;">⚠ 此段含未验证数字, 已隐藏</span></div><div class="products-empty-text">等待 AI 模型修复后重新生成</div></div>';
   }
@@ -31136,15 +31184,27 @@ function renderTalentAIReport(text) {
     html += '<hr class="ai-section-divider">';
   }
 
-  // 合作建议表格 (含未验证数字时整段占位)
-  if (report.cooperationUnverified) {
-    html += _renderUnverifiedPlaceholder('合作建议');
-  } else if (report.cooperation.length) {
-    html += '<div class="ai-section"><div class="ai-section-title">合作建议</div><table class="ai-cooperation-table">';
-    report.cooperation.forEach(function(c){
-      html += '<tr><th>' + escapeHtml(c.label) + '</th><td>' + formatMessageInline(c.value) + '</td></tr>';
-    });
+  // ★ fix/ai-report-unverified-precision: 合作建议段精修 (只删含意图前缀句子, 不再整段占位)
+  //   每条 c.value 走 _filterUnverifiedSentences 过滤, 含意图前缀+数字的句子被删
+  //   删除后 c.value 为空 → 该条不显示 (单条)
+  //   所有 c 过滤后都为空 → 显示 "等待 AI 模型修复后重新生成"
+  //   段末行内提示 (克制, 不显眼): "此段含未验证数字，部分已隐藏"
+  var _adviceUnverifiedAny = false;
+  var _adviceRows = [];
+  report.cooperation.forEach(function (c) {
+    var f = _filterUnverifiedSentences(c.value || '');
+    if (f.hasUnverified) _adviceUnverifiedAny = true;
+    if (f.filtered) {
+      _adviceRows.push('<tr><th>' + escapeHtml(c.label) + '</th><td>' + formatMessageInline(f.filtered) + '</td></tr>');
+    }
+  });
+  if (_adviceRows.length) {
+    html += '<div class="ai-section"><div class="ai-section-title">合作建议' + _precisionWarningSuffix(_adviceUnverifiedAny) + '</div><table class="ai-cooperation-table">';
+    html += _adviceRows.join('');
     html += '</table></div>';
+  } else if (report.cooperation.length) {
+    // 所有行被过滤后都为空 → 显示 "等待 AI 模型修复后重新生成"
+    html += '<div class="ai-section"><div class="ai-section-title">合作建议</div><div class="ai-advice-section empty">等待 AI 模型修复后重新生成</div></div>';
   }
   // 2-3 divider
   if ((report.cooperation.length) && (report.risks.length)) {
@@ -31259,7 +31319,16 @@ function renderTalentPanelOverview(t) {
     html += renderTalentAIReport(aiText);
   } else {
     html += '<div class="talents-ai-text">点击右上角「AI 分析」生成达人综合评估。</div>';
-    if (!t.ai_analysis && ai.cooperation_advice) html += '<div class="talents-ai-title" style="margin-top:10px;">合作建议</div><div class="talents-ai-text">' + formatMessageContent(ai.cooperation_advice) + '</div>';
+    if (!t.ai_analysis && ai.cooperation_advice) {
+      // ★ fix/ai-report-unverified-precision: fallback 合作建议也走精修过滤
+      var _adviceFb = _filterUnverifiedSentences(ai.cooperation_advice);
+      if (_adviceFb.filtered) {
+        html += '<div class="talents-ai-title" style="margin-top:10px;">合作建议' + _precisionWarningSuffix(_adviceFb.hasUnverified) + '</div><div class="talents-ai-text">' + formatMessageContent(_adviceFb.filtered) + '</div>';
+      } else if (ai.cooperation_advice) {
+        // 全部被过滤 → 显示 "等待 AI 模型修复后重新生成"
+        html += '<div class="talents-ai-title" style="margin-top:10px;">合作建议</div><div class="talents-ai-text ai-advice-section empty">等待 AI 模型修复后重新生成</div>';
+      }
+    }
     if (!t.ai_analysis && ai.risk_warnings) html += '<div class="talents-ai-title" style="margin-top:10px;">风险提示</div><div class="talents-ai-text">' + formatMessageContent(ai.risk_warnings) + '</div>';
   }
   html += '</div>';
