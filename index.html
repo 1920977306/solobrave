@@ -31300,13 +31300,25 @@ function renderTalentPanelOverview(t) {
   html += '<div class="talents-panel-title">核心数据</div>';
   // ★ ui/talent-detail-redesign-v2-cleanup: 删 KPI 假 sparkline + trend % (老大 2026-09-23)
   //   无后端时间序列接口时画假折线 + 假趋势 %, 等于编造数字 → 全删, 只留 value + label
+  // ★ fix/talent-kpi-card-key-bind: 4 张卡 key 改名 (feishu_* / monthly_settlement → 实际库列),
+  //   redesign 时前端 key 名改飞了, 库返 23/22/300/250万, 前端读错 key 走 || '-' 全显 -.
+  //   复用 L30531 GMV 万元模式 (>= 10000 转 "xw" 格式, 页面已存在的内联逻辑) + formatNumber 千位分隔.
+  function _kpiWan(v) {
+    // ★ 复用页面已有 GMV 万元模式 (talent-detail L30531): >= 10000 转万元, 否则千位分隔
+    var n = parseFloat(v) || 0;
+    return n >= 10000 ? ((n / 10000).toFixed(1).replace(/\.0$/, '') + '万') : (n > 0 ? formatNumber(n) : '');
+  }
+  function _kpiNum(v) {
+    var n = parseFloat(v) || 0;
+    return n > 0 ? formatNumber(n) : '';
+  }
   var _kpis = [
     { label: '粉丝量',      val: t.followers ? formatFollowers(t.followers) : '-' },
-    { label: '月结算金额',   val: t.monthly_settlement || '-' },
-    { label: '带货商品数',   val: t.feishu_product_count || '-' },
-    { label: '视频GPM',      val: t.feishu_gpm || '-' },
+    { label: '月结算金额',   val: _kpiWan(t.total_gmv) || '-' },
+    { label: '带货商品数',   val: _kpiNum(t.product_count) || '-' },
+    { label: '视频GPM',      val: _kpiNum(t.video_gpm) || '-' },
     { label: '单视频结算额', val: t.single_video_settlement || '-' },
-    { label: '合作店铺数',   val: t.feishu_shops || '-' }
+    { label: '合作店铺数',   val: _kpiNum(t.total_shops) || '-' }
   ];
   html += '<div class="talents-metric-grid">';
   _kpis.forEach(function (k) {
