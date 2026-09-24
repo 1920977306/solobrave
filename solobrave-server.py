@@ -21391,7 +21391,9 @@ _JSON_BLOCK_RE = re.compile(r'```json\s*(\{.*?\})\s*```', re.DOTALL)
 def _parse_llm_json_block(reply):
     """★ 件套 3: 从 LLM reply 末尾的 ```json {...} ``` block 提取 AI 评估字段。
     容错: parse 失败或字段缺失返回空 dict, 不影响主流程。
-    白名单字段 (避免 SQL injection): ai_rating / ai_summary / risk_rating / ai_tags。
+    白名单字段 (避免 SQL injection): ai_rating / ai_summary / risk_rating / ai_tags /
+    talent_name / name (★ fix/talent-dedup-ocr-name-priority: name 字段让 _ensure_talent_from_analysis
+    能拿到 OCR 结构化 name, 优先于 user_name 做 dedup 查重, 不一致时阻断自动覆盖).
     """
     if not reply:
         return {}
@@ -21402,7 +21404,7 @@ def _parse_llm_json_block(reply):
         data = json.loads(matches[-1])  # 取最后一个 json block
         if not isinstance(data, dict):
             return {}
-        allowed = {'ai_rating', 'ai_summary', 'risk_rating', 'ai_tags'}
+        allowed = {'ai_rating', 'ai_summary', 'risk_rating', 'ai_tags', 'talent_name', 'name'}
         return {k: v for k, v in data.items() if k in allowed and v is not None}
     except (json.JSONDecodeError, TypeError):
         return {}
@@ -21673,8 +21675,19 @@ def _ensure_talent_from_analysis(name, vision_field_maps=None, llm_json=None,
       platform='douyin', status='active', created_by=user_id 走子库)
     - 建档/命中后调 _update_talent_from_ocr_fields + _update_talent_from_llm_json
     - 全程 try/except 兜底, 失败只 logger.warning 不阻断主流程
+
+    ★ fix/talent-dedup-ocr-name-priority:
+      - 强制优先 OCR 结构化 name (llm_json.talent_name / llm_json.name),
+        仅 OCR name 缺失时才回退 user_name (name 参数)
+      - dedup 命中既有达人, 若 row['name'] != primary_clean → 返回 conflict 信息
+        (existing_talent_id / existing_name / ocr_name / user_name / message),
+        前端 toast 提示用户确认, 阻断自动 PUT 覆盖
     """
-    clean = _clean_talent_name(name)
+    # ★ fix/talent-dedup-ocr-name-priority: OCR name 优先
+    user_clean = _clean_talent_name(name)
+    ocr_raw = (llm_json or {}).get('talent_name') or (llm_json or {}).get('name')
+    ocr_clean = _clean_talent_name(ocr_raw) if ocr_raw else ''
+    clean = ocr_clean or user_clean
     if not clean:
         return None
     try:
@@ -21682,21 +21695,38 @@ def _ensure_talent_from_analysis(name, vision_field_maps=None, llm_json=None,
         try:
             # 精确查重 (LOWER(name)=?)
             row = conn.execute(
-                "SELECT id FROM talents WHERE LOWER(name) = LOWER(?) AND status = 'active' LIMIT 1",
+                "SELECT id, name FROM talents WHERE LOWER(name) = LOWER(?) AND status = 'active' LIMIT 1",
                 (clean,)
             ).fetchone()
             tid = row['id'] if row else None
+            existing_name = row['name'] if row else None
             # LIKE 兜底 (干净名长度 ≥3 才算数, 防短名误并)
             if not tid and len(clean) >= 3:
                 row = conn.execute(
-                    "SELECT id FROM talents WHERE LOWER(name) LIKE LOWER(?) AND status = 'active' LIMIT 1",
+                    "SELECT id, name FROM talents WHERE LOWER(name) LIKE LOWER(?) AND status = 'active' LIMIT 1",
                     (f'%{clean}%',)
                 ).fetchone()
                 tid = row['id'] if row else None
+                existing_name = row['name'] if row else None
             # 返回 DB 行 (供后续 _heavy_entity_hint 用 talents[0] 取 id)
             out_row = conn.execute('SELECT * FROM talents WHERE id = ?', (tid,)).fetchone() if tid else None
         finally:
             conn.close()
+
+        # ★ fix/talent-dedup-ocr-name-priority: 命中既有达人, 检查 name 一致性
+        if tid and existing_name and existing_name.lower() != clean.lower():
+            logger.warning(
+                f'  [EnsureTalent] name 冲突阻断: ocr="{ocr_clean or "(无)"}" '
+                f'user="{user_clean or "(无)"}" 命中既有达人="{existing_name}" (tid={tid})'
+            )
+            return {
+                'conflict': True,
+                'existing_talent_id': tid,
+                'existing_name': existing_name,
+                'ocr_name': ocr_clean or None,
+                'user_name': user_clean or None,
+                'message': f'匹配到达人「{existing_name}」与截图达人「{ocr_clean or user_clean}」不一致，请确认',
+            }
         # 新达人 → INSERT 建档
         if not tid:
             now_ms = int(time.time() * 1000)
@@ -22060,29 +22090,35 @@ def _heavy_pipe_worker(job_id, agent, user_content, images, user_id):
                 ensured = _ensure_talent_from_analysis(
                     primary_name, vision_field_maps, llm_json_parsed, user_id, agent
                 )
-                # r12: 如果用户给了 tal_xxx 但 ensured 用了 OCR 名字(没命中 LOWER), 强制更新到 tal_xxx
-                if _user_tal_id and ensured and ensured.get('id') != _user_tal_id:
-                    try:
-                        conn = _db_conn()
+                # ★ fix/talent-dedup-ocr-name-priority: dedup name 不一致 → 阻断, 跳过 r12 UPDATE 和 talents 添加,
+                #   conflict 信息塞到 ai_message 让前端 toast
+                _name_conflict_heavy = None
+                if isinstance(ensured, dict) and ensured.get('conflict'):
+                    _name_conflict_heavy = ensured
+                else:
+                    # r12: 如果用户给了 tal_xxx 但 ensured 用了 OCR 名字(没命中 LOWER), 强制更新到 tal_xxx
+                    if _user_tal_id and ensured and ensured.get('id') != _user_tal_id:
                         try:
-                            # 更新确保的达人名为用户输入的名字, id 保持用户给的 tal_xxx
-                            conn.execute(
-                                "UPDATE talents SET name = ?, updated_at = ? WHERE id = ?",
-                                (primary_name, int(time.time() * 1000), _user_tal_id)
-                            )
-                            conn.commit()
-                            # 重新 SELECT 返回更新后的行
-                            out_row = conn.execute('SELECT * FROM talents WHERE id = ?', (_user_tal_id,)).fetchone()
-                            ensured = _talent_row_to_dict(out_row) if out_row else {'id': _user_tal_id, 'name': primary_name}
-                            logger.info(f'  [HeavyPipe] {job_id} r12 用户 tal_xxx={_user_tal_id} 命中, ensured id={ensured.get("id")} name={ensured.get("name")}')
-                        finally:
-                            conn.close()
-                    except Exception as e:
-                        logger.warning(f'  [HeavyPipe] {job_id} r12 UPDATE talent 失败: {e}')
-                if ensured and ensured.get('id'):
-                    existing_ids = {t.get('id') for t in (talents or [])}
-                    if not existing_ids or ensured['id'] not in existing_ids:
-                        talents = [ensured] + (talents or [])
+                            conn = _db_conn()
+                            try:
+                                # 更新确保的达人名为用户输入的名字, id 保持用户给的 tal_xxx
+                                conn.execute(
+                                    "UPDATE talents SET name = ?, updated_at = ? WHERE id = ?",
+                                    (primary_name, int(time.time() * 1000), _user_tal_id)
+                                )
+                                conn.commit()
+                                # 重新 SELECT 返回更新后的行
+                                out_row = conn.execute('SELECT * FROM talents WHERE id = ?', (_user_tal_id,)).fetchone()
+                                ensured = _talent_row_to_dict(out_row) if out_row else {'id': _user_tal_id, 'name': primary_name}
+                                logger.info(f'  [HeavyPipe] {job_id} r12 用户 tal_xxx={_user_tal_id} 命中, ensured id={ensured.get("id")} name={ensured.get("name")}')
+                            finally:
+                                conn.close()
+                        except Exception as e:
+                            logger.warning(f'  [HeavyPipe] {job_id} r12 UPDATE talent 失败: {e}')
+                    if ensured and ensured.get('id'):
+                        existing_ids = {t.get('id') for t in (talents or [])}
+                        if not existing_ids or ensured['id'] not in existing_ids:
+                            talents = [ensured] + (talents or [])
 
         # Stage 5：落库（等价 skipAI=True 直接保存，不再触发 AI）+ 通知
         _heavy_job_set(job_id, stage='正在保存分析结果…')
@@ -22147,6 +22183,10 @@ def _heavy_pipe_worker(job_id, agent, user_content, images, user_id):
             'heavyPipe': True,
             'vision_data': vision_summary,
         }
+        # ★ fix/talent-dedup-ocr-name-priority: dedup name 冲突信息塞到 ai_message
+        #   前端 chat history 读出时弹 toast (showToast(name_conflict.message, 'error', {duration: 8000}))
+        if _name_conflict_heavy:
+            ai_message['dedup_name_conflict'] = _name_conflict_heavy
         lock = _get_chat_lock(agent_id)
         if not lock.acquire(timeout=30):
             raise RuntimeError('聊天写入锁获取超时(30s)，拒绝无限等待')
@@ -22346,7 +22386,11 @@ def _reanalysis_worker(job_id, agent, user_content, talent_name, entity_id, visi
             ensured = _ensure_talent_from_analysis(
                 clean_talent_name, vision_field_maps, llm_json_parsed, user_id, agent
             )
-            if ensured and ensured.get('id'):
+            # ★ fix/talent-dedup-ocr-name-priority: dedup name 不一致 → 阻断, conflict 信息塞到 ai_message
+            name_conflict = None
+            if isinstance(ensured, dict) and ensured.get('conflict'):
+                name_conflict = ensured
+            elif ensured and ensured.get('id'):
                 existing_ids = {t.get('id') for t in (talents or [])}
                 if not existing_ids or ensured['id'] not in existing_ids:
                     talents = [ensured] + (talents or [])
@@ -22361,6 +22405,10 @@ def _reanalysis_worker(job_id, agent, user_content, talent_name, entity_id, visi
             'reanalysis': True,
             'vision_data': vision_summary,
         }
+        # ★ fix/talent-dedup-ocr-name-priority: 把 conflict 信息塞进 ai_message, 前端 chat history
+        #   读出时弹 toast (showToast(name_conflict.message, 'error', {duration: 8000}))
+        if name_conflict:
+            ai_message['dedup_name_conflict'] = name_conflict
         logger.info(f'  [Reanalysis] {job_id} stage4完成，准备进锁落盘（累计 {time.perf_counter() - t0:.1f}s）')
         _t = time.perf_counter()
         lock = _get_chat_lock(agent_id)

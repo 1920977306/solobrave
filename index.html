@@ -19732,6 +19732,18 @@ function renderMsgs(type) {
         console.warn('[renderMsgs] 员工已切换，丢弃旧回调:', empId);
         return;
       }
+      // ★ fix/talent-dedup-ocr-name-priority: 检测后端返回的 dedup name 冲突, 弹 toast 提示用户
+      //   后端在 ai_message 塞 dedup_name_conflict {conflict:True, existing_name, ocr_name, message}
+      //   阻断自动 PUT 后让前端知道, 用户手动确认 (跳到达人档案页对比 / 重命名)
+      (serverMsgs || []).forEach(function (m) {
+        if (m && m.dedup_name_conflict && m.dedup_name_conflict.message) {
+          if (typeof showToast === 'function') {
+            showToast(m.dedup_name_conflict.message, 'error', { duration: 8000 });
+          } else {
+            console.warn('[dedup-name-conflict]', m.dedup_name_conflict);
+          }
+        }
+      });
       // 严格过滤：后端无法区分个人/群聊时，只保留 role 为 user/assistant 且不含 groupId 的消息
       var privateMsgs = (serverMsgs || []).filter(function (m) {
         return (m.role === 'user' || m.role === 'assistant') && !m.groupId;
