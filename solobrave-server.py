@@ -17797,7 +17797,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 self._send_json(write_guard[1], {'error': write_guard[0]})
                 return
         else:
-            logger.info(f'  [DedupAutoPut] {talent_id} dedup_auto=true, bypass SubpoolGuard (agent={auth.localhost_agent_id or "?"})')
+            logger.info(f'  [DedupAutoPut] {talent_id} dedup_auto=true, bypass SubpoolGuard (agent={getattr(auth, "localhost_agent_id", None) or "?"})')
 
         if not body:
             self._send_json_error(400, 'Missing body')
