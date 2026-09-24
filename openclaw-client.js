@@ -49,7 +49,7 @@ async function _probeEd25519Support() {
     // NotSupportedError: 算法不支持 (老 WebView / Firefox<130 / Safari<17 / 老 Edge)
     // 这是预期的降级路径, console.warn 后返回 false
     if (e && e.name === 'NotSupportedError') {
-      console.warn('[OpenClaw] Ed25519 算法在 SubtleCrypto 不可用 (老浏览器/WebView), 降级到 fingerprint fallback:', e.message || e);
+      console.warn('[OpenClaw] Ed25519 算法在 SubtleCrypto 不可用 (老浏览器/WebView), 设备身份不可用, 认证会跳过 device 字段走 token-only:', e.message || e);
       return false;
     }
     // 其他异常 (SecurityError / NotAllowedError / 未知错误): 不静默吞,
