@@ -103,21 +103,39 @@ def test_no_conflict_when_consistent():
 # ===== mock 测试: 模拟 _db_conn 返回, 验证 conflict 分支 =====
 
 class MockConn:
-    """模拟 sqlite3 连接, 返回预设的精确查重行, 触发 conflict 逻辑."""
-    def __init__(self, existing_name):
-        self._existing_name = existing_name
+    """★ fix/test-mock-design-fixes: 重设计 MockConn.
+
+    之前按查询参数精确比对: 当 OCR name 跟 user_name 不同时, MockConn 返 None,
+    _ensure_talent_from_analysis 走 INSERT 分支, 永远触发不了 conflict=True 分支.
+
+    新设计: 按 name 精确查重时无条件返 existing_talent_name 那一行,
+    模拟 DB 始终存在该达人, 使 _ensure_talent_from_analysis 拿到 existing_name
+    后跟 OCR clean 名比较, 触发 conflict=True 分支.
+    """
+    def __init__(self, existing_talent_name='李婶儿', existing_talent_id='tal_existing_001'):
+        # ★ 兼容原有 5 个测试用例: MockConn('李婶儿') / MockConn('张三') 用 positional 第一个参数
+        self._existing_name = existing_talent_name
+        self._existing_id = existing_talent_id
+
     def execute(self, sql, params=()):
-        sql_norm = sql.replace('\n', ' ').replace('  ', ' ').strip()
-        if 'LOWER(name) = LOWER(?)' in sql_norm:
-            # 精确查重命中: 模拟既有达人存在
-            if self._existing_name.lower() == str(params[0]).lower():
-                return _MockCursor({'id': 'tal_existing_001', 'name': self._existing_name})
+        sql_norm = ' '.join(sql.split()).lower()
+
+        # 精确查重: SELECT id, name FROM talents WHERE LOWER(name)=LOWER(?) → 无条件返回
+        #   排除 LIKE 兜底 (LIKE 走下一分支)
+        if ('select id, name' in sql_norm and 'from talents' in sql_norm
+                and 'lower(name)' in sql_norm and 'like' not in sql_norm):
+            return _MockCursor({'id': self._existing_id, 'name': self._existing_name})
+
+        # LIKE 兜底: 不命中 (无 LIKE 兜底场景)
+        if 'select id, name' in sql_norm and 'like' in sql_norm:
             return _MockCursor(None)
-        if 'LOWER(name) LIKE LOWER(?)' in sql_norm:
-            return _MockCursor(None)
+
+        # 其他查询 (SELECT *, UPDATE, INSERT) 返 None, 不抛异常
         return _MockCursor(None)
+
     def commit(self):
         pass
+
     def close(self):
         pass
 
