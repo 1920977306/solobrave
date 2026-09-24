@@ -34751,8 +34751,10 @@ function closeMatchModal() {
 <!-- ★ fix/openclaw-client-cache-bust (老大 2026-09-24): 加版本号 query string 破浏览器强缓存
      openclaw-client.js 部署后浏览器仍加载旧版 (v1), 老版本探测 Ed25519 失败时走 fingerprint fallback
      被网关 verifyEd25519Signature 拒接; 加 ?v= 时间戳让浏览器强制重拉, 不再吃磁盘缓存
-     跟 avatars.js?v=1778166504 一致的版本号策略 -->
-<script src="openclaw-client.js?v=202609241444"></script>
+     跟 avatars.js?v=1778166504 一致的版本号策略
+     v2 (202609241444): 初始破缓存 + skip-device 守卫
+     v3 (202609241420): probe 误导文案澄清 (fingerprint fallback → token-only) -->
+<script src="openclaw-client.js?v=202609241420"></script>
 <script>// ========================================
 // Badge 紧急标记功能
 // ========================================
