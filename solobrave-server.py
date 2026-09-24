@@ -29002,7 +29002,15 @@ def _ensure_tls_cert():
     openssl_path = shutil.which('openssl')
     if openssl_path:
         try:
-            san = 'DNS:localhost,IP:127.0.0.1' + ''.join(f',IP:{h}' for h in TLS_CERT_HOSTS if h.count('.') == 3 and not h.startswith('*'))
+            # ★ fix/cert-dedupe-san (老大 2026-09-24):
+            #   之前 prefix 硬编码 IP:127.0.0.1, 但 TLS_CERT_HOSTS 第一个就是 127.0.0.1,
+            #   filter (count('.')==3) 又会让它通过 → 重复 IP:127.0.0.1 进 SAN.
+            #   RFC 5280 不允许 SAN 重复, Chrome WebSocket 实现严格校验时会拒掉证书
+            #   (表现为 'wss://localhost:8444/' cert invalid, 但 HTTPS 8443 OK)
+            #   修法: loop 排除 127.0.0.1 (prefix 已加), 避免重复.
+            san = 'DNS:localhost,IP:127.0.0.1' + ''.join(
+                f',IP:{h}' for h in TLS_CERT_HOSTS
+                if h.count('.') == 3 and not h.startswith('*') and h != '127.0.0.1')
             cmd = [
                 openssl_path, 'req', '-x509', '-newkey', 'rsa:2048', '-nodes',
                 '-keyout', TLS_KEY_FILE, '-out', TLS_CERT_FILE, '-days', '365',
