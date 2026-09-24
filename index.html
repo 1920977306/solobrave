@@ -31164,6 +31164,30 @@ function renderTalentAIReport(text) {
   return html;
 }
 
+// ★ fix/ocr-field-count-leaf (老大 2026-09-24):
+//   1 层展开叶子计数 (顶层 key + dict sub keys + list items, 不深入 2 层嵌套)
+//   李婶儿: 53 顶层 → 180 展开 (extra_fields 内层不再爆涨)
+//   空 dict/list 字段存在仍算 1 (字段已采集, 只是无内容)
+//   scalar 算 1
+//   用法: _countOcrFieldsLeaf(t.ocr_raw_fields) 给"数据完整度"卡片显示
+function _countOcrFieldsLeaf(obj) {
+  if (!obj || typeof obj !== 'object') return 0;
+  var n = 0;
+  var keys = Object.keys(obj);
+  for (var i = 0; i < keys.length; i++) {
+    var v = obj[keys[i]];
+    n += 1;  // 顶层 key 自身算 1
+    if (v && typeof v === 'object' && !Array.isArray(v)) {
+      // dict: 加 sub key 数 (1 层, 不再下钻)
+      n += Object.keys(v).length;
+    } else if (Array.isArray(v)) {
+      // list: 加 item 数 (不展开 item 内的 dict 字段)
+      n += v.length;
+    }
+  }
+  return n;
+}
+
 function renderTalentPanelOverview(t) {
   var el = document.getElementById('talentsPanelOverview');
   if (!el) return;
@@ -31268,8 +31292,14 @@ function renderTalentPanelOverview(t) {
   //   删概览 tab 底部 610 字段 OCR 长列表 (含 extra 473 字段 + 英文 key 平铺)
   //   改成"数据完整度"卡片: 展示已识别字段数 + 覆盖的维度 (6 维度分类)
   //   原始 OCR 字段移到 commit 7 分析档案 tab 做语义分组折叠,字段名全中文
+  // ★ fix/ocr-field-count-leaf (老大 2026-09-24):
+  //   计数口径从 "Object.keys(ocr).length" (顶层 key 数, 李婶儿 = 53)
+  //   改为 "_countOcrFieldsLeaf(ocr)" (1 层展开叶子数, 李婶儿 = 180)
+  //   口径: 顶层 key 算 1 + dict value 算 sub key 数 + list value 算 item 数, 不深入 2 层嵌套
+  //   理由: 顶层 53 让用户误以为字段少, 但实际可用字段数是 180 (含 dict 子键 + list 元素)
+  //   不算全递归 (李婶儿 631) 是因为 extra_fields 内部深层嵌套会让数字爆炸, 用户看不到重点
   var ocr = (t && t.ocr_raw_fields) || {};
-  var totalFields = Object.keys(ocr).length;
+  var totalFields = _countOcrFieldsLeaf(ocr);
   var dims = [];
   if (ocr.name || ocr.douyin_id || ocr.followers || ocr.total_gmv || ocr.monthly_settlement || ocr.gpm || ocr.feishu_product_count) dims.push('商业核心');
   if (ocr.talent_type || ocr.category || ocr.content_style || ocr.bio || ocr.city || ocr.level) dims.push('基础');
