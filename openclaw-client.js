@@ -29,8 +29,47 @@ function _hasSubtleCrypto() {
     && typeof window.crypto.subtle.digest === 'function');
 }
 
+// ★ fix/device-ed25519-fallback (老大 2026-09-24):
+//   老版本浏览器/WebView 上 crypto.subtle 函数存在但 Ed25519 算法不支持,
+//   原 _hasSubtleCrypto() 只查函数存在性, 触发 "WS 连上但签不出" 假死 bug
+//   这里实际异步试跑一次 Ed25519 generateKey; 失败时强制 useSubtle=false,
+//   让 _ensureDeviceIdentity 自动复用现有 line 94+ 的 fingerprint 派生 fallback
+//   不新写降级逻辑、不改网关端、不动 fallback 算法
+//   返回: true=支持 Ed25519 (走 Ed25519 主路径); false=不支持 (走 fallback)
+async function _probeEd25519Support() {
+  if (!_hasSubtleCrypto()) return false;
+  try {
+    // 一次性测试 key: 生成成功立刻丢弃, 仅用于探测算法可用性
+    const probeKey = await crypto.subtle.generateKey(
+      { name: 'Ed25519' }, true, ['sign', 'verify']);
+    // 探测 key 用完即丢, 不导出、不缓存
+    void probeKey;
+    return true;
+  } catch (e) {
+    // NotSupportedError: 算法不支持 (老 WebView / Firefox<130 / Safari<17 / 老 Edge)
+    // 这是预期的降级路径, console.warn 后返回 false
+    if (e && e.name === 'NotSupportedError') {
+      console.warn('[OpenClaw] Ed25519 算法在 SubtleCrypto 不可用 (老浏览器/WebView), 降级到 fingerprint fallback:', e.message || e);
+      return false;
+    }
+    // 其他异常 (SecurityError / NotAllowedError / 未知错误): 不静默吞,
+    // 把判断交给上层 _ensureDeviceIdentity, 让调用方能看到完整错误
+    throw e;
+  }
+}
+
 async function _ensureDeviceIdentity() {
-  const useSubtle = _hasSubtleCrypto();
+  // ★ fix/device-ed25519-fallback: 用真实 Ed25519 探测替代函数存在性检测
+  //   探测失败 (NotSupportedError) → useSubtle=false → 走现有 line 94+ fingerprint fallback
+  //   其他异常向上抛, 让调用方知晓
+  let useSubtle;
+  try {
+    useSubtle = await _probeEd25519Support();
+  } catch (e) {
+    console.error('[OpenClaw] _ensureDeviceIdentity: Ed25519 探测抛非 NotSupportedError 异常:', e);
+    // 非算法不支持的错误, 仍尝试 fallback 路径 (保证连接不假死)
+    useSubtle = false;
+  }
 
   if (useSubtle) {
     // ===== Ed25519 主路径 =====
@@ -219,21 +258,32 @@ async function _signDevicePayload(privateKeyPkcs8B64, payload) {
   if (!_hasSubtleCrypto()) {
     return _fallbackSignDevicePayload(privateKeyPkcs8B64, payload);
   }
-  const privateKeyData = _base64UrlDecode(privateKeyPkcs8B64);
-  const privateKey = await crypto.subtle.importKey(
-    'pkcs8',
-    privateKeyData,
-    { name: 'Ed25519' },
-    false,
-    ['sign']
-  );
-  const encoder = new TextEncoder();
-  const signature = await crypto.subtle.sign(
-    'Ed25519',
-    privateKey,
-    encoder.encode(payload)
-  );
-  return _base64UrlEncode(new Uint8Array(signature));
+  // ★ fix/device-ed25519-fallback: 即使 _hasSubtleCrypto() 通过, Ed25519 算法也可能不支持
+  //   (老 WebView 函数存在但算法不识别). 包 try/catch, NotSupportedError 走现有 fallback.
+  //   其他异常向上抛, 不静默吞, 让调用方知晓
+  try {
+    const privateKeyData = _base64UrlDecode(privateKeyPkcs8B64);
+    const privateKey = await crypto.subtle.importKey(
+      'pkcs8',
+      privateKeyData,
+      { name: 'Ed25519' },
+      false,
+      ['sign']
+    );
+    const encoder = new TextEncoder();
+    const signature = await crypto.subtle.sign(
+      'Ed25519',
+      privateKey,
+      encoder.encode(payload)
+    );
+    return _base64UrlEncode(new Uint8Array(signature));
+  } catch (e) {
+    if (e && e.name === 'NotSupportedError') {
+      console.warn('[OpenClaw] Ed25519 sign 不支持, 复用现有 _fallbackSignDevicePayload:', e.message || e);
+      return _fallbackSignDevicePayload(privateKeyPkcs8B64, payload);
+    }
+    throw e;
+  }
 }
 
 class OpenClawClient {
@@ -301,7 +351,14 @@ class OpenClawClient {
       }
 
       // 预生成 device identity，让首次密钥生成不阻塞 connect 流程
-      _ensureDeviceIdentity().catch(e => console.warn('[OpenClaw] device identity pre-gen failed:', e));
+      // ★ fix/device-ed25519-fallback: 区分算法不支持 (warn, 走 fallback) 与其他异常 (error, 标红)
+      _ensureDeviceIdentity().catch(e => {
+        if (e && e.name === 'NotSupportedError') {
+          console.warn('[OpenClaw] device identity pre-gen: Ed25519 不可用, 已降级 fingerprint fallback:', e.message || e);
+        } else {
+          console.error('[OpenClaw] device identity pre-gen 失败 (非算法不支持):', e);
+        }
+      });
 
       try {
         this._clearReconnectTimer();
