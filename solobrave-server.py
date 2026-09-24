@@ -21252,6 +21252,10 @@ _OCR_TO_TALENT_FIELDS = [
     ('video_ratio', 'video_ratio', lambda v: float(str(v).rstrip('%').strip()) if str(v).strip() else 0),
     ('video_gpm', 'video_gpm', lambda v: _parse_gmv_value(v)),
     ('live_gpm', 'live_gpm', lambda v: _parse_gmv_value(v)),
+    # ★ fix/vision-schema-missing-fields: 补漏场均结算额 (avg_live_gmv)
+    #   之前 _OCR_TO_TALENT_FIELDS 缺该映射, LLM 即使输出"场均结算额: ¥1万-3万",
+    #   _update_talent_from_ocr_fields 也无法回写到 talents.avg_live_gmv 列
+    ('avg_live_gmv', 'avg_live_gmv', lambda v: _parse_gmv_value(v)),
     ('rating_score', 'rating_score', lambda v: float(v) if str(v).strip() else 0),
     ('category', 'main_category', lambda v: str(v).strip() if v else ''),
     # ★ fix/talent-full-sync: 补基础信息 OCR 回写 (字符串字段, parser 是 str().strip())
@@ -21514,7 +21518,7 @@ def _build_talent_dedup_hint(talent_id, auth):
 
 **基本面**: 达人昵称 / 达人ID / 平台 / 粉丝量 / 等级 / 所在地 / 履约分
 **类型**: 类型(talent_type) / 带货方式 / 内容类型 / 主推类目(main_category) / 机构(agency) / 简介(bio) / 带货要求(cooperation_requirements)
-**核心数据**: 带货商品数 / 历史带货天数 / 合作店铺数 / 结算总额 / 场均结算额(avg_session_gmv)
+**核心数据**: 带货商品数 / 历史带货天数 / 合作店铺数 / 结算总额 / 场均结算额(avg_live_gmv)
 **直播**: 直播GMV占比(live_gmv_ratio) / 直播GPM(live_gpm) / 直播平均件单价(live_avg_price)
 **短视频**: 短视频占比(video_gmv_ratio) / 视频GPM / 单视频结算额 / 视频平均件单价 / 完播率(completion_rate) / 互动率
 **粉丝**: 粉丝变化数(fan_growth) / 粉丝变化率(fan_growth_rate) / 粉丝画像(性别/年龄/城市等级/人群/活跃度/设备/价格带/品类偏好/省份TOP/粉丝特征/消费偏好) / 视频粉丝画像
