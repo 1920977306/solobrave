@@ -21712,6 +21712,60 @@ def _ensure_talent_from_analysis(name, vision_field_maps=None, llm_json=None,
         return None
 
 
+# ★ fix/ocr-dist-key-normalize-backend: 分布 dict key 归一化 (治本)
+#   前端兜底 commit ad90c65 在 _normalizeDistKey 已做同义异名合并, 但治本应
+#   在后端 OCR 解析落库阶段统一, 避免 '31-40岁' 和 '31-40' 落到 DB 后下游反复处理.
+#   18 个分布字段 (fan_* + 直播/视频观众画像) 全部走 _merge_dist_by_normalized_key
+_DIST_FIELDS_NORMALIZE = [
+    'fan_gender', 'fan_age', 'fan_region', 'fan_crowd', 'fan_price_range', 'fan_category',
+    'fan_city_tier', 'fan_group_gender', 'fan_group_age', 'fan_group_crowd',
+    'fan_group_activity', 'fan_group_device', 'fan_group_price', 'fan_group_category',
+    'live_audience_region', 'live_audience_city_tier',
+    'video_audience_region', 'video_audience_city_tier',
+]
+
+
+def _normalize_dist_key(key):
+    """归一化分布 dict 的 key.
+    - 去"岁"字 (年龄: '31-40岁' → '31-40')
+    - 全角数字 → 半角 ('３１-４０' → '31-40')
+    - 去全角空格 / 前后 trim
+    - 横线归一 (en-dash U+2013 / em-dash U+2014 / 水平线 U+2015 / 减号 U+2212 → '-')
+    """
+    if not isinstance(key, str):
+        return str(key).strip()
+    s = key.strip()
+    s = s.translate(str.maketrans('０-９', '0-9'))   # 全角数字 → 半角
+    s = s.replace('岁', '')                           # 去"岁"字
+    s = re.sub(r'[\s\u3000]+', '', s)                 # 去所有空白 (半角空格 + 全角空格)
+    s = re.sub(r'[\u2013\u2014\u2015\u2212]', '-', s) # 横线归一
+    return s
+
+
+def _merge_dist_by_normalized_key(dist):
+    """同义异名 key 合并, 数值类型取较大值, 非数值保留第一个.
+    logger.warning 记录合并细节, 方便上游 OCR prompt 改进.
+    """
+    if not isinstance(dist, dict):
+        return dist
+    merged = {}
+    for k, v in dist.items():
+        nk = _normalize_dist_key(k)
+        if not nk:
+            merged[k] = v
+            continue
+        if nk not in merged:
+            merged[nk] = v
+        else:
+            old_v = merged[nk]
+            if isinstance(v, (int, float)) and isinstance(old_v, (int, float)):
+                if v > old_v:
+                    logger.warning(f'[dist-key-normalize] merge "{k}" → "{nk}": {old_v} → {v}')
+                    merged[nk] = v
+            # 非数字保留第一个, 不覆盖
+    return merged
+
+
 def _heavy_entity_hint(talent_names, talents):
     """stage5 事件落库的实体归属（entity_hint）：
     优先 stage3 达人库预查命中的真实 tal_id；达人未入库（预查命中 0）时用
@@ -21775,6 +21829,12 @@ def _update_talent_ocr_raw_fields(talent_id, vision_field_maps):
         merged = _deep_merge(merged, img_fields)
     if not merged:
         return 0
+
+    # ★ fix/ocr-dist-key-normalize-backend: 18 个分布字段 key 归一化 (治本)
+    #   在写库前对每个 fan_* / 直播视频观众画像字典合并同义异名 key
+    for _dk in _DIST_FIELDS_NORMALIZE:
+        if _dk in merged and isinstance(merged[_dk], dict):
+            merged[_dk] = _merge_dist_by_normalized_key(merged[_dk])
 
     try:
         conn = _db_conn()
