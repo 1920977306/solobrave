@@ -59,17 +59,10 @@ async function _probeEd25519Support() {
 }
 
 async function _ensureDeviceIdentity() {
-  // ★ fix/device-ed25519-fallback: 用真实 Ed25519 探测替代函数存在性检测
-  //   探测失败 (NotSupportedError) → useSubtle=false → 走现有 line 94+ fingerprint fallback
-  //   其他异常向上抛, 让调用方知晓
-  let useSubtle;
-  try {
-    useSubtle = await _probeEd25519Support();
-  } catch (e) {
-    console.error('[OpenClaw] _ensureDeviceIdentity: Ed25519 探测抛非 NotSupportedError 异常:', e);
-    // 非算法不支持的错误, 仍尝试 fallback 路径 (保证连接不假死)
-    useSubtle = false;
-  }
+  // ★ fix/device-ed25519-fallback v2 (老大 2026-09-24):
+  //   探测 Ed25519 算法真实支持, 失败抛错让 caller 决定 (走 skip-device, 不发 fingerprint 假签名)
+  //   之前的 v1 把 fallback fingerprint identity 真发出去, 网关 verifyEd25519Signature 直接拒
+  const useSubtle = await _probeEd25519Support();
 
   if (useSubtle) {
     // ===== Ed25519 主路径 =====
@@ -625,15 +618,18 @@ class OpenClawClient {
       userAgent: 'SoloBrave/1.0.0 ' + navigator.userAgent
     };
 
-    // 非安全上下文（crypto.subtle 不可用）→ 不带 device 字段，让网关走 token-only 流程
-    // 或进入 pending 审批队列。FNV-1a / 指纹派生签名的 fallback 方案网关不认，
-    // 反而会因为伪造签名 / 错配 ID 直接拒接，比"少带字段"更糟。
-    if (!_hasSubtleCrypto()) {
-      console.warn('[OpenClaw] 非安全上下文，跳过设备身份认证（仅凭 token 连接，网关可能进入待审批）');
+    // 非安全上下文（crypto.subtle 不可用）或 Ed25519 不支持 → 不带 device 字段,
+    // 让网关走 token-only 流程或进入 pending 审批队列。
+    // FNV-1a / 指纹派生签名的 fallback 方案网关不认 (verifyEd25519Signature),
+    // 反而会因为伪造签名 / 错配 ID 直接拒接, 比"少带字段"更糟.
+    // ★ fix/device-ed25519-fallback v2 (老大 2026-09-24): 探测失败 (老浏览器/WebView)
+    //   也走 skip-device 路径, 不发 fingerprint 假签名 (v1 错发被网关拒了)
+    if (!_hasSubtleCrypto() || !(await _probeEd25519Support())) {
+      console.warn('[OpenClaw] Ed25519 不可用 (无 subtle 或算法不支持), 跳过设备身份认证（仅凭 token 连接，网关可能进入待审批）');
       return params;
     }
 
-    // 安全上下文 → 走 Ed25519 设备身份
+    // 安全上下文 + Ed25519 可用 → 走真实 Ed25519 设备身份
     const identity = await _ensureDeviceIdentity();
     const signedAtMs = Date.now();
     // v3 auth payload（与网关侧校验逻辑一致：v3|deviceId|clientId|clientMode|role|scopes|signedAt|token|nonce|platform|deviceFamily）
