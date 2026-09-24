@@ -21566,14 +21566,30 @@ def _build_talent_dedup_hint(talent_id, auth):
 # 必须有分隔符才剥, 纯数字开头无分隔符的名字保留 (如 "77爱吃" "11" 不匹配)
 _TALENT_NAME_CLEAN_RE = re.compile(r'^\s*\d+\s*[\.、．\)）:：\-]\s*')
 
+# ★ fix/talent-name-clean-blacklist: 名词黑名单 (通用词当名字 → 误抽)
+#   OCR 截图文本 "核心数据 / 直播带货数据" 等会被 stage2 误抽为 "数据" 等通用词
+#   dedup LIKE 查询命中空壳达人, 触发错误的自动 PUT
+#   黑名单覆盖 (子串匹配): 数据/分析/档案/图片/截图/信息/情况/结果/详情/概览/核心
+#   + 老大扩展: 直播/带货/合作/建议/画像/粉丝/商品/品牌/团队/账号/数据/销售/曝光
+_TALENT_NAME_NOUN_BLACKLIST = {
+    '数据', '分析', '档案', '图片', '截图', '信息', '情况', '结果', '详情', '概览', '核心',
+    '直播', '带货', '合作', '建议', '画像', '粉丝', '商品', '品牌', '团队', '账号',
+    '销售', '曝光', '转化', '转化率', '结算', '佣金', '评级', '匹配', '总结',
+}
+
 
 def _clean_talent_name(name):
-    """剥离带分隔符的前导序号, 返回干净名.
-    规则: ^\s*\d+\s*[.、.\\uFF09)::\\-]\\s*  → 去掉
+    """剥离带分隔符的前导序号 + 名词黑名单过滤 + 长度校验, 返回干净名.
+    规则:
+      1) ^\s*\d+\s*[.、.\\uFF09)::\\-]\\s*  → 去掉
+      2) 黑名单子串匹配 → 返空 (避免 "核心数据" / "直播带货数据" 等通用词被当达人名)
+      3) 长度 < 2 → 返空 (避免 "A" / "1" / "x" 等过短字符串被当达人名)
     例: '1. 小楚当妈(捡漏版)' → '小楚当妈(捡漏版)'
        '2、张三' → '张三'
        '77爱吃' → '77爱吃' (无分隔符, 保留)
-       '   11   ' → '11'
+       '数据' → '' (黑名单)
+       '核心数据' → '' (黑名单子串命中)
+       'A' → '' (长度 < 2)
     """
     if not name:
         return ''
@@ -21583,6 +21599,15 @@ def _clean_talent_name(name):
     m = _TALENT_NAME_CLEAN_RE.match(s)
     if m:
         s = s[m.end():].strip().strip('　').strip()
+    if not s:
+        return ''
+    # ★ fix/talent-name-clean-blacklist: 名词黑名单子串匹配
+    for _bl in _TALENT_NAME_NOUN_BLACKLIST:
+        if _bl in s:
+            return ''
+    # ★ fix/talent-name-clean-blacklist: 长度 < 2 视为无名字
+    if len(s) < 2:
+        return ''
     return s
 
 
