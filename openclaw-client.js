@@ -285,17 +285,18 @@ class OpenClawClient {
     // 协议自适应：https 页面下用 wss，http 页面下用 ws。
     // 远程访问时 OpenClaw Gateway（18789）只支持 ws://，所以 https 页面下不走直连 18789，
     // 而是连到 SoloBrave HTTPS 8443 同源下的 wss 代理端口 8444，由后端透传到 18789。
-    // 同机 localhost / 127.0.0.1 访问（http 页面）仍直连 Gateway：浏览器已经把 localhost
-    // 视为安全上下文，crypto.subtle 可用，wss 不必要。
+    // ★ fix/plain-ws-proxy (老大 2026-09-24): HTTP 页面下不再直连 Gateway (18789 loopback-only,
+    //   远端 Windows 员工连不上), 改连 solobrave-server plain WS 代理 8081.
+    //   8081 无 TLS, 不需要 cert, 适合老浏览器 + 没法装 mkcert CA 的场景.
     var _pageIsSecure = (typeof window !== 'undefined' && window.location && window.location.protocol === 'https:');
     var _host = (typeof window !== 'undefined' && window.location && window.location.hostname) || '192.168.1.25';
     var _port = (typeof window !== 'undefined' && window.location && window.location.port) || '';
     if (_pageIsSecure) {
-      // 走 SoloBrave WSS 代理：同主机 + 8444 端口（与 HTTPS 8443 同源，证书一致）
+      // HTTPS 页面: 走 WSS 代理 8444 (TLS, Mac 系统信任 mkcert CA)
       this.url = 'wss://' + _host + ':8444';
     } else {
-      // 走 OpenClaw Gateway 直连：18789
-      this.url = 'ws://' + _host + ':18789';
+      // HTTP 页面: 走 plain WS 代理 8081 (无 TLS, LAN 内可用, Windows 员工不需装 CA)
+      this.url = 'ws://' + _host + ':8081';
     }
     this.connected = false;
     this.authenticated = false;

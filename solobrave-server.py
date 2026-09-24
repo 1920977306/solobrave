@@ -121,6 +121,18 @@ WSS_PROXY_ENABLED = True
 WSS_PROXY_TARGET_HOST = '127.0.0.1'  # 转发到的 Gateway 地址
 WSS_PROXY_TARGET_PORT = 18789        # 转发到的 Gateway 端口
 
+# ★ fix/plain-ws-proxy (老大 2026-09-24):
+#   HTTP 页面 + 老浏览器/WebView 无法走 wss:// (Windows 员工无法装 mkcert CA),
+#   OpenClaw Gateway 18789 是 loopback-only, 远端连不上.
+#   解法: 新增 plain (无 TLS) WS 代理端口 8081, bind *:8081 (LAN 可达),
+#   双向透传到 ws://127.0.0.1:18789. openclaw-client.js 在 HTTP 页面下走 ws://:8081.
+#   注意: 只用于内网 LAN, 没加密 (老浏览器/远端安装 CA 受限场景的妥协方案).
+#   macOS 现代浏览器 + HTTPS 路径仍走 wss://8444 (mkcert cert 系统信任).
+WS_PROXY_PORT = 8081
+WS_PROXY_ENABLED = True
+WS_PROXY_TARGET_HOST = '127.0.0.1'  # 同 WSS, 转发到 Gateway
+WS_PROXY_TARGET_PORT = 18789
+
 # CORS Origin 白名单（启动时会按实际端口追加 localhost/127.0.0.1 来源）
 ALLOWED_ORIGINS = [
     'http://localhost:8081',
@@ -29209,6 +29221,103 @@ def _start_wss_proxy(cert_file, key_file, bind, port, target_host, target_port):
     return t, None
 
 
+def _start_ws_proxy(bind, port, target_host, target_port):
+    """★ fix/plain-ws-proxy (老大 2026-09-24):
+    plain (无 TLS) WS 代理, 跟 _start_wss_proxy 同结构但去掉 SSL.
+    服务对象: HTTP 页面 + 老浏览器/WebView 没法装 mkcert CA 的场景 (Windows 员工).
+    LAN 内部用, 不加密 (老员工妥协方案, 仅在内网跑)。
+
+    跟 _start_wss_proxy 的差异:
+    - 没有 SSL context, 不传 ssl= 给 websockets.serve
+    - _proxy_handler 透传 Origin (HTTP 页面可能没 Origin, 给个 http:// 占位)
+    - 监听 bind 通常是 0.0.0.0 (LAN 可达), 不是 loopback
+    """
+    try:
+        import asyncio
+        import websockets
+    except ImportError:
+        logger.warning('  [WS] websockets 库未安装，跳过 plain WS 代理')
+        return None, None
+
+    async def _proxy_handler(client_ws):
+        target_uri = f'ws://{target_host}:{target_port}'
+        # HTTP 页面可能没 Origin, 给个 http:// 占位让上游网关 accept
+        client_origin = getattr(client_ws, '_client_origin', None) or f'http://{bind}:{port}'
+        upstream = None
+        try:
+            connect_kwargs = {'max_size': 64 * 1024 * 1024, 'origin': client_origin}
+            try:
+                upstream = await websockets.connect(target_uri, **connect_kwargs)
+            except TypeError:
+                upstream = await websockets.connect(
+                    target_uri,
+                    max_size=64 * 1024 * 1024,
+                    additional_headers={'Origin': client_origin} if client_origin else None,
+                )
+        except Exception as e:
+            logger.error(f'  [WS] 转发到 {target_uri} 失败: {e}')
+            try:
+                await client_ws.close()
+            except Exception:
+                pass
+            return
+        logger.info(f'  [WS] 客户端已连接 (Origin={client_origin})，转发到 {target_uri}')
+
+        async def _c2u():
+            try:
+                async for msg in client_ws:
+                    _openclaw_sniff_c2u(msg)
+                    await upstream.send(msg)
+            except websockets.ConnectionClosed:
+                pass
+            except Exception as e:
+                logger.warning(f'  [WS] client→upstream 异常: {e}')
+
+        async def _u2c():
+            try:
+                async for msg in upstream:
+                    _openclaw_sniff_u2c(msg)
+                    await client_ws.send(msg)
+            except websockets.ConnectionClosed:
+                pass
+            except Exception as e:
+                logger.warning(f'  [WS] upstream→client 异常: {e}')
+
+        try:
+            await asyncio.gather(_c2u(), _u2c())
+        finally:
+            for ws in (client_ws, upstream):
+                if ws is None:
+                    continue
+                try:
+                    await ws.close()
+                except Exception:
+                    pass
+
+    async def _serve():
+        # 无 ssl= 参数, plain WS
+        server = await websockets.serve(
+            _proxy_handler, bind, port,
+            # 不传 origins= 参数: plain WS 不校验 origin (浏览器发送 ws 时可能没 origin 头)
+        )
+        logger.info(f'  [WS] plain 代理已启动: ws://{bind}:{port} → ws://{target_host}:{target_port}')
+        await asyncio.Future()
+
+    def _thread_main():
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            loop.run_until_complete(_serve())
+        except Exception as e:
+            logger.error(f'  [WS] 事件循环异常: {e}')
+        finally:
+            loop.close()
+
+    t = threading.Thread(target=_thread_main, daemon=True, name=f'WSProxy-{port}')
+    t.start()
+    return t, None
+
+
 # ═══ OpenClaw 看门狗：health 探测 + dispatch 停滞检测 ═══
 # 背景：gateway 是单 Node 进程，重活会把调度队列堵死——health 探活还活着，
 # 但消息不再 dispatch（假死）。光看 health 发现不了，所以增加 dispatch 停滞检测：
@@ -29603,6 +29712,20 @@ def main():
             )
         except Exception as wss_err:
             logger.error(f'  [WSS] WSS 代理启动失败: {wss_err}')
+
+    # ★ fix/plain-ws-proxy (老大 2026-09-24): plain WS 代理 (无 TLS),
+    # 服务对象: HTTP 页面 + 老浏览器/WebView 没法装 mkcert CA 的场景 (Windows 员工).
+    # BIND 用 HTTP server 的 BIND, 通常 0.0.0.0 (LAN 可达).
+    ws_thread = None
+    if WS_PROXY_ENABLED:
+        try:
+            ws_thread, _ = _start_ws_proxy(
+                BIND, WS_PROXY_PORT,
+                WS_PROXY_TARGET_HOST, WS_PROXY_TARGET_PORT
+            )
+            logger.info(f'  [WS] plain WS 代理配置: 端口 {WS_PROXY_PORT}, target {WS_PROXY_TARGET_HOST}:{WS_PROXY_TARGET_PORT}')
+        except Exception as ws_err:
+            logger.error(f'  [WS] plain WS 代理启动失败: {ws_err}')
 
     # OpenClaw 配置审计（防御深度 — OpenClaw 自身 npm 包装不可改，只审计 + warning 日志）
     try:
