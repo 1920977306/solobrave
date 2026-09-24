@@ -31604,20 +31604,59 @@ function renderTalentPanelFans(t) {
     return '';
   }
   var html = '';
+  // ★ fix/talent-age-normalize (老大 2026-09-24 09:00 反馈):
+  //   截图 5 显示粉丝年龄 "31-40岁 30.1%" 和 "31-40 30.1%" 同时出现 (key 字符串不同)
+  //   之前 commit 4 的 _dedup 是按字面 key dedup (no-op, dict key 天然唯一), 救不了"同义异名"
+  //   治标: key 归一化 (去"岁" / 去空格 / 全半角统一 / 横线统一 / trim) + 合并 (取较大值 + console.warn)
+  //   治本: 后端 OCR dedup 阶段做同义归一 (Mini 端任务)
+  function _normalizeDistKey(k) {
+    if (!k) return '';
+    return String(k)
+      .replace(/[ \t\u3000]/g, '')            // 去半角空格/tab/全角空格
+      .replace(/岁/g, '')                      // 去"岁"字
+      .replace(/[‐-―—]/g, '-')                 // 各种横线统一为半角 -
+      .replace(/[\uFF01-\uFF5E]/g, function(c){ // 全角 → 半角
+        return String.fromCharCode(c.charCodeAt(0) - 0xFEE0);
+      })
+      .trim();
+  }
+  function _mergeDistByNormalizedKey(obj) {
+    if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return [];
+    var merged = {};        // 归一化 key → { value, displayKey }
+    Object.keys(obj).forEach(function(rawKey){
+      var norm = _normalizeDistKey(rawKey);
+      if (!norm) return;
+      var v = parseFloat(obj[rawKey]) || 0;
+      if (merged[norm] === undefined) {
+        merged[norm] = { value: v, displayKey: rawKey };
+      } else {
+        // 同义异名: 取较大值, 记录告警
+        if (Math.abs(v - merged[norm].value) > 0.001) {
+          console.warn('[renderDist] 同义异名 key 占比不同, 取较大值: "'
+            + merged[norm].displayKey + '"(' + merged[norm].value
+            + '%) vs "' + rawKey + '"(' + v + '%)');
+        }
+        if (v > merged[norm].value) {
+          merged[norm] = { value: v, displayKey: rawKey };
+        }
+      }
+    });
+    // 转成渲染用的 { displayKey: value } 数组, 按 value 降序
+    var arr = Object.keys(merged).map(function(n){
+      return { key: merged[n].displayKey, value: merged[n].value };
+    });
+    arr.sort(function(a, b){ return b.value - a.value; });
+    return arr;
+  }
   function renderDist(title, obj) {
     if (!obj || (typeof obj === 'object' && !Array.isArray(obj) && Object.keys(obj).length === 0)) return '';
-    // ★ ui/talent-detail-redesign-v2-cleanup commit 4: dedup 防御 (老大反馈 2026-09-23)
-    //   截图显示粉丝画像年龄分布 "31-40岁 30.1%" 出现两次, OCR 阶段后端 dedup 不彻底
-    //   (dict key 唯一, 但 OCR 字符串里可能有重复 key 直接拼接). 这里 _dedup 兜底按 key 去重
-    //   保留最后一次的值 (后端如果修了 dedup 这层是 no-op)
-    var _dedup = {};
-    Object.keys(obj).forEach(function(k){ _dedup[k] = obj[k]; });
-    var total = Object.values(_dedup).reduce(function(a,b){return a + (parseFloat(b)||0);}, 0);
+    var entries = _mergeDistByNormalizedKey(obj);
+    if (!entries.length) return '';
+    var total = entries.reduce(function(a, b){ return a + b.value; }, 0);
     var section = '<div class="talents-panel-section"><div class="talents-panel-title">' + title + '</div>';
-    Object.keys(_dedup).forEach(function(k){
-      var v = parseFloat(_dedup[k]) || 0;
-      var pct = total ? (v / total * 100) : 0;
-      section += '<div class="products-progress-item"><div class="products-progress-header"><span>' + escapeHtml(k) + '</span><span>' + pct.toFixed(1) + '%</span></div><div class="products-progress-bar"><div class="products-progress-fill" style="width:' + Math.min(pct, 100) + '%"></div></div></div>';
+    entries.forEach(function(e){
+      var pct = total ? (e.value / total * 100) : 0;
+      section += '<div class="products-progress-item"><div class="products-progress-header"><span>' + escapeHtml(e.key) + '</span><span>' + pct.toFixed(1) + '%</span></div><div class="products-progress-bar"><div class="products-progress-fill" style="width:' + Math.min(pct, 100) + '%"></div></div></div>';
     });
     section += '</div>';
     return section;
