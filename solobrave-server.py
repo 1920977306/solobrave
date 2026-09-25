@@ -21477,13 +21477,24 @@ def _update_talent_from_ocr_fields(talent_id, vision_field_maps):
         non_protected_updates = []
         non_protected_values = []
 
+        # ★ v4: 一次性读 ocr_raw_fields 缓存到循环 (避免 N+1 SELECT)
+        #   查 _confidence 字典判断 L0/L1/L2 (L2 人工确认绝不覆盖)
+        ocr_raw_fields = None
+        try:
+            ocr_row = conn.execute('SELECT ocr_raw_fields FROM talents WHERE id = ?', (talent_id,)).fetchone()
+            if ocr_row:
+                ocr_raw_fields = ocr_row['ocr_raw_fields']
+        except Exception:
+            ocr_raw_fields = None
+
         for db_col, val in canonical.items():
             # dict/list 序列化为 JSON 字符串 (fan_* 等分布字段)
             if isinstance(val, (dict, list)):
                 val = json.dumps(val, ensure_ascii=False)
             # 同步保护列: 走 _update_talent_column_if_empty (防覆盖手修正值)
             if db_col in _PROTECTED_COLUMNS:
-                if _update_talent_column_if_empty(conn, talent_id, db_col, val):
+                # ★ v4: 传 ocr_raw_fields 给 _update_talent_column_if_empty (查 L2 confidence)
+                if _update_talent_column_if_empty(conn, talent_id, db_col, val, ocr_raw_fields):
                     write_count += 1
                 else:
                     protected_count += 1
@@ -22100,25 +22111,33 @@ def _canonicalize_talent_row(ocr_json):
         if items:
             out[db_col] = items
 
-    # 7) category_distribution 总和 > 105 按比例归一到 100, price_distribution 保持不变
-    cat_dist = ocr_json.get('category_distribution')
-    if not (isinstance(cat_dist, dict) and cat_dist):
-        cat_dist = extra.get('类目分布')
-        if isinstance(cat_dist, dict):
+    # 7) category_distribution 归一 (v4 加防塌缩前置守卫)
+    #   老大原话 (2026-09-25): "类目条目数 < 已知最小集合 (13) → 禁止按比例硬凑 100.
+    #    处理: 保留原始值 + 标记 incomplete=true."
+    #   _MIN_DIST_KEYS['category_distribution']=13, 档位数 < 13 标记 incomplete + 不归一
+    #   总和 > 105 按比例归一 (v2 行为保留)
+    #   4 个 city_tier fan 段循环不动 (v4 不顺手优化, P1.1 实测后定提升规则)
+    cat_dist_raw = ocr_json.get('category_distribution')
+    if not (isinstance(cat_dist_raw, dict) and cat_dist_raw):
+        cat_dist_raw = extra.get('类目分布')
+        if isinstance(cat_dist_raw, dict):
             # 类目分布 表格 L527-555 是 {类目: 占比} 嵌套结构, flatten
-            data = cat_dist.get('数据') if isinstance(cat_dist.get('数据'), dict) else None
+            data = cat_dist_raw.get('数据') if isinstance(cat_dist_raw.get('数据'), dict) else None
             if isinstance(data, dict) and data:
-                cat_dist = data
+                cat_dist_raw = data
             else:
-                cat_dist = None
-    if isinstance(cat_dist, dict) and cat_dist:
-        total = sum(v for v in cat_dist.values() if isinstance(v, (int, float)))
-        if total > 105:
-            scale = 100.0 / total
-            normalized = {k: round(v * scale, 2) if isinstance(v, (int, float)) else v for k, v in cat_dist.items()}
-            out['category_distribution'] = normalized
-        elif total > 0:
-            out['category_distribution'] = cat_dist
+                cat_dist_raw = None
+    if isinstance(cat_dist_raw, dict) and cat_dist_raw:
+        # ★ v4: 用 _normalize_distribution 防塌缩前置守卫 (替代 v2 简单归一)
+        cat_dist_normalized, cat_incomplete = _normalize_distribution(cat_dist_raw, field_name='category_distribution')
+        if cat_dist_normalized is not None:
+            out['category_distribution'] = cat_dist_normalized
+            if cat_incomplete:
+                # ★ v4: 标记 incomplete (out dict 内 _distribution_incomplete 子 dict)
+                #   后续可扩展: _talent_row_to_dict 返 _distribution_incomplete + 前端渲染警告
+                incomplete_dict = out.get('_distribution_incomplete', {})
+                incomplete_dict['category_distribution'] = True
+                out['_distribution_incomplete'] = incomplete_dict
 
     price_dist = ocr_json.get('price_distribution')
     if isinstance(price_dist, dict) and price_dist:
@@ -22149,15 +22168,19 @@ def _ensure_canonical_text_columns():
 
 def _migrate_existing_talents_fill_text_columns():
     """★ fix/ocr-canonical-sync-v3: startup migration 回填 4 个 _text 列.
+    ★ fix/ocr-canonical-sync-v4: 加 single_video_settlement 列回填 (治本 P2).
 
-    老大原话: "_update_talent_from_ocr_fields 加 startup 逻辑
+    老大原话 (v3): "_update_talent_from_ocr_fields 加 startup 逻辑
     遍历所有 talent 行, 从 ocr_raw_fields 回填 4 个 _text 列".
+    老大原话 (v4 P2): "single_video_settlement 落库 + KPI 卡渲染".
+    前端 v3 已加 KPI 卡 (L31332), 后端 v4 补 single_video_settlement 落库逻辑.
 
     逻辑:
       1. 查所有有 ocr_raw_fields 的 talent 行
       2. 顶层 num_col (total_gmv / video_gpm / live_gpm / avg_live_gmv) 是字符串 (区间原文)
          时, 写到对应 _text 列 (total_gmv_text / video_gpm_text / live_gpm_text / avg_live_gmv_text)
-      3. 已有非空 _text 值则跳过 (防覆盖手修正值)
+      3. ★ v4: 从 extra_fields.视频带货数据.单视频结算额 反推写到 single_video_settlement
+      4. 已有非空 值则跳过 (防覆盖手修正值)
 
     安全:
       - 不写真值 (只读 ocr_raw_fields 反推)
@@ -22170,11 +22193,13 @@ def _migrate_existing_talents_fill_text_columns():
     try:
         # 1. 查所有有 ocr_raw_fields 的 talent 行
         rows = conn.execute(
-            "SELECT id, ocr_raw_fields, total_gmv_text, video_gpm_text, live_gpm_text, avg_live_gmv_text "
+            "SELECT id, ocr_raw_fields, total_gmv_text, video_gpm_text, live_gpm_text, avg_live_gmv_text, "
+            "       single_video_settlement "
             "FROM talents WHERE ocr_raw_fields IS NOT NULL AND ocr_raw_fields != ''"
         ).fetchall()
         updated_count = 0
         skipped_existing = 0
+        single_video_updated = 0
         for row in rows:
             talent_id = row['id']
             ocr_raw = row['ocr_raw_fields']
@@ -22205,8 +22230,27 @@ def _migrate_existing_talents_fill_text_columns():
                 if isinstance(val, str) and val.strip():
                     updates[text_col] = val.strip()
 
-            # 3. 批量 UPDATE
+            # 3. ★ v4: single_video_settlement 落库
+            #   从 ocr_raw_fields.extra_fields.视频带货数据.单视频结算额 反推
+            #   防覆盖手修值 (已有非空跳过)
+            try:
+                existing_single = row['single_video_settlement']
+            except (IndexError, KeyError):
+                existing_single = None
+            if not (existing_single and str(existing_single).strip()):
+                extra_fields_dict = ocr_data.get('extra_fields', {})
+                if isinstance(extra_fields_dict, dict):
+                    video_data_dict = extra_fields_dict.get('视频带货数据', {})
+                    if isinstance(video_data_dict, dict):
+                        new_single = video_data_dict.get('单视频结算额')
+                        if isinstance(new_single, str) and new_single.strip():
+                            updates['single_video_settlement'] = new_single.strip()
+
+            # 4. 批量 UPDATE
             if updates:
+                # 统计 single_video_settlement 更新数 (v4 单独 metric)
+                if 'single_video_settlement' in updates:
+                    single_video_updated += 1
                 for col, val in updates.items():
                     conn.execute(
                         f"UPDATE talents SET {col} = ? WHERE id = ?",
@@ -22216,20 +22260,33 @@ def _migrate_existing_talents_fill_text_columns():
 
         if updated_count > 0:
             conn.commit()
-        logger.info(f'  [startup migration] 回填 _text 列: {updated_count} 行更新, {skipped_existing} 行已有值跳过')
+        logger.info(
+            f'  [startup migration] 回填 _text 列: {updated_count} 行更新 '
+            f'(含 {single_video_updated} 行 single_video_settlement), '
+            f'{skipped_existing} 行已有值跳过'
+        )
     except Exception as e:
         logger.warning(f'  [startup migration] 回填 _text 列失败: {e}')
     finally:
         conn.close()
 
 
-def _update_talent_column_if_empty(conn, talent_id, column, new_value):
-    """★ fix/ocr-canonical-sync-v2: 同步保护 — 已有非空值则跳过更新 (防覆盖手修正值).
+def _update_talent_column_if_empty(conn, talent_id, column, new_value, ocr_raw_fields=None):
+    """★ fix/ocr-canonical-sync-v2/v3/v4: 同步保护 — 已有非空值则跳过更新.
 
     9 列重点防护 (老大原话):
     - 4 个 _text 列: total_gmv_text / video_gpm_text / live_gpm_text / avg_live_gmv_text
     - 4 个 fan 段起始列: fan_city_tier / fan_group_city_tier / live_audience_city_tier / video_audience_city_tier
     - 1 个 single_video_settlement (存文本原文)
+
+    ★ v4 sidecar JSON confidence 升级:
+      - 查 ocr_raw_fields._confidence[col] == 'L2' → 人工确认, 绝不覆盖 → 返 False
+      - 否则查 DB 已有非空值 → 跳过 (v3 行为, 防覆盖手修值)
+      - 否则写入 (L0/L1 默认)
+
+    Args:
+        ocr_raw_fields: talent 行的 ocr_raw_fields 字段值 (字符串/None), 用于查 confidence level.
+                       兼容 v3 调用方, 不传默认 'L0' (OCR 初值, 可覆盖)
     """
     # 无意义新值跳过 (None / '' / 空字符串 / null)
     if new_value is None:
@@ -22237,17 +22294,127 @@ def _update_talent_column_if_empty(conn, talent_id, column, new_value):
     s = str(new_value).strip()
     if not s or s == 'null':
         return False
+    # ★ v4: L2 人工确认绝不覆盖 (sidecar JSON)
+    if _get_confidence_level(ocr_raw_fields, column) == 'L2':
+        return False
     try:
         row = conn.execute(f'SELECT {column} FROM talents WHERE id = ?', (talent_id,)).fetchone()
     except Exception:
         return False
-    # 已有非空值则跳过 (防覆盖手修正值)
+    # 已有非空值则跳过 (防覆盖手修正值) - v3 行为保留
     if row:
         existing = row[0]
         if existing is not None and str(existing).strip() != '':
             return False
     conn.execute(f'UPDATE talents SET {column} = ? WHERE id = ?', (new_value, talent_id))
     return True
+
+
+# ★ fix/ocr-canonical-sync-v4: sidecar JSON confidence 三级分级 helper
+#   ocr_raw_fields 加 _confidence 字典 {列名: 'L0'|'L1'|'L2'}
+#   L0 raw (OCR 初值, 默认, 可被覆盖) - 修正 v3 14 列硬编码锁死 bug
+#   L1 verified (多模型一致/高置信, 待 P1.2 实测后定提升规则, 当前不实现)
+#   L2 confirmed (人工确认, 绝不覆盖)
+def _get_confidence_level(ocr_raw_fields, column_name):
+    """从 ocr_raw_fields JSON 读 confidence 级别. 默认 'L0'.
+
+    兼容旧数据: 缺 _confidence 字段默认 'L0' (OCR 初值, 可被覆盖),
+    v3 14 列白名单行为作为 fallback 仍生效.
+    """
+    if not ocr_raw_fields:
+        return 'L0'
+    try:
+        data = json.loads(ocr_raw_fields) if isinstance(ocr_raw_fields, str) else ocr_raw_fields
+        if not isinstance(data, dict):
+            return 'L0'
+        conf = data.get('_confidence', {})
+        if not isinstance(conf, dict):
+            return 'L0'
+        level = conf.get(column_name, 'L0')
+        return level if level in ('L0', 'L1', 'L2') else 'L0'
+    except (json.JSONDecodeError, TypeError):
+        return 'L0'
+
+
+def _set_confidence_level(ocr_raw_fields, column_name, level):
+    """写 confidence 级别到 ocr_raw_fields JSON. 保留原 OCR 字段不动.
+
+    Returns: 新 JSON 字符串 (失败返原值).
+    老大 L2 提升接口 (Mac 端人工或脚本): _set_confidence_level(ocr, 'col', 'L2')
+    """
+    if not ocr_raw_fields:
+        return ocr_raw_fields
+    if level not in ('L0', 'L1', 'L2'):
+        return ocr_raw_fields
+    try:
+        data = json.loads(ocr_raw_fields) if isinstance(ocr_raw_fields, str) else (ocr_raw_fields or {})
+        if not isinstance(data, dict):
+            return ocr_raw_fields
+        if '_confidence' not in data or not isinstance(data.get('_confidence'), dict):
+            data['_confidence'] = {}
+        data['_confidence'][column_name] = level
+        return json.dumps(data, ensure_ascii=False)
+    except (json.JSONDecodeError, TypeError):
+        return ocr_raw_fields
+
+
+# ★ fix/ocr-canonical-sync-v4: 已知分布字段的最小档位数
+#   防归一算法把不全的分布压成假 100% (例如城市只抓到 2/7 档)
+_MIN_DIST_KEYS = {
+    'fan_city_tier': 7,
+    'fan_group_city_tier': 7,
+    'live_audience_city_tier': 7,
+    'video_audience_city_tier': 7,
+    'category_distribution': 13,
+}
+
+
+def _normalize_distribution(dist, field_name=None):
+    """★ fix/ocr-canonical-sync-v4: 归一防塌缩前置守卫.
+
+    老大原话 (2026-09-25):
+      "城市只抓到 2/7 档 → 归一逻辑在'值不全'时按现有值比例硬凑 100, 变成 50/50.
+       修复: 若捕获到的档位明显不全 (城市 < 7 / 类目 < 13) → 禁止按比例硬凑 100.
+       处理: 保留原始值 + 标记 incomplete=true.
+       仅当档位齐全 (或无法判定缺失) 且总和在合理区间 (如 90–110) 时才归一."
+
+    规则:
+      - dist 为空 → 返 (None, True) (incomplete=True)
+      - 档位数 < 5 → 返 (dist, True) (档位太少, 标记 incomplete)
+      - 已知最小集合 (_MIN_DIST_KEYS) 检查: n_keys < min_keys → 返 (dist, True)
+      - 总和 > 105 → 按比例归一到 100, 返 (normalized, False)
+      - 总和在 90-110 → 已归一, 不动, 返 (dist, False)
+      - 其他 (总和 < 90) → 保留原始值 + incomplete=True
+
+    Returns: (normalized_dist, incomplete_flag)
+    """
+    if not dist or not isinstance(dist, dict) or not dist:
+        return None, True
+
+    n_keys = len(dist)
+    values = [v for v in dist.values() if isinstance(v, (int, float))]
+    total = sum(values)
+
+    # 规则 1: 档位数 < 5 → 标记 incomplete
+    if n_keys < 5:
+        return dist, True
+
+    # 规则 2: 已知最小集合检查
+    if field_name in _MIN_DIST_KEYS and n_keys < _MIN_DIST_KEYS[field_name]:
+        return dist, True
+
+    # 规则 3: 总和 > 105 → 按比例归一
+    if total > 105:
+        scale = 100.0 / total
+        normalized = {k: round(v * scale, 2) if isinstance(v, (int, float)) else v for k, v in dist.items()}
+        return normalized, False
+
+    # 规则 4: 总和在 90-110 → 已归一, 不动
+    if 90 <= total <= 110:
+        return dist, False
+
+    # 规则 5: 其他 → 保留原始值 + incomplete
+    return dist, True
 
 
 def _heavy_entity_hint(talent_names, talents):
