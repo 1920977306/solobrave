@@ -1,0 +1,688 @@
+{
+  "__metadata__": {
+    "source": "ocr_dump_李婶儿.txt (李婶儿达人截图 OCR 真实输出)",
+    "purpose": "OCR JSON 嵌套结构骨架, 脱敏后供 Mini 对照写 _canonicalize_talent_row",
+    "rules": "数字→0/0.0, 字符串→'x'*len, 列表保留长度首项结构其余空, dict 递归",
+    "critical_keys": {
+      "fans_4_sections": "extra_fields.粉丝特征 / 粉丝团特征 / 直播间特征 / 短视频特征 (FLAT, 没有 '粉丝分析' 中间层)",
+      "category_distribution": "13 keys, 总和 ~198%, 触发归一 (按百分比缩放到 100)",
+      "interval_string_format": "区间字符串: '¥100万-500万' / '500-1,000' / '¥2万-10万' / '¥5,000-2万' (带或不带 ¥ 前缀)",
+      "real_data_path": "/Users/qichen/solobrave-prod/ocr_dump_李婶儿.txt (not in git, 53 顶层 keys + extra_fields 47 子 keys)"
+    },
+    "top_level_key_count": 53,
+    "extra_fields_subkey_count": 47
+  },
+  "name": "xxx",
+  "city": "xxxxx",
+  "followers": "xxxx",
+  "level": "xxx",
+  "bio": "xxxxxxxxxxxxxxxxxxxxxxxxxx",
+  "tags": [
+    "xxx"
+  ],
+  "main_category": "xxxx",
+  "cooperation_status": "xxxx",
+  "agency": "xx",
+  "product_count": 0,
+  "total_history_days": 0,
+  "total_shops": 0,
+  "total_gmv": "xxxxxxxxxx",
+  "live_ratio": 0.0,
+  "live_sessions": 0,
+  "live_views": "xxxxx",
+  "video_ratio": 0.0,
+  "video_count": 0,
+  "video_plays": "xxxxx",
+  "single_video_settlement": "xxxxxxxxx",
+  "video_gpm": "xxxxxxx",
+  "fulfillment_score": 0,
+  "top_products": [
+    {
+      "name": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "shop_name": "xxxxxxxxxx",
+      "price": "xxxxxx",
+      "gmv_range": "xxxxxx",
+      "video_count": "xx"
+    },
+    {},
+    {},
+    {},
+    {},
+    {}
+  ],
+  "top_categories": [
+    {
+      "name": "xxxx",
+      "avg_price": null,
+      "gmv": null,
+      "ratio": null
+    },
+    {},
+    {}
+  ],
+  "top_brands": [
+    {
+      "name": "xxxx",
+      "avg_price": null,
+      "gmv": null,
+      "ratio": null
+    },
+    {},
+    {}
+  ],
+  "price_distribution": {
+    "0-25": 0.0,
+    "25-50": 0.0,
+    "50-100": 0.0,
+    "100-200": 0.0,
+    "200-500": 0.0,
+    "500+": 0.0
+  },
+  "category_distribution": {
+    "个护家清": 0,
+    "医疗健康": 0,
+    "服装": 0.0,
+    "黄金珠宝玉石": 0.0,
+    "餐饮厨具": 0.0,
+    "个人护理": 0.0,
+    "其他": 0.0,
+    "服饰内衣": 0,
+    "智能家居": 0,
+    "食品饮料": 0,
+    "图书教育": 0,
+    "生鲜": 0,
+    "美妆": 0
+  },
+  "brand_distribution": {
+    "海洋主义": 0,
+    "困困鸭": 0,
+    "左小妆": 0,
+    "优禾康": 0,
+    "屿帆": 0,
+    "渔公码头": 0,
+    "维多利索菲雅": 0,
+    "草本初色": 0
+  },
+  "fan_gender": {
+    "女": 0,
+    "男": 0.0
+  },
+  "fan_age": {
+    "31-40岁": 0,
+    "18-23": 0.0,
+    "24-30": 0.0,
+    "31-40": 0.0,
+    "41-50": 0.0,
+    "50岁以上": 0.0
+  },
+  "fan_city_tier": {
+    "三线城市": 0,
+    "新一线城市": 0
+  },
+  "fan_crowd": "xxxxxxxx",
+  "fan_price_range": "xxxxxxxxxxxxx",
+  "fan_category": "xxxxxxx",
+  "fan_group_gender": {
+    "女": 0
+  },
+  "fan_group_age": {
+    "31-40岁": 0
+  },
+  "fan_group_crowd": "xxxxxxx",
+  "fan_group_activity": {
+    "低": 0.0,
+    "中低": 0.0,
+    "中高": 0.0,
+    "高": 0.0
+  },
+  "fan_group_device": {
+    "苹果": 0.0,
+    "华为": 0.0,
+    "oppo": 0.0,
+    "vivo": 0.0,
+    "其他": 0.0
+  },
+  "fan_group_price": "xxxxxxxxxxxxx",
+  "fan_group_category": "xxxxxxxxxxx",
+  "live_audience_region": {},
+  "live_audience_city_tier": {
+    "三线城市": 0
+  },
+  "video_audience_region": {
+    "广东": 0,
+    "江苏": 0,
+    "河南": 0,
+    "四川": 0,
+    "山东": 0,
+    "浙江": 0,
+    "河北": 0,
+    "陕西": 0,
+    "湖北": 0,
+    "云南": 0
+  },
+  "video_audience_city_tier": {
+    "新一线城市": 0,
+    "新一线": 0.0,
+    "一线": 0.0,
+    "二线": 0.0,
+    "三线": 0.0,
+    "四线": 0.0,
+    "五线": 0.0,
+    "六线及以下": 0.0
+  },
+  "extra_fields": {
+    "统计时间": "xxxxxxxxxxxxxxxxxxxxx",
+    "时间筛选": [
+      "xxx",
+      {}
+    ],
+    "场均结算额": "xxxxxxx",
+    "直播GPM": "xxxxxxxxx",
+    "粉丝特征": {
+      "性别": "xxxxx",
+      "年龄": "xxxxxxxxx",
+      "城市等级": "xxxxxxx",
+      "人群": "xxxxxxxx",
+      "客单价": "xxxxxxxxxx",
+      "品类偏好": "xxxxx",
+      "女性": "xxx",
+      "31-40岁": "xxx",
+      "三线城市": "xxx",
+      "小镇中老年": "xxx"
+    },
+    "粉丝团特征": {
+      "性别": "xxxxx",
+      "年龄": "xxxxxxxxx",
+      "城市等级": "xxxxxxx",
+      "人群": "xxxxxxx",
+      "客单价": "xxxxxxxxxx",
+      "品类偏好": "xxxxxxxxx"
+    },
+    "直播间特征": {
+      "性别": "xxxxx",
+      "年龄": "xxxxxxxxx",
+      "城市等级": "xxxxxxx",
+      "人群": "xxxxxxx",
+      "客单价": "xxxxxxxxxxx",
+      "品类偏好": "xxxxx"
+    },
+    "短视频特征": {
+      "性别": "xxxxx",
+      "年龄": "xxxxxxxxx",
+      "城市等级": "xxxxxxxx",
+      "人群": "xxxxxxx",
+      "客单价": "xxxxxxxxxxx",
+      "品类偏好": "xxxxx"
+    },
+    "基础信息": {
+      "内容": "xxx",
+      "机构": "xx",
+      "简介": "xxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    "带货要求": {
+      "意向类目": "xxxx"
+    },
+    "联系方式": {
+      "微信号": "xxxxxxxxxxx",
+      "手机号": "xxxxxxxxxxx"
+    },
+    "操作按钮": [
+      "xxxx",
+      {}
+    ],
+    "主推类目": {
+      "个护家清": "xxx",
+      "医疗健康": "xxx"
+    },
+    "页面标题": "xxxxxx",
+    "筛选标签": [
+      "xx",
+      {},
+      {},
+      {}
+    ],
+    "热卖类目TOP3": [
+      {
+        "类目": "xxxx",
+        "均价": "xxxxx",
+        "结算额": "xxxxxxxxxx",
+        "佣金参考": "x"
+      },
+      {},
+      {}
+    ],
+    "热卖品牌TOP3": [
+      {
+        "品牌": "xxx",
+        "均价": "xxxxxx",
+        "结算额": "xxxxxxxxxx"
+      },
+      {},
+      {}
+    ],
+    "历史视频作品": [
+      {
+        "视频标题": "xxxxx",
+        "播放量": "xxxx",
+        "发布日期": "xxxxxxxxxx",
+        "视频文案": "xxxxxxxxx"
+      },
+      {},
+      {},
+      {},
+      {}
+    ],
+    "分页信息": "xxx",
+    "重点指标": {
+      "时间范围": "xxxx",
+      "视频数量": 0,
+      "播放量": "xxxxx",
+      "完播率": "xxxxx",
+      "点赞数": 0,
+      "评论数": 0,
+      "转发数": 0,
+      "互动率": "xxxxx"
+    },
+    "数据趋势": {
+      "描述": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "图表类型": "xxx",
+      "Y轴刻度": [
+        "x",
+        {},
+        {},
+        {},
+        {},
+        {}
+      ],
+      "数据系列": [
+        "xxx",
+        {}
+      ],
+      "当前选中系列": "xxx",
+      "悬浮提示": {
+        "播放量": "xxxxx",
+        "日期": "xxxxxxxxxxxxxxxx"
+      }
+    },
+    "视频列表": {
+      "选择器说明": "xxxxxxxxxxxxxxx",
+      "已选指标": [
+        "xxx",
+        {},
+        {},
+        {}
+      ],
+      "未选指标": [
+        "xxx",
+        {},
+        {}
+      ],
+      "列名": [
+        "xxxx",
+        {},
+        {},
+        {},
+        {},
+        {}
+      ],
+      "数据": [
+        {
+          "视频标题": "xxxxxxxxxxxxx",
+          "发布时间": "xxxxxxxxxxxxxxxxxxx",
+          "播放量": "xxxxx",
+          "互动率": "xxxxx",
+          "单视频结算额": "x",
+          "视频GPM": "x",
+          "带货商品": 0
+        },
+        {},
+        {},
+        {},
+        {},
+        {}
+      ]
+    },
+    "消费偏好": {
+      "客单价50到100元": "xxx",
+      "偏好服装": "xxx"
+    },
+    "粉丝趋势": {
+      "粉丝变化数": "xxxxxxx",
+      "粉丝变化率": "xxxxxxxx",
+      "统计时间": "xxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "图表类型": "xxx",
+      "Y轴范围": "xxxxxxxx",
+      "X轴标签": [
+        "xxxxx",
+        {},
+        {},
+        {},
+        {},
+        {},
+        {},
+        {},
+        {},
+        {},
+        {},
+        {},
+        {}
+      ],
+      "切换按钮": [
+        "xx",
+        {}
+      ]
+    },
+    "性别分布": {
+      "描述": "xxxxxxxxxxxxxxx",
+      "女性": "xxxxxx",
+      "男性": "xxxxxx",
+      "图表类型": "xxx",
+      "图例": [
+        "xx",
+        {}
+      ],
+      "主要结论": "xxxxxxxxxxxxxxx"
+    },
+    "年龄分布": {
+      "描述": "xxxxxxxxxxxxxxxxx",
+      "18-23": "xxxxx",
+      "24-30": "xxxxx",
+      "31-40": "xxxxxx",
+      "41-50": "xxxxxx",
+      "50岁以上": "xxxxxx",
+      "图表类型": "xxx",
+      "Y轴范围": "xxxxxx",
+      "主要结论": "xxxxxxxxxxxxxxxxx"
+    },
+    "八大消费人群占比": {
+      "标题": "xxxxxxxx",
+      "说明文字": "xxxxxxxxxxxxxxxx",
+      "图表类型": "xxx",
+      "Y轴范围": "xxxxxx",
+      "数据": {
+        "小镇中老年": "xxxxxx",
+        "都市银发": "xxxxxx",
+        "小镇青年": "xxxxxx",
+        "资深中产": "xxxxxx",
+        "精致妈妈": "xxxxxx",
+        "新锐白领": "xxxxxx",
+        "都市蓝领": "xxxxx",
+        "genz": "xxxxx"
+      },
+      "小镇青年": "xxxxxx",
+      "新锐白领": "xxxxxx",
+      "精致妈妈": "xxxxxx",
+      "genz": "xxxxx",
+      "资深中产": "xxxxx",
+      "都市蓝领": "xxxxx",
+      "小镇中老年": "xxxxx",
+      "都市银发": "xxxxx",
+      "主要结论": "xxxxxxxxxxxxxxx"
+    },
+    "八大消费人群占比表格": [
+      {
+        "人群": "xxxxx",
+        "占比": "xxxxxx"
+      },
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {}
+    ],
+    "活跃度分布": {
+      "标题": "xxxxx",
+      "说明文字": "xxxxxxxxxxxx",
+      "图表类型": "xxx",
+      "图例": [
+        "x",
+        {},
+        {},
+        {}
+      ],
+      "数据": {
+        "低": "xxxxx",
+        "中低": "xxxxxx",
+        "中高": "xxxxxx",
+        "高": "xxxxxx"
+      }
+    },
+    "活跃度分布表格": [
+      {
+        "活跃度": "x",
+        "占比": "xxxxx"
+      },
+      {},
+      {},
+      {}
+    ],
+    "设备分布": {
+      "标题": "xxxx",
+      "说明文字": "xxxxxxxxxxxxx",
+      "图表类型": "xxx",
+      "图例": [
+        "xx",
+        {},
+        {},
+        {},
+        {}
+      ],
+      "数据": {
+        "苹果": "xxxxxx",
+        "华为": "xxxxxx",
+        "oppo": "xxxxxx",
+        "vivo": "xxxxxx",
+        "其他": "xxxxxx"
+      }
+    },
+    "设备分布表格": [
+      {
+        "设备": "xx",
+        "占比": "xxxxxx"
+      },
+      {},
+      {},
+      {},
+      {}
+    ],
+    "客单价水平": {
+      "标题": "xxxxx",
+      "说明文字": "xxxxxxxxxxxxxxxxx",
+      "图表类型": "xxx",
+      "数据": {
+        "0-25": "xxxxx",
+        "25-50": "xxxxxx",
+        "50-100": "xxxxxx",
+        "100-200": "xxxxxx",
+        "200-500": "xxxxxx",
+        "500+": "xxxxx",
+        "0~25": "xxxxx",
+        "25~50": "xxxxxx",
+        "50~100": "xxxxxx",
+        "100~200": "xxxxxx",
+        "200~500": "xxxxxx"
+      },
+      "图例": [
+        "xxxx",
+        {},
+        {},
+        {},
+        {},
+        {}
+      ]
+    },
+    "客单价水平表格": [
+      {
+        "价格区间": "xxxx",
+        "占比": "xxxxx"
+      },
+      {},
+      {},
+      {},
+      {},
+      {}
+    ],
+    "类目分布": {
+      "标题": "xxxx",
+      "说明文字": "xxxxxxxxxxxxx",
+      "图表类型": "xxx",
+      "数据": {
+        "服装": "xxxxxx",
+        "黄金珠宝玉石": "xxxxxx",
+        "餐饮厨具": "xxxxx",
+        "个人护理": "xxxxx",
+        "其他": "xxxxxx"
+      },
+      "图例": [
+        "xx",
+        {},
+        {},
+        {},
+        {}
+      ]
+    },
+    "类目分布表格": [
+      {
+        "类目": "xx",
+        "占比": "xxxxxx"
+      },
+      {},
+      {},
+      {},
+      {}
+    ],
+    "统计周期": "xxxx",
+    "短视频观众特征": [
+      "xxxxxxx",
+      {},
+      {},
+      {}
+    ],
+    "地区分布": {
+      "标题": "xxxx",
+      "说明": "xxxxxxxxxxxxxxxxxxxx",
+      "tab": "xx",
+      "省份排名": [
+        {
+          "排名": 0,
+          "省份": "xx",
+          "占比": "xx"
+        },
+        {},
+        {},
+        {},
+        {},
+        {},
+        {},
+        {},
+        {},
+        {}
+      ],
+      "地图热力值范围": {
+        "min": 0,
+        "max": 0
+      }
+    },
+    "城市等级分布": {
+      "标题": "xxxxxx",
+      "说明": "xxxxxxxxxxxxxxxx",
+      "图表类型": "xxx",
+      "Y轴范围": "xxxxxx",
+      "数据": [
+        {
+          "城市等级": "xxx",
+          "占比": "xxxxxx"
+        },
+        {},
+        {},
+        {},
+        {},
+        {},
+        {}
+      ]
+    },
+    "核心数据": {
+      "结算总额": "xxxxxxxxxx",
+      "带货商品数": "xx",
+      "合作店铺数": "xx",
+      "平均件单价": "xxxxxx"
+    },
+    "直播带货数据": {
+      "直播带货结算占比": "xxxxxx",
+      "场均结算额": "xxxxxxx",
+      "直播GPM": "xxxxxxxxx",
+      "带货商品数": "x",
+      "合作店铺数": "x",
+      "直播平均件单价": "xxxxx"
+    },
+    "视频带货数据": {
+      "视频结算额占比": "xxxxxx",
+      "单视频结算额": "xxxxxxxxx",
+      "视频GPM": "xxxxxxx",
+      "带货商品数": "xx",
+      "合作店铺数": "xx",
+      "视频平均件单价": "xxxxxx"
+    },
+    "带货商品筛选": {
+      "主推类目": [
+        "xx",
+        {},
+        {},
+        {},
+        {},
+        {},
+        {},
+        {},
+        {}
+      ],
+      "合作品牌": [
+        "xx",
+        {},
+        {},
+        {},
+        {},
+        {},
+        {},
+        {},
+        {},
+        {}
+      ],
+      "匹配维度": [
+        "xx"
+      ]
+    },
+    "商品列表标题": "xxxxxxxxxx",
+    "商品表格列名": [
+      "xxxx",
+      {},
+      {},
+      {},
+      {},
+      {}
+    ],
+    "商品列表": [
+      {
+        "商品信息": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "店铺信息": "xxxxxxxxxx",
+        "到手价": "xxxxxx",
+        "结算额区间": "xxxxxx",
+        "关联直播场次": "xx",
+        "关联短视频数": "xx"
+      },
+      {},
+      {},
+      {},
+      {},
+      {}
+    ]
+  },
+  "video_completion_rate": "xxxx",
+  "video_likes": 0,
+  "video_comments": 0,
+  "video_shares": 0,
+  "video_interaction_rate": "xxxx",
+  "average_price": "xxxxxx",
+  "video_avg_price": "xxxxxx"
+}
