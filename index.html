@@ -31303,6 +31303,9 @@ function renderTalentPanelOverview(t) {
   // ★ fix/talent-kpi-card-key-bind: 4 张卡 key 改名 (feishu_* / monthly_settlement → 实际库列),
   //   redesign 时前端 key 名改飞了, 库返 23/22/300/250万, 前端读错 key 走 || '-' 全显 -.
   //   复用 L30531 GMV 万元模式 (>= 10000 转 "xw" 格式, 页面已存在的内联逻辑) + formatNumber 千位分隔.
+  // ★ fix/ocr-canonical-sync-v2: 区间值双轨显示 (老大 2026-09-25)
+  //   月结算金额 / 视频 GPM 优先读对应 _text 列 (¥100万-500万 区间原文), 无 _text 回退数值
+  //   _kpiRange 提取 ¥X万-Y万 / ¥X-Y 区间数字, 简化显示 (例: "¥100万-500万" → "100万-500万")
   function _kpiWan(v) {
     // ★ 复用页面已有 GMV 万元模式 (talent-detail L30531): >= 10000 转万元, 否则千位分隔
     var n = parseFloat(v) || 0;
@@ -31312,11 +31315,20 @@ function renderTalentPanelOverview(t) {
     var n = parseFloat(v) || 0;
     return n > 0 ? formatNumber(n) : '';
   }
+  // ★ fix/ocr-canonical-sync-v2: _kpiRange 提取区间值数字
+  //   输入 '¥100万-500万' / '¥5,000-2万' / '¥2万-10万' → 输出 "100万-500万" (去 ¥, 加千位)
+  //   优先级: _text 原文 (区间精确值) > 数值列 (_kpiWan 转万元) > '-'
+  function _kpiRange(text) {
+    if (!text) return '';
+    var s = String(text).trim().replace(/^[¥￥]+/, '').trim();
+    if (!s || !s.match(/[\d\u4e00-\u9fff]/)) return '';
+    return s;
+  }
   var _kpis = [
     { label: '粉丝量',      val: t.followers ? formatFollowers(t.followers) : '-' },
-    { label: '月结算金额',   val: _kpiWan(t.total_gmv) || '-' },
+    { label: '月结算金额',   val: _kpiRange(t.total_gmv_text) || _kpiWan(t.total_gmv) || '-' },
     { label: '带货商品数',   val: _kpiNum(t.product_count) || '-' },
-    { label: '视频GPM',      val: _kpiNum(t.video_gpm) || '-' },
+    { label: '视频GPM',      val: _kpiRange(t.video_gpm_text) || _kpiNum(t.video_gpm) || '-' },
     { label: '单视频结算额', val: t.single_video_settlement || '-' },
     { label: '合作店铺数',   val: _kpiNum(t.total_shops) || '-' }
   ];
