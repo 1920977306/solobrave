@@ -2,9 +2,6 @@ __pycache__/
 *.log
 *.tmp
 *.pyc
-test_*.py
-!test_v3_scorer.py
-!test_multi_provider.py
 check_*.py
 *.docx
 *.exe
