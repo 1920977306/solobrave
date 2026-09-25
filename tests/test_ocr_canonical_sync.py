@@ -58,6 +58,8 @@ _strip_yuan = _solobrave_server._strip_yuan
 _update_talent_column_if_empty = _solobrave_server._update_talent_column_if_empty
 _parse_gmv_value = _solobrave_server._parse_gmv_value
 _merge_dist_by_normalized_key = _solobrave_server._merge_dist_by_normalized_key
+_migrate_existing_talents_fill_text_columns = _solobrave_server._migrate_existing_talents_fill_text_columns
+_talent_row_to_dict = _solobrave_server._talent_row_to_dict
 
 
 def _assert_equal(actual, expected, msg):
@@ -594,3 +596,174 @@ def test_merge_dist_by_normalized_key_city_with_space_v2():
     _assert_equal(len(merged), 2, 'v2 不合并 三线城市 和 三 线城市 (中间空格不同)')
     _assert_equal(merged.get('三线城市'), '24%', '三线城市 保留第一个值')
     _assert_equal(merged.get('三 线城市'), '25%', '三 线城市 保留原值')
+
+
+# ══════════════════════════════════════════════════════════════════════
+# ★ fix/ocr-canonical-sync-v3 (2026-09-25): 4 项治本新增 4 case
+# ══════════════════════════════════════════════════════════════════════
+
+
+def test_migrate_existing_talents_fill_text_columns():
+    """★ v3 治本: startup migration 回填 4 个 _text 列.
+
+    老大原话: "_update_talent_from_ocr_fields 加 startup 逻辑
+    遍历所有 talent 行, 从 ocr_raw_fields 回填 4 个 _text 列".
+
+    验证:
+    - talent 行 ocr_raw_fields 含 total_gmv='¥100万-500万' (字符串)
+    - talent 行 total_gmv_text='' 空
+    - 跑 _migrate_existing_talents_fill_text_columns
+    - DB total_gmv_text='¥100万-500万' (回填成功)
+    - video_gpm_text / live_gpm_text / avg_live_gmv_text 也回填
+    """
+    import sqlite3 as _sqlite3
+
+    # 准备 in-memory DB, mock _db_conn 返它
+    conn = _sqlite3.connect(':memory:')
+    conn.row_factory = _sqlite3.Row
+    conn.execute('''CREATE TABLE talents (
+        id TEXT PRIMARY KEY,
+        name TEXT,
+        ocr_raw_fields TEXT,
+        total_gmv_text TEXT DEFAULT '',
+        video_gpm_text TEXT DEFAULT '',
+        live_gpm_text TEXT DEFAULT '',
+        avg_live_gmv_text TEXT DEFAULT ''
+    )''')
+    conn.execute("""INSERT INTO talents (id, name, ocr_raw_fields, total_gmv_text, video_gpm_text, live_gpm_text, avg_live_gmv_text)
+                    VALUES (1, '李婶儿',
+                            '{"total_gmv":"¥100万-500万","video_gpm":"300","live_gpm":"500-1,000","avg_live_gmv":"¥2万-10万"}',
+                            '', '', '', '')""")
+    conn.commit()
+
+    # monkey-patch _db_conn 返测试 conn
+    original_db_conn = _solobrave_server._db_conn
+    _solobrave_server._db_conn = lambda: conn
+    try:
+        _migrate_existing_talents_fill_text_columns()
+        # 验证 4 _text 列都回填
+        row = conn.execute('SELECT total_gmv_text, video_gpm_text, live_gpm_text, avg_live_gmv_text FROM talents WHERE id = 1').fetchone()
+        _assert_equal(row['total_gmv_text'], '¥100万-500万', 'total_gmv_text 回填成功')
+        _assert_equal(row['video_gpm_text'], '300', 'video_gpm_text 回填成功')
+        _assert_equal(row['live_gpm_text'], '500-1,000', 'live_gpm_text 回填成功')
+        _assert_equal(row['avg_live_gmv_text'], '¥2万-10万', 'avg_live_gmv_text 回填成功')
+    finally:
+        _solobrave_server._db_conn = original_db_conn
+        conn.close()
+
+
+def test_migrate_existing_talents_skips_existing_text():
+    """★ v3 治本: startup migration 不覆盖已有 _text 值 (防覆盖手修值).
+
+    场景: 团长手修过 total_gmv_text='老修正值' (防 OCR 错误),
+    startup migration 看到 ocr_raw_fields 含 total_gmv='¥100万-500万'
+    但 total_gmv_text 非空, 应跳过 (不覆盖).
+    """
+    import sqlite3 as _sqlite3
+
+    conn = _sqlite3.connect(':memory:')
+    conn.row_factory = _sqlite3.Row
+    conn.execute('''CREATE TABLE talents (
+        id TEXT PRIMARY KEY, name TEXT, ocr_raw_fields TEXT,
+        total_gmv_text TEXT DEFAULT '',
+        video_gpm_text TEXT DEFAULT '',
+        live_gpm_text TEXT DEFAULT '',
+        avg_live_gmv_text TEXT DEFAULT ''
+    )''')
+    conn.execute("""INSERT INTO talents (id, name, ocr_raw_fields, total_gmv_text, video_gpm_text, live_gpm_text, avg_live_gmv_text)
+                    VALUES (1, '李婶儿',
+                            '{"total_gmv":"¥100万-500万","video_gpm":"300"}',
+                            '老修正值', '', '', '')""")
+    conn.commit()
+
+    original_db_conn = _solobrave_server._db_conn
+    _solobrave_server._db_conn = lambda: conn
+    try:
+        _migrate_existing_talents_fill_text_columns()
+        row = conn.execute('SELECT total_gmv_text, video_gpm_text FROM talents WHERE id = 1').fetchone()
+        # total_gmv_text 不被覆盖 (已有 '老修正值')
+        _assert_equal(row['total_gmv_text'], '老修正值', 'total_gmv_text 已有值不覆盖')
+        # video_gpm_text 应回填 (空)
+        _assert_equal(row['video_gpm_text'], '300', 'video_gpm_text 空, 已回填')
+    finally:
+        _solobrave_server._db_conn = original_db_conn
+        conn.close()
+
+
+def test_migrate_existing_talents_skips_talents_without_ocr_raw():
+    """★ v3 治本: startup migration 跳过 ocr_raw_fields IS NULL/空 的 talent 行.
+
+    防: 没有 OCR dump 的 legacy 行, migration 不报错不写 UPDATE.
+    """
+    import sqlite3 as _sqlite3
+
+    conn = _sqlite3.connect(':memory:')
+    conn.row_factory = _sqlite3.Row
+    conn.execute('''CREATE TABLE talents (
+        id TEXT PRIMARY KEY, name TEXT, ocr_raw_fields TEXT,
+        total_gmv_text TEXT DEFAULT '',
+        video_gpm_text TEXT DEFAULT '',
+        live_gpm_text TEXT DEFAULT '',
+        avg_live_gmv_text TEXT DEFAULT ''
+    )''')
+    conn.execute("INSERT INTO talents (id, name, ocr_raw_fields) VALUES (1, '李婶儿', NULL)")
+    conn.execute("INSERT INTO talents (id, name, ocr_raw_fields) VALUES (2, '王五', '')")
+    conn.commit()
+
+    original_db_conn = _solobrave_server._db_conn
+    _solobrave_server._db_conn = lambda: conn
+    try:
+        _migrate_existing_talents_fill_text_columns()
+        # 2 行 total_gmv_text 都应保持 ''
+        rows = conn.execute('SELECT id, total_gmv_text FROM talents ORDER BY id').fetchall()
+        _assert_equal(rows[0]['total_gmv_text'], '', 'legacy NULL 行 跳过')
+        _assert_equal(rows[1]['total_gmv_text'], '', 'legacy 空字符串 行 跳过')
+    finally:
+        _solobrave_server._db_conn = original_db_conn
+        conn.close()
+
+
+def test_talent_row_to_dict_missing_columns_no_error():
+    """★ v3 治本: _talent_row_to_dict 缺 4 _text + video_count 等列不抛 IndexError.
+
+    老大原话: "对未确认存在的列用 row.get('xxx') or default, 避免 API 500 No item with that key".
+
+    旧 DB (Mac 端生产 data/solobrave.db) 没跑过 v2 migration 时:
+      - 缺 4 _text 列 (total_gmv_text / video_gpm_text / live_gpm_text / avg_live_gmv_text)
+      - 缺 price_distribution / category_distribution
+      - 缺 main_category / video_count (任务 7)
+      - 缺 ocr_raw_fields
+    _talent_row_to_dict 加 _safe_row_get / _json_col 容错, 缺列返 default.
+
+    测试: sqlite3 in-memory 建老 schema (没 v3 关心列), INSERT 一行, 调 _talent_row_to_dict 不抛异常.
+    """
+    import sqlite3 as _sqlite3
+
+    conn = _sqlite3.connect(':memory:')
+    conn.row_factory = _sqlite3.Row
+    # ★ 故意只建老 schema 列 (没 v3 关心的 4 _text + price/category_distribution + main_category + video_count + ocr_raw_fields)
+    conn.execute('''CREATE TABLE talents (
+        id INTEGER PRIMARY KEY, name TEXT, avatar TEXT,
+        cooperation_status TEXT DEFAULT 'available'
+    )''')
+    conn.execute("INSERT INTO talents (id, name, avatar) VALUES (1, '李婶儿', 'avatar.png')")
+    conn.commit()
+    try:
+        row = conn.execute('SELECT * FROM talents WHERE id = 1').fetchone()
+        # ★ 不抛 IndexError
+        result = _talent_row_to_dict(row)
+        _assert_true(result is not None, '_talent_row_to_dict 不抛异常 (缺多列也 OK)')
+        _assert_equal(result['id'], 1, 'id 正确')
+        _assert_equal(result['name'], '李婶儿', 'name 正确')
+        # 缺列返 default
+        _assert_equal(result.get('total_gmv_text'), '', 'total_gmv_text 缺列 返空字符串')
+        _assert_equal(result.get('video_gpm_text'), '', 'video_gpm_text 缺列 返空字符串')
+        _assert_equal(result.get('live_gpm_text'), '', 'live_gpm_text 缺列 返空字符串')
+        _assert_equal(result.get('avg_live_gmv_text'), '', 'avg_live_gmv_text 缺列 返空字符串')
+        _assert_equal(result.get('price_distribution'), {}, 'price_distribution 缺列 返空 dict')
+        _assert_equal(result.get('category_distribution'), {}, 'category_distribution 缺列 返空 dict')
+        _assert_equal(result.get('main_category'), '', 'main_category 缺列 返空字符串')
+        # 任务 7: video_count 缺列 返 0 兜底
+        _assert_equal(result.get('video_count'), 0, 'video_count 缺列 返 0 (任务 7 兜底)')
+    finally:
+        conn.close()
