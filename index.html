@@ -31345,6 +31345,30 @@ function renderTalentPanelOverview(t) {
   html += '<div class="talents-panel-section">';
   html += '<div class="talents-panel-title">基础信息</div>';
   // 8 项基础信息:任一有值就展示,全空时合并成一行 placeholder
+  // ★ fix/ocr-canonical-sync-v3 (2026-09-25): 概览页 fan 4 段渲染 (账号粉丝特征 / 短视频粉丝特征)
+  //   老大原话: "概览'账号粉丝特征'卡片取 fan_gender/fan_city_tier/fan_age/fan_consumption 4 个字段"
+  //   "短视频粉丝特征卡片取 video_audience_* 对应字段"
+  //   之前 _ocrFallback 只返标量, dict 字段 (fan_gender/fan_age/fan_city_tier/fan_price_range 等)
+  //   全失败 → 卡片永远 '待补充'. v3 加 _buildFansProfile 从 4 个 dict 字段拼可读文本:
+  //     fan_gender {男: 65, 女: 35}  → '男65%/女35%'
+  //     fan_age {31-40岁: 38}        → '31-40岁38%'
+  //   多个字段用 ' / ' 拼接, 4 字段任一非空返值.
+  function _buildFansProfile(t, fieldKeys) {
+    if (!t) return '';
+    var parts = [];
+    fieldKeys.forEach(function(k) {
+      var v = t[k];
+      if (v && typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length) {
+        var segs = Object.keys(v).map(function(label) {
+          var pct = parseFloat(v[label]) || 0;
+          return label + pct + '%';
+        }).join('、');
+        if (segs) parts.push(segs);
+      }
+    });
+    return parts.join(' / ');
+  }
+
   // ★ feature/influencer-form-validation: 空值 fallback '-' → '待补充' + 加 empty flag (CSS class value-empty 高亮橙色)
   // ★ fix/ocr-fallback: talent 表字段为空时, 从 ocr_raw_fields 模糊匹配填充
   //   (e.g. talent_type 为空 → 试 ocr.talent_type → 试 ocr.main_category)
@@ -31354,8 +31378,10 @@ function renderTalentPanelOverview(t) {
     {label:'内容风格',       val:(t.content_style    || _ocrFallback(t, 'content_style')    || mock.content_style || '待补充'), empty:!(t.content_style    || _ocrFallback(t, 'content_style')    || mock.content_style), full:false},
     {label:'视频结算额占比',  val:(t.video_settlement_ratio || _ocrFallback(t, 'video_settlement_ratio') || '待补充'), empty:!(t.video_settlement_ratio || _ocrFallback(t, 'video_settlement_ratio')), full:false},
     {label:'视频平均件单价',  val:(t.video_avg_price  || _ocrFallback(t, 'video_avg_price')  || '待补充'),     empty:!(t.video_avg_price  || _ocrFallback(t, 'video_avg_price')),  full:false},
-    {label:'账号粉丝特征',   val:(t.account_fans_profile   || _ocrFallback(t, 'account_fans_profile')   || '待补充'), empty:!(t.account_fans_profile   || _ocrFallback(t, 'account_fans_profile')),   full:true},
-    {label:'短视频粉丝特征',  val:(t.video_fans_profile || _ocrFallback(t, 'video_fans_profile') || '待补充'),     empty:!(t.video_fans_profile || _ocrFallback(t, 'video_fans_profile')),     full:true},
+    // ★ fix/ocr-canonical-sync-v3: 优先用 _buildFansProfile 从 4 个 fan_* dict 字段拼可读文本
+    //   (兜底: t.account_fans_profile 标量 → _ocrFallback)
+    {label:'账号粉丝特征',   val:(_buildFansProfile(t, ['fan_gender', 'fan_age', 'fan_city_tier', 'fan_price_range']) || t.account_fans_profile || _ocrFallback(t, 'account_fans_profile') || '待补充'), empty:!(_buildFansProfile(t, ['fan_gender', 'fan_age', 'fan_city_tier', 'fan_price_range']) || t.account_fans_profile || _ocrFallback(t, 'account_fans_profile')), full:true},
+    {label:'短视频粉丝特征',  val:(_buildFansProfile(t, ['video_audience_gender', 'video_audience_age', 'video_audience_city_tier', 'video_audience_price_range']) || _buildFansProfile(t, ['video_audience_region', 'video_audience_city_tier']) || t.video_fans_profile || _ocrFallback(t, 'video_fans_profile') || '待补充'), empty:!(_buildFansProfile(t, ['video_audience_gender', 'video_audience_age', 'video_audience_city_tier', 'video_audience_price_range']) || _buildFansProfile(t, ['video_audience_region', 'video_audience_city_tier']) || t.video_fans_profile || _ocrFallback(t, 'video_fans_profile')), full:true},
     {label:'备注',           val:(t.remark           || _ocrFallback(t, 'remark')           || '待补充'),     empty:!(t.remark           || _ocrFallback(t, 'remark')),            full:true},
   ];
   var _biHasAny = _bi.some(function(i){ return !i.empty; });
@@ -31510,10 +31536,11 @@ function renderTalentPanelSales(t) {
       var pct = catTotal ? ((parseFloat(item.value) || 0) / catTotal * 100) : 0;
       html += '<div class="products-progress-item"><div class="products-progress-header"><span>' + escapeHtml(item.label) + '</span><span>' + pct.toFixed(1) + '%</span></div><div class="products-progress-bar"><div class="products-progress-fill" style="width:' + Math.min(pct, 100) + '%"></div></div></div>';
     });
-    if (catTotal > 100.5 || catTotal < 99.5) {
-      // 数据脏时加提示 (用户能看见)
-      html += '<div style="font-size:11px;color:var(--color-status-lost,#FF3B30);margin-top:8px;">⚠ OCR 录入占比总和 ' + catTotal.toFixed(1) + '%,已按当前总和归一化显示</div>';
-    }
+    // ★ fix/ocr-canonical-sync-v3 (2026-09-25): 删 v2 之前的 "⚠ OCR 录入占比总和" 警告
+    //   老大原话: "前端类目分布底部 '⚠ OCR录入占比总和198.0%' 改成 '已按归一化显示' 或隐藏
+    //   因为 v2 已归一到 100%, 原始总和不应再展示"
+    //   v2 在 _canonicalize_talent_row 已把 category_distribution > 105 归一到 100,
+    //   前端再显示 198% 警告会让用户误以为数据脏 (实际后端已修正).
   } else {
     html += '<div class="products-empty-text" style="padding:12px 0;">暂无数据</div>';
   }

@@ -4165,8 +4165,20 @@ def _brand_row_to_dict(row):
 def _talent_row_to_dict(row):
     if not row:
         return None
+    # ★ fix/ocr-canonical-sync-v3: 容错取 row key (sqlite3.Row 缺列时 IndexError, 不像 dict 有 .get())
+    #   旧 DB (Mac 端生产 data/solobrave.db) 没跑 v2 migration 时缺 4 _text 列 + price/category_distribution
+    #   + main_category + video_count, 直接 row['xxx'] 会抛 IndexError → API 500.
+    #   用 _safe_row_get 容错 (列不存在返 default), 已存在的列保留 row['xxx'] 不动避免破坏现有调用链.
+    def _safe_row_get(key, default=None):
+        try:
+            return row[key]
+        except (IndexError, KeyError):
+            return default
     def _json_col(col, default=None):
-        val = row[col]
+        try:
+            val = row[col]
+        except (IndexError, KeyError):
+            return default
         if val is None:
             return default
         try:
@@ -4269,15 +4281,18 @@ def _talent_row_to_dict(row):
         #   /api/talents/:id 返回数据不包含 ocr_raw_fields, 前端拿不到完整 OCR 字段.
         #   老大反馈 '达人库详情没有变化' — 实际是 API 没返回 ocr_raw_fields, 详情页空白.
         'ocr_raw_fields': _json_col('ocr_raw_fields', {}),
-        # ★ fix/ocr-canonical-sync-v2: 加 4 个 _text 列 (区间原文) + price/category_distribution + main_category + video_count
-        'total_gmv_text': row['total_gmv_text'] or '',
-        'video_gpm_text': row['video_gpm_text'] or '',
-        'live_gpm_text': row['live_gpm_text'] or '',
-        'avg_live_gmv_text': row['avg_live_gmv_text'] or '',
+        # ★ fix/ocr-canonical-sync-v2 + ★ fix/ocr-canonical-sync-v3:
+        #   4 _text 列 + price/category_distribution + main_category + video_count 全部用 _safe_row_get 容错
+        #   (旧 DB 没 v2 migration 时缺这些列, 容错避免 API 500)
+        'total_gmv_text': _safe_row_get('total_gmv_text') or '',
+        'video_gpm_text': _safe_row_get('video_gpm_text') or '',
+        'live_gpm_text': _safe_row_get('live_gpm_text') or '',
+        'avg_live_gmv_text': _safe_row_get('avg_live_gmv_text') or '',
         'price_distribution': _json_col('price_distribution', {}),
         'category_distribution': _json_col('category_distribution', {}),
-        'main_category': row['main_category'] or row['category'] or '',
-        'video_count': row['video_count'] if row['video_count'] is not None else 0,
+        'main_category': _safe_row_get('main_category') or _safe_row_get('category') or '',
+        # 任务 7: video_count 兜底 (v2 schema 有 INTEGER DEFAULT 0, 旧 DB 缺列返 0)
+        'video_count': int(_safe_row_get('video_count') or 0),
         'created_at': row['created_at'],
         'updated_at': row['updated_at'],
         'createdAt': row['created_at'],
@@ -22132,6 +22147,82 @@ def _ensure_canonical_text_columns():
         conn.close()
 
 
+def _migrate_existing_talents_fill_text_columns():
+    """★ fix/ocr-canonical-sync-v3: startup migration 回填 4 个 _text 列.
+
+    老大原话: "_update_talent_from_ocr_fields 加 startup 逻辑
+    遍历所有 talent 行, 从 ocr_raw_fields 回填 4 个 _text 列".
+
+    逻辑:
+      1. 查所有有 ocr_raw_fields 的 talent 行
+      2. 顶层 num_col (total_gmv / video_gpm / live_gpm / avg_live_gmv) 是字符串 (区间原文)
+         时, 写到对应 _text 列 (total_gmv_text / video_gpm_text / live_gpm_text / avg_live_gmv_text)
+      3. 已有非空 _text 值则跳过 (防覆盖手修正值)
+
+    安全:
+      - 不写真值 (只读 ocr_raw_fields 反推)
+      - 启动时跑一次, 幂等 (跑过的不重复跑)
+      - 不影响数值列 (数值列 v2 已正确)
+
+    Mac 端硬约束: 写操作前整库备份 (老大原话)
+    """
+    conn = _db_conn()
+    try:
+        # 1. 查所有有 ocr_raw_fields 的 talent 行
+        rows = conn.execute(
+            "SELECT id, ocr_raw_fields, total_gmv_text, video_gpm_text, live_gpm_text, avg_live_gmv_text "
+            "FROM talents WHERE ocr_raw_fields IS NOT NULL AND ocr_raw_fields != ''"
+        ).fetchall()
+        updated_count = 0
+        skipped_existing = 0
+        for row in rows:
+            talent_id = row['id']
+            ocr_raw = row['ocr_raw_fields']
+            try:
+                ocr_data = json.loads(ocr_raw) if isinstance(ocr_raw, str) else (ocr_raw or {})
+            except (json.JSONDecodeError, TypeError):
+                continue
+            if not isinstance(ocr_data, dict):
+                continue
+
+            updates = {}
+            # 2. 4 个 _text 列回填: 顶层 num_col 是字符串 (区间原文) 就写到 _text 列
+            for num_col, text_col in [
+                ('total_gmv', 'total_gmv_text'),
+                ('video_gpm', 'video_gpm_text'),
+                ('live_gpm', 'live_gpm_text'),
+                ('avg_live_gmv', 'avg_live_gmv_text'),
+            ]:
+                # ★ 防覆盖手修值: 已有非空 _text 跳过
+                try:
+                    existing = row[text_col]
+                except (IndexError, KeyError):
+                    existing = None  # 列不存在 (旧 DB), 继续回填
+                if existing is not None and str(existing).strip():
+                    skipped_existing += 1
+                    continue
+                val = ocr_data.get(num_col)
+                if isinstance(val, str) and val.strip():
+                    updates[text_col] = val.strip()
+
+            # 3. 批量 UPDATE
+            if updates:
+                for col, val in updates.items():
+                    conn.execute(
+                        f"UPDATE talents SET {col} = ? WHERE id = ?",
+                        (val, talent_id)
+                    )
+                updated_count += 1
+
+        if updated_count > 0:
+            conn.commit()
+        logger.info(f'  [startup migration] 回填 _text 列: {updated_count} 行更新, {skipped_existing} 行已有值跳过')
+    except Exception as e:
+        logger.warning(f'  [startup migration] 回填 _text 列失败: {e}')
+    finally:
+        conn.close()
+
+
 def _update_talent_column_if_empty(conn, talent_id, column, new_value):
     """★ fix/ocr-canonical-sync-v2: 同步保护 — 已有非空值则跳过更新 (防覆盖手修正值).
 
@@ -30021,6 +30112,13 @@ def main():
 
     # 确保数据目录
     _ensure_data_dir()
+
+    # ★ fix/ocr-canonical-sync-v3: startup 跑一次 (不靠 OCR 按需触发)
+    #   1) 幂等 ALTER TABLE 加 4 个 _text 列 (老 DB 缺的列)
+    #   2) 从 ocr_raw_fields 反向回填 4 个 _text 列 (老 talent 行 _text 空的)
+    #   备份前跑, 让 migration 改动的内容也被备份涵盖
+    _ensure_canonical_text_columns()
+    _migrate_existing_talents_fill_text_columns()
 
     # 启动前快照 data/ 目录（保留最近 7 份，先于 init_db 以便保留迁移前状态）
     _backup_data_dir()
