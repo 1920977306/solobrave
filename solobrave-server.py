@@ -4293,6 +4293,10 @@ def _talent_row_to_dict(row):
         'main_category': _safe_row_get('main_category') or _safe_row_get('category') or '',
         # 任务 7: video_count 兜底 (v2 schema 有 INTEGER DEFAULT 0, 旧 DB 缺列返 0)
         'video_count': int(_safe_row_get('video_count') or 0),
+
+        # ★ v4 amend: 返 _distribution_incomplete 标记 (从 ocr_raw_fields._distribution_incomplete JSON 子 dict 读)
+        #   让前端识别 4 个 city_tier 的 incomplete 状态, 显示原始比例 + "分布不完整"提示
+        '_distribution_incomplete': _get_distribution_incomplete_from_ocr_raw(_safe_row_get('ocr_raw_fields', '')),
         'created_at': row['created_at'],
         'updated_at': row['updated_at'],
         'createdAt': row['created_at'],
@@ -21487,6 +21491,11 @@ def _update_talent_from_ocr_fields(talent_id, vision_field_maps):
         except Exception:
             ocr_raw_fields = None
 
+        # ★ v4 amend: 跳过元数据字段 (不写入 talents 表, 只透传给 sidecar JSON)
+        #   元数据: _distribution_incomplete / _confidence 等
+        #   之前 L21490 不跳过会让 UPDATE talents SET _distribution_incomplete = ? 抛 SQL 错误
+        if db_col.startswith('_'):
+            continue
         for db_col, val in canonical.items():
             # dict/list 序列化为 JSON 字符串 (fan_* 等分布字段)
             if isinstance(val, (dict, list)):
@@ -21513,6 +21522,22 @@ def _update_talent_from_ocr_fields(talent_id, vision_field_maps):
             write_count += cursor.rowcount
         elif write_count > 0:
             conn.commit()
+        # ★ v4 amend: 同步 _distribution_incomplete 标记到 ocr_raw_fields._distribution_incomplete
+        #   让 _talent_row_to_dict 能从 DB 读, 详情 API 返 _distribution_incomplete 给前端
+        incomplete_dict = canonical.get('_distribution_incomplete', {})
+        if incomplete_dict:
+            try:
+                ocr_raw_row = conn.execute('SELECT ocr_raw_fields FROM talents WHERE id = ?', (talent_id,)).fetchone()
+                if ocr_raw_row:
+                    new_ocr_raw = _set_distribution_incomplete(ocr_raw_row['ocr_raw_fields'], incomplete_dict)
+                    if new_ocr_raw != ocr_raw_row['ocr_raw_fields']:
+                        conn.execute('UPDATE talents SET ocr_raw_fields = ?, updated_at = ? WHERE id = ?',
+                                     (new_ocr_raw, int(time.time() * 1000), talent_id))
+                        conn.commit()
+                        logger.info(f'  [Canonical] 同步 _distribution_incomplete: talent={talent_id}, 标记 {len(incomplete_dict)} 个字段')
+            except Exception as e:
+                logger.warning(f'  [Canonical] 同步 _distribution_incomplete 失败: {e}')
+
         return write_count + protected_count
     finally:
         conn.close()
@@ -22024,8 +22049,25 @@ def _canonicalize_talent_row(ocr_json):
             # 已存在 (顶层优先) 跳过
             if db_col in out:
                 continue
-            if isinstance(v, dict):
-                # 分布 dict (label → percent), 走 _merge_dist_by_normalized_key
+            # ★ v4 amend: 4 个 city_tier (fan_city_tier / fan_group_city_tier /
+            #   live_audience_city_tier / video_audience_city_tier) 走 _normalize_distribution
+            #   防塌缩前置守卫 (_MIN_DIST_KEYS=7), 档位 < 7 保留原始值 + incomplete=True
+            #   绝不能硬凑 100 (老大原话: "禁止硬凑 100, 变成 50/50")
+            if en_suffix == 'city_tier' and isinstance(v, dict):
+                normalized, incomplete = _normalize_distribution(v, field_name=db_col)
+                if normalized is not None:
+                    out[db_col] = json.dumps(normalized, ensure_ascii=False)
+                    # incomplete 标记 (out dict 内 _distribution_incomplete 子 dict)
+                    if incomplete:
+                        incomplete_dict = out.get('_distribution_incomplete', {})
+                        if not isinstance(incomplete_dict, dict):
+                            incomplete_dict = {}
+                        incomplete_dict[db_col] = True
+                        out['_distribution_incomplete'] = incomplete_dict
+                else:
+                    out[db_col] = '{}'
+            elif isinstance(v, dict):
+                # 其他维度分布 dict (fan_gender / fan_age / fan_crowd 等), 走 _merge_dist_by_normalized_key
                 merged = _merge_dist_by_normalized_key(v)
                 out[db_col] = json.dumps(merged, ensure_ascii=False) if merged else '{}'
             elif isinstance(v, (int, float)):
@@ -22356,6 +22398,154 @@ def _set_confidence_level(ocr_raw_fields, column_name, level):
         return json.dumps(data, ensure_ascii=False)
     except (json.JSONDecodeError, TypeError):
         return ocr_raw_fields
+
+
+def _set_distribution_incomplete(ocr_raw_fields, incomplete_dict):
+    """★ v4 amend: 把 incomplete 标记合并到 ocr_raw_fields._distribution_incomplete 子 dict.
+
+    老大原话 (2026-09-25):
+      "归一防塌缩前置守卫...处理: 保留原始值 + 标记 incomplete=true, 前端显示'分布不完整'."
+
+    incomplete_dict = {'fan_city_tier': True, ...} 或 {} (空 dict 表示无 incomplete)
+
+    Returns: 新 JSON 字符串 (失败返原值).
+    老大 L2 提升/重置接口: _set_distribution_incomplete(ocr, {col: True/False})
+    """
+    if not ocr_raw_fields:
+        return ocr_raw_fields
+    if not isinstance(incomplete_dict, dict):
+        return ocr_raw_fields
+    try:
+        data = json.loads(ocr_raw_fields) if isinstance(ocr_raw_fields, str) else (ocr_raw_fields or {})
+        if not isinstance(data, dict):
+            return ocr_raw_fields
+        # 初始化 _distribution_incomplete 子 dict
+        existing_inc = data.get('_distribution_incomplete', {})
+        if not isinstance(existing_inc, dict):
+            existing_inc = {}
+        # 更新: True 标记新加, False 标记取消
+        for col, flag in incomplete_dict.items():
+            if flag:
+                existing_inc[col] = True
+            else:
+                existing_inc.pop(col, None)
+        # 空 dict 删字段 (保持 OCR 数据干净)
+        if existing_inc:
+            data['_distribution_incomplete'] = existing_inc
+        else:
+            data.pop('_distribution_incomplete', None)
+        return json.dumps(data, ensure_ascii=False)
+    except (json.JSONDecodeError, TypeError):
+        return ocr_raw_fields
+
+
+def _get_distribution_incomplete_from_ocr_raw(ocr_raw_fields):
+    """★ v4 amend: 从 ocr_raw_fields JSON 读 _distribution_incomplete 子 dict.
+
+    Returns: JSON 字符串 (前端用, 直接渲染), 失败/缺字段返 '{}'.
+    """
+    if not ocr_raw_fields:
+        return '{}'
+    try:
+        data = json.loads(ocr_raw_fields) if isinstance(ocr_raw_fields, str) else ocr_raw_fields
+        if not isinstance(data, dict):
+            return '{}'
+        inc = data.get('_distribution_incomplete', {})
+        return json.dumps(inc if isinstance(inc, dict) else {}, ensure_ascii=False)
+    except (json.JSONDecodeError, TypeError):
+        return '{}'
+
+
+def _detect_existing_collapsed_city_tier(conn=None) -> list:
+    """★ v4 amend: 识别存量塌缩的 city_tier 行 (档位不全却被凑成整百).
+
+    老大原话 (2026-09-25): "加函数可识别存量'档位不全却被凑成整百'的city_tier并重置
+    (只写函数+pytest, 不执行不写库)".
+
+    规则: 4 个 city_tier 字段的 dict 档位数 < _MIN_DIST_KEYS[field_name] (默认 7)
+          但总和 ≈ 100 → 标记为塌缩行 (OCR 原本只抓到 1-2 个值, 但被归一算法凑成 50/50 等).
+
+    Args:
+        conn: sqlite3 connection. None 时用 _db_conn() 默认.
+
+    Returns: list of (talent_id, field_name, current_value_dict) tuples.
+
+    ⚠️ 函数定义完不自动调用. Mac 端老大授权后手动执行:
+        conn = _db_conn()
+        collapsed = _detect_existing_collapsed_city_tier(conn)
+        # review 后:
+        _reset_collapsed_city_tier(conn, collapsed)
+        conn.commit()
+    """
+    if conn is None:
+        conn = _db_conn()
+    collapsed = []
+    city_tier_cols = ['fan_city_tier', 'fan_group_city_tier', 'live_audience_city_tier', 'video_audience_city_tier']
+
+    try:
+        rows = conn.execute(f"SELECT id, {', '.join(city_tier_cols)} FROM talents").fetchall()
+    except Exception as e:
+        logger.warning(f'  [CollapsedCityTier] 检测失败: {e}')
+        return collapsed
+
+    for row in rows:
+        for col in city_tier_cols:
+            try:
+                val = row[col]
+            except (IndexError, KeyError):
+                continue
+            if not val:
+                continue
+            try:
+                data = json.loads(val) if isinstance(val, str) else val
+            except (json.JSONDecodeError, TypeError):
+                continue
+            if not isinstance(data, dict) or not data:
+                continue
+
+            n_keys = len(data)
+            total = sum(v for v in data.values() if isinstance(v, (int, float)))
+
+            # 塌缩判断: 档位 < _MIN_DIST_KEYS[col] (默认 7) 且总和 ≈ 100
+            min_keys = _MIN_DIST_KEYS.get(col, 7)
+            if n_keys < min_keys and 95 <= total <= 105:
+                collapsed.append((row['id'], col, data))
+
+    return collapsed
+
+
+def _reset_collapsed_city_tier(conn, collapsed_rows: list) -> int:
+    """★ v4 amend: 重置塌缩的 city_tier 行 (标记 incomplete, 不归一不改原值).
+
+    策略: 不改 city_tier 列原值 (避免破坏诊断信息), 只在 ocr_raw_fields._distribution_incomplete
+          子 dict 标记 True (让前端显示"分布不完整"+ 原始比例).
+
+    Args:
+        conn: sqlite3 connection.
+        collapsed_rows: _detect_existing_collapsed_city_tier 返回的 list.
+
+    Returns: 实际标记的行数.
+
+    ⚠️ 写操作. Mac 端老大授权后手动执行 (写操作前整库备份).
+    """
+    if not collapsed_rows:
+        return 0
+    updated = 0
+    for talent_id, col, _current_val in collapsed_rows:
+        try:
+            ocr_raw_row = conn.execute('SELECT ocr_raw_fields FROM talents WHERE id = ?', (talent_id,)).fetchone()
+            if not ocr_raw_row:
+                continue
+            incomplete_dict = {col: True}
+            new_ocr_raw = _set_distribution_incomplete(ocr_raw_row['ocr_raw_fields'], incomplete_dict)
+            if new_ocr_raw != ocr_raw_row['ocr_raw_fields']:
+                conn.execute('UPDATE talents SET ocr_raw_fields = ?, updated_at = ? WHERE id = ?',
+                             (new_ocr_raw, int(time.time() * 1000), talent_id))
+                updated += 1
+        except Exception as e:
+            logger.warning(f'  [CollapsedCityTier] 重置 talent={talent_id} {col} 失败: {e}')
+    return updated
+
 
 
 # ★ fix/ocr-canonical-sync-v4: 已知分布字段的最小档位数

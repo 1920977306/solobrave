@@ -33,30 +33,93 @@ from collections import defaultdict
 
 
 # ============================================================
-# ★ TODO: 实际环境由妍妍填 vision API 调用
 # ============================================================
+# ★ v4 amend: 接通线上 vision 调用 (同 prompt 参数、禁用缓存)
+# ============================================================
+#
+# 老大原话 (2026-09-25): "填实scripts/vision_rescan.py的vision_rescan_single,
+#   接通当前线上vision调用 (同prompt参数、禁用缓存), 让妍妍能直接跑."
+#
+# 实现策略:
+#   - importlib 加载 server.py, 调 server 端 _call_kimi_vision + _parse_vision_json
+#   - 同 prompt 参数: role='商务' 触发 BUSINESS_VISION_PROMPT (生产 OCR prompt)
+#   - 禁用脚本内缓存: 每次重跑都重新调 vision API (Cache 是服务端的事, 客户端无法控制)
+#   - 环境依赖: server.py 运行时需要 KIMI_KEY_POOL (从 settings.json 读) + KIMI_VISION_MODEL
+
+import importlib.util
+import sys
+from pathlib import Path as _PathLib
+
+
+def _load_solobrave_server():
+    """★ v4 amend: importlib 加载 server.py 模块 (避免 sys.path 副作用)."""
+    repo_root = _PathLib(__file__).parent.parent
+    if str(repo_root) not in sys.path:
+        sys.path.insert(0, str(repo_root))
+    spec = importlib.util.spec_from_file_location('solobrave_server', repo_root / 'solobrave-server.py')
+    if spec is None or spec.loader is None:
+        raise ImportError(f'无法加载 solobrave-server.py (路径: {repo_root})')
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    sys.modules['solobrave_server'] = module
+    return module
+
+
+# 启动时尝试加载, 失败延迟到 vision_rescan_single 第一次调用再报错 (避免模块加载就崩)
+_solobrave_server = None
+
+
+def _ensure_server_loaded():
+    global _solobrave_server
+    if _solobrave_server is None:
+        _solobrave_server = _load_solobrave_server()
+    return _solobrave_server
+
 
 def vision_rescan_single(image_path, model='current'):
-    """单次 vision OCR 重跑. 调用现有 vision 模块 / API.
+    """★ v4 amend: 接通线上 vision 调用 (同 prompt 参数、禁用缓存).
+
+    老大原话: "填实scripts/vision_rescan.py的vision_rescan_single,
+    接通当前线上vision调用 (同prompt参数、禁用缓存), 让妍妍能直接跑".
+
+    同 prompt: 用 server 端 _call_kimi_vision (role='商务' 触发 BUSINESS_VISION_PROMPT),
+               同生产 OCR prompt, 让 P1.1 实测跟生产结果可比.
+    禁用缓存: 不在脚本内缓存结果, 每次重跑都重新调 vision API (服务端 cache 由
+               Kimi/Anthropic 控制, 客户端无法 disable).
 
     Args:
         image_path: 原图路径 (李婶儿原图 jpg/png)
-        model: 模型名 ('current' 当前默认 / 'gpt-4o' 第二模型交叉对比)
+        model: 模型名 ('current' 当前默认 / 'gpt-4o' 第二模型交叉对比),
+               当前实现在 server 端忽略 model 参数 (vision_cfg 自动从 settings.json 读)
 
     Returns:
         dict 字段名 → 值. 结构同 ocr_raw_fields (李婶儿 dump 顶层字段)
         例: {'total_gmv': '¥100万-500万', 'product_count': 23, ...}
+        失败 (API 错误) → {}
 
-    ★ 实际环境由妍妍填:
-      - 可 import server 端 vision 模块 (如有)
-      - 或独立调 vision API (kimi / openai / 等)
-      - 环境变量 VISION_API_KEY 配密钥
-      - 返回结构必须跟 ground_truth 的字段名对齐
+    Mac 端跑前:
+      - server.py 启动过 (settings.json / KIMI_KEY_POOL 已配)
+      - 或手动: cp data/settings.json.example data/settings.json + 配 KIMI_VISION_MODEL/API_KEY
     """
-    raise NotImplementedError(
-        'vision_rescan_single 需填实际 vision API 调用 (Mini Windows 无 API key). '
-        'Mac 端妍妍填实际实现: import server 端 vision 模块或独立调 API.'
-    )
+    import base64
+
+    image_path_obj = _PathLib(image_path) if not isinstance(image_path, _PathLib) else image_path
+    if not image_path_obj.exists():
+        raise FileNotFoundError(f'图片不存在: {image_path_obj}')
+
+    # 读图 + base64 编码
+    with open(image_path_obj, 'rb') as f:
+        image_b64 = base64.b64encode(f.read()).decode('ascii')
+
+    # ★ 同生产 prompt 参数 (role='商务' 触发 BUSINESS_VISION_PROMPT)
+    server = _ensure_server_loaded()
+    desc = server._call_kimi_vision(image_base64=image_b64, role='商务')
+    if not desc:
+        return {}
+
+    # 解析 vision text → 扁平 dict (server 端 _parse_vision_json 处理 ```json 围栏/前后杂文本)
+    parsed = server._parse_vision_json(desc)
+    return parsed if isinstance(parsed, dict) else {}
 
 
 # ============================================================

@@ -31353,9 +31353,15 @@ function renderTalentPanelOverview(t) {
   //     fan_gender {男: 65, 女: 35}  → '男65%/女35%'
   //     fan_age {31-40岁: 38}        → '31-40岁38%'
   //   多个字段用 ' / ' 拼接, 4 字段任一非空返值.
+    // ★ fix/ocr-canonical-sync-v4 amend (2026-09-25): 检测 4 个 city_tier 字段 incomplete 状态
+  //   server 端 _normalize_distribution 标记的 _distribution_incomplete (sidecar JSON)
+  //   4 个 city_tier 字段任一 incomplete=true → 拼接文本末尾追加 "（分布不完整）"
+  //   老大原话: "禁止硬凑 100, 变成 50/50" — 渲染层必须显式提示用户原始值不完整
   function _buildFansProfile(t, fieldKeys) {
     if (!t) return '';
     var parts = [];
+    var incomplete = (t._distribution_incomplete && typeof t._distribution_incomplete === 'object') ? t._distribution_incomplete : {};
+    var anyIncomplete = false;
     fieldKeys.forEach(function(k) {
       var v = t[k];
       if (v && typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length) {
@@ -31364,11 +31370,12 @@ function renderTalentPanelOverview(t) {
           return label + pct + '%';
         }).join('、');
         if (segs) parts.push(segs);
+        if (incomplete[k]) anyIncomplete = true;
       }
     });
-    return parts.join(' / ');
+    var result = parts.join(' / ');
+    return anyIncomplete ? result + '（分布不完整）' : result;
   }
-
   // ★ feature/influencer-form-validation: 空值 fallback '-' → '待补充' + 加 empty flag (CSS class value-empty 高亮橙色)
   // ★ fix/ocr-fallback: talent 表字段为空时, 从 ocr_raw_fields 模糊匹配填充
   //   (e.g. talent_type 为空 → 试 ocr.talent_type → 试 ocr.main_category)
@@ -31868,8 +31875,17 @@ function renderTalentPanelFans(t) {
   html += renderDist('年龄分布', _fanAge);
   html += renderDist('地域分布', _fanRegion);
   var _cityTier = _pickOcrDict('fan_city_tier','live_audience_city_tier','video_audience_city_tier');
-  if (_cityTier) html += renderDist('城市等级分布', _cityTier);
-  var _device = _pickOcrDict('fan_group_device');
+  if (_cityTier) {
+    // ★ v4 amend: 4 个 city_tier 字段 (fan_city_tier / fan_group_city_tier / live_audience_city_tier /
+    //   video_audience_city_tier) 任一 incomplete → 标题后追加 "（分布不完整）" 提示用户原始值不完整
+    var _ctIncomplete = (t._distribution_incomplete && typeof t._distribution_incomplete === 'object' && (
+      t._distribution_incomplete['fan_city_tier'] ||
+      t._distribution_incomplete['fan_group_city_tier'] ||
+      t._distribution_incomplete['live_audience_city_tier'] ||
+      t._distribution_incomplete['video_audience_city_tier']
+    )) ? '（分布不完整）' : '';
+    html += renderDist('城市等级分布' + _ctIncomplete, _cityTier);
+  }  var _device = _pickOcrDict('fan_group_device');
   if (_device) html += renderDist('粉丝团设备', _device);
   var _activity = _pickOcrDict('fan_group_activity');
   if (_activity) html += renderDist('粉丝团活跃度', _activity);
