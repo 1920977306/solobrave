@@ -40,8 +40,13 @@ def _assert_equal(actual, expected, msg):
 # ===== _normalize_dist_key =====
 
 def test_normalize_age_with_sui():
-    """'31-40岁' → '31-40' (去岁字)"""
-    _assert_equal(_normalize_dist_key('31-40岁'), '31-40', '带岁字年龄归一')
+    """★ fix/ocr-canonical-sync-v2: '31-40岁' → '31-40岁' (保留岁字)
+
+    v1 (去岁字) → v2 (保留岁字). 老大 2026-09-25 反馈:
+      '31-40岁' / '31-40' 同义异名, merge 时 _merge_dist_by_normalized_key
+      按归一 key 取较大值, 无需提前吞 '岁' 字. 保留原样让 OCR 数据完整可追溯.
+    """
+    _assert_equal(_normalize_dist_key('31-40岁'), '31-40岁', '带岁字保留 (v2)')
     _assert_equal(_normalize_dist_key('31-40'), '31-40', '不带岁字保持')
 
 
@@ -52,10 +57,15 @@ def test_normalize_age_fullwidth():
 
 
 def test_normalize_city():
-    """城市去全角空格 + trim"""
+    """★ fix/ocr-canonical-sync-v2: 城市保留中间空格 + trim 首尾
+
+    v1 (去中间空格) → v2 (保留中间空格). 老大 2026-09-25 反馈:
+      '三 线城市' 与 '三线城市' 是 OCR 视觉模型两种写法, 中间空格是有意义的分隔,
+      v2 不应盲目去. _merge_dist_by_normalized_key 会按归一 key (trim 后) 合并取较大值.
+    """
     _assert_equal(_normalize_dist_key('三线城市'), '三线城市', '城市保持')
-    _assert_equal(_normalize_dist_key('三 线城市'), '三线城市', '城市去半角空格')
-    _assert_equal(_normalize_dist_key('  一线城市  '), '一线城市', '城市 trim')
+    _assert_equal(_normalize_dist_key('三 线城市'), '三 线城市', '中间半角空格保留 (v2)')
+    _assert_equal(_normalize_dist_key('  一线城市  '), '一线城市', '首尾空格 trim')
 
 
 def test_normalize_dash_variants():
@@ -75,11 +85,16 @@ def test_normalize_non_string():
 # ===== _merge_dist_by_normalized_key =====
 
 def test_merge_same_value():
-    """同义异名 key 同值合并"""
+    """★ fix/ocr-canonical-sync-v2: 同义异名 + 占比相同, v2 保留岁字 → 2 个 key 不合并.
+
+    v1 (去岁字): '31-40岁' + '31-40' → _normalize_dist_key 归一后同 key → 合并 1 个
+    v2 (保留岁字): 归一后 key 不同 → 不合并 2 个, 各保留原值.
+    """
     dist = {'31-40岁': 30.1, '31-40': 30.1}
     merged = _merge_dist_by_normalized_key(dist)
-    _assert_equal(len(merged), 1, '合并后只有 1 个 key')
-    _assert_equal('31-40' in merged, True, '归一后 key 是 31-40')
+    _assert_equal(len(merged), 2, 'v2 不合并 31-40岁 和 31-40 (保留岁字)')
+    _assert_equal('31-40岁' in merged, True, '31-40岁 保留原值')
+    _assert_equal('31-40' in merged, True, '31-40 保留原值')
 
 
 def test_merge_take_max():
@@ -105,11 +120,16 @@ def test_merge_keeps_unique():
 
 
 def test_merge_non_numeric_keeps_first():
-    """非数字 value 保留第一个 (不覆盖)"""
+    """★ fix/ocr-canonical-sync-v2: 非数值 dict merge, v2 保留中间空格 → 2 个 key 不合并.
+
+    v1 (去中间空格): '三线城市' + '三 线城市' → _normalize_dist_key 归一后同 key → 合并 1 个
+    v2 (保留中间空格): 归一后 key 不同 → 不合并 2 个, 各保留原值.
+    """
     dist = {'三线城市': '24%', '三 线城市': '25%'}
     merged = _merge_dist_by_normalized_key(dist)
-    _assert_equal(len(merged), 1, '合并后只有 1 个 key')
-    _assert_equal(merged['三线城市'], '24%', '保留第一个值')
+    _assert_equal(len(merged), 2, 'v2 不合并 三线城市 和 三 线城市 (保留中间空格)')
+    _assert_equal(merged['三线城市'], '24%', '三线城市 保留第一个值')
+    _assert_equal(merged['三 线城市'], '25%', '三 线城市 保留原值')
 
 
 def test_merge_empty():

@@ -4269,6 +4269,15 @@ def _talent_row_to_dict(row):
         #   /api/talents/:id 返回数据不包含 ocr_raw_fields, 前端拿不到完整 OCR 字段.
         #   老大反馈 '达人库详情没有变化' — 实际是 API 没返回 ocr_raw_fields, 详情页空白.
         'ocr_raw_fields': _json_col('ocr_raw_fields', {}),
+        # ★ fix/ocr-canonical-sync-v2: 加 4 个 _text 列 (区间原文) + price/category_distribution + main_category + video_count
+        'total_gmv_text': row['total_gmv_text'] or '',
+        'video_gpm_text': row['video_gpm_text'] or '',
+        'live_gpm_text': row['live_gpm_text'] or '',
+        'avg_live_gmv_text': row['avg_live_gmv_text'] or '',
+        'price_distribution': _json_col('price_distribution', {}),
+        'category_distribution': _json_col('category_distribution', {}),
+        'main_category': row['main_category'] or row['category'] or '',
+        'video_count': row['video_count'] if row['video_count'] is not None else 0,
         'created_at': row['created_at'],
         'updated_at': row['updated_at'],
         'createdAt': row['created_at'],
@@ -21270,6 +21279,58 @@ _OCR_TO_TALENT_FIELDS = [
 ]
 
 
+# ★ fix/ocr-canonical-sync-v2: 4 个 TEXT 列存区间原文 (¥100万-500万 / 500-1,000 / ¥2万-10万 / ¥5,000-2万)
+#   PRAGMA table_info 先查再 ALTER, 已有跳过 (幂等)
+_CANONICAL_TEXT_COLUMNS = [
+    ('total_gmv_text',     'TEXT DEFAULT ""'),   # GMV 区间原文
+    ('video_gpm_text',     'TEXT DEFAULT ""'),   # 视频 GPM 区间原文
+    ('live_gpm_text',      'TEXT DEFAULT ""'),   # 直播 GPM 区间原文
+    ('avg_live_gmv_text',  'TEXT DEFAULT ""'),   # 场均结算额区间原文
+]
+# 避免每次 OCR 都查 PRAGMA 的 flag (进程级缓存)
+_canonical_columns_ensured = False
+
+
+# ★ fix/ocr-canonical-sync-v2: 粉丝 4 段映射表 (FLAT, 不走"粉丝分析"中间层)
+#   老大 2026-09-25 反馈: v1 (a8c7de7) 走 extra_fields.粉丝分析.粉丝特征.<维度> 是错的,
+#   真实 OCR 输出是 FLAT: extra_fields.粉丝特征.<维度>, 没有"粉丝分析"中间层.
+#   维度中文键 → 列后缀 (snake_case), 与 _OCR_TO_TALENT_FIELDS 列对齐.
+_FAN_SOURCE_MAP = [
+    # (extra_fields 中文段落名, 列前缀, 维度中文键 → 列后缀)
+    ('粉丝特征',   'fan',            {
+        '性别': 'gender', '年龄': 'age', '城市等级': 'city_tier',
+        '人群': 'crowd', '客单价': 'price_range', '品类偏好': 'category',
+    }),
+    ('粉丝团特征', 'fan_group',      {
+        '性别': 'gender', '年龄': 'age', '城市等级': 'city_tier',
+        '人群': 'crowd', '客单价': 'price_range', '品类偏好': 'category',
+    }),
+    ('直播间特征', 'live_audience',  {
+        '性别': 'gender', '年龄': 'age', '城市等级': 'city_tier',
+        '人群': 'crowd', '客单价': 'price_range', '品类偏好': 'category',
+    }),
+    ('短视频特征', 'video_audience', {
+        '性别': 'gender', '年龄': 'age', '城市等级': 'city_tier',
+        '人群': 'crowd', '客单价': 'price_range', '品类偏好': 'category',
+    }),
+]
+
+
+def _strip_yuan(v):
+    """★ fix/ocr-canonical-sync-v2: 清掉所有 ¥ 和 ￥ 前缀 (含多前缀/全角半角).
+    之前 v1 (a8c7de7) 只 lstrip('¥').lstrip('￥'), 漏部分情况 (多前缀如 '¥¥100').
+    现在: 循环 while 去掉所有 ¥ 和 ￥ 前缀 + trim.
+    用于 _canonicalize_talent_row 调 _parse_gmv_value 前预处理, 防 float('¥100') 抛 ValueError.
+    """
+    if v is None:
+        return ''
+    s = str(v).strip()
+    # 循环去掉所有 ¥ 和 ￥ 前缀 (防多个前缀)
+    while s and s[0] in ('¥', '￥'):
+        s = s[1:].lstrip()
+    return s
+
+
 def _deep_get(d, key):
     """★ fix/helen-ocr-nested-fields: 递归搜索 dict 及其所有嵌套 dict 中的 key, 返回第一个非 null 值.
     解决 vision JSON 嵌套结构: {"总览基本信息": {"followers": "1.2万"}} → _deep_get(d, "followers") = "1.2万".
@@ -21319,10 +21380,16 @@ def _parse_gmv_single(s):
 
 
 def _parse_gmv_value(v):
-    """解析 GMV/价格类字段, 支持 '50万-100万' / '500000' / '50万' 多种格式。
+    """解析 GMV/价格类字段, 支持 '¥100万-500万' / '50万-100万' / '500000' / '50万' 多种格式。
     区间值取均值, 容错 (返回 0.0)。
+
+    ★ fix/ocr-canonical-sync-v2 闭环 (老大 2026-09-25):
+       先 _strip_yuan 清前缀再 split, 之前 '¥100万-500万' parts[0]='¥100万'
+       float 抛 ValueError 返 0, 最终 (0+5000000)/2 = 2500000 错.
+       修复后: '¥100万-500万' → _strip_yuan → '100万-500万' → split → (1000000+5000000)/2 = 3000000 ✓
     """
-    s = str(v).strip().replace(',', '').replace(' ', '')
+    # ★ 先 _strip_yuan 清前缀 (含/不含 ¥ 都正确, int/float/str 都接受)
+    s = _strip_yuan(v).strip().replace(',', '').replace(' ', '')
     if not s:
         return 0.0
     if '-' in s and s.count('-') == 1:
@@ -21336,50 +21403,91 @@ def _parse_gmv_value(v):
 
 def _update_talent_from_ocr_fields(talent_id, vision_field_maps):
     """★ 件套 2: OCR 阶段结构化字段 → UPDATE talents 表核心数值列。
-    容错: 字段值为 null/None/空字符串/解析失败都跳过, 不覆盖已有数据。
-    vision_field_maps: list of dict (跨图), 取第一张含该字段的非 null 值。
-    返回更新行数 (0 = 无字段可更新)。
 
-    ★ fix/helen-ocr-nested-fields: 改用 _deep_get 支持嵌套 vision JSON
-    (e.g. {"总览基本信息": {"followers": "1.2万"}} → 顶层 key 'followers' 找不到,
-     _deep_get 递归到嵌套 dict 才能拿到).
+    ★ fix/ocr-canonical-sync-v2: 重构同步流程
+    - 旧版: 直接走 _OCR_TO_TALENT_FIELDS + _deep_get, 顶层空壳时递归失败, 真值进不了 fan_* 列
+    - 新版: 先合并跨图字段, 调 _canonicalize_talent_row 规范化 (顶层 snake_case 优先 +
+      extra_fields FLAT 4 段 + 区间值双轨 + single_video_settlement 文本 + category_distribution 归一)
+    - 同步保护: 9 列 (4 _text + 4 fan 段起始 + single_video_settlement) 走 _update_talent_column_if_empty,
+      已有非空值则跳过 (防覆盖手修正值)
+
+    容错: 字段值为 null/None/空字符串/解析失败都跳过, 不覆盖已有数据.
+    vision_field_maps: list of dict (跨图), 取第一张含该字段的非 null 值.
+    返回更新行数 (0 = 无字段可更新).
     """
     if not talent_id or not vision_field_maps:
         return 0
-    updates = []
-    values = []
-    for db_col, ocr_key, parser in _OCR_TO_TALENT_FIELDS:
-        # total_products 占位跳过, OCR 通常只识别 total_history_days (天数)
-        if db_col == 'total_products':
+
+    # 合并跨图字段 (取第一张含该字段的非 null 值, 已存在不覆盖)
+    merged = {}
+    for img_fields in vision_field_maps:
+        if not isinstance(img_fields, dict):
             continue
-        merged_val = None
-        for img_fields in vision_field_maps:
-            if img_fields:
-                # ★ 改用 _deep_get 支持嵌套 vision JSON (老代码只查顶层 key → 全 0 命中 bug)
-                v = _deep_get(img_fields, ocr_key)
-                if v is not None and str(v).strip() and str(v).strip() != 'null':
-                    merged_val = v
-                    break
-        if merged_val is None:
-            continue
-        try:
-            parsed = parser(merged_val)
-            updates.append(f'{db_col} = ?')
-            values.append(parsed)
-        except (ValueError, TypeError):
-            continue
-    if not updates:
+        for k, v in img_fields.items():
+            if v is None or v == '' or v == 'null':
+                continue
+            if k not in merged:
+                merged[k] = v
+
+    # 规范化: 顶层 snake_case 优先 + extra_fields FLAT 4 段 + 区间值双轨
+    canonical = _canonicalize_talent_row(merged)
+    if not canonical:
         return 0
-    values.append(int(time.time() * 1000))
-    values.append(talent_id)
+
+    # ★ 幂等迁移: 新增 4 个 TEXT 列存区间原文 (PRAGMA 先查再 ALTER)
+    _ensure_canonical_text_columns()
+
+    # ★ 14 列同步保护: 已有非空值则跳过 (防覆盖手修正值)
+    #   老大 2026-09-25 闭环: OCR 视觉模型易读错数字 (23/22, 27.9% 错位, 区间错读),
+    #   重跑同步若不保护, OCR 读错的数字会覆盖团长手修的正确值.
+    _PROTECTED_COLUMNS = {
+        # 4 个 _text 列 (区间原文, 数值列 OCR 读错易覆盖手修值)
+        'total_gmv_text', 'video_gpm_text', 'live_gpm_text', 'avg_live_gmv_text',
+        # 4 个 fan 段起始列 (中文键分布, OCR 容易读错)
+        'fan_city_tier', 'fan_group_city_tier', 'live_audience_city_tier', 'video_audience_city_tier',
+        # 1 个 single (文本存, 不解析)
+        'single_video_settlement',
+        # ★ 新增 5 列 (老大明确)
+        'product_count',    # OCR 可能把 23 读成 22
+        'total_shops',      # OCR 可能读错合作店铺数
+        'live_ratio',       # OCR 可能把 27.9% 读错 (百分比数值)
+        'video_ratio',      # OCR 可能把 69.61% 读错 (百分比数值)
+        'avg_live_gmv',     # 区间值易读错 (已有 _text 列, 数值列也保护)
+    }
+
     conn = _db_conn()
     try:
-        cursor = conn.execute(
-            f'UPDATE talents SET {", ".join(updates)}, updated_at = ? WHERE id = ?',
-            values
-        )
-        conn.commit()
-        return cursor.rowcount
+        write_count = 0
+        protected_count = 0
+        non_protected_updates = []
+        non_protected_values = []
+
+        for db_col, val in canonical.items():
+            # dict/list 序列化为 JSON 字符串 (fan_* 等分布字段)
+            if isinstance(val, (dict, list)):
+                val = json.dumps(val, ensure_ascii=False)
+            # 同步保护列: 走 _update_talent_column_if_empty (防覆盖手修正值)
+            if db_col in _PROTECTED_COLUMNS:
+                if _update_talent_column_if_empty(conn, talent_id, db_col, val):
+                    write_count += 1
+                else:
+                    protected_count += 1
+            else:
+                non_protected_updates.append(f'{db_col} = ?')
+                non_protected_values.append(val)
+
+        if non_protected_updates:
+            non_protected_values.append(int(time.time() * 1000))
+            non_protected_values.append(talent_id)
+            cursor = conn.execute(
+                f'UPDATE talents SET {", ".join(non_protected_updates)}, updated_at = ? WHERE id = ?',
+                non_protected_values
+            )
+            conn.commit()
+            write_count += cursor.rowcount
+        elif write_count > 0:
+            conn.commit()
+        return write_count + protected_count
     finally:
         conn.close()
 
@@ -21795,10 +21903,15 @@ _DIST_FIELDS_NORMALIZE = [
 def _normalize_dist_key(key):
     """归一化分布 dict 的 key.
     - None / 非 str 输入: 返 ''
-    - 去"岁"字 (年龄: '31-40岁' → '31-40')
     - 全角数字 → 半角 ('３１-４０' → '31-40'), 全角小数点 '．' → '.'
-    - 去全角空格 / 前后 trim
+    - 前后 trim
     - 横线归一 (en-dash U+2013 / em-dash U+2014 / 水平线 U+2015 / 减号 U+2212 → '-')
+
+    ★ fix/ocr-canonical-sync-v2: 中文城市等级键原样保留 (老大 2026-09-25 反馈)
+    - '三线城市' / '新一线城市' 等中文键不得归一为空导致 fan_city_tier 变 {}
+    - 之前版本 s.replace('岁', '') + re.sub(r'[\s\u3000]+', '', s) 会吞中文中间字 (全角空格)
+    - 现在: 只 trim 首尾空白 + 全角数字 + 横线归一, 中文键原样保留
+    - '31-40岁' 保留 '岁' 字 (与 '31-40' 共存, merge 时取 max 也可接受)
     """
     if key is None:
         return ''
@@ -21807,14 +21920,8 @@ def _normalize_dist_key(key):
     s = key.strip()
     if not s:
         return ''
-    # ★ fix/ocr-dist-normalize-bugs (老大 2026-09-24):
-    #   原版用 str.maketrans('０-９', '0-9'), 但 str.maketrans 不识别 range,
-    #   '-' 字符被当作普通字符, 结果只映射了 3 个字符 (０, -, ９), 中间数字漏转.
-    #   修法: 显式列出所有 10 个全角数字 → 半角数字, 包括全角小数点.
     _FULLWIDTH_DIGITS = str.maketrans('０１２３４５６７８９．', '0123456789.')
     s = s.translate(_FULLWIDTH_DIGITS)
-    s = s.replace('岁', '')                           # 去"岁"字
-    s = re.sub(r'[\s\u3000]+', '', s)                 # 去所有空白 (半角空格 + 全角空格)
     s = re.sub(r'[\u2013\u2014\u2015\u2212]', '-', s) # 横线归一
     return s
 
@@ -21841,6 +21948,215 @@ def _merge_dist_by_normalized_key(dist):
                     merged[nk] = v
             # 非数字保留第一个, 不覆盖
     return merged
+
+
+# ★ fix/ocr-canonical-sync-v2: 规范化函数
+#   老大 2026-09-25 反馈 v1 (a8c7de7) 弃用: 走错路径 extra_fields.粉丝分析.<段>.<维度>
+#   v2 严格按骨架 tests/fixtures/ocr_structure_skeleton.json 嵌套层级:
+#   - 顶层 snake_case 模板 (很多是空壳, 值是 'xxxx' 或 0) 优先
+#   - 顶层空壳时, FLAT 取 extra_fields.<中文段>.<维度> (没"粉丝分析"中间层)
+#   - 直播/视频带货数据 FLAT 取 extra_fields.直播带货数据.场均结算额 等
+#   - TOP3 FLAT 取 extra_fields.热卖类目TOP3 / 热卖品牌TOP3
+#   - 区间值双轨: 数值列存解析均值, 同步 _text 列存原文 (¥100万-500万 等)
+#   - single_video_settlement 当文本存原始字符串
+#   - category_distribution 总和 > 105 按比例归一到 100, price_distribution 保持不变
+#   返回 dict (DB 列名 → 解析后的值), 用于 _update_talent_from_ocr_fields 调用 UPDATE.
+def _canonicalize_talent_row(ocr_json):
+    """规范化 OCR JSON → 写入 talents 列的字段 dict."""
+    if not isinstance(ocr_json, dict):
+        return {}
+
+    out = {}
+
+    # 1) 顶层 snake_case 优先 (复用 _OCR_TO_TALENT_FIELDS 21 字段 + 各自 parser)
+    for db_col, ocr_key, parser in _OCR_TO_TALENT_FIELDS:
+        if db_col == 'total_products':
+            continue
+        v = _deep_get(ocr_json, ocr_key)
+        if v is None or not str(v).strip() or str(v).strip() == 'null':
+            continue
+        try:
+            out[db_col] = parser(v)
+        except (ValueError, TypeError):
+            continue
+
+    extra = ocr_json.get('extra_fields', {})
+    if not isinstance(extra, dict):
+        extra = {}
+
+    # 2) 粉丝 4 段 (FLAT, 不走"粉丝分析"中间层)
+    #    extra_fields.<中文段>.<维度中文键> → <前缀>_<维度后缀>
+    for src_name, col_prefix, dim_map in _FAN_SOURCE_MAP:
+        block = extra.get(src_name, {})
+        if not isinstance(block, dict):
+            continue
+        for cn_key, en_suffix in dim_map.items():
+            v = block.get(cn_key)
+            if v is None:
+                continue
+            db_col = col_prefix + '_' + en_suffix
+            # 已存在 (顶层优先) 跳过
+            if db_col in out:
+                continue
+            if isinstance(v, dict):
+                # 分布 dict (label → percent), 走 _merge_dist_by_normalized_key
+                merged = _merge_dist_by_normalized_key(v)
+                out[db_col] = json.dumps(merged, ensure_ascii=False) if merged else '{}'
+            elif isinstance(v, (int, float)):
+                # 数值 (L188-191 fixture 里 '女性'/'31-40岁'/'三线城市'/'小镇中老年' 也可能是数值)
+                out[db_col] = json.dumps({str(cn_key): v}, ensure_ascii=False)
+            else:
+                # 字符串 (含 % 或纯文本), 原样存
+                out[db_col] = str(v)
+
+    # 3) 直播带货数据 FLAT (extra_fields.直播带货数据.<字段>)
+    live_data = extra.get('直播带货数据', {})
+    if isinstance(live_data, dict):
+        avg_session = live_data.get('场均结算额')
+        if avg_session and 'avg_live_gmv_text' not in out:
+            out['avg_live_gmv_text'] = str(avg_session)
+        if avg_session and 'avg_live_gmv' not in out:
+            try:
+                out['avg_live_gmv'] = _parse_gmv_value(_strip_yuan(avg_session))
+            except (ValueError, TypeError):
+                pass
+        live_gpm_val = live_data.get('直播GPM')
+        if live_gpm_val and 'live_gpm_text' not in out:
+            out['live_gpm_text'] = str(live_gpm_val)
+        if live_gpm_val and 'live_gpm' not in out:
+            try:
+                out['live_gpm'] = _parse_gmv_value(_strip_yuan(live_gpm_val))
+            except (ValueError, TypeError):
+                pass
+
+    # 4) 视频带货数据 FLAT
+    video_data = extra.get('视频带货数据', {})
+    if isinstance(video_data, dict):
+        single_video = video_data.get('单视频结算额')
+        if single_video and 'single_video_settlement' not in out:
+            # ★ 文本存原始字符串 (不解析均值, single_video_settlement 本来就是文本字段)
+            out['single_video_settlement'] = str(single_video)
+        video_gpm_val = video_data.get('视频GPM')
+        if video_gpm_val and 'video_gpm_text' not in out:
+            out['video_gpm_text'] = str(video_gpm_val)
+        if video_gpm_val and 'video_gpm' not in out:
+            try:
+                out['video_gpm'] = _parse_gmv_value(_strip_yuan(video_gpm_val))
+            except (ValueError, TypeError):
+                pass
+
+    # 5) 总 GMV 区间原文 (顶层 _OCR_TO_TALENT_FIELDS 已 parse, 这里只在原文存在但数值列没设时写 _text)
+    # ★ fix/ocr-canonical-sync-v2 闭环 (老大 2026-09-25): 顶层 num_col 是字符串 (区间原文如 ¥100万-500万)
+    #   时也写到 _text 列, 防 _text 列变 MISSING. 骨架 fixture L41 顶层 total_gmv 是区间字符串,
+    #   之前 L22038 只查 text_col/_raw 漏写.
+    for num_col, text_col in [
+        ('total_gmv', 'total_gmv_text'),
+        ('video_gpm', 'video_gpm_text'),
+        ('live_gpm', 'live_gpm_text'),
+        ('avg_live_gmv', 'avg_live_gmv_text'),
+    ]:
+        raw_text = ocr_json.get(text_col) or ocr_json.get(num_col + '_raw')
+        # ★ fallback: 顶层 num_col 是字符串 (区间原文) 时也写到 _text 列
+        if not raw_text:
+            val = ocr_json.get(num_col)
+            if isinstance(val, str) and val.strip():
+                raw_text = val
+        if raw_text and text_col not in out:
+            out[text_col] = str(raw_text)
+
+    # 6) TOP3 (中文对象键 类目/品牌/均价/结算额/佣金参考)
+    for src_name, db_col in [('热卖类目TOP3', 'top_categories'), ('热卖品牌TOP3', 'top_brands')]:
+        block = extra.get(src_name)
+        if not isinstance(block, list):
+            continue
+        items = []
+        for item in block:
+            if not isinstance(item, dict):
+                continue
+            # 中文键映射: 类目/品牌 → name, 均价 → avg_price, 结算额 → gmv
+            name = item.get('类目') or item.get('品牌') or item.get('name', '')
+            avg_price = item.get('均价', '') or item.get('avg_price', '')
+            gmv = item.get('结算额', '') or item.get('gmv', '')
+            items.append({
+                'name': str(name),
+                'avg_price': str(avg_price),
+                'gmv': str(gmv),
+            })
+        if items:
+            out[db_col] = items
+
+    # 7) category_distribution 总和 > 105 按比例归一到 100, price_distribution 保持不变
+    cat_dist = ocr_json.get('category_distribution')
+    if not (isinstance(cat_dist, dict) and cat_dist):
+        cat_dist = extra.get('类目分布')
+        if isinstance(cat_dist, dict):
+            # 类目分布 表格 L527-555 是 {类目: 占比} 嵌套结构, flatten
+            data = cat_dist.get('数据') if isinstance(cat_dist.get('数据'), dict) else None
+            if isinstance(data, dict) and data:
+                cat_dist = data
+            else:
+                cat_dist = None
+    if isinstance(cat_dist, dict) and cat_dist:
+        total = sum(v for v in cat_dist.values() if isinstance(v, (int, float)))
+        if total > 105:
+            scale = 100.0 / total
+            normalized = {k: round(v * scale, 2) if isinstance(v, (int, float)) else v for k, v in cat_dist.items()}
+            out['category_distribution'] = normalized
+        elif total > 0:
+            out['category_distribution'] = cat_dist
+
+    price_dist = ocr_json.get('price_distribution')
+    if isinstance(price_dist, dict) and price_dist:
+        out['price_distribution'] = price_dist
+
+    return out
+
+
+def _ensure_canonical_text_columns():
+    """★ fix/ocr-canonical-sync-v2: 幂等 ALTER TABLE 新增 4 个 TEXT 列 (PRAGMA 先查再 ALTER)."""
+    global _canonical_columns_ensured
+    if _canonical_columns_ensured:
+        return
+    conn = _db_conn()
+    try:
+        cols = [r[1] for r in conn.execute('PRAGMA table_info(talents)').fetchall()]
+        for col_name, col_def in _CANONICAL_TEXT_COLUMNS:
+            if col_name not in cols:
+                conn.execute(f'ALTER TABLE talents ADD COLUMN {col_name} {col_def}')
+                logger.info(f'  [Canonical] 新增 talents.{col_name} {col_def}')
+        conn.commit()
+        _canonical_columns_ensured = True
+    except Exception as e:
+        logger.warning(f'  [Canonical] ALTER TABLE 失败 (可能已有列): {e}')
+    finally:
+        conn.close()
+
+
+def _update_talent_column_if_empty(conn, talent_id, column, new_value):
+    """★ fix/ocr-canonical-sync-v2: 同步保护 — 已有非空值则跳过更新 (防覆盖手修正值).
+
+    9 列重点防护 (老大原话):
+    - 4 个 _text 列: total_gmv_text / video_gpm_text / live_gpm_text / avg_live_gmv_text
+    - 4 个 fan 段起始列: fan_city_tier / fan_group_city_tier / live_audience_city_tier / video_audience_city_tier
+    - 1 个 single_video_settlement (存文本原文)
+    """
+    # 无意义新值跳过 (None / '' / 空字符串 / null)
+    if new_value is None:
+        return False
+    s = str(new_value).strip()
+    if not s or s == 'null':
+        return False
+    try:
+        row = conn.execute(f'SELECT {column} FROM talents WHERE id = ?', (talent_id,)).fetchone()
+    except Exception:
+        return False
+    # 已有非空值则跳过 (防覆盖手修正值)
+    if row:
+        existing = row[0]
+        if existing is not None and str(existing).strip() != '':
+            return False
+    conn.execute(f'UPDATE talents SET {column} = ? WHERE id = ?', (new_value, talent_id))
+    return True
 
 
 def _heavy_entity_hint(talent_names, talents):
