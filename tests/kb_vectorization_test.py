@@ -24,117 +24,130 @@ exec 到独立 namespace 跑 (避开 server 整个 import 链, 只注入 sqlite3
 import os, sys, json, sqlite3, time, re
 
 
-KS_PY = 'knowledge_service.py'
-text = open(KS_PY, encoding='utf-8').read()
+# ★ fix/mini-test-code-repair-20260925: 模块级 ns 创建 + exec 重逻辑收进 _init_ns()
+# 使 pytest collection (即 import 本文件) 不再触发:
+#   - 文件读取 (KS_PY 路径依赖 cwd, import 未知 cwd 可能报 FileNotFoundError)
+#   - sys.exit(1) (提取失败时, import 会让 pytest 整个套退出)
+#   - exec combined (耗时 + 副作用, 延迟到 setUpClass 调)
+# TestXxx 通过 setUpClass 调 _init_ns() 一次, 不重复。
+# 独立运行 (python3 tests/xxx.py) 行为保持不变 (main 守卫仍调 _init_ns())。
+
+def _init_ns():
+    """初始化 ns + _db (提取 + stub + exec), 返回 (ns, _db) tuple 供 setUpClass 复用."""
+    KS_PY = 'knowledge_service.py'
+    text = open(KS_PY, encoding='utf-8').read()
 
 
-def extract_function(name, source):
-    """提取 def name(...): 开始的函数, 用 {} 配平找函数体结束"""
-    m = re.search(rf'^def {re.escape(name)}\(', source, re.MULTILINE)
-    if not m:
-        return None
-    start = m.start()
-    i = source.index(':', m.end()) + 1
-    depth = 0
-    in_string = False
-    triple = False
-    while i < len(source):
-        c = source[i]
-        if not in_string and c == '#':
-            while i < len(source) and source[i] != '\n':
-                i += 1
-            continue
-        if c == '"' or c == "'":
-            if source[i:i+3] in ('"""', "'''"):
-                triple = not triple
-                i += 3
+    def extract_function(name, source):
+        """提取 def name(...): 开始的函数, 用 {} 配平找函数体结束"""
+        m = re.search(rf'^def {re.escape(name)}\(', source, re.MULTILINE)
+        if not m:
+            return None
+        start = m.start()
+        i = source.index(':', m.end()) + 1
+        depth = 0
+        in_string = False
+        triple = False
+        while i < len(source):
+            c = source[i]
+            if not in_string and c == '#':
+                while i < len(source) and source[i] != '\n':
+                    i += 1
                 continue
-            if not triple:
-                in_string = not in_string
-        if not in_string and not triple:
-            if c == '{':
-                depth += 1
-            elif c == '}':
-                depth -= 1
-            elif c == '\n' and depth == 0:
-                rest = source[i+1:].lstrip()
-                if rest.startswith('def ') or rest.startswith('class ') or rest.startswith('# ') or rest.startswith('#!'):
-                    return source[start:i+1]
-        i += 1
-    return source[start:]
+            if c == '"' or c == "'":
+                if source[i:i+3] in ('"""', "'''"):
+                    triple = not triple
+                    i += 3
+                    continue
+                if not triple:
+                    in_string = not in_string
+            if not in_string and not triple:
+                if c == '{':
+                    depth += 1
+                elif c == '}':
+                    depth -= 1
+                elif c == '\n' and depth == 0:
+                    rest = source[i+1:].lstrip()
+                    if rest.startswith('def ') or rest.startswith('class ') or rest.startswith('# ') or rest.startswith('#!'):
+                        return source[start:i+1]
+            i += 1
+        return source[start:]
 
 
-# 提取目标函数
-vec_helper = extract_function('_vectorize_kb_chunks_with_status_update', text)
-retry_one = extract_function('kb_entry_retry_embedding', text)
-retry_all = extract_function('kb_entries_retry_all_failed_embedding', text)
-reindex_fn = extract_function('kb_entries_reindex_pending', text)
+    # 提取目标函数
+    vec_helper = extract_function('_vectorize_kb_chunks_with_status_update', text)
+    retry_one = extract_function('kb_entry_retry_embedding', text)
+    retry_all = extract_function('kb_entries_retry_all_failed_embedding', text)
+    reindex_fn = extract_function('kb_entries_reindex_pending', text)
 
-# 还需要一些支持函数 (会被 retry/reindex 调用)
-# can_edit_knowledge / can_create_knowledge / _can_access_knowledge_category / _gen_id
-can_edit_fn = extract_function('can_edit_knowledge', text)
-gen_id_fn = extract_function('_gen_id', text)
-add_col_fn = extract_function('_add_column_if_not_exists', text)
-now_fn = extract_function('_now_ms', text)
-kb_entry_get_fn = extract_function('kb_entry_get_by_id', text)
-log_op_fn = extract_function('kb_entry_log_operation', text)
-save_chunks_fn = extract_function('_save_kb_chunks_without_embedding', text)
-vec_chunks_fn = extract_function('_vectorize_kb_chunks', text)
-get_emb_cfg_fn = extract_function('get_embedding_config', text)
-row_to_dict_fn = extract_function('_kb_entry_row_to_dict', text)
+    # 还需要一些支持函数 (会被 retry/reindex 调用)
+    # can_edit_knowledge / can_create_knowledge / _can_access_knowledge_category / _gen_id
+    can_edit_fn = extract_function('can_edit_knowledge', text)
+    gen_id_fn = extract_function('_gen_id', text)
+    add_col_fn = extract_function('_add_column_if_not_exists', text)
+    now_fn = extract_function('_now_ms', text)
+    kb_entry_get_fn = extract_function('kb_entry_get_by_id', text)
+    log_op_fn = extract_function('kb_entry_log_operation', text)
+    save_chunks_fn = extract_function('_save_kb_chunks_without_embedding', text)
+    vec_chunks_fn = extract_function('_vectorize_kb_chunks', text)
+    get_emb_cfg_fn = extract_function('get_embedding_config', text)
+    row_to_dict_fn = extract_function('_kb_entry_row_to_dict', text)
 
-if not all([vec_helper, retry_one, retry_all, reindex_fn, can_edit_fn, gen_id_fn]):
-    print('FATAL: 提取函数失败, knowledge_service.py 改动没生效?')
-    print(f'  vec_helper: {bool(vec_helper)}')
-    print(f'  retry_one: {bool(retry_one)}')
-    print(f'  retry_all: {bool(retry_all)}')
-    print(f'  reindex_fn: {bool(reindex_fn)}')
-    print(f'  can_edit_fn: {bool(can_edit_fn)}')
-    print(f'  gen_id_fn: {bool(gen_id_fn)}')
-    sys.exit(1)
+    if not all([vec_helper, retry_one, retry_all, reindex_fn, can_edit_fn, gen_id_fn]):
+        print('FATAL: 提取函数失败, knowledge_service.py 改动没生效?')
+        print(f'  vec_helper: {bool(vec_helper)}')
+        print(f'  retry_one: {bool(retry_one)}')
+        print(f'  retry_all: {bool(retry_all)}')
+        print(f'  reindex_fn: {bool(reindex_fn)}')
+        print(f'  can_edit_fn: {bool(can_edit_fn)}')
+        print(f'  gen_id_fn: {bool(gen_id_fn)}')
+        raise RuntimeError(
+            f'提取失败, knowledge_service.py 改动没生效? 检查提取结果是否为空'
 
-print(f'提取: vec_helper={len(vec_helper)}c, retry_one={len(retry_one)}c, '
-      f'retry_all={len(retry_all)}c, reindex_fn={len(reindex_fn)}c')
+    print(f'提取: vec_helper={len(vec_helper)}c, retry_one={len(retry_one)}c, '
+          f'retry_all={len(retry_all)}c, reindex_fn={len(reindex_fn)}c')
 
 
-# 2. 准备 stub namespace
-import uuid
-ns = {
-    '__name__': 'vec_test',
-    'sqlite3': sqlite3,
-    'time': time,
-    'uuid': uuid,
-    'json': json,
-}
+    # 2. 准备 stub namespace
+    import uuid
+    ns = {
+        '__name__': 'vec_test',
+        'sqlite3': sqlite3,
+        'time': time,
+        'uuid': uuid,
+        'json': json,
+    }
 
-_db = sqlite3.connect(':memory:', check_same_thread=False)
-_db.row_factory = sqlite3.Row
-_db.execute('PRAGMA foreign_keys = OFF')
+    _db = sqlite3.connect(':memory:', check_same_thread=False)
+    _db.row_factory = sqlite3.Row
+    _db.execute('PRAGMA foreign_keys = OFF')
 
-def _db_conn():
-    return _db
-ns['_db_conn'] = _db_conn
+    def _db_conn():
+        return _db
+    ns['_db_conn'] = _db_conn
 
-ns['_now_ms'] = lambda: int(time.time() * 1000)
-ns['_gen_id'] = lambda prefix='kb': f"{prefix}_{uuid.uuid4().hex[:8]}"
+    ns['_now_ms'] = lambda: int(time.time() * 1000)
+    ns['_gen_id'] = lambda prefix='kb': f"{prefix}_{uuid.uuid4().hex[:8]}"
 
-# 3. exec 所有目标函数到 namespace
-combined = '\n\n'.join([
-    gen_id_fn, now_fn, add_col_fn, row_to_dict_fn, log_op_fn,
-    can_edit_fn, kb_entry_get_fn,
-    get_emb_cfg_fn, save_chunks_fn, vec_chunks_fn,
-    vec_helper, retry_one, retry_all, reindex_fn,
-])
-exec(combined, ns)
-print(f'exec combined: {len(combined)} chars')
+    # 3. exec 所有目标函数到 namespace
+    combined = '\n\n'.join([
+        gen_id_fn, now_fn, add_col_fn, row_to_dict_fn, log_op_fn,
+        can_edit_fn, kb_entry_get_fn,
+        get_emb_cfg_fn, save_chunks_fn, vec_chunks_fn,
+        vec_helper, retry_one, retry_all, reindex_fn,
+    ])
+    exec(combined, ns)
+    print(f'exec combined: {len(combined)} chars')
+    return ns, _db
+
 
 
 # 4. 初始化测试表
-def init_test_tables():
-    _db.execute('DROP TABLE IF EXISTS kb_entries')
-    _db.execute('DROP TABLE IF EXISTS kb_entry_chunks')
-    _db.execute('DROP TABLE IF EXISTS kb_operation_log')
-    _db.execute('''
+def init_test_tables(conn):
+    conn.execute('DROP TABLE IF EXISTS kb_entries')
+    conn.execute('DROP TABLE IF EXISTS kb_entry_chunks')
+    conn.execute('DROP TABLE IF EXISTS kb_operation_log')
+    conn.execute('''
         CREATE TABLE kb_entries (
             id TEXT PRIMARY KEY,
             title TEXT NOT NULL,
@@ -153,7 +166,7 @@ def init_test_tables():
             updated_at INTEGER
         )
     ''')
-    _db.execute('''
+    conn.execute('''
         CREATE TABLE kb_entry_chunks (
             id TEXT PRIMARY KEY,
             entry_id TEXT NOT NULL,
@@ -165,7 +178,7 @@ def init_test_tables():
             created_at INTEGER
         )
     ''')
-    _db.execute('''
+    conn.execute('''
         CREATE TABLE kb_operation_log (
             id TEXT PRIMARY KEY,
             entry_id TEXT,
@@ -175,7 +188,7 @@ def init_test_tables():
             created_at INTEGER
         )
     ''')
-    _db.commit()
+    conn.commit()
 
 
 def _insert_entry(eid, title='T', content='C', status='ok', scope='global',
@@ -194,27 +207,32 @@ import unittest
 class TestVectorizeHelper(unittest.TestCase):
     """场景 1: helper 包装 — 失败标 'embedding_failed' + 写 log"""
 
+    @classmethod
+    def setUpClass(cls):
+        """★ fix/mini-test-code-repair-20260925: 一次初始化, 所有 test_* 共享."""
+        cls.ns, cls._db = _init_ns()
+
     def setUp(self):
-        init_test_tables()
+        self.ns['init_test_tables'](self._db_conn())
         _insert_entry('e1', title='Test', status='ok')
         # mock _vectorize_kb_chunks 抛错
         self._orig_vec = ns['_vectorize_kb_chunks']
         def failing_vec(*args, **kwargs):
             raise RuntimeError('mock embedding API failure')
-        ns['_vectorize_kb_chunks'] = failing_vec
+        self.ns['_vectorize_kb_chunks'] = failing_vec
 
     def tearDown(self):
-        ns['_vectorize_kb_chunks'] = self._orig_vec
+        self.ns['_vectorize_kb_chunks'] = self._orig_vec
 
     def test_helper_marks_embedding_failed_status(self):
         with self.assertRaises(RuntimeError):
-            ns['_vectorize_kb_chunks_with_status_update']('e1', '', 'mock-key', 'openai', 'm')
+            self.ns['_vectorize_kb_chunks_with_status_update']('e1', '', 'mock-key', 'openai', 'm')
         row = _db.execute("SELECT status FROM kb_entries WHERE id='e1'").fetchone()
         self.assertEqual(row['status'], 'embedding_failed', '失败后 status 应是 embedding_failed')
 
     def test_helper_writes_audit_log(self):
         with self.assertRaises(RuntimeError):
-            ns['_vectorize_kb_chunks_with_status_update']('e1', '', 'mock-key', 'openai', 'm')
+            self.ns['_vectorize_kb_chunks_with_status_update']('e1', '', 'mock-key', 'openai', 'm')
         logs = _db.execute("SELECT operation, details FROM kb_operation_log WHERE entry_id='e1'").fetchall()
         self.assertEqual(len(logs), 1, '应写 1 条 audit log')
         self.assertEqual(logs[0]['operation'], 'embedding_failed')
@@ -227,17 +245,22 @@ class TestVectorizeHelper(unittest.TestCase):
 class TestRetryEmbedding(unittest.TestCase):
     """场景 2/3: retry-embedding 手动重试 + 状态校验"""
 
+    @classmethod
+    def setUpClass(cls):
+        """★ fix/mini-test-code-repair-20260925: 一次初始化, 所有 test_* 共享."""
+        cls.ns, cls._db = _init_ns()
+
     def setUp(self):
-        init_test_tables()
+        self.ns['init_test_tables'](self._db_conn())
         _insert_entry('e1', title='Failed', content='content-1', status='embedding_failed',
                       created_by='u1', emp_id='emp1')
         # 已有 chunk 但无 embedding (模拟 embedding_failed 后的状态)
-        _db.execute(
+        self._db.execute(
             '''INSERT INTO kb_entry_chunks (id, entry_id, content, embedding, embedding_model)
                VALUES (?, ?, ?, NULL, '')''',
             ('c1', 'e1', 'chunk-1')
         )
-        _db.commit()
+        self._db.commit()
         # 默认 mock: get_embedding_config 有 key, _vectorize_kb_chunks 成功
         self.vec_should_fail = False
         self._orig_vec = ns['_vectorize_kb_chunks']
@@ -248,15 +271,15 @@ class TestRetryEmbedding(unittest.TestCase):
             import struct
             emb_bytes = struct.pack('2f', 0.1, 0.2)
             entry_id = args[0]
-            _db.execute(
+            self._db.execute(
                 'UPDATE kb_entry_chunks SET embedding=?, embedding_model=? WHERE entry_id=?',
                 (emb_bytes, kwargs.get('model') or args[3], entry_id)
             )
-            _db.commit()
-        ns['_vectorize_kb_chunks'] = controllable_vec
+            self._db.commit()
+        self.ns['_vectorize_kb_chunks'] = controllable_vec
 
     def tearDown(self):
-        ns['_vectorize_kb_chunks'] = self._orig_vec
+        self.ns['_vectorize_kb_chunks'] = self._orig_vec
 
     def test_retry_recovers_from_embedding_failed(self):
         result = ns['kb_entry_retry_embedding']('e1', is_admin=True, operator_id='u1', user_id='u1')
@@ -271,16 +294,16 @@ class TestRetryEmbedding(unittest.TestCase):
 
     def test_retry_pending_preserved(self):
         """pending 状态的 entry retry 成功后保持 pending (审核闸)"""
-        _db.execute("UPDATE kb_entries SET status='pending' WHERE id='e1'")
-        _db.commit()
+        self._db.execute("UPDATE kb_entries SET status='pending' WHERE id='e1'")
+        self._db.commit()
         result = ns['kb_entry_retry_embedding']('e1', is_admin=True, operator_id='u1', user_id='u1')
         self.assertEqual(result['status'], 'pending', 'pending retry 后保持 pending')
 
     def test_retry_rejects_wrong_status(self):
-        _db.execute("UPDATE kb_entries SET status='ok' WHERE id='e1'")
-        _db.commit()
+        self._db.execute("UPDATE kb_entries SET status='ok' WHERE id='e1'")
+        self._db.commit()
         with self.assertRaises(ValueError) as cm:
-            ns['kb_entry_retry_embedding']('e1', is_admin=True, operator_id='u1', user_id='u1')
+            self.ns['kb_entry_retry_embedding']('e1', is_admin=True, operator_id='u1', user_id='u1')
         self.assertIn('only embedding_failed/error', str(cm.exception))
 
     def test_retry_returns_none_for_missing(self):
@@ -288,8 +311,8 @@ class TestRetryEmbedding(unittest.TestCase):
         self.assertIsNone(result)
 
     def test_retry_returns_none_for_deleted(self):
-        _db.execute("UPDATE kb_entries SET status='deleted' WHERE id='e1'")
-        _db.commit()
+        self._db.execute("UPDATE kb_entries SET status='deleted' WHERE id='e1'")
+        self._db.commit()
         result = ns['kb_entry_retry_embedding']('e1', is_admin=True, operator_id='u1', user_id='u1')
         self.assertIsNone(result, '软删 entry 应返回 None')
 
@@ -297,21 +320,26 @@ class TestRetryEmbedding(unittest.TestCase):
         """retry 仍失败: status 保持 'embedding_failed' (helper 已设)"""
         self.vec_should_fail = True
         with self.assertRaises(RuntimeError):
-            ns['kb_entry_retry_embedding']('e1', is_admin=True, operator_id='u1', user_id='u1')
+            self.ns['kb_entry_retry_embedding']('e1', is_admin=True, operator_id='u1', user_id='u1')
         row = _db.execute("SELECT status FROM kb_entries WHERE id='e1'").fetchone()
         self.assertEqual(row['status'], 'embedding_failed')
 
     def test_retry_permission_denied_for_global_non_admin(self):
         """非 admin 改 global entry 应被 can_edit_knowledge 拒绝"""
         with self.assertRaises(PermissionError):
-            ns['kb_entry_retry_embedding']('e1', is_admin=False, operator_id='u2', user_id='u2')
+            self.ns['kb_entry_retry_embedding']('e1', is_admin=False, operator_id='u2', user_id='u2')
 
 
 class TestRetryAllFailed(unittest.TestCase):
     """场景 4/5: retry-all-failed 批量 + 权限"""
 
+    @classmethod
+    def setUpClass(cls):
+        """★ fix/mini-test-code-repair-20260925: 一次初始化, 所有 test_* 共享."""
+        cls.ns, cls._db = _init_ns()
+
     def setUp(self):
-        init_test_tables()
+        self.ns['init_test_tables'](self._db_conn())
         # 3 entries: 2 failed, 1 ok
         _insert_entry('e1', title='Failed1', status='embedding_failed', created_by='u1', emp_id='emp1')
         _insert_entry('e2', title='Failed2', status='error', created_by='u2', emp_id='emp1')
@@ -321,15 +349,15 @@ class TestRetryAllFailed(unittest.TestCase):
         def success_vec(entry_id, *args, **kwargs):
             import struct
             emb_bytes = struct.pack('2f', 0.1, 0.2)
-            _db.execute(
+            self._db.execute(
                 'UPDATE kb_entry_chunks SET embedding=?, embedding_model=? WHERE entry_id=?',
                 (emb_bytes, kwargs.get('model', ''), entry_id)
             )
-            _db.commit()
-        ns['_vectorize_kb_chunks'] = success_vec
+            self._db.commit()
+        self.ns['_vectorize_kb_chunks'] = success_vec
 
     def tearDown(self):
-        ns['_vectorize_kb_chunks'] = self._orig_vec
+        self.ns['_vectorize_kb_chunks'] = self._orig_vec
 
     def test_batch_retries_only_failed_entries(self):
         result = ns['kb_entries_retry_all_failed_embedding'](is_admin=True, operator_id='admin')
@@ -349,14 +377,14 @@ class TestRetryAllFailed(unittest.TestCase):
 
     def test_batch_requires_admin(self):
         with self.assertRaises(PermissionError):
-            ns['kb_entries_retry_all_failed_embedding'](is_admin=False, operator_id='u1')
+            self.ns['kb_entries_retry_all_failed_embedding'](is_admin=False, operator_id='u1')
 
     def test_batch_collects_per_entry_errors(self):
         """某条 retry 抛错, 不影响其他, 错误收集到 errors 列表"""
         # 让 e1 retry 失败 (通过让 _save_kb_chunks 失败, 但我们这个 mock 不便, 改用 PermissionError)
         # 简化: 让 e1 的 status 变 'pending' (不在 IN 范围), e2 retry 成功
-        _db.execute("UPDATE kb_entries SET status='pending' WHERE id='e1'")
-        _db.commit()
+        self._db.execute("UPDATE kb_entries SET status='pending' WHERE id='e1'")
+        self._db.commit()
         result = ns['kb_entries_retry_all_failed_embedding'](is_admin=True, operator_id='admin')
         self.assertEqual(result['scanned'], 1, 'e1 已变 pending, 不在 IN (embedding_failed, error) 范围')
         self.assertEqual(result['succeeded'], 1)
@@ -365,28 +393,33 @@ class TestRetryAllFailed(unittest.TestCase):
 class TestReindexIncludesEmbeddingFailed(unittest.TestCase):
     """场景 6: reindex WHERE 现在也扫 'embedding_failed' 状态的 entry (顺手)"""
 
+    @classmethod
+    def setUpClass(cls):
+        """★ fix/mini-test-code-repair-20260925: 一次初始化, 所有 test_* 共享."""
+        cls.ns, cls._db = _init_ns()
+
     def setUp(self):
-        init_test_tables()
+        self.ns['init_test_tables'](self._db_conn())
         # 3 entries: 1 pending, 1 embedding_failed, 1 ok
         _insert_entry('e1', title='Pending', content='c1', status='pending')
         _insert_entry('e2', title='EmbeddingFailed', content='c2', status='embedding_failed')
         _insert_entry('e3', title='OK', content='c3', status='ok')
-        _db.commit()
+        self._db.commit()
         # mock _save_chunks 写 1 个 chunk, _vectorize 不做事
         self._orig_save = ns['_save_kb_chunks_without_embedding']
         def save_chunks(entry_id, emp_id, content, cs, ov):
-            _db.execute('DELETE FROM kb_entry_chunks WHERE entry_id = ?', (entry_id,))
-            _db.execute(
+            self._db.execute('DELETE FROM kb_entry_chunks WHERE entry_id = ?', (entry_id,))
+            self._db.execute(
                 '''INSERT INTO kb_entry_chunks (id, entry_id, content, embedding, embedding_model)
                    VALUES (?, ?, ?, NULL, '')''',
                 (f'{entry_id}_c0', entry_id, 'chunk-1')
             )
-            _db.execute('UPDATE kb_entries SET chunk_count=1 WHERE id=?', (entry_id,))
-            _db.commit()
-        ns['_save_kb_chunks_without_embedding'] = save_chunks
+            self._db.execute('UPDATE kb_entries SET chunk_count=1 WHERE id=?', (entry_id,))
+            self._db.commit()
+        self.ns['_save_kb_chunks_without_embedding'] = save_chunks
 
     def tearDown(self):
-        ns['_save_kb_chunks_without_embedding'] = self._orig_save
+        self.ns['_save_kb_chunks_without_embedding'] = self._orig_save
 
     def test_reindex_picks_up_embedding_failed(self):
         result = ns['kb_entries_reindex_pending']()
@@ -399,13 +432,13 @@ class TestReindexIncludesEmbeddingFailed(unittest.TestCase):
         """reindex 遇到 vectorize 失败, status 应保持 'embedding_failed' (不被 'error' 覆盖)"""
         # 注入 mock: get_embedding_config 有 key, _vectorize_kb_chunks 抛错
         self._orig_emb = ns['get_embedding_config']
-        ns['get_embedding_config'] = lambda emp_id=None: {
+        self.ns['get_embedding_config'] = lambda emp_id=None: {
             'apiKey': 'mock-key', 'provider': 'openai', 'model': 'm', 'baseUrl': None
         }
         self._orig_vec = ns['_vectorize_kb_chunks']
         def failing_vec(*args, **kwargs):
             raise RuntimeError('mock vec failure in reindex')
-        ns['_vectorize_kb_chunks'] = failing_vec
+        self.ns['_vectorize_kb_chunks'] = failing_vec
         try:
             result = ns['kb_entries_reindex_pending']()
             # e1, e2 都被 vectorize 失败 → 标 'embedding_failed'
@@ -415,9 +448,10 @@ class TestReindexIncludesEmbeddingFailed(unittest.TestCase):
             self.assertEqual(rows['e2'], 'embedding_failed', 'embedding_failed entry vectorize 失败 → 保持 embedding_failed')
             self.assertEqual(result['failed'], 2)
         finally:
-            ns['get_embedding_config'] = self._orig_emb
-            ns['_vectorize_kb_chunks'] = self._orig_vec
+            self.ns['get_embedding_config'] = self._orig_emb
+            self.ns['_vectorize_kb_chunks'] = self._orig_vec
 
 
 if __name__ == '__main__':
-    unittest.main(verbosity=2)
+    _init_ns()
+        unittest.main(verbosity=2)

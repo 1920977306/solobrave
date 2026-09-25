@@ -17,138 +17,151 @@ RAG 索引完整性单测 (refactor/rag-index-integrity)
 import os, sys, json, sqlite3, time, re
 
 
-KS_PY = 'knowledge_service.py'
-text = open(KS_PY, encoding='utf-8').read()
+# ★ fix/mini-test-code-repair-20260925: 模块级 ns 创建 + exec 重逻辑收进 _init_ns()
+# 使 pytest collection (即 import 本文件) 不再触发:
+#   - 文件读取 (KS_PY 路径依赖 cwd, import 未知 cwd 可能报 FileNotFoundError)
+#   - sys.exit(1) (提取失败时, import 会让 pytest 整个套退出)
+#   - exec combined (耗时 + 副作用, 延迟到 setUpClass 调)
+# TestXxx 通过 setUpClass 调 _init_ns() 一次, 不重复。
+# 独立运行 (python3 tests/xxx.py) 行为保持不变 (main 守卫仍调 _init_ns())。
+
+def _init_ns():
+    """初始化 ns + _db (提取 + stub + exec), 返回 (ns, _db) tuple 供 setUpClass 复用."""
+    KS_PY = 'knowledge_service.py'
+    text = open(KS_PY, encoding='utf-8').read()
 
 
-def extract_function(name, source):
-    """提取 def name(...): 开始的函数 (含 docstring + 函数体), 用 {} 配平找到函数体结束"""
-    m = re.search(rf'^def {re.escape(name)}\(', source, re.MULTILINE)
-    if not m:
-        return None
-    start = m.start()
-    i = source.index(':', m.end()) + 1
-    depth = 0
-    in_string = False
-    triple = False
-    while i < len(source):
-        c = source[i]
-        if not in_string and c == '#':
-            while i < len(source) and source[i] != '\n':
-                i += 1
-            continue
-        if c == '"' or c == "'":
-            if source[i:i+3] in ('"""', "'''"):
-                triple = not triple
-                i += 3
+    def extract_function(name, source):
+        """提取 def name(...): 开始的函数 (含 docstring + 函数体), 用 {} 配平找到函数体结束"""
+        m = re.search(rf'^def {re.escape(name)}\(', source, re.MULTILINE)
+        if not m:
+            return None
+        start = m.start()
+        i = source.index(':', m.end()) + 1
+        depth = 0
+        in_string = False
+        triple = False
+        while i < len(source):
+            c = source[i]
+            if not in_string and c == '#':
+                while i < len(source) and source[i] != '\n':
+                    i += 1
                 continue
-            if not triple:
-                in_string = not in_string
-        if not in_string and not triple:
-            if c == '{':
-                depth += 1
-            elif c == '}':
-                depth -= 1
-            elif c == '\n' and depth == 0:
-                rest = source[i+1:].lstrip()
-                if rest.startswith('def ') or rest.startswith('class ') or rest.startswith('# ') or rest.startswith('#!'):
-                    return source[start:i+1]
-        i += 1
-    return source[start:]
+            if c == '"' or c == "'":
+                if source[i:i+3] in ('"""', "'''"):
+                    triple = not triple
+                    i += 3
+                    continue
+                if not triple:
+                    in_string = not in_string
+            if not in_string and not triple:
+                if c == '{':
+                    depth += 1
+                elif c == '}':
+                    depth -= 1
+                elif c == '\n' and depth == 0:
+                    rest = source[i+1:].lstrip()
+                    if rest.startswith('def ') or rest.startswith('class ') or rest.startswith('# ') or rest.startswith('#!'):
+                        return source[start:i+1]
+            i += 1
+        return source[start:]
 
 
-verify_fn = extract_function('kb_entry_verify_index', text)
-repair_fn = extract_function('kb_entry_repair_index', text)
+    verify_fn = extract_function('kb_entry_verify_index', text)
+    repair_fn = extract_function('kb_entry_repair_index', text)
 
-if not (verify_fn and repair_fn):
-    print('FATAL: 提取函数失败, knowledge_service.py 改动没生效?')
-    print(f'  verify_fn: {bool(verify_fn)}, repair_fn: {bool(repair_fn)}')
-    sys.exit(1)
+    if not (verify_fn and repair_fn):
+        print('FATAL: 提取函数失败, knowledge_service.py 改动没生效?')
+        print(f'  verify_fn: {bool(verify_fn)}, repair_fn: {bool(repair_fn)}')
+        raise RuntimeError(
+            f'提取失败, knowledge_service.py 改动没生效? 检查提取结果是否为空'
 
-print(f'提取: kb_entry_verify_index={len(verify_fn)} chars, kb_entry_repair_index={len(repair_fn)} chars')
+    print(f'提取: kb_entry_verify_index={len(verify_fn)} chars, kb_entry_repair_index={len(repair_fn)} chars')
 
 
-# 2. 准备 stub namespace
-import uuid
-ns = {
-    '__name__': 'rag_test',
-    'sqlite3': sqlite3,
-    'time': time,
-    'uuid': uuid,
-    'json': json,
-}
+    # 2. 准备 stub namespace
+    import uuid
+    ns = {
+        '__name__': 'rag_test',
+        'sqlite3': sqlite3,
+        'time': time,
+        'uuid': uuid,
+        'json': json,
+    }
 
-_db = sqlite3.connect(':memory:', check_same_thread=False)
-_db.row_factory = sqlite3.Row
-_db.execute('PRAGMA foreign_keys = OFF')
+    _db = sqlite3.connect(':memory:', check_same_thread=False)
+    _db.row_factory = sqlite3.Row
+    _db.execute('PRAGMA foreign_keys = OFF')
 
-def _db_conn():
-    return _db
-ns['_db_conn'] = _db_conn
+    def _db_conn():
+        return _db
+    ns['_db_conn'] = _db_conn
 
-# get_embedding_config: mock 返回空 api_key (repair 不会真调向量化)
-ns['get_embedding_config'] = lambda emp_id=None: {
-    'apiKey': '', 'provider': 'openai', 'model': 'mock-embed', 'baseUrl': None
-}
+    # get_embedding_config: mock 返回空 api_key (repair 不会真调向量化)
+    ns['get_embedding_config'] = lambda emp_id=None: {
+        'apiKey': '', 'provider': 'openai', 'model': 'mock-embed', 'baseUrl': None
+    }
 
-# _save_kb_chunks_without_embedding: mock (不真分 chunk,直接写 2 个固定 chunk 用于测)
-def _mock_save_chunks(entry_id, emp_id, content, chunk_size, overlap):
-    conn = _db_conn()
-    try:
-        conn.execute('DELETE FROM kb_entry_chunks WHERE entry_id = ?', (entry_id,))
-        for i, c in enumerate(['mock-chunk-1', 'mock-chunk-2']):
-            conn.execute(
-                '''INSERT INTO kb_entry_chunks (id, entry_id, emp_id, chunk_index, content, embedding, embedding_model, created_at)
-                   VALUES (?, ?, ?, ?, ?, NULL, '', ?)''',
-                (f'{entry_id}_c{i}', entry_id, emp_id, i, c, int(time.time() * 1000))
-            )
-        conn.execute('UPDATE kb_entries SET chunk_count = 2 WHERE id = ?', (entry_id,))
-        conn.commit()
-    finally:
-        conn.close()
-ns['_save_kb_chunks_without_embedding'] = _mock_save_chunks
+    # _save_kb_chunks_without_embedding: mock (不真分 chunk,直接写 2 个固定 chunk 用于测)
+    def _mock_save_chunks(entry_id, emp_id, content, chunk_size, overlap):
+        conn = _db_conn()
+        try:
+            conn.execute('DELETE FROM kb_entry_chunks WHERE entry_id = ?', (entry_id,))
+            for i, c in enumerate(['mock-chunk-1', 'mock-chunk-2']):
+                conn.execute(
+                    '''INSERT INTO kb_entry_chunks (id, entry_id, emp_id, chunk_index, content, embedding, embedding_model, created_at)
+                       VALUES (?, ?, ?, ?, ?, NULL, '', ?)''',
+                    (f'{entry_id}_c{i}', entry_id, emp_id, i, c, int(time.time() * 1000))
+                )
+            conn.execute('UPDATE kb_entries SET chunk_count = 2 WHERE id = ?', (entry_id,))
+            conn.commit()
+        finally:
+            conn.close()
+    ns['_save_kb_chunks_without_embedding'] = _mock_save_chunks
 
-# _vectorize_kb_chunks: mock (写入固定 embedding bytes + 当前 config model)
-def _mock_vectorize(entry_id, emp_id, api_key, provider, model, base_url=None):
-    if not api_key:
-        # 无 api_key 时, 真实代码会抛 RuntimeError; 但 mock 环境下没有 api_key,
-        # 我们让 verify 测试不依赖它, repair confirm 测试用 mock api_key 走全流程
-        raise RuntimeError('mock: no api_key')
-    conn = _db_conn()
-    try:
-        emb_bytes = b'\x00' * 8  # 2 floats
-        rows = conn.execute(
-            'SELECT id FROM kb_entry_chunks WHERE entry_id = ? AND embedding IS NULL',
-            (entry_id,)
-        ).fetchall()
-        for r in rows:
-            conn.execute(
-                'UPDATE kb_entry_chunks SET embedding = ?, embedding_model = ? WHERE id = ?',
-                (emb_bytes, model, r['id'])
-            )
-        conn.commit()
-    finally:
-        conn.close()
-ns['_vectorize_kb_chunks'] = _mock_vectorize
+    # _vectorize_kb_chunks: mock (写入固定 embedding bytes + 当前 config model)
+    def _mock_vectorize(entry_id, emp_id, api_key, provider, model, base_url=None):
+        if not api_key:
+            # 无 api_key 时, 真实代码会抛 RuntimeError; 但 mock 环境下没有 api_key,
+            # 我们让 verify 测试不依赖它, repair confirm 测试用 mock api_key 走全流程
+            raise RuntimeError('mock: no api_key')
+        conn = _db_conn()
+        try:
+            emb_bytes = b'\x00' * 8  # 2 floats
+            rows = conn.execute(
+                'SELECT id FROM kb_entry_chunks WHERE entry_id = ? AND embedding IS NULL',
+                (entry_id,)
+            ).fetchall()
+            for r in rows:
+                conn.execute(
+                    'UPDATE kb_entry_chunks SET embedding = ?, embedding_model = ? WHERE id = ?',
+                    (emb_bytes, model, r['id'])
+                )
+            conn.commit()
+        finally:
+            conn.close()
+    ns['_vectorize_kb_chunks'] = _mock_vectorize
 
-# kb_entry_log_operation: stub (避免连写 audit log)
-ns['kb_entry_log_operation'] = lambda *args, **kwargs: None
+    # kb_entry_log_operation: stub (避免连写 audit log)
+    ns['kb_entry_log_operation'] = lambda *args, **kwargs: None
 
-# _now_ms: 直接 stub
-ns['_now_ms'] = lambda: int(time.time() * 1000)
+    # _now_ms: 直接 stub
+    ns['_now_ms'] = lambda: int(time.time() * 1000)
 
-# 3. exec 函数到 namespace
-combined_src = '\n\n'.join([verify_fn, repair_fn])
-exec(combined_src, ns)
-print(f'exec combined: {len(combined_src)} chars')
+    # 3. exec 函数到 namespace
+    combined_src = '\n\n'.join([verify_fn, repair_fn])
+    exec(combined_src, ns)
+    print(f'exec combined: {len(combined_src)} chars')
+    return ns, _db
+
 
 
 # 4. 初始化测试表
-def init_test_tables():
-    _db.execute('DROP TABLE IF EXISTS kb_entries')
-    _db.execute('DROP TABLE IF EXISTS kb_entry_chunks')
-    _db.execute('DROP TABLE IF EXISTS kb_operation_log')
-    _db.execute('''
+def init_test_tables(conn):
+    conn.execute('DROP TABLE IF EXISTS kb_entries')
+    conn.execute('DROP TABLE IF EXISTS kb_entry_chunks')
+    conn.execute('DROP TABLE IF EXISTS kb_operation_log')
+    conn.execute('''
         CREATE TABLE kb_entries (
             id TEXT PRIMARY KEY,
             title TEXT NOT NULL,
@@ -167,7 +180,7 @@ def init_test_tables():
             updated_at INTEGER
         )
     ''')
-    _db.execute('''
+    conn.execute('''
         CREATE TABLE kb_entry_chunks (
             id TEXT PRIMARY KEY,
             entry_id TEXT NOT NULL,
@@ -179,7 +192,7 @@ def init_test_tables():
             created_at INTEGER
         )
     ''')
-    _db.execute('''
+    conn.execute('''
         CREATE TABLE kb_operation_log (
             id TEXT PRIMARY KEY,
             entry_id TEXT,
@@ -189,7 +202,7 @@ def init_test_tables():
             created_at INTEGER
         )
     ''')
-    _db.commit()
+    conn.commit()
 
 
 # 5. 测试场景
@@ -216,8 +229,13 @@ def _insert_chunk(cid, eid, content='chunk', embedding=None, model=''):
 class TestVerifyDetectsIssues(unittest.TestCase):
     """场景 1: verify 检测 4 类不一致"""
 
+    @classmethod
+    def setUpClass(cls):
+        """★ fix/mini-test-code-repair-20260925: 一次初始化, 所有 test_* 共享."""
+        cls.ns, cls._db = _init_ns()
+
     def setUp(self):
-        init_test_tables()
+        self.ns['init_test_tables'](self._db_conn())
         # e1: status=ok 但 0 chunks → missing_chunks
         _insert_entry('e1', title='Missing', status='ok', chunk_count=0)
         # e2: chunk_count=3 但实际 2 chunks → chunk_count_mismatch
@@ -234,7 +252,7 @@ class TestVerifyDetectsIssues(unittest.TestCase):
         _insert_chunk('c4b', 'e4', 'b', embedding=b'\x00' * 4, model='text-embedding-3-small')
         # orphan chunks (e1 已存在, 这里加个指向不存在的 entry)
         _insert_chunk('c-orphan-1', 'e-nonexistent', 'ghost', embedding=b'\x00' * 4, model='m1')
-        _db.commit()
+        self._db.commit()
 
     def test_verify_detects_missing_chunks(self):
         result = ns['kb_entry_verify_index'](is_admin=True)
@@ -270,7 +288,7 @@ class TestVerifyDetectsIssues(unittest.TestCase):
 
     def test_verify_requires_admin(self):
         with self.assertRaises(PermissionError):
-            ns['kb_entry_verify_index'](is_admin=False)
+            self.ns['kb_entry_verify_index'](is_admin=False)
 
     def test_verify_respects_limit_per_type(self):
         result = ns['kb_entry_verify_index'](limit_per_type=0, is_admin=True)
@@ -283,14 +301,19 @@ class TestVerifyDetectsIssues(unittest.TestCase):
 class TestRepairDryRun(unittest.TestCase):
     """场景 2: repair dry-run 返回 plan 但不真改"""
 
+    @classmethod
+    def setUpClass(cls):
+        """★ fix/mini-test-code-repair-20260925: 一次初始化, 所有 test_* 共享."""
+        cls.ns, cls._db = _init_ns()
+
     def setUp(self):
-        init_test_tables()
+        self.ns['init_test_tables'](self._db_conn())
         _insert_entry('e1', title='Missing', status='ok', chunk_count=0)
         _insert_entry('e2', title='Healthy', status='ok', chunk_count=2)
         _insert_chunk('c2a', 'e2', 'a', embedding=b'\x00' * 4, model='m1')
         _insert_chunk('c2b', 'e2', 'b', embedding=b'\x00' * 4, model='m1')
         _insert_chunk('c-orphan', 'ghost', 'x')
-        _db.commit()
+        self._db.commit()
 
     def test_dry_run_returns_plan_no_changes(self):
         result = ns['kb_entry_repair_index'](confirm=False, is_admin=True)
@@ -320,14 +343,19 @@ class TestRepairDryRun(unittest.TestCase):
 
     def test_repair_requires_admin(self):
         with self.assertRaises(PermissionError):
-            ns['kb_entry_repair_index'](is_admin=False)
+            self.ns['kb_entry_repair_index'](is_admin=False)
 
 
 class TestRepairConfirm(unittest.TestCase):
     """场景 3: repair confirm 真改 — 删孤儿 + 重建 entries"""
 
+    @classmethod
+    def setUpClass(cls):
+        """★ fix/mini-test-code-repair-20260925: 一次初始化, 所有 test_* 共享."""
+        cls.ns, cls._db = _init_ns()
+
     def setUp(self):
-        init_test_tables()
+        self.ns['init_test_tables'](self._db_conn())
         # e1: missing_chunks (status=ok 但 0 chunks)
         _insert_entry('e1', title='Missing', status='ok', chunk_count=0, content='content-1')
         # e3: model_drift
@@ -337,11 +365,11 @@ class TestRepairConfirm(unittest.TestCase):
         # 孤儿
         _insert_chunk('c-orphan', 'ghost', 'x')
         # 注入 mock api_key (否则 _vectorize_kb_chunks 抛错, repair 重建会失败)
-        ns['get_embedding_config'] = lambda emp_id=None: {
+        self.ns['get_embedding_config'] = lambda emp_id=None: {
             'apiKey': 'mock-key', 'provider': 'openai',
             'model': 'current-model', 'baseUrl': None
         }
-        _db.commit()
+        self._db.commit()
 
     def test_confirm_deletes_orphans(self):
         result = ns['kb_entry_repair_index'](confirm=True, is_admin=True)
@@ -377,9 +405,9 @@ class TestRepairConfirm(unittest.TestCase):
 
     def test_confirm_preserves_pending_status(self):
         """pending 条目重建后保持 pending (审核闸: 不自动过审)"""
-        _db.execute("UPDATE kb_entries SET status='pending' WHERE id='e1'")
-        _db.commit()
-        ns['kb_entry_repair_index'](confirm=True, is_admin=True)
+        self._db.execute("UPDATE kb_entries SET status='pending' WHERE id='e1'")
+        self._db.commit()
+        self.ns['kb_entry_repair_index'](confirm=True, is_admin=True)
         row = _db.execute("SELECT status FROM kb_entries WHERE id='e1'").fetchone()
         self.assertEqual(row['status'], 'pending', 'pending 条目重建后应保持 pending')
 
@@ -387,8 +415,13 @@ class TestRepairConfirm(unittest.TestCase):
 class TestRepairFailureIsolation(unittest.TestCase):
     """场景 4: 某条 entry 重建失败不影响其他"""
 
+    @classmethod
+    def setUpClass(cls):
+        """★ fix/mini-test-code-repair-20260925: 一次初始化, 所有 test_* 共享."""
+        cls.ns, cls._db = _init_ns()
+
     def setUp(self):
-        init_test_tables()
+        self.ns['init_test_tables'](self._db_conn())
         # e1: 正常可重建
         _insert_entry('e1', title='Normal', status='ok', chunk_count=0, content='c1')
         # e2: 构造一个会触发 rebuild 失败的 entry (status='deleted' 在 repair 内被过滤, _save 会返回 0 rows 不出错;
@@ -401,13 +434,13 @@ class TestRepairFailureIsolation(unittest.TestCase):
             if entry_id == 'e2':
                 raise RuntimeError('mock embedding API failure for e2')
             return orig_vectorize(entry_id, *args, **kwargs)
-        ns['_vectorize_kb_chunks'] = selective_vectorize
+        self.ns['_vectorize_kb_chunks'] = selective_vectorize
         # 注入 mock api_key
-        ns['get_embedding_config'] = lambda emp_id=None: {
+        self.ns['get_embedding_config'] = lambda emp_id=None: {
             'apiKey': 'mock-key', 'provider': 'openai',
             'model': 'm', 'baseUrl': None
         }
-        _db.commit()
+        self._db.commit()
 
     def test_one_failure_does_not_block_others(self):
         result = ns['kb_entry_repair_index'](confirm=True, is_admin=True)
@@ -425,4 +458,5 @@ class TestRepairFailureIsolation(unittest.TestCase):
 
 
 if __name__ == '__main__':
-    unittest.main(verbosity=2)
+    _init_ns()
+        unittest.main(verbosity=2)
