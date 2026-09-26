@@ -28,89 +28,58 @@ import os, sys, json, sqlite3, time, re
 # 独立运行 (python3 tests/xxx.py) 行为保持不变 (main 守卫仍调 _init_ns())。
 
 def _init_ns():
-    """初始化 ns + _db (提取 + stub + exec), 返回 (ns, _db) tuple 供 setUpClass 复用."""
-    KS_PY = 'knowledge_service.py'
-    text = open(KS_PY, encoding='utf-8').read()
+    """★ fix/mini-test-code-repair-20260925: importlib + types.FunctionType rebind, 替换原 extract+exec 模式.
 
-    # 抓 "def kb_entry_delete" (新版本含软删) 到 "def kb_entry_cleanup_dangling" 函数体结束
-    # 简化: 直接 regex 提取 3 个目标函数
-    def extract_function(name, source):
-        """提取 def name(...):  开始的函数 (含 docstring + 函数体), 用 {} 配平找到函数体结束"""
-        m = re.search(rf'^def {re.escape(name)}\(', source, re.MULTILINE)
-        if not m:
-            return None
-        start = m.start()
-        # 找函数体结束: 配平 {}
-        i = source.index(':', m.end()) + 1
-        depth = 0
-        in_string = False
-        triple = False
-        while i < len(source):
-            c = source[i]
-            if not in_string and c == '#':
-                # 注释到行尾
-                while i < len(source) and source[i] != '\n':
-                    i += 1
-                continue
-            if c == '"' or c == "'":
-                # 检查三引号
-                if source[i:i+3] in ('"""', "'''"):
-                    triple = not triple
-                    i += 3
-                    continue
-                if not triple:
-                    in_string = not in_string
-            if not in_string and not triple:
-                if c == '{': depth += 1
-                elif c == '}': depth -= 1
-                elif c == '\n' and depth == 0:
-                    # 顶层行开始, 检查下一个 def/class
-                    rest = source[i+1:].lstrip()
-                    if rest.startswith('def ') or rest.startswith('class ') or rest.startswith('# ') or rest.startswith('#!'):
-                        return source[start:i+1]
-            i += 1
-        return source[start:]
+    修法 (替代原 exec combined_src):
+    1. importlib.util.spec_from_file_location 加载 knowledge_service 模块
+       (替代原 KS_PY = 'knowledge_service.py' + open().read() 文件读取)
+    2. ns = module.__dict__.copy() 作 ns 基底 (含所有 module 顶层 def + import,
+       替代 extract_function + combined_src 字符串拼接)
+    3. types.FunctionType 重绑 globals 到 ns, 让 setUp 里 self.ns['_X'] = mock_fn stub
+       注入机制保持 (替代 exec combined_src 时 globals=ns 隐式行为)
+    4. raise RuntimeError 替代 sys.exit (上一轮 commit 1 已做, 保持)
 
+    Returns: (ns, _db) tuple 供 class TestXxx setUpClass 复用.
+    """
+    import importlib.util
+    import types as _types
 
-    delete_fn = extract_function('kb_entry_delete', text)
-    hard_delete_fn = extract_function('kb_entry_hard_delete', text)
-    cleanup_fn = extract_function('kb_entry_cleanup_dangling', text)
-    get_by_id_fn = extract_function('kb_entry_get_by_id', text)
+    # 1. importlib 加载 knowledge_service 模块 (替代 KS_PY + open + extract_function)
+    spec = importlib.util.spec_from_file_location('knowledge_service', 'knowledge_service.py')
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
 
-    if not (delete_fn and hard_delete_fn and cleanup_fn and get_by_id_fn):
-        print('FATAL: 提取函数失败, knowledge_service.py 改动没生效?')
-        print(f'  delete_fn: {bool(delete_fn)}, hard_delete_fn: {bool(hard_delete_fn)}, cleanup_fn: {bool(cleanup_fn)}, get_by_id_fn: {bool(get_by_id_fn)}')
-        raise RuntimeError(
-            f'提取失败, knowledge_service.py 改动没生效? 检查提取结果是否为空'
+    # 2. rebind helper: 把 module.X 的 globals 重绑到 ns, 让函数调用时查 ns
+    # (ns 含 module 所有 helper + test stubs), 这样 setUp 里 self.ns['_X'] = mock_fn
+    # 后续调用会查到 mock 而非 module 原始版本
+    def _rebind(fn):
+        return _types.FunctionType(fn.__code__, ns, fn.__name__, fn.__defaults__, fn.__closure__)
 
-    print(f'提取: kb_entry_delete={len(delete_fn)} chars, kb_entry_hard_delete={len(hard_delete_fn)} chars,')
-    print(f'      kb_entry_cleanup_dangling={len(cleanup_fn)} chars, kb_entry_get_by_id={len(get_by_id_fn)} chars')
-
-    # 2. 准备 stub namespace: sqlite3 in-memory + 必要依赖
+    # 3. 准备 stub namespace (sqlite3 in-memory + 必要依赖)
     import uuid
-    ns = {
-        '__name__': 'ks_test',
-        'sqlite3': sqlite3,
-        'time': time,
-        'uuid': uuid,
-        'json': json,
-    }
-
-    # 提供 _db_conn (in-memory 单连接,所有 conn 共享)
     _db = sqlite3.connect(':memory:', check_same_thread=False)
     _db.row_factory = sqlite3.Row
     _db.execute('PRAGMA foreign_keys = OFF')  # 简化测试
+
+    # 用 module.__dict__.copy() 作 ns 基底: 含 knowledge_service 所有顶层 def + import,
+    # 后续 test stub 注入 (e.g. self.ns['_X'] = mock_fn) 优先于 module 原始版本
+    ns = module.__dict__.copy()
+    ns['__name__'] = 'kb_cascade_test'  # 覆盖 module __name__ (避免 logging/pickle 误用)
+
     def _db_conn():
         return _db
     ns['_db_conn'] = _db_conn
+    ns['_db'] = _db
 
-    # 提供 audit log helper stub (软删/物理删/清理 3 处会调)
+    # audit log helper stub (软删/物理删/清理 3 处会调)
     ns['kb_entry_log_operation'] = lambda entry_id, op, op_id, details: None
 
-    # 3. exec 函数到 namespace
-    combined_src = '\n\n'.join([delete_fn, hard_delete_fn, cleanup_fn, get_by_id_fn])
-    exec(combined_src, ns)
-    print(f'exec combined: {len(combined_src)} chars')
+    # 4. rebind 关键 KB 函数到 ns (globals=ns, 含 module 所有 helper + test stubs)
+    ns['kb_entry_delete'] = _rebind(module.kb_entry_delete)
+    ns['kb_entry_hard_delete'] = _rebind(module.kb_entry_hard_delete)
+    ns['kb_entry_cleanup_dangling'] = _rebind(module.kb_entry_cleanup_dangling)
+    ns['kb_entry_get_by_id'] = _rebind(module.kb_entry_get_by_id)
+
     return ns, _db
 
 

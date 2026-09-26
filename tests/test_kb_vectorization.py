@@ -33,111 +33,50 @@ import os, sys, json, sqlite3, time, re
 # 独立运行 (python3 tests/xxx.py) 行为保持不变 (main 守卫仍调 _init_ns())。
 
 def _init_ns():
-    """初始化 ns + _db (提取 + stub + exec), 返回 (ns, _db) tuple 供 setUpClass 复用."""
-    KS_PY = 'knowledge_service.py'
-    text = open(KS_PY, encoding='utf-8').read()
+    """★ fix/mini-test-code-repair-20260925: importlib + types.FunctionType rebind (同 kb_cascade).
 
+    修法 (替代原 extract_function + combined + exec 模式):
+    1. importlib.util.spec_from_file_location 加载 knowledge_service 模块
+    2. ns = module.__dict__.copy() 作 ns 基底 (含所有 module helper + import)
+    3. types.FunctionType 重绑 globals 到 ns, stub 注入机制保持
+    4. test stubs: _db_conn + _now_ms + _gen_id (覆盖 module 原始版本)
 
-    def extract_function(name, source):
-        """提取 def name(...): 开始的函数, 用 {} 配平找函数体结束"""
-        m = re.search(rf'^def {re.escape(name)}\(', source, re.MULTILINE)
-        if not m:
-            return None
-        start = m.start()
-        i = source.index(':', m.end()) + 1
-        depth = 0
-        in_string = False
-        triple = False
-        while i < len(source):
-            c = source[i]
-            if not in_string and c == '#':
-                while i < len(source) and source[i] != '\n':
-                    i += 1
-                continue
-            if c == '"' or c == "'":
-                if source[i:i+3] in ('"""', "'''"):
-                    triple = not triple
-                    i += 3
-                    continue
-                if not triple:
-                    in_string = not in_string
-            if not in_string and not triple:
-                if c == '{':
-                    depth += 1
-                elif c == '}':
-                    depth -= 1
-                elif c == '\n' and depth == 0:
-                    rest = source[i+1:].lstrip()
-                    if rest.startswith('def ') or rest.startswith('class ') or rest.startswith('# ') or rest.startswith('#!'):
-                        return source[start:i+1]
-            i += 1
-        return source[start:]
+    Returns: (ns, _db) tuple 供 setUpClass 复用.
+    """
+    import importlib.util
+    import types as _types
 
+    spec = importlib.util.spec_from_file_location('knowledge_service', 'knowledge_service.py')
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
 
-    # 提取目标函数
-    vec_helper = extract_function('_vectorize_kb_chunks_with_status_update', text)
-    retry_one = extract_function('kb_entry_retry_embedding', text)
-    retry_all = extract_function('kb_entries_retry_all_failed_embedding', text)
-    reindex_fn = extract_function('kb_entries_reindex_pending', text)
+    def _rebind(fn):
+        return _types.FunctionType(fn.__code__, ns, fn.__name__, fn.__defaults__, fn.__closure__)
 
-    # 还需要一些支持函数 (会被 retry/reindex 调用)
-    # can_edit_knowledge / can_create_knowledge / _can_access_knowledge_category / _gen_id
-    can_edit_fn = extract_function('can_edit_knowledge', text)
-    gen_id_fn = extract_function('_gen_id', text)
-    add_col_fn = extract_function('_add_column_if_not_exists', text)
-    now_fn = extract_function('_now_ms', text)
-    kb_entry_get_fn = extract_function('kb_entry_get_by_id', text)
-    log_op_fn = extract_function('kb_entry_log_operation', text)
-    save_chunks_fn = extract_function('_save_kb_chunks_without_embedding', text)
-    vec_chunks_fn = extract_function('_vectorize_kb_chunks', text)
-    get_emb_cfg_fn = extract_function('get_embedding_config', text)
-    row_to_dict_fn = extract_function('_kb_entry_row_to_dict', text)
-
-    if not all([vec_helper, retry_one, retry_all, reindex_fn, can_edit_fn, gen_id_fn]):
-        print('FATAL: 提取函数失败, knowledge_service.py 改动没生效?')
-        print(f'  vec_helper: {bool(vec_helper)}')
-        print(f'  retry_one: {bool(retry_one)}')
-        print(f'  retry_all: {bool(retry_all)}')
-        print(f'  reindex_fn: {bool(reindex_fn)}')
-        print(f'  can_edit_fn: {bool(can_edit_fn)}')
-        print(f'  gen_id_fn: {bool(gen_id_fn)}')
-        raise RuntimeError(
-            f'提取失败, knowledge_service.py 改动没生效? 检查提取结果是否为空'
-
-    print(f'提取: vec_helper={len(vec_helper)}c, retry_one={len(retry_one)}c, '
-          f'retry_all={len(retry_all)}c, reindex_fn={len(reindex_fn)}c')
-
-
-    # 2. 准备 stub namespace
     import uuid
-    ns = {
-        '__name__': 'vec_test',
-        'sqlite3': sqlite3,
-        'time': time,
-        'uuid': uuid,
-        'json': json,
-    }
-
     _db = sqlite3.connect(':memory:', check_same_thread=False)
     _db.row_factory = sqlite3.Row
     _db.execute('PRAGMA foreign_keys = OFF')
 
+    ns = module.__dict__.copy()
+    ns['__name__'] = 'kb_vectorization_test'
+
     def _db_conn():
         return _db
     ns['_db_conn'] = _db_conn
+    ns['_db'] = _db
 
     ns['_now_ms'] = lambda: int(time.time() * 1000)
     ns['_gen_id'] = lambda prefix='kb': f"{prefix}_{uuid.uuid4().hex[:8]}"
 
-    # 3. exec 所有目标函数到 namespace
-    combined = '\n\n'.join([
-        gen_id_fn, now_fn, add_col_fn, row_to_dict_fn, log_op_fn,
-        can_edit_fn, kb_entry_get_fn,
-        get_emb_cfg_fn, save_chunks_fn, vec_chunks_fn,
-        vec_helper, retry_one, retry_all, reindex_fn,
-    ])
-    exec(combined, ns)
-    print(f'exec combined: {len(combined)} chars')
+    # rebind 关键 KB 函数到 ns (globals=ns, 含 module 所有 helper + test stubs)
+    ns['_vectorize_kb_chunks_with_status_update'] = _rebind(module._vectorize_kb_chunks_with_status_update)
+    ns['kb_entry_retry_embedding'] = _rebind(module.kb_entry_retry_embedding)
+    ns['kb_entries_retry_all_failed_embedding'] = _rebind(module.kb_entries_retry_all_failed_embedding)
+    ns['kb_entries_reindex_pending'] = _rebind(module.kb_entries_reindex_pending)
+    ns['can_edit_knowledge'] = _rebind(module.can_edit_knowledge)
+    ns['kb_entry_get_by_id'] = _rebind(module.kb_entry_get_by_id)
+
     return ns, _db
 
 

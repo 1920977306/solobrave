@@ -357,11 +357,15 @@ finally:
 
 
 # ============ 总结 ============
-print('=' * 60)
-print(f'测试结果: {len(PASS)} PASS, {len(FAIL)} FAIL')
-if FAIL:
-    print('失败项:')
-    for f in FAIL:
-        print(f'  - {f}')
-    sys.exit(1)
-print('全部通过 ✓')
+# ★ fix/mini-test-code-repair-20260925: 收进 if __name__ == '__main__': 守卫,
+#   使 import / pytest collection 不再触发 sys.exit(1) (commit 6 P0-4 同模式).
+#   不转 check (def check → def test) — 那是下一轮独立任务.
+if __name__ == '__main__':
+    print('=' * 60)
+    print(f'测试结果: {len(PASS)} PASS, {len(FAIL)} FAIL')
+    if FAIL:
+        print('失败项:')
+        for f in FAIL:
+            print(f'  - {f}')
+        sys.exit(1)
+    print('全部通过 ✓')

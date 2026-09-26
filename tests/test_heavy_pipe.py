@@ -17,6 +17,7 @@ exec 到独立 namespace 跑 (避开 server 整个 import 链)。
    cd .worktree-pipe && python tests/heavy_pipe_test.py
 """
 import os, sys, json, sqlite3, time, re
+import unittest  # ★ fix/mini-test-code-repair-20260925: 补 import (class TestXxx(unittest.TestCase) + unittest.main 引用)
 
 
 KS_PY = 'knowledge_service.py'  # relative to project root (cwd when pytest invoked)

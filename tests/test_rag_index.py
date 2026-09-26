@@ -26,83 +26,45 @@ import os, sys, json, sqlite3, time, re
 # 独立运行 (python3 tests/xxx.py) 行为保持不变 (main 守卫仍调 _init_ns())。
 
 def _init_ns():
-    """初始化 ns + _db (提取 + stub + exec), 返回 (ns, _db) tuple 供 setUpClass 复用."""
-    KS_PY = 'knowledge_service.py'
-    text = open(KS_PY, encoding='utf-8').read()
+    """★ fix/mini-test-code-repair-20260925: importlib + types.FunctionType rebind (同 kb_cascade).
 
+    修法 (替代原 extract_function + combined_src + exec 模式):
+    1. importlib.util.spec_from_file_location 加载 knowledge_service 模块
+    2. ns = module.__dict__.copy() 作 ns 基底 (含所有 module helper + import)
+    3. types.FunctionType 重绑 globals 到 ns, stub 注入机制保持
+    4. test stubs: _db_conn + get_embedding_config + _save_kb_chunks_without_embedding
+       + _vectorize_kb_chunks + kb_entry_log_operation + _now_ms
 
-    def extract_function(name, source):
-        """提取 def name(...): 开始的函数 (含 docstring + 函数体), 用 {} 配平找到函数体结束"""
-        m = re.search(rf'^def {re.escape(name)}\(', source, re.MULTILINE)
-        if not m:
-            return None
-        start = m.start()
-        i = source.index(':', m.end()) + 1
-        depth = 0
-        in_string = False
-        triple = False
-        while i < len(source):
-            c = source[i]
-            if not in_string and c == '#':
-                while i < len(source) and source[i] != '\n':
-                    i += 1
-                continue
-            if c == '"' or c == "'":
-                if source[i:i+3] in ('"""', "'''"):
-                    triple = not triple
-                    i += 3
-                    continue
-                if not triple:
-                    in_string = not in_string
-            if not in_string and not triple:
-                if c == '{':
-                    depth += 1
-                elif c == '}':
-                    depth -= 1
-                elif c == '\n' and depth == 0:
-                    rest = source[i+1:].lstrip()
-                    if rest.startswith('def ') or rest.startswith('class ') or rest.startswith('# ') or rest.startswith('#!'):
-                        return source[start:i+1]
-            i += 1
-        return source[start:]
+    Returns: (ns, _db) tuple 供 setUpClass 复用.
+    """
+    import importlib.util
+    import types as _types
 
+    spec = importlib.util.spec_from_file_location('knowledge_service', 'knowledge_service.py')
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
 
-    verify_fn = extract_function('kb_entry_verify_index', text)
-    repair_fn = extract_function('kb_entry_repair_index', text)
+    def _rebind(fn):
+        return _types.FunctionType(fn.__code__, ns, fn.__name__, fn.__defaults__, fn.__closure__)
 
-    if not (verify_fn and repair_fn):
-        print('FATAL: 提取函数失败, knowledge_service.py 改动没生效?')
-        print(f'  verify_fn: {bool(verify_fn)}, repair_fn: {bool(repair_fn)}')
-        raise RuntimeError(
-            f'提取失败, knowledge_service.py 改动没生效? 检查提取结果是否为空'
-
-    print(f'提取: kb_entry_verify_index={len(verify_fn)} chars, kb_entry_repair_index={len(repair_fn)} chars')
-
-
-    # 2. 准备 stub namespace
     import uuid
-    ns = {
-        '__name__': 'rag_test',
-        'sqlite3': sqlite3,
-        'time': time,
-        'uuid': uuid,
-        'json': json,
-    }
-
     _db = sqlite3.connect(':memory:', check_same_thread=False)
     _db.row_factory = sqlite3.Row
     _db.execute('PRAGMA foreign_keys = OFF')
 
+    ns = module.__dict__.copy()
+    ns['__name__'] = 'rag_index_test'
+
     def _db_conn():
         return _db
     ns['_db_conn'] = _db_conn
+    ns['_db'] = _db
 
-    # get_embedding_config: mock 返回空 api_key (repair 不会真调向量化)
+    # test stubs (覆盖 module 里的同名函数)
     ns['get_embedding_config'] = lambda emp_id=None: {
         'apiKey': '', 'provider': 'openai', 'model': 'mock-embed', 'baseUrl': None
     }
 
-    # _save_kb_chunks_without_embedding: mock (不真分 chunk,直接写 2 个固定 chunk 用于测)
     def _mock_save_chunks(entry_id, emp_id, content, chunk_size, overlap):
         conn = _db_conn()
         try:
@@ -119,11 +81,9 @@ def _init_ns():
             conn.close()
     ns['_save_kb_chunks_without_embedding'] = _mock_save_chunks
 
-    # _vectorize_kb_chunks: mock (写入固定 embedding bytes + 当前 config model)
     def _mock_vectorize(entry_id, emp_id, api_key, provider, model, base_url=None):
         if not api_key:
-            # 无 api_key 时, 真实代码会抛 RuntimeError; 但 mock 环境下没有 api_key,
-            # 我们让 verify 测试不依赖它, repair confirm 测试用 mock api_key 走全流程
+            # 无 api_key 时真实代码会抛; mock 环境下让 verify 测试不依赖, repair confirm 测试用 mock api_key
             raise RuntimeError('mock: no api_key')
         conn = _db_conn()
         try:
@@ -142,16 +102,13 @@ def _init_ns():
             conn.close()
     ns['_vectorize_kb_chunks'] = _mock_vectorize
 
-    # kb_entry_log_operation: stub (避免连写 audit log)
     ns['kb_entry_log_operation'] = lambda *args, **kwargs: None
-
-    # _now_ms: 直接 stub
     ns['_now_ms'] = lambda: int(time.time() * 1000)
 
-    # 3. exec 函数到 namespace
-    combined_src = '\n\n'.join([verify_fn, repair_fn])
-    exec(combined_src, ns)
-    print(f'exec combined: {len(combined_src)} chars')
+    # rebind 关键 KB 函数到 ns (globals=ns, 含 module 所有 helper + test stubs)
+    ns['kb_entry_verify_index'] = _rebind(module.kb_entry_verify_index)
+    ns['kb_entry_repair_index'] = _rebind(module.kb_entry_repair_index)
+
     return ns, _db
 
 

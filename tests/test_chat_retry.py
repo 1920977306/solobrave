@@ -81,8 +81,11 @@ def _retry_chat_call(fn, label='chat', sleep_fn=None):
                 return {'success': False, 'result': None, 'error': e,
                         'error_kind': error_kind, 'attempts': attempt}
             sleep_ms = backoff[min(attempt, len(backoff) - 1)] if backoff else 0
-            if sleep_ms > 0:
-                sleep_fn(sleep_ms / 1000.0)
+            # ★ fix/mini-test-code-repair-20260925: 删守卫,无条件调 sleep_fn 治 F1/F2
+            # 修复前: sleep_ms=0 时守卫跳过 sleep_fn, mock lambda ms: sleep_calls.append(ms) 没被记录
+            #   → 断言 len(sleep_calls) == 1 失败 (期望 1,实际 0)
+            # 修复后: sleep_fn(0.0) 也被调, mock 必记录 → 断言通过
+            sleep_fn(sleep_ms / 1000.0)
 
 
 def _with_timeout(promise_factory, ms, label='chat'):
