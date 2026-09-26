@@ -183,15 +183,15 @@ class TestSoftDeleteCascade(unittest.TestCase):
         self.assertTrue(result)
 
         # 1. status 改 'deleted'
-        row = _db.execute("SELECT status FROM kb_entries WHERE id='e1'").fetchone()
+        row = self._db.execute("SELECT status FROM kb_entries WHERE id='e1'").fetchone()
         self.assertEqual(row['status'], 'deleted', '软删后 status 应该是 deleted')
 
         # 2. chunks 清空 (防 RAG 命中)
-        count = _db.execute("SELECT COUNT(*) AS c FROM kb_entry_chunks WHERE entry_id='e1'").fetchone()['c']
+        count = self._db.execute("SELECT COUNT(*) AS c FROM kb_entry_chunks WHERE entry_id='e1'").fetchone()['c']
         self.assertEqual(count, 0, '软删后该 doc 的 chunks 应该清空')
 
         # 3. audit log 有 soft_delete 记录
-        logs = _db.execute("SELECT operation, operator_id FROM kb_operation_log WHERE entry_id='e1'").fetchall()
+        logs = self._db.execute("SELECT operation, operator_id FROM kb_operation_log WHERE entry_id='e1'").fetchall()
         self.assertEqual(len(logs), 1, '应该写 1 条 audit log')
         self.assertEqual(logs[0]['operation'], 'soft_delete')
         self.assertEqual(logs[0]['operator_id'], 'u1')
@@ -201,7 +201,7 @@ class TestSoftDeleteCascade(unittest.TestCase):
         self.ns['kb_entry_delete']('e1', is_admin=True, operator_id='u1')
         result = self.ns['kb_entry_delete']('e1', is_admin=True, operator_id='u1')
         self.assertFalse(result, '第二次软删应该返回 False (idempotent)')
-        logs = _db.execute("SELECT COUNT(*) AS c FROM kb_operation_log WHERE entry_id='e1'").fetchone()['c']
+        logs = self._db.execute("SELECT COUNT(*) AS c FROM kb_operation_log WHERE entry_id='e1'").fetchone()['c']
         self.assertEqual(logs, 1, '重复软删不该重复写 audit log')
 
     def test_get_by_id_filters_deleted(self):
@@ -259,9 +259,9 @@ class TestTransactionRollback(unittest.TestCase):
             self.fail('应该抛异常 (audit INSERT 失败)')
         except Exception as e:
             # 事务回滚, status 仍 ok
-            row = _db.execute("SELECT status FROM kb_entries WHERE id='e2'").fetchone()
+            row = self._db.execute("SELECT status FROM kb_entries WHERE id='e2'").fetchone()
             self.assertEqual(row['status'], 'ok', '事务回滚, status 应仍为 ok')
-            chunks = _db.execute("SELECT COUNT(*) AS c FROM kb_entry_chunks WHERE entry_id='e2'").fetchone()['c']
+            chunks = self._db.execute("SELECT COUNT(*) AS c FROM kb_entry_chunks WHERE entry_id='e2'").fetchone()['c']
             self.assertEqual(chunks, 1, '事务回滚, chunks 应未清')
 
 
@@ -311,15 +311,15 @@ class TestCleanupDangling(unittest.TestCase):
         self.assertEqual(stats['error_count'], 0)
 
         # recent 应保留
-        row = _db.execute("SELECT id FROM kb_entries WHERE id='recent'").fetchone()
+        row = self._db.execute("SELECT id FROM kb_entries WHERE id='recent'").fetchone()
         self.assertIsNotNone(row, 'recent (3 天前) 应保留')
 
         # old1/old2 应物理删
-        self.assertIsNone(_db.execute("SELECT id FROM kb_entries WHERE id='old1'").fetchone())
-        self.assertIsNone(_db.execute("SELECT id FROM kb_entries WHERE id='old2'").fetchone())
+        self.assertIsNone(self._db.execute("SELECT id FROM kb_entries WHERE id='old1'").fetchone())
+        self.assertIsNone(self._db.execute("SELECT id FROM kb_entries WHERE id='old2'").fetchone())
 
         # chunks 也应清
-        chunks = _db.execute("SELECT COUNT(*) AS c FROM kb_entry_chunks WHERE entry_id IN ('old1','old2')").fetchone()['c']
+        chunks = self._db.execute("SELECT COUNT(*) AS c FROM kb_entry_chunks WHERE entry_id IN ('old1','old2')").fetchone()['c']
         self.assertEqual(chunks, 0, '物理删后 chunks 应清空')
 
     def test_cleanup_requires_admin(self):
@@ -363,9 +363,9 @@ class TestHardDelete(unittest.TestCase):
         """硬删应该完全物理删 + chunks 清空 + audit 记录 'hard_delete'"""
         result = self.ns['kb_entry_hard_delete']('h1', is_admin=True, operator_id='admin1')
         self.assertTrue(result)
-        self.assertIsNone(_db.execute("SELECT id FROM kb_entries WHERE id='h1'").fetchone())
-        self.assertEqual(_db.execute("SELECT COUNT(*) AS c FROM kb_entry_chunks WHERE entry_id='h1'").fetchone()['c'], 0)
-        logs = _db.execute("SELECT operation, operator_id FROM kb_operation_log WHERE entry_id='h1'").fetchall()
+        self.assertIsNone(self._db.execute("SELECT id FROM kb_entries WHERE id='h1'").fetchone())
+        self.assertEqual(self._db.execute("SELECT COUNT(*) AS c FROM kb_entry_chunks WHERE entry_id='h1'").fetchone()['c'], 0)
+        logs = self._db.execute("SELECT operation, operator_id FROM kb_operation_log WHERE entry_id='h1'").fetchall()
         self.assertEqual(len(logs), 1)
         self.assertEqual(logs[0]['operation'], 'hard_delete')
         self.assertEqual(logs[0]['operator_id'], 'admin1')

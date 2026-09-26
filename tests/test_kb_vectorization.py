@@ -145,10 +145,10 @@ def init_test_tables(conn):
     conn.commit()
 
 
-def _insert_entry(eid, title='T', content='C', status='ok', scope='global',
+def _insert_entry(db, eid, title='T', content='C', status='ok', scope='global',
                   created_by='', emp_id=''):
     now_ms = int(time.time() * 1000)
-    _db.execute(
+    db.execute(
         '''INSERT INTO kb_entries (id, title, content, scope, status, chunk_count, created_by, emp_id, created_at, updated_at)
            VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?)''',
         (eid, title, content, scope, status, created_by, emp_id, now_ms, now_ms)
@@ -172,7 +172,7 @@ class TestVectorizeHelper(unittest.TestCase):
         self.ns, self._db = _init_ns()
         self.addCleanup(self._db.close)
         self.ns['init_test_tables'](self._db)
-        _insert_entry('e1', title='Test', status='ok')
+        _insert_entry(self._db, 'e1', title='Test', status='ok')
         # mock _vectorize_kb_chunks 抛错
         self._orig_vec = self.ns['_vectorize_kb_chunks']
         def failing_vec(*args, **kwargs):
@@ -185,13 +185,13 @@ class TestVectorizeHelper(unittest.TestCase):
     def test_helper_marks_embedding_failed_status(self):
         with self.assertRaises(RuntimeError):
             self.ns['_vectorize_kb_chunks_with_status_update']('e1', '', 'mock-key', 'openai', 'm')
-        row = _db.execute("SELECT status FROM kb_entries WHERE id='e1'").fetchone()
+        row = self._db.execute("SELECT status FROM kb_entries WHERE id='e1'").fetchone()
         self.assertEqual(row['status'], 'embedding_failed', '失败后 status 应是 embedding_failed')
 
     def test_helper_writes_audit_log(self):
         with self.assertRaises(RuntimeError):
             self.ns['_vectorize_kb_chunks_with_status_update']('e1', '', 'mock-key', 'openai', 'm')
-        logs = _db.execute("SELECT operation, details FROM kb_operation_log WHERE entry_id='e1'").fetchall()
+        logs = self._db.execute("SELECT operation, details FROM kb_operation_log WHERE entry_id='e1'").fetchall()
         self.assertEqual(len(logs), 1, '应写 1 条 audit log')
         self.assertEqual(logs[0]['operation'], 'embedding_failed')
         details = json.loads(logs[0]['details'])
@@ -214,7 +214,7 @@ class TestRetryEmbedding(unittest.TestCase):
         self.ns, self._db = _init_ns()
         self.addCleanup(self._db.close)
         self.ns['init_test_tables'](self._db)
-        _insert_entry('e1', title='Failed', content='content-1', status='embedding_failed',
+        _insert_entry(self._db, 'e1', title='Failed', content='content-1', status='embedding_failed',
                       created_by='u1', emp_id='emp1')
         # 已有 chunk 但无 embedding (模拟 embedding_failed 后的状态)
         self._db.execute(
@@ -251,7 +251,7 @@ class TestRetryEmbedding(unittest.TestCase):
         self.assertTrue(result['retried'])
 
         # 验证 embedding 写回了
-        row = _db.execute("SELECT embedding FROM kb_entry_chunks WHERE entry_id='e1'").fetchone()
+        row = self._db.execute("SELECT embedding FROM kb_entry_chunks WHERE entry_id='e1'").fetchone()
         self.assertIsNotNone(row['embedding'], 'embedding 应被写回')
 
     def test_retry_pending_preserved(self):
@@ -283,7 +283,7 @@ class TestRetryEmbedding(unittest.TestCase):
         self.vec_should_fail = True
         with self.assertRaises(RuntimeError):
             self.ns['kb_entry_retry_embedding']('e1', is_admin=True, operator_id='u1', user_id='u1')
-        row = _db.execute("SELECT status FROM kb_entries WHERE id='e1'").fetchone()
+        row = self._db.execute("SELECT status FROM kb_entries WHERE id='e1'").fetchone()
         self.assertEqual(row['status'], 'embedding_failed')
 
     def test_retry_permission_denied_for_global_non_admin(self):
@@ -307,9 +307,9 @@ class TestRetryAllFailed(unittest.TestCase):
         self.addCleanup(self._db.close)
         self.ns['init_test_tables'](self._db)
         # 3 entries: 2 failed, 1 ok
-        _insert_entry('e1', title='Failed1', status='embedding_failed', created_by='u1', emp_id='emp1')
-        _insert_entry('e2', title='Failed2', status='error', created_by='u2', emp_id='emp1')
-        _insert_entry('e3', title='OK', status='ok', created_by='u3', emp_id='emp1')
+        _insert_entry(self._db, 'e1', title='Failed1', status='embedding_failed', created_by='u1', emp_id='emp1')
+        _insert_entry(self._db, 'e2', title='Failed2', status='error', created_by='u2', emp_id='emp1')
+        _insert_entry(self._db, 'e3', title='OK', status='ok', created_by='u3', emp_id='emp1')
         # mock _vectorize_kb_chunks 成功
         self._orig_vec = self.ns['_vectorize_kb_chunks']
         def success_vec(entry_id, *args, **kwargs):
@@ -336,7 +336,7 @@ class TestRetryAllFailed(unittest.TestCase):
 
         # e1, e2 都恢复 ok; e3 不变
         rows = {r['id']: r['status'] for r in
-                _db.execute("SELECT id, status FROM kb_entries").fetchall()}
+                self._db.execute("SELECT id, status FROM kb_entries").fetchall()}
         self.assertEqual(rows['e1'], 'ok')
         self.assertEqual(rows['e2'], 'ok')
         self.assertEqual(rows['e3'], 'ok', 'e3 本来就 ok, 不应被改')
@@ -371,9 +371,9 @@ class TestReindexIncludesEmbeddingFailed(unittest.TestCase):
         self.addCleanup(self._db.close)
         self.ns['init_test_tables'](self._db)
         # 3 entries: 1 pending, 1 embedding_failed, 1 ok
-        _insert_entry('e1', title='Pending', content='c1', status='pending')
-        _insert_entry('e2', title='EmbeddingFailed', content='c2', status='embedding_failed')
-        _insert_entry('e3', title='OK', content='c3', status='ok')
+        _insert_entry(self._db, 'e1', title='Pending', content='c1', status='pending')
+        _insert_entry(self._db, 'e2', title='EmbeddingFailed', content='c2', status='embedding_failed')
+        _insert_entry(self._db, 'e3', title='OK', content='c3', status='ok')
         self._db.commit()
         # mock _save_chunks 写 1 个 chunk, _vectorize 不做事
         self._orig_save = self.ns['_save_kb_chunks_without_embedding']
@@ -413,7 +413,7 @@ class TestReindexIncludesEmbeddingFailed(unittest.TestCase):
             result = self.ns['kb_entries_reindex_pending']()
             # e1, e2 都被 vectorize 失败 → 标 'embedding_failed'
             rows = {r['id']: r['status'] for r in
-                    _db.execute("SELECT id, status FROM kb_entries").fetchall()}
+                    self._db.execute("SELECT id, status FROM kb_entries").fetchall()}
             self.assertEqual(rows['e1'], 'embedding_failed', 'pending entry vectorize 失败 → embedding_failed')
             self.assertEqual(rows['e2'], 'embedding_failed', 'embedding_failed entry vectorize 失败 → 保持 embedding_failed')
             self.assertEqual(result['failed'], 2)

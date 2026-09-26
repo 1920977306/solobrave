@@ -181,17 +181,17 @@ def init_test_tables(conn):
 import unittest
 
 
-def _insert_entry(eid, title='T', content='C', status='ok', chunk_count=0):
+def _insert_entry(db, eid, title='T', content='C', status='ok', chunk_count=0):
     now_ms = int(time.time() * 1000)
-    _db.execute(
+    db.execute(
         '''INSERT INTO kb_entries (id, title, content, scope, status, chunk_count, created_at, updated_at)
            VALUES (?, ?, ?, 'global', ?, ?, ?, ?)''',
         (eid, title, content, status, chunk_count, now_ms, now_ms)
     )
 
 
-def _insert_chunk(cid, eid, content='chunk', embedding=None, model=''):
-    _db.execute(
+def _insert_chunk(db, cid, eid, content='chunk', embedding=None, model=''):
+    db.execute(
         '''INSERT INTO kb_entry_chunks (id, entry_id, content, embedding, embedding_model)
            VALUES (?, ?, ?, ?, ?)''',
         (cid, eid, content, embedding, model)
@@ -213,21 +213,21 @@ class TestVerifyDetectsIssues(unittest.TestCase):
         self.addCleanup(self._db.close)
         self.ns['init_test_tables'](self._db)
         # e1: status=ok 但 0 chunks → missing_chunks
-        _insert_entry('e1', title='Missing', status='ok', chunk_count=0)
+        _insert_entry(self._db, 'e1', title='Missing', status='ok', chunk_count=0)
         # e2: chunk_count=3 但实际 2 chunks → chunk_count_mismatch
-        _insert_entry('e2', title='Mismatch', status='ok', chunk_count=3)
-        _insert_chunk('c2a', 'e2', 'a')
-        _insert_chunk('c2b', 'e2', 'b')
+        _insert_entry(self._db, 'e2', title='Mismatch', status='ok', chunk_count=3)
+        _insert_chunk(self._db, 'c2a', 'e2', 'a')
+        _insert_chunk(self._db, 'c2b', 'e2', 'b')
         # e3: 同 entry 用 2 个 model → model_drift
-        _insert_entry('e3', title='Drift', status='ok', chunk_count=2)
-        _insert_chunk('c3a', 'e3', 'a', embedding=b'\x00' * 4, model='text-embedding-3-small')
-        _insert_chunk('c3b', 'e3', 'b', embedding=b'\x00' * 4, model='text-embedding-ada-002')
+        _insert_entry(self._db, 'e3', title='Drift', status='ok', chunk_count=2)
+        _insert_chunk(self._db, 'c3a', 'e3', 'a', embedding=b'\x00' * 4, model='text-embedding-3-small')
+        _insert_chunk(self._db, 'c3b', 'e3', 'b', embedding=b'\x00' * 4, model='text-embedding-ada-002')
         # e4: 健康 entry, 不应出现在 issues
-        _insert_entry('e4', title='Healthy', status='ok', chunk_count=2)
-        _insert_chunk('c4a', 'e4', 'a', embedding=b'\x00' * 4, model='text-embedding-3-small')
-        _insert_chunk('c4b', 'e4', 'b', embedding=b'\x00' * 4, model='text-embedding-3-small')
+        _insert_entry(self._db, 'e4', title='Healthy', status='ok', chunk_count=2)
+        _insert_chunk(self._db, 'c4a', 'e4', 'a', embedding=b'\x00' * 4, model='text-embedding-3-small')
+        _insert_chunk(self._db, 'c4b', 'e4', 'b', embedding=b'\x00' * 4, model='text-embedding-3-small')
         # orphan chunks (e1 已存在, 这里加个指向不存在的 entry)
-        _insert_chunk('c-orphan-1', 'e-nonexistent', 'ghost', embedding=b'\x00' * 4, model='m1')
+        _insert_chunk(self._db, 'c-orphan-1', 'e-nonexistent', 'ghost', embedding=b'\x00' * 4, model='m1')
         self._db.commit()
 
     def test_verify_detects_missing_chunks(self):
@@ -288,11 +288,11 @@ class TestRepairDryRun(unittest.TestCase):
         self.ns, self._db = _init_ns()
         self.addCleanup(self._db.close)
         self.ns['init_test_tables'](self._db)
-        _insert_entry('e1', title='Missing', status='ok', chunk_count=0)
-        _insert_entry('e2', title='Healthy', status='ok', chunk_count=2)
-        _insert_chunk('c2a', 'e2', 'a', embedding=b'\x00' * 4, model='m1')
-        _insert_chunk('c2b', 'e2', 'b', embedding=b'\x00' * 4, model='m1')
-        _insert_chunk('c-orphan', 'ghost', 'x')
+        _insert_entry(self._db, 'e1', title='Missing', status='ok', chunk_count=0)
+        _insert_entry(self._db, 'e2', title='Healthy', status='ok', chunk_count=2)
+        _insert_chunk(self._db, 'c2a', 'e2', 'a', embedding=b'\x00' * 4, model='m1')
+        _insert_chunk(self._db, 'c2b', 'e2', 'b', embedding=b'\x00' * 4, model='m1')
+        _insert_chunk(self._db, 'c-orphan', 'ghost', 'x')
         self._db.commit()
 
     def test_dry_run_returns_plan_no_changes(self):
@@ -302,7 +302,7 @@ class TestRepairDryRun(unittest.TestCase):
         self.assertNotIn('actions_executed', result)
 
         # 验证数据库未被修改
-        chunk_count = _db.execute("SELECT COUNT(*) AS c FROM kb_entry_chunks").fetchone()['c']
+        chunk_count = self._db.execute("SELECT COUNT(*) AS c FROM kb_entry_chunks").fetchone()['c']
         self.assertEqual(chunk_count, 3, 'dry-run 不应删任何 chunk')
 
     def test_dry_run_plans_orphan_delete(self):
@@ -341,13 +341,13 @@ class TestRepairConfirm(unittest.TestCase):
         self.addCleanup(self._db.close)
         self.ns['init_test_tables'](self._db)
         # e1: missing_chunks (status=ok 但 0 chunks)
-        _insert_entry('e1', title='Missing', status='ok', chunk_count=0, content='content-1')
+        _insert_entry(self._db, 'e1', title='Missing', status='ok', chunk_count=0, content='content-1')
         # e3: model_drift
-        _insert_entry('e3', title='Drift', status='ok', chunk_count=2, content='content-3')
-        _insert_chunk('c3a', 'e3', 'a', embedding=b'\x00' * 4, model='old-model')
-        _insert_chunk('c3b', 'e3', 'b', embedding=b'\x00' * 4, model='new-model')
+        _insert_entry(self._db, 'e3', title='Drift', status='ok', chunk_count=2, content='content-3')
+        _insert_chunk(self._db, 'c3a', 'e3', 'a', embedding=b'\x00' * 4, model='old-model')
+        _insert_chunk(self._db, 'c3b', 'e3', 'b', embedding=b'\x00' * 4, model='new-model')
         # 孤儿
-        _insert_chunk('c-orphan', 'ghost', 'x')
+        _insert_chunk(self._db, 'c-orphan', 'ghost', 'x')
         # 注入 mock api_key (否则 _vectorize_kb_chunks 抛错, repair 重建会失败)
         self.ns['get_embedding_config'] = lambda emp_id=None: {
             'apiKey': 'mock-key', 'provider': 'openai',
@@ -362,7 +362,7 @@ class TestRepairConfirm(unittest.TestCase):
         self.assertGreaterEqual(result['stats']['orphan_deleted'], 1)
 
         # 验证孤儿已删
-        count = _db.execute("SELECT COUNT(*) AS c FROM kb_entry_chunks WHERE id='c-orphan'").fetchone()['c']
+        count = self._db.execute("SELECT COUNT(*) AS c FROM kb_entry_chunks WHERE id='c-orphan'").fetchone()['c']
         self.assertEqual(count, 0, '孤儿 chunk 应被删')
 
     def test_confirm_rebuilds_missing_chunks(self):
@@ -370,10 +370,10 @@ class TestRepairConfirm(unittest.TestCase):
         self.assertGreaterEqual(result['stats']['rebuild_succeeded'], 1)
 
         # 验证 e1 现在有 chunks (mock 写了 2 个)
-        count = _db.execute("SELECT COUNT(*) AS c FROM kb_entry_chunks WHERE entry_id='e1'").fetchone()['c']
+        count = self._db.execute("SELECT COUNT(*) AS c FROM kb_entry_chunks WHERE entry_id='e1'").fetchone()['c']
         self.assertEqual(count, 2, 'e1 重建后应有 2 个 chunks')
         # 验证 chunk_count 已更新
-        row = _db.execute("SELECT chunk_count, status FROM kb_entries WHERE id='e1'").fetchone()
+        row = self._db.execute("SELECT chunk_count, status FROM kb_entries WHERE id='e1'").fetchone()
         self.assertEqual(row['chunk_count'], 2)
         self.assertEqual(row['status'], 'ok', '重建后 status 恢复 ok')
 
@@ -381,7 +381,7 @@ class TestRepairConfirm(unittest.TestCase):
         result = self.ns['kb_entry_repair_index'](confirm=True, is_admin=True)
 
         # 验证 e3 重建后只用 current-model
-        models = _db.execute(
+        models = self._db.execute(
             "SELECT DISTINCT embedding_model FROM kb_entry_chunks WHERE entry_id='e3' AND embedding_model != ''"
         ).fetchall()
         model_list = [m['embedding_model'] for m in models]
@@ -392,7 +392,7 @@ class TestRepairConfirm(unittest.TestCase):
         self._db.execute("UPDATE kb_entries SET status='pending' WHERE id='e1'")
         self._db.commit()
         self.ns['kb_entry_repair_index'](confirm=True, is_admin=True)
-        row = _db.execute("SELECT status FROM kb_entries WHERE id='e1'").fetchone()
+        row = self._db.execute("SELECT status FROM kb_entries WHERE id='e1'").fetchone()
         self.assertEqual(row['status'], 'pending', 'pending 条目重建后应保持 pending')
 
 
@@ -411,11 +411,11 @@ class TestRepairFailureIsolation(unittest.TestCase):
         self.addCleanup(self._db.close)
         self.ns['init_test_tables'](self._db)
         # e1: 正常可重建
-        _insert_entry('e1', title='Normal', status='ok', chunk_count=0, content='c1')
+        _insert_entry(self._db, 'e1', title='Normal', status='ok', chunk_count=0, content='c1')
         # e2: 构造一个会触发 rebuild 失败的 entry (status='deleted' 在 repair 内被过滤, _save 会返回 0 rows 不出错;
         # 这里用更直接的方式: 把它的 content 设为 None, mock 不会出错但 _save 会写空 chunks;
         # 改用更稳的方法: 让 _vectorize_kb_chunks 对 e2 抛错, 模拟 embedding API 失败)
-        _insert_entry('e2', title='WillFail', status='ok', chunk_count=0, content='c2')
+        _insert_entry(self._db, 'e2', title='WillFail', status='ok', chunk_count=0, content='c2')
         # 让 _vectorize_kb_chunks 对 e2 抛错
         orig_vectorize = self.ns['_vectorize_kb_chunks']
         def selective_vectorize(entry_id, *args, **kwargs):
@@ -439,9 +439,9 @@ class TestRepairFailureIsolation(unittest.TestCase):
         self.assertGreater(len(executed['errors']), 0, '应有 error 信息')
 
         # e1 现在有 chunks, e2 没 (因为 _vectorize 失败后 status 标 error)
-        e1_chunks = _db.execute("SELECT COUNT(*) AS c FROM kb_entry_chunks WHERE entry_id='e1'").fetchone()['c']
+        e1_chunks = self._db.execute("SELECT COUNT(*) AS c FROM kb_entry_chunks WHERE entry_id='e1'").fetchone()['c']
         self.assertEqual(e1_chunks, 2, 'e1 应有 2 个 mock chunks')
-        e2_status = _db.execute("SELECT status FROM kb_entries WHERE id='e2'").fetchone()['status']
+        e2_status = self._db.execute("SELECT status FROM kb_entries WHERE id='e2'").fetchone()['status']
         self.assertEqual(e2_status, 'error', 'e2 重建失败应标 error')
 
 
