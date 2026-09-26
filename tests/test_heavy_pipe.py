@@ -18,159 +18,41 @@ exec 到独立 namespace 跑 (避开 server 整个 import 链)。
 """
 import os, sys, json, sqlite3, time, re
 import unittest  # ★ fix/mini-test-code-repair-20260925: 补 import (class TestXxx(unittest.TestCase) + unittest.main 引用)
-
-
-KS_PY = 'knowledge_service.py'  # relative to project root (cwd when pytest invoked)
-
-
-def extract_function(name, source):
-    """提取 def name(...): 开始的函数, 用 {} 配平找函数体结束"""
-    m = re.search(rf'^def {re.escape(name)}\(', source, re.MULTILINE)
-    if not m:
-        return None
-    start = m.start()
-    i = source.index(':', m.end()) + 1
-    depth = 0
-    in_string = False
-    triple = False
-    while i < len(source):
-        c = source[i]
-        if not in_string and c == '#':
-            while i < len(source) and source[i] != '\n':
-                i += 1
-            continue
-        if c == '"' or c == "'":
-            if source[i:i+3] in ('"""', "'''"):
-                triple = not triple
-                i += 3
-                continue
-            if not triple:
-                in_string = not in_string
-        if not in_string and not triple:
-            if c == '{':
-                depth += 1
-            elif c == '}':
-                depth -= 1
-            elif c == '\n' and depth == 0:
-                rest = source[i+1:].lstrip()
-                if rest.startswith('def ') or rest.startswith('class ') or rest.startswith('# ') or rest.startswith('#!'):
-                    return source[start:i+1]
-        i += 1
-    return source[start:]
-
-
-# 提取目标类 + 函数 (从 class 头到下一个 class 头)
-def extract_block(name, source):
-    """提取 class/func 完整块 (含下一个 class/func 之前的所有内容)"""
-    m = re.search(rf'^(class|def) {re.escape(name)}\(', source, re.MULTILINE)
-    if not m:
-        return None
-    start = m.start()
-    i = m.end()
-    depth = 0
-    in_string = False
-    triple = False
-    while i < len(source):
-        c = source[i]
-        if not in_string and c == '#':
-            while i < len(source) and source[i] != '\n':
-                i += 1
-            continue
-        if c == '"' or c == "'":
-            if source[i:i+3] in ('"""', "'''"):
-                triple = not triple
-                i += 3
-                continue
-            if not triple:
-                in_string = not in_string
-        if not in_string and not triple:
-            if c == '{':
-                depth += 1
-            elif c == '}':
-                depth -= 1
-            elif c == '\n' and depth == 0:
-                rest = source[i+1:].lstrip()
-                if rest.startswith('class ') or rest.startswith('def '):
-                    return source[start:i+1]
-        i += 1
-    return source[start:]
+import knowledge_service  # ★ fix/mini-test-code-repair-20260925: 真 import, 替代 exec 拼字符串 (Mac 端 6 setup error 治法, 老 brief 12:37 拍板 real_import_light_stub)
 
 
 
-# === 代码状态: 模块级只保留 helper + unittest.TestCase class =====================
-# 原先的重逻辑 (读源码 + exec namespace + 设 TIMEOUT) 全部收进 _init_ns() 函数。
-# 使 pytest collection (即 import 本文件) 不再触发:
-#   - 文件读取 (KS_PY 路径依赖 cwd, import 未知 cwd 可能报 FileNotFoundError)
-#   - sys.exit(1) (提取失败时, import 会让 pytest 整个套退出)
-#   - exec combined (heavy pipe 流程在 import 时就跑, 耗时 + 可能报错)
-# TestXxx 通过 setUpClass 调 _init_ns() 一次, 不重复。
-# 独立运行 (python3 tests/heavy_pipe_test.py) 行为保持不变。
+
+
+
 
 def _init_ns():
-    """★ fix/pytest-heavy-pipe-collection: 初始化 ns (提取 + stub + exec).
+    """★ real_import_light_stub: 顶部已 import knowledge_service, ns = module.__dict__.copy()
 
-    为了让 pytest collection 不再退出, 原先在模块级直接执行的重逻辑收进函数:
-      1. 读取 knowledge_service.py 源码
-      2. 提取 HeavyPipeCancelled / HeavyPipeTask / HeavyPipeTaskManager / kb_entries_reindex_pending
-      3. 校验提取结果 (失败 raise RuntimeError, 不再 sys.exit)
-      4. 准备 stub namespace (uuid / threading / _db_conn / _save_kb_chunks / _vectorize / _now_ms)
-      5. exec combined 到 namespace
-      6. 缩短 TIMEOUT_HEAVY_PIPE_MS = 500 (原值 120s 测试太长)
+    老 brief 12:37 拍板 real_import_light_stub: 真 import knowledge_service,
+    替代原 regex extract_block + exec combined 拼字符串模式 (Mac 端 6 setup
+    error 治法).
+
+    ns = knowledge_service.__dict__.copy() 含所有 module 顶层 def + import.
+    测试代码 self.ns['HeavyPipeTaskManager']() 等不变 — ns 是 module dict 副本,
+    拿出来的类实例化时调 module globals (因为类定义 globals = module globals).
+
+    stub 注入走 _HeavyPipeTestBase.setUp + addCleanup (module.X = mock_fn).
+    类 globals 是 module (exec 模式隐式重绑已无), setUpClass 不再设 stub
+    (避免污染 module 全局).
 
     Returns: (ns, _db) tuple 供 class TestXxx setUpClass 复用.
-             _db 供 TestReindexBackwardCompat.setUp 复用 (kb_entries 表初始化).
+             _db 供 TestReindexBackwardCompat 复用.
     """
-    import uuid
-    import threading
-
-    text = open(KS_PY, encoding="utf-8").read()
-
-    exc_class = extract_block('HeavyPipeCancelled', text)
-    task_class = extract_block('HeavyPipeTask', text)
-    mgr_class = extract_block('HeavyPipeTaskManager', text)
-    reindex_fn = extract_function('kb_entries_reindex_pending', text)
-
-    if not all([exc_class, task_class, mgr_class, reindex_fn]):
-        # 不再 sys.exit (会让 import 退出); 改 raise RuntimeError
-        raise RuntimeError(
-            f"提取失败, knowledge_service.py 改动没生效? "
-            f"exc_class={bool(exc_class)}, task_class={bool(task_class)}, "
-            f"mgr_class={bool(mgr_class)}, reindex_fn={bool(reindex_fn)}"
-        )
-
-    print(f"提取: HeavyPipeTask={len(task_class)}c, HeavyPipeTaskManager={len(mgr_class)}c, "
-          f"kb_entries_reindex_pending={len(reindex_fn)}c")
-
-    ns = {
-        '__name__': 'pipe_test',
-        'sqlite3': sqlite3,
-        'time': time,
-        'uuid': uuid,
-        'json': json,
-        'threading': threading,
-    }
-
-    # 不依赖真实 DB; 但 reindex_fn 里有 _db_conn / _save_kb_chunks / _vectorize_kb_chunks
-    # stub 这些
     _db = sqlite3.connect(":memory:", check_same_thread=False)
     _db.row_factory = sqlite3.Row
     def _db_conn():
         return _db
+
+    ns = knowledge_service.__dict__.copy()
+    ns['__name__'] = 'heavy_pipe_test'
+    ns['_db'] = _db
     ns['_db_conn'] = _db_conn
-
-    ns['get_embedding_config'] = lambda emp_id=None: {
-        'apiKey': '', 'provider': 'openai', 'model': 'mock', 'baseUrl': None
-    }
-    ns['_save_kb_chunks_without_embedding'] = lambda *a, **k: None
-    ns['_vectorize_kb_chunks'] = lambda *a, **k: None
-    ns['_now_ms'] = lambda: int(time.time() * 1000)
-
-    combined = '\n\n'.join([exc_class, task_class, mgr_class, reindex_fn])
-    exec(combined, ns)
-    print(f"exec combined: {len(combined)} chars")
-
-    # 缩短 TIMEOUT_HEAVY_PIPE_MS 用于测试 (原值 120s 太长)
-    ns['TIMEOUT_HEAVY_PIPE_MS'] = 500
 
     return ns, _db
 
@@ -186,13 +68,35 @@ def wait_for_status(mgr, task_id, target_status, timeout=3.0):
     return mgr.get_task(task_id)
 
 
-class TestProgress(unittest.TestCase):
-    """场景 1: 进度上报 — progress_cb 实时更新"""
+class _HeavyPipeTestBase(unittest.TestCase):
+    """heavy_pipe 测试基类.
+
+    ★ real_import_light_stub: setUpClass 一次 _init_ns() (加载 module),
+    setUp 注入公共 stub (TIMEOUT + _now_ms) 走 module.X = mock_fn + addCleanup
+    自动恢复. exec combined 模式隐式重绑类 globals=ns 已无, 类方法 globals
+    = module globals, monkeypatch module 是 stub 注入机制.
+
+    TestReindexBackwardCompat 重写 setUp 加 kb_entries_reindex_pending 特定
+    stub (get_embedding_config / _save_kb_chunks / _vectorize / _db_conn).
+    """
 
     @classmethod
     def setUpClass(cls):
-        """★ fix/pytest-heavy-pipe-collection: 一次初始化, 所有 test_* 共享."""
         cls.ns, cls._db = _init_ns()
+
+    def setUp(self):
+        # 公共 stub: 类 globals 注入, 函数 globals=module 调到 stub
+        for name, mock in [
+            ('TIMEOUT_HEAVY_PIPE_MS', 500),  # 缩短默认 120s → 500ms 测试可控
+            ('_now_ms', lambda: int(time.time() * 1000)),
+        ]:
+            orig = getattr(knowledge_service, name)
+            setattr(knowledge_service, name, mock)
+            self.addCleanup(setattr, knowledge_service, name, orig)
+
+
+class TestProgress(_HeavyPipeTestBase):
+    """场景 1: 进度上报 — progress_cb 实时更新"""
 
     def test_progress_callbacks_update_task_state(self):
         mgr = self.ns['HeavyPipeTaskManager']()
@@ -230,13 +134,8 @@ class TestProgress(unittest.TestCase):
         wait_for_status(mgr, task_id, 'success', timeout=3.0)
 
 
-class TestCancel(unittest.TestCase):
+class TestCancel(_HeavyPipeTestBase):
     """场景 2: 取消 — cancel_task 后 runner 在下个 check 点抛 HeavyPipeCancelled"""
-
-    @classmethod
-    def setUpClass(cls):
-        """★ fix/pytest-heavy-pipe-collection: 一次初始化, 所有 test_* 共享."""
-        cls.ns, cls._db = _init_ns()
 
     def test_cancel_short_circuits_runner(self):
         mgr = self.ns['HeavyPipeTaskManager']()
@@ -263,13 +162,8 @@ class TestCancel(unittest.TestCase):
         self.assertFalse(mgr.cancel_task('pipe_nonexistent'))
 
 
-class TestTimeout(unittest.TestCase):
+class TestTimeout(_HeavyPipeTestBase):
     """场景 3: 超时 — runner 跑超过 TIMEOUT_HEAVY_PIPE_MS, 状态变 timeout"""
-
-    @classmethod
-    def setUpClass(cls):
-        """★ fix/pytest-heavy-pipe-collection: 一次初始化, 所有 test_* 共享."""
-        cls.ns, cls._db = _init_ns()
 
     def test_runner_exceeds_timeout_marks_timeout(self):
         # TIMEOUT_HEAVY_PIPE_MS 已被缩短为 500ms
@@ -298,13 +192,8 @@ class TestTimeout(unittest.TestCase):
         self.assertTrue(task_id.startswith('pipe_'), f'task_id 应以 pipe_ 开头, 实际 {task_id}')
 
 
-class TestFailure(unittest.TestCase):
+class TestFailure(_HeavyPipeTestBase):
     """场景 4: 失败 — runner 抛普通异常"""
-
-    @classmethod
-    def setUpClass(cls):
-        """★ fix/pytest-heavy-pipe-collection: 一次初始化, 所有 test_* 共享."""
-        cls.ns, cls._db = _init_ns()
 
     def test_runner_exception_marks_failed(self):
         mgr = self.ns['HeavyPipeTaskManager']()
@@ -317,13 +206,8 @@ class TestFailure(unittest.TestCase):
         self.assertIn('RuntimeError', final['error'])
 
 
-class TestListRecent(unittest.TestCase):
+class TestListRecent(_HeavyPipeTestBase):
     """场景 5: 任务列表 / 查询"""
-
-    @classmethod
-    def setUpClass(cls):
-        """★ fix/pytest-heavy-pipe-collection: 一次初始化, 所有 test_* 共享."""
-        cls.ns, cls._db = _init_ns()
 
     def test_list_recent_returns_completed_tasks(self):
         mgr = self.ns['HeavyPipeTaskManager']()
@@ -342,15 +226,31 @@ class TestListRecent(unittest.TestCase):
         self.assertIsNone(mgr.get_task('pipe_unknown'))
 
 
-class TestReindexBackwardCompat(unittest.TestCase):
+class TestReindexBackwardCompat(_HeavyPipeTestBase):
     """场景 6: kb_entries_reindex_pending 同步路径 (无 progress/cancel) 行为不变"""
 
-    @classmethod
-    def setUpClass(cls):
-        """★ fix/pytest-heavy-pipe-collection: 一次初始化, 所有 test_* 共享."""
-        cls.ns, cls._db = _init_ns()
 
     def setUp(self):
+        """★ real_import_light_stub: kb_entries_reindex_pending 特定 stub (addCleanup 恢复).
+
+        base class 已注入 TIMEOUT + _now_ms (公共 stub).
+        这里加 get_embedding_config + _save_kb_chunks + _vectorize + _db_conn
+        让 kb_entries_reindex_pending 调 module globals 时查到 stub 而非真实实现.
+        addCleanup 自动恢复 (不污染 module 全局).
+        """
+        super().setUp()
+        for name, mock in [
+            ('get_embedding_config', lambda emp_id=None: {
+                'apiKey': '', 'provider': 'openai', 'model': 'mock', 'baseUrl': None
+            }),
+            ('_save_kb_chunks_without_embedding', lambda *a, **k: None),
+            ('_vectorize_kb_chunks', lambda *a, **k: None),
+            ('_db_conn', lambda: self._db),
+        ]:
+            orig = getattr(knowledge_service, name)
+            setattr(knowledge_service, name, mock)
+            self.addCleanup(setattr, knowledge_service, name, orig)
+
         # 初始化 KB 表 + 2 条 pending entry
         self._db.execute('DROP TABLE IF EXISTS kb_entries')
         self._db.execute('DROP TABLE IF EXISTS kb_entry_chunks')
