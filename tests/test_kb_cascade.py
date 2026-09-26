@@ -179,7 +179,7 @@ class TestSoftDeleteCascade(unittest.TestCase):
         self._db.commit()
 
     def test_soft_delete_marks_status_and_clears_chunks(self):
-        result = ns['kb_entry_delete']('e1', is_admin=True, operator_id='u1')
+        result = self.ns['kb_entry_delete']('e1', is_admin=True, operator_id='u1')
         self.assertTrue(result)
 
         # 1. status 改 'deleted'
@@ -199,7 +199,7 @@ class TestSoftDeleteCascade(unittest.TestCase):
     def test_soft_delete_idempotent(self):
         """同一 entry 重复软删: 第二次返回 False, 不重复写 audit log"""
         self.ns['kb_entry_delete']('e1', is_admin=True, operator_id='u1')
-        result = ns['kb_entry_delete']('e1', is_admin=True, operator_id='u1')
+        result = self.ns['kb_entry_delete']('e1', is_admin=True, operator_id='u1')
         self.assertFalse(result, '第二次软删应该返回 False (idempotent)')
         logs = _db.execute("SELECT COUNT(*) AS c FROM kb_operation_log WHERE entry_id='e1'").fetchone()['c']
         self.assertEqual(logs, 1, '重复软删不该重复写 audit log')
@@ -207,12 +207,12 @@ class TestSoftDeleteCascade(unittest.TestCase):
     def test_get_by_id_filters_deleted(self):
         """软删后 kb_entry_get_by_id 返回 None"""
         self.ns['kb_entry_delete']('e1', is_admin=True, operator_id='u1')
-        result = ns['kb_entry_get_by_id']('e1')
+        result = self.ns['kb_entry_get_by_id']('e1')
         self.assertIsNone(result, '软删后 GET 单条应该返回 None')
 
     def test_get_by_id_returns_active(self):
         """未软删文档正常返回"""
-        result = ns['kb_entry_get_by_id']('e1')
+        result = self.ns['kb_entry_get_by_id']('e1')
         self.assertIsNotNone(result)
         self.assertEqual(result['id'], 'e1')
         self.assertEqual(result['status'], 'ok')
@@ -304,7 +304,7 @@ class TestCleanupDangling(unittest.TestCase):
 
     def test_cleanup_with_7_days_old(self):
         """days_old=7: 应物理删 old1 (10d) + old2 (8d), 保留 recent (3d)"""
-        stats = ns['kb_entry_cleanup_dangling'](days_old=7, is_admin=True)
+        stats = self.ns['kb_entry_cleanup_dangling'](days_old=7, is_admin=True)
         self.assertEqual(stats['scanned'], 2, 'old1+old2 在 cutoff 内, recent 不扫描, scanned=2')
         self.assertEqual(stats['hard_deleted'], 2, 'old1 + old2 共 2 条物理删')
         self.assertEqual(set(stats['deleted_entry_ids']), {'old1', 'old2'})
@@ -331,7 +331,7 @@ class TestCleanupDangling(unittest.TestCase):
         """没有 status='deleted' 时 hard_deleted=0"""
         self._db.execute("DELETE FROM kb_entries WHERE status='deleted'")
         self._db.commit()
-        stats = ns['kb_entry_cleanup_dangling'](days_old=7, is_admin=True)
+        stats = self.ns['kb_entry_cleanup_dangling'](days_old=7, is_admin=True)
         self.assertEqual(stats['scanned'], 0)
         self.assertEqual(stats['hard_deleted'], 0)
 
@@ -361,7 +361,7 @@ class TestHardDelete(unittest.TestCase):
 
     def test_hard_delete_physically_removes(self):
         """硬删应该完全物理删 + chunks 清空 + audit 记录 'hard_delete'"""
-        result = ns['kb_entry_hard_delete']('h1', is_admin=True, operator_id='admin1')
+        result = self.ns['kb_entry_hard_delete']('h1', is_admin=True, operator_id='admin1')
         self.assertTrue(result)
         self.assertIsNone(_db.execute("SELECT id FROM kb_entries WHERE id='h1'").fetchone())
         self.assertEqual(_db.execute("SELECT COUNT(*) AS c FROM kb_entry_chunks WHERE entry_id='h1'").fetchone()['c'], 0)

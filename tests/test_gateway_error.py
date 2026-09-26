@@ -42,7 +42,7 @@ def _init_ns():
     """
     text = open(IDX_HTML, encoding="utf-8").read()
 
-    m = re.search(r'async function apiFetchWithRetry\(', text)
+    m = re.search(r'\basync\b\s+\bfunction\b\s+apiFetchWithRetry\(', text)
     if not m:
         # 不再 sys.exit (会让 import 退出), 改 raise RuntimeError
         raise RuntimeError('找不到 apiFetchWithRetry 函数定义 (index.html 改动没生效?)')
@@ -70,18 +70,33 @@ def _init_ns():
 
     # 模拟 apiFetch (复制 index.html 里的, 401/403/409 特殊处理)
     MOCK_API_FETCH = """
-async function apiFetch(url, options) {
-  var resp = mockResponses[url];
-  if (!resp) { throw new Error('No mock for ' + url); }
-  if (resp.type === 'throw') { throw new Error(resp.error); }
-  if (resp.type === '401') { return null; }
-  if (resp.type === '403_get') { return { ok: false, status: 403, json: async () => { throw new Error('parse fail'); } }; }
-  if (resp.type === '403_post') { throw new Error('权限不足 (403)'); }
-  if (resp.type === '200_ok') { return { ok: true, status: 200, json: async () => resp.body }; }
-  if (resp.type === '200_bad_json') { return { ok: true, status: 200, json: async () => { throw new Error('SyntaxError'); } }; }
-  if (resp.type === '500') { return { ok: false, status: 500, json: async () => resp.body || { error: 'server error' } }; }
-  return resp;
-}
+def apiFetch(url, options):
+    resp = mockResponses.get(url)
+    if resp is None:
+        raise RuntimeError('No mock for ' + str(url))
+    if resp['type'] == 'throw':
+        raise RuntimeError(resp['error'])
+    if resp['type'] == '401':
+        return None
+    if resp['type'] == '403_get':
+        def _j403():
+            raise RuntimeError('parse fail')
+        return {'ok': False, 'status': 403, 'json': _j403}
+    if resp['type'] == '403_post':
+        raise RuntimeError('权限不足 (403)')
+    if resp['type'] == '200_ok':
+        def _j200():
+            return resp['body']
+        return {'ok': True, 'status': 200, 'json': _j200}
+    if resp['type'] == '200_bad_json':
+        def _jb():
+            raise RuntimeError('SyntaxError')
+        return {'ok': True, 'status': 200, 'json': _jb}
+    if resp['type'] == '500':
+        def _j500():
+            return resp.get('body') or {'error': 'server error'}
+        return {'ok': False, 'status': 500, 'json': _j500}
+    return resp
 """
     ns['mockResponses'] = {}  # 测试时注入
 
@@ -148,7 +163,7 @@ class TestHttpError(unittest.TestCase):
         self.ns['mockResponses'] = {
             '/api/test': {'type': '500', 'body': {'error': 'something bad'}}
         }
-        result = ns['apiFetchWithRetry']('/api/test', {}, 2)
+        result = self.ns['apiFetchWithRetry']('/api/test', {}, 2)
         self.assertFalse(result['success'])
         self.assertEqual(result['error'], 'something bad')
         self.assertEqual(result['status'], 500)
@@ -158,7 +173,7 @@ class TestHttpError(unittest.TestCase):
         self.ns['mockResponses'] = {
             '/api/test': {'type': '500', 'body': None}  # body parse 失败, fallback to text
         }
-        result = ns['apiFetchWithRetry']('/api/test', {}, 2)
+        result = self.ns['apiFetchWithRetry']('/api/test', {}, 2)
         self.assertFalse(result['success'])
         self.assertIn('server error', result['error'])
         self.assertEqual(result['status'], 500)
@@ -166,7 +181,7 @@ class TestHttpError(unittest.TestCase):
     def test_401_returns_no_response(self):
         """401 时 apiFetch 返回 null, apiFetchWithRetry 包装成 no_response"""
         self.ns['mockResponses'] = {'/api/test': {'type': '401'}}
-        result = ns['apiFetchWithRetry']('/api/test', {}, 2)
+        result = self.ns['apiFetchWithRetry']('/api/test', {}, 2)
         self.assertFalse(result['success'])
         self.assertEqual(result['error'], 'no_response')
         self.assertEqual(result['status'], 0)
@@ -184,7 +199,7 @@ class TestJsonParseFailure(unittest.TestCase):
         self.ns['mockResponses'] = {
             '/api/test': {'type': '200_bad_json'}
         }
-        result = ns['apiFetchWithRetry']('/api/test', {}, 2)
+        result = self.ns['apiFetchWithRetry']('/api/test', {}, 2)
         self.assertFalse(result['success'])
         self.assertEqual(result['error'], 'invalid_response')
         self.assertEqual(result['status'], 200)
@@ -208,7 +223,7 @@ class TestTimeout(unittest.TestCase):
             raise e
         self.ns['apiFetch'] = mock_api_fetch
 
-        result = ns['apiFetchWithRetry']('/api/test', {}, 2)
+        result = self.ns['apiFetchWithRetry']('/api/test', {}, 2)
         self.assertFalse(result['success'])
         self.assertEqual(result['error'], 'timeout')
         self.assertEqual(result['attempts'], 2)
@@ -227,7 +242,7 @@ class TestSuccess(unittest.TestCase):
         self.ns['mockResponses'] = {
             '/api/test': {'type': '200_ok', 'body': {'hello': 'world'}}
         }
-        result = ns['apiFetchWithRetry']('/api/test', {}, 2)
+        result = self.ns['apiFetchWithRetry']('/api/test', {}, 2)
         self.assertTrue(result['success'])
         self.assertEqual(result['data'], {'hello': 'world'})
         self.assertIsNone(result['error'])
@@ -251,7 +266,7 @@ class TestNonRetryableError(unittest.TestCase):
             raise RuntimeError('权限不足 (403)')
         self.ns['apiFetch'] = mock_api_fetch
 
-        result = ns['apiFetchWithRetry']('/api/test', {}, 2)
+        result = self.ns['apiFetchWithRetry']('/api/test', {}, 2)
         self.assertFalse(result['success'])
         self.assertEqual(result['error'], '权限不足 (403)')
         self.assertEqual(result['attempts'], 1, '403 业务错不该重试')

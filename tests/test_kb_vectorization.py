@@ -174,7 +174,7 @@ class TestVectorizeHelper(unittest.TestCase):
         self.ns['init_test_tables'](self._db)
         _insert_entry('e1', title='Test', status='ok')
         # mock _vectorize_kb_chunks 抛错
-        self._orig_vec = ns['_vectorize_kb_chunks']
+        self._orig_vec = self.ns['_vectorize_kb_chunks']
         def failing_vec(*args, **kwargs):
             raise RuntimeError('mock embedding API failure')
         self.ns['_vectorize_kb_chunks'] = failing_vec
@@ -225,7 +225,7 @@ class TestRetryEmbedding(unittest.TestCase):
         self._db.commit()
         # 默认 mock: get_embedding_config 有 key, _vectorize_kb_chunks 成功
         self.vec_should_fail = False
-        self._orig_vec = ns['_vectorize_kb_chunks']
+        self._orig_vec = self.ns['_vectorize_kb_chunks']
         def controllable_vec(*args, **kwargs):
             if self.vec_should_fail:
                 raise RuntimeError('mock vec failure')
@@ -244,7 +244,7 @@ class TestRetryEmbedding(unittest.TestCase):
         self.ns['_vectorize_kb_chunks'] = self._orig_vec
 
     def test_retry_recovers_from_embedding_failed(self):
-        result = ns['kb_entry_retry_embedding']('e1', is_admin=True, operator_id='u1', user_id='u1')
+        result = self.ns['kb_entry_retry_embedding']('e1', is_admin=True, operator_id='u1', user_id='u1')
         self.assertIsNotNone(result)
         self.assertEqual(result['status'], 'ok', '重试成功后 status 应是 ok')
         self.assertEqual(result['prev_status'], 'embedding_failed')
@@ -258,7 +258,7 @@ class TestRetryEmbedding(unittest.TestCase):
         """pending 状态的 entry retry 成功后保持 pending (审核闸)"""
         self._db.execute("UPDATE kb_entries SET status='pending' WHERE id='e1'")
         self._db.commit()
-        result = ns['kb_entry_retry_embedding']('e1', is_admin=True, operator_id='u1', user_id='u1')
+        result = self.ns['kb_entry_retry_embedding']('e1', is_admin=True, operator_id='u1', user_id='u1')
         self.assertEqual(result['status'], 'pending', 'pending retry 后保持 pending')
 
     def test_retry_rejects_wrong_status(self):
@@ -269,13 +269,13 @@ class TestRetryEmbedding(unittest.TestCase):
         self.assertIn('only embedding_failed/error', str(cm.exception))
 
     def test_retry_returns_none_for_missing(self):
-        result = ns['kb_entry_retry_embedding']('nonexistent', is_admin=True, operator_id='u1', user_id='u1')
+        result = self.ns['kb_entry_retry_embedding']('nonexistent', is_admin=True, operator_id='u1', user_id='u1')
         self.assertIsNone(result)
 
     def test_retry_returns_none_for_deleted(self):
         self._db.execute("UPDATE kb_entries SET status='deleted' WHERE id='e1'")
         self._db.commit()
-        result = ns['kb_entry_retry_embedding']('e1', is_admin=True, operator_id='u1', user_id='u1')
+        result = self.ns['kb_entry_retry_embedding']('e1', is_admin=True, operator_id='u1', user_id='u1')
         self.assertIsNone(result, '软删 entry 应返回 None')
 
     def test_retry_failure_stays_embedding_failed(self):
@@ -311,7 +311,7 @@ class TestRetryAllFailed(unittest.TestCase):
         _insert_entry('e2', title='Failed2', status='error', created_by='u2', emp_id='emp1')
         _insert_entry('e3', title='OK', status='ok', created_by='u3', emp_id='emp1')
         # mock _vectorize_kb_chunks 成功
-        self._orig_vec = ns['_vectorize_kb_chunks']
+        self._orig_vec = self.ns['_vectorize_kb_chunks']
         def success_vec(entry_id, *args, **kwargs):
             import struct
             emb_bytes = struct.pack('2f', 0.1, 0.2)
@@ -326,7 +326,7 @@ class TestRetryAllFailed(unittest.TestCase):
         self.ns['_vectorize_kb_chunks'] = self._orig_vec
 
     def test_batch_retries_only_failed_entries(self):
-        result = ns['kb_entries_retry_all_failed_embedding'](is_admin=True, operator_id='admin')
+        result = self.ns['kb_entries_retry_all_failed_embedding'](is_admin=True, operator_id='admin')
         # e3 (ok) 不应被 retried
         self.assertEqual(result['scanned'], 2, '应只扫到 2 条 failed entry')
         self.assertEqual(result['retried'], 2)
@@ -351,7 +351,7 @@ class TestRetryAllFailed(unittest.TestCase):
         # 简化: 让 e1 的 status 变 'pending' (不在 IN 范围), e2 retry 成功
         self._db.execute("UPDATE kb_entries SET status='pending' WHERE id='e1'")
         self._db.commit()
-        result = ns['kb_entries_retry_all_failed_embedding'](is_admin=True, operator_id='admin')
+        result = self.ns['kb_entries_retry_all_failed_embedding'](is_admin=True, operator_id='admin')
         self.assertEqual(result['scanned'], 1, 'e1 已变 pending, 不在 IN (embedding_failed, error) 范围')
         self.assertEqual(result['succeeded'], 1)
 
@@ -376,7 +376,7 @@ class TestReindexIncludesEmbeddingFailed(unittest.TestCase):
         _insert_entry('e3', title='OK', content='c3', status='ok')
         self._db.commit()
         # mock _save_chunks 写 1 个 chunk, _vectorize 不做事
-        self._orig_save = ns['_save_kb_chunks_without_embedding']
+        self._orig_save = self.ns['_save_kb_chunks_without_embedding']
         def save_chunks(entry_id, emp_id, content, cs, ov):
             self._db.execute('DELETE FROM kb_entry_chunks WHERE entry_id = ?', (entry_id,))
             self._db.execute(
@@ -392,7 +392,7 @@ class TestReindexIncludesEmbeddingFailed(unittest.TestCase):
         self.ns['_save_kb_chunks_without_embedding'] = self._orig_save
 
     def test_reindex_picks_up_embedding_failed(self):
-        result = ns['kb_entries_reindex_pending']()
+        result = self.ns['kb_entries_reindex_pending']()
         # e1 (pending) + e2 (embedding_failed) 都该被扫, e3 (ok) 不该
         # 由于无 API key, 2 条都 noKey
         self.assertEqual(result['total'], 2, 'reindex 应扫 pending + embedding_failed, 不扫 ok')
@@ -401,16 +401,16 @@ class TestReindexIncludesEmbeddingFailed(unittest.TestCase):
     def test_reindex_preserves_embedding_failed_on_vectorize_failure(self):
         """reindex 遇到 vectorize 失败, status 应保持 'embedding_failed' (不被 'error' 覆盖)"""
         # 注入 mock: get_embedding_config 有 key, _vectorize_kb_chunks 抛错
-        self._orig_emb = ns['get_embedding_config']
+        self._orig_emb = self.ns['get_embedding_config']
         self.ns['get_embedding_config'] = lambda emp_id=None: {
             'apiKey': 'mock-key', 'provider': 'openai', 'model': 'm', 'baseUrl': None
         }
-        self._orig_vec = ns['_vectorize_kb_chunks']
+        self._orig_vec = self.ns['_vectorize_kb_chunks']
         def failing_vec(*args, **kwargs):
             raise RuntimeError('mock vec failure in reindex')
         self.ns['_vectorize_kb_chunks'] = failing_vec
         try:
-            result = ns['kb_entries_reindex_pending']()
+            result = self.ns['kb_entries_reindex_pending']()
             # e1, e2 都被 vectorize 失败 → 标 'embedding_failed'
             rows = {r['id']: r['status'] for r in
                     _db.execute("SELECT id, status FROM kb_entries").fetchall()}
