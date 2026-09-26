@@ -86,13 +86,18 @@ def init_test_tables(conn):
 
 
 def _insert_entry(db, eid, title='T', content='C', status='ok', scope='global',
-                  created_by='', emp_id=''):
-    """helper: 插入测试 entry (上一轮 commit 17 加 db 形参保留)."""
+                  created_by='', emp_id='', chunk_count=0):
+    """helper: 插入测试 entry (上一轮 commit 17 加 db 形参保留).
+
+    ★ fix/mini-test-code-repair-20260925 21:07: 加 chunk_count 参数 (默认 0 兼容已有调用).
+    之前 hard-code 0 让 status='ok' 但 chunk_count=0 的 entry 被产品
+    reindex WHERE 'OR chunk_count=0' 选中 (错位).
+    """
     now_ms = int(time.time() * 1000)
     db.execute(
         '''INSERT INTO kb_entries (id, title, content, scope, status, chunk_count, created_by, emp_id, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?)''',
-        (eid, title, content, scope, status, created_by, emp_id, now_ms, now_ms)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+        (eid, title, content, scope, status, chunk_count, created_by, emp_id, now_ms, now_ms)
     )
 
 
@@ -321,9 +326,11 @@ class TestReindexIncludesEmbeddingFailed(unittest.TestCase):
         ks._db_conn = lambda timeout=30: _ImmuneConn(self._db)
         self.addCleanup(setattr, ks, '_db_conn', self._orig_db_conn)
         # 3 entries: 1 pending, 1 embedding_failed, 1 ok
+        # ★ fix/mini-test-code-repair-20260925 21:07: e3 (ok) 传 chunk_count=1, 不被产品 reindex 'OR chunk_count=0' 选中
+        # e1 (pending) / e2 (embedding_failed) 默认 chunk_count=0 (本就该被扫)
         _insert_entry(self._db, 'e1', title='Pending', content='c1', status='pending')
         _insert_entry(self._db, 'e2', title='EmbeddingFailed', content='c2', status='embedding_failed')
-        _insert_entry(self._db, 'e3', title='OK', content='c3', status='ok')
+        _insert_entry(self._db, 'e3', title='OK', content='c3', status='ok', chunk_count=1)
         self._db.commit()
         # mock _save_chunks 写 1 个 chunk, _vectorize 不做事
         self._orig_save = ks._save_kb_chunks_without_embedding

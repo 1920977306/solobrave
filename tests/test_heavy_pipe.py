@@ -360,6 +360,15 @@ class TestReindexBackwardCompat(_HeavyPipeTestBase):
 
     def test_sync_call_returns_legacy_stats(self):
         """无 progress_cb/cancel_event 时, 行为跟老版完全一致 (无 cancelled 字段污染)"""
+        # ★ fix/mini-test-code-repair-20260925 21:07: 用例内 override 让走 noKey 路径
+        # setUp 给 apiKey 非空 (test_sync_call_with_progress_and_cancel 要成功路径),
+        # 这个用例断言 noKey=2 / ok=0, 必须用例内改回 apiKey=''
+        _orig_emb = knowledge_service.get_embedding_config
+        knowledge_service.get_embedding_config = lambda emp_id=None: {
+            'apiKey': '', 'provider': 'openai', 'model': 'm', 'baseUrl': None
+        }
+        self.addCleanup(setattr, knowledge_service, 'get_embedding_config', _orig_emb)
+
         result = self.ns['kb_entries_reindex_pending']()
         # 同步路径下 cancelled 应该 False, noKey 应该 2 (mock 无 api_key)
         self.assertEqual(result['total'], 2)
