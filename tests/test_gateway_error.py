@@ -17,78 +17,67 @@ OpenClaw gateway 错误兜底单测 (refactor/openclaw-gateway-error-handling)
 """
 import os, sys, json, re
 
-# 1. 提取 apiFetchWithRetry 函数
-IDX_HTML = 'index.html'
-text = open(IDX_HTML, encoding='utf-8').read()
+def _init_ns():
+    """★ fix/mini-test-code-repair-20260925 P0-4: 初始化 ns (提取 + stub + exec).
 
-# 抓 apiFetchWithRetry 函数体 (regex)
-m = re.search(r'async function apiFetchWithRetry\(', text)
-if not m:
-    print('FATAL: 找不到 apiFetchWithRetry 函数定义')
-    sys.exit(1)
-start = m.start()
-# 配平 {} 找函数体结束
-i = text.index('{', m.end())
-depth = 0
-while i < len(text):
-    c = text[i]
-    if c == '{': depth += 1
-    elif c == '}':
-        depth -= 1
-        if depth == 0:
-            break
-    i += 1
-fn_text = text[start:i+1]
-print(f'提取 apiFetchWithRetry: {len(fn_text)} chars')
+    原先在模块级直接执行的 import 时副作用全部收进函数:
+      1. text = open(IDX_HTML) (cwd 依赖)
+      2. re.search + sys.exit(1) (import 时让 pytest 整个套退出)
+      3. ns 创建 + mockResponses + exec MOCK_API_FETCH + exec fn_text
 
-# 2. 准备 stub namespace
-ns = {
-    '__name__': 'gw_test',
-    'localStorage': {},  # mock, apiFetch 不调
-    'console': console,
-    'AbortController': None,  # 用 setTimeout 模拟, 不引入 AbortController
-}
+    Returns: ns dict 供 class TestXxx setUpClass 复用.
+    """
+    text = open(IDX_HTML, encoding="utf-8").read()
 
-# 模拟 apiFetch (复制 index.html 里的, 401/403/409 特殊处理)
-MOCK_API_FETCH = '''
+    m = re.search(r'async function apiFetchWithRetry\(', text)
+    if not m:
+        # 不再 sys.exit (会让 import 退出), 改 raise RuntimeError
+        raise RuntimeError('找不到 apiFetchWithRetry 函数定义 (index.html 改动没生效?)')
+    start = m.start()
+    # 配平 {} 找函数体结束
+    i = text.index('{', m.end())
+    depth = 0
+    while i < len(text):
+        c = text[i]
+        if c == '{': depth += 1
+        elif c == '}':
+            depth -= 1
+            if depth == 0:
+                break
+        i += 1
+    fn_text = text[start:i+1]
+    print(f'提取 apiFetchWithRetry: {len(fn_text)} chars')
+
+    ns = {
+        '__name__': 'gw_test',
+        'localStorage': {},  # mock, apiFetch 不调
+        'console': console,
+        'AbortController': None,  # 用 setTimeout 模拟, 不引入 AbortController
+    }
+
+    # 模拟 apiFetch (复制 index.html 里的, 401/403/409 特殊处理)
+    MOCK_API_FETCH = """
 async function apiFetch(url, options) {
-  // mock apiFetch, 接收测试时注入的 mockResponses (按 URL 精确匹配)
   var resp = mockResponses[url];
-  if (!resp) {
-    throw new Error('No mock for ' + url);
-  }
-  if (resp.type === 'throw') {
-    throw new Error(resp.error);
-  }
-  if (resp.type === '401') {
-    return null;  // apiFetch 401 返回 null
-  }
-  if (resp.type === '403_get') {
-    return { ok: false, status: 403, statusText: 'Forbidden', json: async () => { throw new Error('parse fail'); }, text: async () => 'forbidden' };
-  }
-  if (resp.type === '403_post') {
-    throw new Error('权限不足 (403)');
-  }
-  if (resp.type === '200_ok') {
-    return { ok: true, status: 200, statusText: 'OK', json: async () => resp.body };
-  }
-  if (resp.type === '200_bad_json') {
-    return { ok: true, status: 200, statusText: 'OK', json: async () => { throw new Error('SyntaxError'); } };
-  }
-  if (resp.type === '500') {
-    return { ok: false, status: 500, statusText: 'Internal Server Error', json: async () => resp.body || { error: 'server error' }, text: async () => 'server error' };
-  }
+  if (!resp) { throw new Error('No mock for ' + url); }
+  if (resp.type === 'throw') { throw new Error(resp.error); }
+  if (resp.type === '401') { return null; }
+  if (resp.type === '403_get') { return { ok: false, status: 403, json: async () => { throw new Error('parse fail'); } }; }
+  if (resp.type === '403_post') { throw new Error('权限不足 (403)'); }
+  if (resp.type === '200_ok') { return { ok: true, status: 200, json: async () => resp.body }; }
+  if (resp.type === '200_bad_json') { return { ok: true, status: 200, json: async () => { throw new Error('SyntaxError'); } }; }
+  if (resp.type === '500') { return { ok: false, status: 500, json: async () => resp.body || { error: 'server error' } }; }
   return resp;
 }
-'''
-ns['mockResponses'] = {}  # 测试时注入
+"""
+    ns['mockResponses'] = {}  # 测试时注入
 
-exec(MOCK_API_FETCH, ns)
-exec(fn_text, ns)
-print(f'exec apiFetchWithRetry: {fn_text[:80]}...')
+    exec(MOCK_API_FETCH, ns)
+    exec(fn_text, ns)
+    print(f'exec apiFetchWithRetry: {fn_text[:80]}...')
+    return ns
 
 
-# 3. 准备 AbortController 模拟
 class FakeAbortController:
     def __init__(self):
         self.signal = {'aborted': False}
@@ -97,26 +86,24 @@ class FakeAbortController:
         self.signal['aborted'] = True
 
 
-# 4. 注入 AbortController (替换 None stub)
-# apiFetchWithRetry 用 'typeof AbortController !== undefined', 我们给它传 fake controller
-# 实际我们 wrap 原函数让 AbortController 注入
-
-
-# 5. 测试
-import unittest
-
-
-def call_with_mock(mock_map, url, options=None, max_retries=2, abort_controller_factory=None):
-    """执行 apiFetchWithRetry, 用 mock_map 替换 mockResponses"""
+def call_with_mock(ns, mock_map, url, options=None, max_retries=2, abort_controller_factory=None):
+    """执行 apiFetchWithRetry, 用 mock_map 替换 mockResponses."""
     ns['mockResponses'] = mock_map
-    # inject AbortController if provided
     if abort_controller_factory:
-        ns['AbortController'] = abort_controller_factory
+        self.ns['AbortController'] = abort_controller_factory
     return ns['apiFetchWithRetry'](url, options or {}, max_retries)
+
+
+import unittest
 
 
 class TestNetworkError(unittest.TestCase):
     """场景 1: 网络错误 → 重试 1 次后仍失败"""
+
+    @classmethod
+    def setUpClass(cls):
+        """★ fix/mini-test-code-repair-20260925: 一次初始化, 所有 test_* 共享."""
+        cls.ns = _init_ns()
 
     def test_network_error_retry_then_fail(self):
         call_count = [0]
@@ -127,9 +114,9 @@ class TestNetworkError(unittest.TestCase):
         def mock_api_fetch(url, options):
             call_count[0] += 1
             raise RuntimeError('Failed to fetch')
-        ns['apiFetch'] = mock_api_fetch
+        self.ns['apiFetch'] = mock_api_fetch
 
-        result = call_with_mock({}, '/api/test', abort_controller_factory=factory)
+        result = call_with_mock(self.ns, {}, '/api/test', abort_controller_factory=factory)
         self.assertFalse(result['success'])
         self.assertIn('Failed to fetch', result['error'])
         self.assertEqual(result['attempts'], 2, '应该 1+1=2 次调用')
@@ -139,8 +126,13 @@ class TestNetworkError(unittest.TestCase):
 class TestHttpError(unittest.TestCase):
     """场景 2: HTTP 4xx/5xx → 解析 error body"""
 
+    @classmethod
+    def setUpClass(cls):
+        """★ fix/mini-test-code-repair-20260925: 一次初始化, 所有 test_* 共享."""
+        cls.ns = _init_ns()
+
     def test_500_with_json_error(self):
-        ns['mockResponses'] = {
+        self.ns['mockResponses'] = {
             '/api/test': {'type': '500', 'body': {'error': 'something bad'}}
         }
         result = ns['apiFetchWithRetry']('/api/test', {}, 2)
@@ -150,7 +142,7 @@ class TestHttpError(unittest.TestCase):
         self.assertEqual(result['attempts'], 1)
 
     def test_500_no_json_error_body(self):
-        ns['mockResponses'] = {
+        self.ns['mockResponses'] = {
             '/api/test': {'type': '500', 'body': None}  # body parse 失败, fallback to text
         }
         result = ns['apiFetchWithRetry']('/api/test', {}, 2)
@@ -160,7 +152,7 @@ class TestHttpError(unittest.TestCase):
 
     def test_401_returns_no_response(self):
         """401 时 apiFetch 返回 null, apiFetchWithRetry 包装成 no_response"""
-        ns['mockResponses'] = {'/api/test': {'type': '401'}}
+        self.ns['mockResponses'] = {'/api/test': {'type': '401'}}
         result = ns['apiFetchWithRetry']('/api/test', {}, 2)
         self.assertFalse(result['success'])
         self.assertEqual(result['error'], 'no_response')
@@ -170,8 +162,13 @@ class TestHttpError(unittest.TestCase):
 class TestJsonParseFailure(unittest.TestCase):
     """场景 3: 200 但 body 不是 JSON → invalid_response"""
 
+    @classmethod
+    def setUpClass(cls):
+        """★ fix/mini-test-code-repair-20260925: 一次初始化, 所有 test_* 共享."""
+        cls.ns = _init_ns()
+
     def test_bad_json(self):
-        ns['mockResponses'] = {
+        self.ns['mockResponses'] = {
             '/api/test': {'type': '200_bad_json'}
         }
         result = ns['apiFetchWithRetry']('/api/test', {}, 2)
@@ -183,6 +180,11 @@ class TestJsonParseFailure(unittest.TestCase):
 class TestTimeout(unittest.TestCase):
     """场景 4: timeout → AbortController 10s 超时 → 重试 1 次"""
 
+    @classmethod
+    def setUpClass(cls):
+        """★ fix/mini-test-code-repair-20260925: 一次初始化, 所有 test_* 共享."""
+        cls.ns = _init_ns()
+
     def test_timeout_retry_then_fail(self):
         call_count = [0]
         def mock_api_fetch(url, options):
@@ -191,7 +193,7 @@ class TestTimeout(unittest.TestCase):
             e = RuntimeError('aborted')
             e.name = 'AbortError'
             raise e
-        ns['apiFetch'] = mock_api_fetch
+        self.ns['apiFetch'] = mock_api_fetch
 
         result = ns['apiFetchWithRetry']('/api/test', {}, 2)
         self.assertFalse(result['success'])
@@ -203,8 +205,13 @@ class TestTimeout(unittest.TestCase):
 class TestSuccess(unittest.TestCase):
     """成功路径: 200 + 有效 JSON → success: true"""
 
+    @classmethod
+    def setUpClass(cls):
+        """★ fix/mini-test-code-repair-20260925: 一次初始化, 所有 test_* 共享."""
+        cls.ns = _init_ns()
+
     def test_success(self):
-        ns['mockResponses'] = {
+        self.ns['mockResponses'] = {
             '/api/test': {'type': '200_ok', 'body': {'hello': 'world'}}
         }
         result = ns['apiFetchWithRetry']('/api/test', {}, 2)
@@ -218,13 +225,18 @@ class TestSuccess(unittest.TestCase):
 class TestNonRetryableError(unittest.TestCase):
     """不可重试错误: apiFetch 抛 '权限不足 (403)' 等业务错 → 立即失败, 不重试"""
 
+    @classmethod
+    def setUpClass(cls):
+        """★ fix/mini-test-code-repair-20260925: 一次初始化, 所有 test_* 共享."""
+        cls.ns = _init_ns()
+
     def test_403_post_no_retry(self):
         """403 POST 时 apiFetch 抛 '权限不足 (403)'"""
         call_count = [0]
         def mock_api_fetch(url, options):
             call_count[0] += 1
             raise RuntimeError('权限不足 (403)')
-        ns['apiFetch'] = mock_api_fetch
+        self.ns['apiFetch'] = mock_api_fetch
 
         result = ns['apiFetchWithRetry']('/api/test', {}, 2)
         self.assertFalse(result['success'])
@@ -237,4 +249,5 @@ if __name__ == '__main__':
     print('=' * 60)
     print('OpenClaw gateway 错误兜底单测 (refactor/openclaw-gateway-error-handling)')
     print('=' * 60)
-    unittest.main(verbosity=2)
+    _init_ns()
+        unittest.main(verbosity=2)
