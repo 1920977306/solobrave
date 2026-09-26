@@ -50,6 +50,19 @@ _spec = importlib.util.spec_from_file_location('solobrave_server', _SERVER_PATH)
 _solobrave_server = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_solobrave_server)
 
+
+# ★ fix/mini-test-code-repair-20260925 02:51: 测试 fixture 加 _ImmuneConn 代理
+#   跟 KB 3 / heavy_pipe / rag_index 模式统一, 让产品代码 close() 不关真连接
+#   (治 4 个 migrate 测试 conn 被产品代码 close → 后面 closed database 假绿)
+class _ImmuneConn:
+    def __init__(self, real):
+        self._real = real
+    def close(self):
+        pass  # 产品代码 close 不生效 (产品代码 finally 关 conn 不能真的关)
+    def __getattr__(self, name):
+        return getattr(self._real, name)
+
+
 sys.modules['solobrave_server'] = _solobrave_server
 
 _normalize_dist_key = _solobrave_server._normalize_dist_key
@@ -636,7 +649,8 @@ def test_migrate_existing_talents_fill_text_columns():
         total_gmv_text TEXT DEFAULT '',
         video_gpm_text TEXT DEFAULT '',
         live_gpm_text TEXT DEFAULT '',
-        avg_live_gmv_text TEXT DEFAULT ''
+        avg_live_gmv_text TEXT DEFAULT '',
+        single_video_settlement TEXT DEFAULT ''
     )''')
     conn.execute("""INSERT INTO talents (id, name, ocr_raw_fields, total_gmv_text, video_gpm_text, live_gpm_text, avg_live_gmv_text)
                     VALUES (1, '李婶儿',
@@ -646,7 +660,7 @@ def test_migrate_existing_talents_fill_text_columns():
 
     # monkey-patch _db_conn 返测试 conn
     original_db_conn = _solobrave_server._db_conn
-    _solobrave_server._db_conn = lambda: conn
+    _solobrave_server._db_conn = lambda: _ImmuneConn(conn)
     try:
         _migrate_existing_talents_fill_text_columns()
         # 验证 4 _text 列都回填
@@ -676,7 +690,8 @@ def test_migrate_existing_talents_skips_existing_text():
         total_gmv_text TEXT DEFAULT '',
         video_gpm_text TEXT DEFAULT '',
         live_gpm_text TEXT DEFAULT '',
-        avg_live_gmv_text TEXT DEFAULT ''
+        avg_live_gmv_text TEXT DEFAULT '',
+        single_video_settlement TEXT DEFAULT ''
     )''')
     conn.execute("""INSERT INTO talents (id, name, ocr_raw_fields, total_gmv_text, video_gpm_text, live_gpm_text, avg_live_gmv_text)
                     VALUES (1, '李婶儿',
@@ -685,7 +700,7 @@ def test_migrate_existing_talents_skips_existing_text():
     conn.commit()
 
     original_db_conn = _solobrave_server._db_conn
-    _solobrave_server._db_conn = lambda: conn
+    _solobrave_server._db_conn = lambda: _ImmuneConn(conn)
     try:
         _migrate_existing_talents_fill_text_columns()
         row = conn.execute('SELECT total_gmv_text, video_gpm_text FROM talents WHERE id = 1').fetchone()
@@ -712,14 +727,15 @@ def test_migrate_existing_talents_skips_talents_without_ocr_raw():
         total_gmv_text TEXT DEFAULT '',
         video_gpm_text TEXT DEFAULT '',
         live_gpm_text TEXT DEFAULT '',
-        avg_live_gmv_text TEXT DEFAULT ''
+        avg_live_gmv_text TEXT DEFAULT '',
+        single_video_settlement TEXT DEFAULT ''
     )''')
     conn.execute("INSERT INTO talents (id, name, ocr_raw_fields) VALUES (1, '李婶儿', NULL)")
     conn.execute("INSERT INTO talents (id, name, ocr_raw_fields) VALUES (2, '王五', '')")
     conn.commit()
 
     original_db_conn = _solobrave_server._db_conn
-    _solobrave_server._db_conn = lambda: conn
+    _solobrave_server._db_conn = lambda: _ImmuneConn(conn)
     try:
         _migrate_existing_talents_fill_text_columns()
         # 2 行 total_gmv_text 都应保持 ''
@@ -969,7 +985,7 @@ def test_migrate_existing_talents_fill_single_video_settlement():
     conn.commit()
 
     original_db_conn = _solobrave_server._db_conn
-    _solobrave_server._db_conn = lambda: conn
+    _solobrave_server._db_conn = lambda: _ImmuneConn(conn)
     try:
         _migrate_existing_talents_fill_text_columns()
         row = conn.execute('SELECT single_video_settlement FROM talents WHERE id = 1').fetchone()
