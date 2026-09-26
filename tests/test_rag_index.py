@@ -2,8 +2,10 @@
 """
 RAG 索引完整性单测 (refactor/rag-index-integrity)
 
-策略: 镜像 knowledge_service.py 的 verify + repair 函数, exec 到独立 namespace 跑
-(避开 server 整个 import 链, 只注入 sqlite3 + 必要 stdlib)。
+策略: 直接 import knowledge_service (产品函数 globals 永远是 ks.__dict__,
+stub 注入真模块 dict 让产品代码自然命中). 弃用 ns 复制 + types.FunctionType
+rebind 间接注入 (两张皮 — stub 注入 ns, 产品代码看 ks.__dict__, 13 个内部调
+_db_conn 的用例全 NameError).
 
 测试场景 (跟 commit message 对齐):
 1. verify 检测 4 类不一致 (missing_chunks / chunk_count_mismatch / model_drift / orphan_chunks)
@@ -12,123 +14,27 @@ RAG 索引完整性单测 (refactor/rag-index-integrity)
 4. repair 重建失败时 entry 标 'error', 其他 entry 不受影响
 
 ⚠️ Windows 端无 Python, Mac 端请跑:
-   cd .worktree-rag && python tests/rag_index_test.py
+   cd .worktree-mini-test-repair && python3 -m pytest tests/test_rag_index.py -v
 """
 import os, sys, json, sqlite3, time, re
+import unittest
+import knowledge_service as ks  # ★ fix/mini-test-code-repair-20260925 19:17: 直接 import, 产品函数 globals 永远是 ks.__dict__
 
 
-# ★ fix/mini-test-code-repair-20260925: 模块级 ns 创建 + exec 重逻辑收进 _init_ns()
-# 使 pytest collection (即 import 本文件) 不再触发:
-#   - 文件读取 (KS_PY 路径依赖 cwd, import 未知 cwd 可能报 FileNotFoundError)
-#   - sys.exit(1) (提取失败时, import 会让 pytest 整个套退出)
-#   - exec combined (耗时 + 副作用, 延迟到 setUpClass 调)
-# TestXxx 通过 setUpClass 调 _init_ns() 一次, 不重复。
-# 独立运行 (python3 tests/xxx.py) 行为保持不变 (main 守卫仍调 _init_ns())。
-
-def _init_ns():
-    """★ fix/mini-test-code-repair-20260925: importlib + types.FunctionType rebind (同 kb_cascade).
-
-    修法 (替代原 extract_function + combined_src + exec 模式):
-    1. importlib.util.spec_from_file_location 加载 knowledge_service 模块
-    2. ns = module.__dict__.copy() 作 ns 基底 (含所有 module helper + import)
-    3. types.FunctionType 重绑 globals 到 ns, stub 注入机制保持
-    4. test stubs: _db_conn + get_embedding_config + _save_kb_chunks_without_embedding
-       + _vectorize_kb_chunks + kb_entry_log_operation + _now_ms
-
-    Returns: (ns, _db) tuple 供 setUpClass 复用.
-    """
-    import importlib.util
-    import types as _types
-
-    spec = importlib.util.spec_from_file_location('knowledge_service', 'knowledge_service.py')
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-
-    def _rebind(fn):
-        return _types.FunctionType(fn.__code__, ns, fn.__name__, fn.__defaults__, fn.__closure__)
-
-    import uuid
-    _db = sqlite3.connect(':memory:', check_same_thread=False)
-    _db.row_factory = sqlite3.Row
-    _db.execute('PRAGMA foreign_keys = OFF')
-
-    ns = module.__dict__.copy()
-    ns['__name__'] = 'rag_index_test'
-
-    class _ImmuneConn:
-        """★ fix/mini-test-code-repair-20260925 工单 FINAL 17:27: 产品代码 close() 不生效代理.
-
-        治根因: 产品代码 (kb_entry_cleanup_dangling / kb_entries_reindex_pending)
-        在事务结束后调 self._db_conn().close() 关连接, 但测试下一 setUp 又开
-        新 in-memory 连接, 新连接被产品 close 抛 'Cannot operate on a closed database'.
-        _ImmuneConn 让产品 close() 调用是 no-op, 测试 setUp 自己 addCleanup 关.
-        """
-        def __init__(self, real):
-            self._real = real
-        def close(self):
-            pass  # 产品代码 close 不生效
-        def __getattr__(self, name):
-            return getattr(self._real, name)
-
-    ns['_db_conn'] = lambda: _ImmuneConn(_db)
-    ns['_db'] = _db
-
-    # test stubs (覆盖 module 里的同名函数)
-    ns['get_embedding_config'] = lambda emp_id=None: {
-        'apiKey': '', 'provider': 'openai', 'model': 'mock-embed', 'baseUrl': None
-    }
-
-    def _mock_save_chunks(entry_id, emp_id, content, chunk_size, overlap):
-        conn = _db_conn()
-        try:
-            conn.execute('DELETE FROM kb_entry_chunks WHERE entry_id = ?', (entry_id,))
-            for i, c in enumerate(['mock-chunk-1', 'mock-chunk-2']):
-                conn.execute(
-                    '''INSERT INTO kb_entry_chunks (id, entry_id, emp_id, chunk_index, content, embedding, embedding_model, created_at)
-                       VALUES (?, ?, ?, ?, ?, NULL, '', ?)''',
-                    (f'{entry_id}_c{i}', entry_id, emp_id, i, c, int(time.time() * 1000))
-                )
-            conn.execute('UPDATE kb_entries SET chunk_count = 2 WHERE id = ?', (entry_id,))
-            conn.commit()
-        finally:
-            conn.close()
-    ns['_save_kb_chunks_without_embedding'] = _mock_save_chunks
-
-    def _mock_vectorize(entry_id, emp_id, api_key, provider, model, base_url=None):
-        if not api_key:
-            # 无 api_key 时真实代码会抛; mock 环境下让 verify 测试不依赖, repair confirm 测试用 mock api_key
-            raise RuntimeError('mock: no api_key')
-        conn = _db_conn()
-        try:
-            emb_bytes = b'\x00' * 8  # 2 floats
-            rows = conn.execute(
-                'SELECT id FROM kb_entry_chunks WHERE entry_id = ? AND embedding IS NULL',
-                (entry_id,)
-            ).fetchall()
-            for r in rows:
-                conn.execute(
-                    'UPDATE kb_entry_chunks SET embedding = ?, embedding_model = ? WHERE id = ?',
-                    (emb_bytes, model, r['id'])
-                )
-            conn.commit()
-        finally:
-            conn.close()
-    ns['_vectorize_kb_chunks'] = _mock_vectorize
-
-    ns['kb_entry_log_operation'] = lambda *args, **kwargs: None
-    ns['_now_ms'] = lambda: int(time.time() * 1000)
-
-    # rebind 关键 KB 函数到 ns (globals=ns, 含 module 所有 helper + test stubs)
-    ns['kb_entry_verify_index'] = _rebind(module.kb_entry_verify_index)
-    ns['kb_entry_repair_index'] = _rebind(module.kb_entry_repair_index)
-
-    # ★ fix/mini-test-code-repair-20260925 工单 FINAL: 治 KB3 39 failed (setUp 调 self.ns['init_test_tables'] 需要 ns 有这键)
-    ns['init_test_tables'] = init_test_tables
-    return ns, _db
+# ★ fix/mini-test-code-repair-20260925 工单 FINAL 17:27: 产品代码 close() 不生效代理.
+# 治根因: 产品代码 (kb_entry_cleanup_dangling / kb_entries_reindex_pending)
+# 在事务结束后调 self._db_conn().close() 关连接, 但测试下一 setUp 又开
+# 新 in-memory 连接, 新连接被产品 close 抛 'Cannot operate on a closed database'.
+class _ImmuneConn:
+    def __init__(self, real):
+        self._real = real
+    def close(self):
+        pass  # 产品代码 close 不生效
+    def __getattr__(self, name):
+        return getattr(self._real, name)
 
 
-
-# 4. 初始化测试表
+# 初始化测试表 (照抄 knowledge_service.init_db() 真实 schema 含 emp_id)
 def init_test_tables(conn):
     conn.execute('DROP TABLE IF EXISTS kb_entries')
     conn.execute('DROP TABLE IF EXISTS kb_entry_chunks')
@@ -177,11 +83,8 @@ def init_test_tables(conn):
     conn.commit()
 
 
-# 5. 测试场景
-import unittest
-
-
 def _insert_entry(db, eid, title='T', content='C', status='ok', chunk_count=0):
+    """helper: 插入测试 entry (上一轮 commit 17 加 db 形参保留)."""
     now_ms = int(time.time() * 1000)
     db.execute(
         '''INSERT INTO kb_entries (id, title, content, scope, status, chunk_count, created_at, updated_at)
@@ -191,6 +94,7 @@ def _insert_entry(db, eid, title='T', content='C', status='ok', chunk_count=0):
 
 
 def _insert_chunk(db, cid, eid, content='chunk', embedding=None, model=''):
+    """helper: 插入测试 chunk (上一轮 commit 17 加 db 形参保留)."""
     db.execute(
         '''INSERT INTO kb_entry_chunks (id, entry_id, content, embedding, embedding_model)
            VALUES (?, ?, ?, ?, ?)''',
@@ -201,17 +105,16 @@ def _insert_chunk(db, cid, eid, content='chunk', embedding=None, model=''):
 class TestVerifyDetectsIssues(unittest.TestCase):
     """场景 1: verify 检测 4 类不一致"""
 
-    @classmethod
-    def setUpClass(cls):
-        """★ fix/mini-test-code-repair-20260925: 一次初始化, 所有 test_* 共享."""
-        # ★ fix/mini-test-code-repair-20260925 工单 FINAL ②: 删 setUpClass 共享连接 (setUp 自带)
-
     def setUp(self):
-        # ★ fix/mini-test-code-repair-20260925 工单 FINAL ②: 治 39 failed
-        # setUpClass 共享 cls.ns / cls._db 是连接污染根因, 改 setUp 自带 ns + 独立连接
-        self.ns, self._db = _init_ns()
+        # ★ fix/mini-test-code-repair-20260925 19:17: monkeypatch ks._db_conn
+        self._db = sqlite3.connect(':memory:', check_same_thread=False)
+        self._db.row_factory = sqlite3.Row
+        self._db.execute('PRAGMA foreign_keys = OFF')
         self.addCleanup(self._db.close)
-        self.ns['init_test_tables'](self._db)
+        init_test_tables(self._db)
+        self._orig_db_conn = ks._db_conn
+        ks._db_conn = lambda timeout=30: _ImmuneConn(self._db)
+        self.addCleanup(setattr, ks, '_db_conn', self._orig_db_conn)
         # e1: status=ok 但 0 chunks → missing_chunks
         _insert_entry(self._db, 'e1', title='Missing', status='ok', chunk_count=0)
         # e2: chunk_count=3 但实际 2 chunks → chunk_count_mismatch
@@ -231,43 +134,43 @@ class TestVerifyDetectsIssues(unittest.TestCase):
         self._db.commit()
 
     def test_verify_detects_missing_chunks(self):
-        result = self.ns['kb_entry_verify_index'](is_admin=True)
+        result = ks.kb_entry_verify_index(is_admin=True)
         ids = [x['entry_id'] for x in result['issues']['missing_chunks']]
         self.assertIn('e1', ids, 'e1 (ok 但 0 chunks) 应在 missing_chunks')
         self.assertNotIn('e4', ids, 'e4 (健康) 不应在 missing_chunks')
 
     def test_verify_detects_chunk_count_mismatch(self):
-        result = self.ns['kb_entry_verify_index'](is_admin=True)
+        result = ks.kb_entry_verify_index(is_admin=True)
         items = [x for x in result['issues']['chunk_count_mismatch'] if x['entry_id'] == 'e2']
         self.assertEqual(len(items), 1)
         self.assertEqual(items[0]['expected'], 3)
         self.assertEqual(items[0]['actual'], 2)
 
     def test_verify_detects_model_drift(self):
-        result = self.ns['kb_entry_verify_index'](is_admin=True)
+        result = ks.kb_entry_verify_index(is_admin=True)
         items = [x for x in result['issues']['model_drift'] if x['entry_id'] == 'e3']
         self.assertEqual(len(items), 1)
         self.assertIn('text-embedding-3-small', items[0]['models'])
         self.assertIn('text-embedding-ada-002', items[0]['models'])
 
     def test_verify_detects_orphan_chunks(self):
-        result = self.ns['kb_entry_verify_index'](is_admin=True)
+        result = ks.kb_entry_verify_index(is_admin=True)
         items = [x for x in result['issues']['orphan_chunks'] if x['chunk_id'] == 'c-orphan-1']
         self.assertEqual(len(items), 1)
         self.assertEqual(items[0]['entry_id'], 'e-nonexistent')
 
     def test_verify_healthy_entry_not_in_any_issues(self):
-        result = self.ns['kb_entry_verify_index'](is_admin=True)
+        result = ks.kb_entry_verify_index(is_admin=True)
         for issue_type, items in result['issues'].items():
             ids = [x.get('entry_id') for x in items]
             self.assertNotIn('e4', ids, f'e4 不应出现在 {issue_type}')
 
     def test_verify_requires_admin(self):
         with self.assertRaises(PermissionError):
-            self.ns['kb_entry_verify_index'](is_admin=False)
+            ks.kb_entry_verify_index(is_admin=False)
 
     def test_verify_respects_limit_per_type(self):
-        result = self.ns['kb_entry_verify_index'](limit_per_type=0, is_admin=True)
+        result = ks.kb_entry_verify_index(limit_per_type=0, is_admin=True)
         # limit=0 极端测试, 看 truncated 标记; 各 issues 应为 0 条
         # 注: limit_per_type=0 时 SQL LIMIT 0 会拿空结果
         for issue_type, items in result['issues'].items():
@@ -277,17 +180,16 @@ class TestVerifyDetectsIssues(unittest.TestCase):
 class TestRepairDryRun(unittest.TestCase):
     """场景 2: repair dry-run 返回 plan 但不真改"""
 
-    @classmethod
-    def setUpClass(cls):
-        """★ fix/mini-test-code-repair-20260925: 一次初始化, 所有 test_* 共享."""
-        # ★ fix/mini-test-code-repair-20260925 工单 FINAL ②: 删 setUpClass 共享连接 (setUp 自带)
-
     def setUp(self):
-        # ★ fix/mini-test-code-repair-20260925 工单 FINAL ②: 治 39 failed
-        # setUpClass 共享 cls.ns / cls._db 是连接污染根因, 改 setUp 自带 ns + 独立连接
-        self.ns, self._db = _init_ns()
+        # ★ fix/mini-test-code-repair-20260925 19:17: monkeypatch ks._db_conn
+        self._db = sqlite3.connect(':memory:', check_same_thread=False)
+        self._db.row_factory = sqlite3.Row
+        self._db.execute('PRAGMA foreign_keys = OFF')
         self.addCleanup(self._db.close)
-        self.ns['init_test_tables'](self._db)
+        init_test_tables(self._db)
+        self._orig_db_conn = ks._db_conn
+        ks._db_conn = lambda timeout=30: _ImmuneConn(self._db)
+        self.addCleanup(setattr, ks, '_db_conn', self._orig_db_conn)
         _insert_entry(self._db, 'e1', title='Missing', status='ok', chunk_count=0)
         _insert_entry(self._db, 'e2', title='Healthy', status='ok', chunk_count=2)
         _insert_chunk(self._db, 'c2a', 'e2', 'a', embedding=b'\x00' * 4, model='m1')
@@ -296,7 +198,7 @@ class TestRepairDryRun(unittest.TestCase):
         self._db.commit()
 
     def test_dry_run_returns_plan_no_changes(self):
-        result = self.ns['kb_entry_repair_index'](confirm=False, is_admin=True)
+        result = ks.kb_entry_repair_index(confirm=False, is_admin=True)
         self.assertTrue(result['dry_run'])
         self.assertIn('actions_planned', result)
         self.assertNotIn('actions_executed', result)
@@ -306,7 +208,7 @@ class TestRepairDryRun(unittest.TestCase):
         self.assertEqual(chunk_count, 3, 'dry-run 不应删任何 chunk')
 
     def test_dry_run_plans_orphan_delete(self):
-        result = self.ns['kb_entry_repair_index'](confirm=False, is_admin=True)
+        result = ks.kb_entry_repair_index(confirm=False, is_admin=True)
         plan_types = [a['type'] for a in result['actions_planned']]
         self.assertIn('delete_orphan_chunks', plan_types)
 
@@ -315,7 +217,7 @@ class TestRepairDryRun(unittest.TestCase):
         self.assertEqual(orphan_action['chunk_ids'], ['c-orphan'])
 
     def test_dry_run_plans_rebuild_for_missing(self):
-        result = self.ns['kb_entry_repair_index'](confirm=False, is_admin=True)
+        result = ks.kb_entry_repair_index(confirm=False, is_admin=True)
         rebuild_actions = [a for a in result['actions_planned'] if a['type'] == 'rebuild_entry_chunks']
         rebuild_ids = [a['entry_id'] for a in rebuild_actions]
         self.assertIn('e1', rebuild_ids, 'e1 (missing_chunks) 应被 plan 重建')
@@ -323,23 +225,53 @@ class TestRepairDryRun(unittest.TestCase):
 
     def test_repair_requires_admin(self):
         with self.assertRaises(PermissionError):
-            self.ns['kb_entry_repair_index'](is_admin=False)
+            ks.kb_entry_repair_index(is_admin=False)
 
 
 class TestRepairConfirm(unittest.TestCase):
     """场景 3: repair confirm 真改 — 删孤儿 + 重建 entries"""
 
-    @classmethod
-    def setUpClass(cls):
-        """★ fix/mini-test-code-repair-20260925: 一次初始化, 所有 test_* 共享."""
-        # ★ fix/mini-test-code-repair-20260925 工单 FINAL ②: 删 setUpClass 共享连接 (setUp 自带)
-
     def setUp(self):
-        # ★ fix/mini-test-code-repair-20260925 工单 FINAL ②: 治 39 failed
-        # setUpClass 共享 cls.ns / cls._db 是连接污染根因, 改 setUp 自带 ns + 独立连接
-        self.ns, self._db = _init_ns()
+        # ★ fix/mini-test-code-repair-20260925 19:17: monkeypatch ks._db_conn
+        self._db = sqlite3.connect(':memory:', check_same_thread=False)
+        self._db.row_factory = sqlite3.Row
+        self._db.execute('PRAGMA foreign_keys = OFF')
         self.addCleanup(self._db.close)
-        self.ns['init_test_tables'](self._db)
+        init_test_tables(self._db)
+        self._orig_db_conn = ks._db_conn
+        ks._db_conn = lambda timeout=30: _ImmuneConn(self._db)
+        self.addCleanup(setattr, ks, '_db_conn', self._orig_db_conn)
+        # 注入 mock api_key + 成功 mock vectorize + 写 mock chunks
+        self._orig_emb = ks.get_embedding_config
+        ks.get_embedding_config = lambda emp_id=None: {
+            'apiKey': 'mock-key', 'provider': 'openai',
+            'model': 'current-model', 'baseUrl': None
+        }
+        self.addCleanup(setattr, ks, 'get_embedding_config', self._orig_emb)
+        self._orig_vec = ks._vectorize_kb_chunks
+        def success_vec(entry_id, *args, **kwargs):
+            import struct
+            emb_bytes = struct.pack('2f', 0.1, 0.2)
+            self._db.execute(
+                'UPDATE kb_entry_chunks SET embedding=?, embedding_model=? WHERE entry_id=?',
+                (emb_bytes, kwargs.get('model') or args[3], entry_id)
+            )
+            self._db.commit()
+        ks._vectorize_kb_chunks = success_vec
+        self.addCleanup(setattr, ks, '_vectorize_kb_chunks', self._orig_vec)
+        self._orig_save = ks._save_kb_chunks_without_embedding
+        def save_chunks(entry_id, emp_id, content, cs, ov):
+            self._db.execute('DELETE FROM kb_entry_chunks WHERE entry_id = ?', (entry_id,))
+            for i in range(2):
+                self._db.execute(
+                    '''INSERT INTO kb_entry_chunks (id, entry_id, content, embedding, embedding_model)
+                       VALUES (?, ?, ?, NULL, '')''',
+                    (f'{entry_id}_c{i}', entry_id, f'mock-chunk-{i+1}')
+                )
+            self._db.execute('UPDATE kb_entries SET chunk_count = 2 WHERE id = ?', (entry_id,))
+            self._db.commit()
+        ks._save_kb_chunks_without_embedding = save_chunks
+        self.addCleanup(setattr, ks, '_save_kb_chunks_without_embedding', self._orig_save)
         # e1: missing_chunks (status=ok 但 0 chunks)
         _insert_entry(self._db, 'e1', title='Missing', status='ok', chunk_count=0, content='content-1')
         # e3: model_drift
@@ -348,15 +280,10 @@ class TestRepairConfirm(unittest.TestCase):
         _insert_chunk(self._db, 'c3b', 'e3', 'b', embedding=b'\x00' * 4, model='new-model')
         # 孤儿
         _insert_chunk(self._db, 'c-orphan', 'ghost', 'x')
-        # 注入 mock api_key (否则 _vectorize_kb_chunks 抛错, repair 重建会失败)
-        self.ns['get_embedding_config'] = lambda emp_id=None: {
-            'apiKey': 'mock-key', 'provider': 'openai',
-            'model': 'current-model', 'baseUrl': None
-        }
         self._db.commit()
 
     def test_confirm_deletes_orphans(self):
-        result = self.ns['kb_entry_repair_index'](confirm=True, is_admin=True)
+        result = ks.kb_entry_repair_index(confirm=True, is_admin=True)
         self.assertFalse(result['dry_run'])
         self.assertIn('actions_executed', result)
         self.assertGreaterEqual(result['stats']['orphan_deleted'], 1)
@@ -366,7 +293,7 @@ class TestRepairConfirm(unittest.TestCase):
         self.assertEqual(count, 0, '孤儿 chunk 应被删')
 
     def test_confirm_rebuilds_missing_chunks(self):
-        result = self.ns['kb_entry_repair_index'](confirm=True, is_admin=True)
+        result = ks.kb_entry_repair_index(confirm=True, is_admin=True)
         self.assertGreaterEqual(result['stats']['rebuild_succeeded'], 1)
 
         # 验证 e1 现在有 chunks (mock 写了 2 个)
@@ -378,7 +305,7 @@ class TestRepairConfirm(unittest.TestCase):
         self.assertEqual(row['status'], 'ok', '重建后 status 恢复 ok')
 
     def test_confirm_rebuilds_model_drift(self):
-        result = self.ns['kb_entry_repair_index'](confirm=True, is_admin=True)
+        result = ks.kb_entry_repair_index(confirm=True, is_admin=True)
 
         # 验证 e3 重建后只用 current-model
         models = self._db.execute(
@@ -391,7 +318,7 @@ class TestRepairConfirm(unittest.TestCase):
         """pending 条目重建后保持 pending (审核闸: 不自动过审)"""
         self._db.execute("UPDATE kb_entries SET status='pending' WHERE id='e1'")
         self._db.commit()
-        self.ns['kb_entry_repair_index'](confirm=True, is_admin=True)
+        ks.kb_entry_repair_index(confirm=True, is_admin=True)
         row = self._db.execute("SELECT status FROM kb_entries WHERE id='e1'").fetchone()
         self.assertEqual(row['status'], 'pending', 'pending 条目重建后应保持 pending')
 
@@ -399,39 +326,52 @@ class TestRepairConfirm(unittest.TestCase):
 class TestRepairFailureIsolation(unittest.TestCase):
     """场景 4: 某条 entry 重建失败不影响其他"""
 
-    @classmethod
-    def setUpClass(cls):
-        """★ fix/mini-test-code-repair-20260925: 一次初始化, 所有 test_* 共享."""
-        # ★ fix/mini-test-code-repair-20260925 工单 FINAL ②: 删 setUpClass 共享连接 (setUp 自带)
-
     def setUp(self):
-        # ★ fix/mini-test-code-repair-20260925 工单 FINAL ②: 治 39 failed
-        # setUpClass 共享 cls.ns / cls._db 是连接污染根因, 改 setUp 自带 ns + 独立连接
-        self.ns, self._db = _init_ns()
+        # ★ fix/mini-test-code-repair-20260925 19:17: monkeypatch ks._db_conn
+        self._db = sqlite3.connect(':memory:', check_same_thread=False)
+        self._db.row_factory = sqlite3.Row
+        self._db.execute('PRAGMA foreign_keys = OFF')
         self.addCleanup(self._db.close)
-        self.ns['init_test_tables'](self._db)
+        init_test_tables(self._db)
+        self._orig_db_conn = ks._db_conn
+        ks._db_conn = lambda timeout=30: _ImmuneConn(self._db)
+        self.addCleanup(setattr, ks, '_db_conn', self._orig_db_conn)
+        self._orig_emb = ks.get_embedding_config
+        ks.get_embedding_config = lambda emp_id=None: {
+            'apiKey': 'mock-key', 'provider': 'openai',
+            'model': 'm', 'baseUrl': None
+        }
+        self.addCleanup(setattr, ks, 'get_embedding_config', self._orig_emb)
         # e1: 正常可重建
         _insert_entry(self._db, 'e1', title='Normal', status='ok', chunk_count=0, content='c1')
-        # e2: 构造一个会触发 rebuild 失败的 entry (status='deleted' 在 repair 内被过滤, _save 会返回 0 rows 不出错;
-        # 这里用更直接的方式: 把它的 content 设为 None, mock 不会出错但 _save 会写空 chunks;
-        # 改用更稳的方法: 让 _vectorize_kb_chunks 对 e2 抛错, 模拟 embedding API 失败)
+        # e2: 构造一个会触发 rebuild 失败的 entry
         _insert_entry(self._db, 'e2', title='WillFail', status='ok', chunk_count=0, content='c2')
-        # 让 _vectorize_kb_chunks 对 e2 抛错
-        orig_vectorize = self.ns['_vectorize_kb_chunks']
+        # 让 _vectorize_kb_chunks 对 e2 抛错 (e1 走原始逻辑)
+        orig_vectorize = ks._vectorize_kb_chunks  # 保存原始, addCleanup 恢复
         def selective_vectorize(entry_id, *args, **kwargs):
             if entry_id == 'e2':
                 raise RuntimeError('mock embedding API failure for e2')
             return orig_vectorize(entry_id, *args, **kwargs)
-        self.ns['_vectorize_kb_chunks'] = selective_vectorize
-        # 注入 mock api_key
-        self.ns['get_embedding_config'] = lambda emp_id=None: {
-            'apiKey': 'mock-key', 'provider': 'openai',
-            'model': 'm', 'baseUrl': None
-        }
+        ks._vectorize_kb_chunks = selective_vectorize
+        self.addCleanup(setattr, ks, '_vectorize_kb_chunks', orig_vectorize)
+        # mock _save_kb_chunks_without_embedding 写 2 个 mock chunks
+        self._orig_save = ks._save_kb_chunks_without_embedding
+        def save_chunks(entry_id, emp_id, content, cs, ov):
+            self._db.execute('DELETE FROM kb_entry_chunks WHERE entry_id = ?', (entry_id,))
+            for i in range(2):
+                self._db.execute(
+                    '''INSERT INTO kb_entry_chunks (id, entry_id, content, embedding, embedding_model)
+                       VALUES (?, ?, ?, NULL, '')''',
+                    (f'{entry_id}_c{i}', entry_id, f'mock-chunk-{i+1}')
+                )
+            self._db.execute('UPDATE kb_entries SET chunk_count = 2 WHERE id = ?', (entry_id,))
+            self._db.commit()
+        ks._save_kb_chunks_without_embedding = save_chunks
+        self.addCleanup(setattr, ks, '_save_kb_chunks_without_embedding', self._orig_save)
         self._db.commit()
 
     def test_one_failure_does_not_block_others(self):
-        result = self.ns['kb_entry_repair_index'](confirm=True, is_admin=True)
+        result = ks.kb_entry_repair_index(confirm=True, is_admin=True)
         # e1 应成功, e2 应失败
         executed = result['stats']
         self.assertGreaterEqual(executed['rebuild_succeeded'], 1, 'e1 应被成功重建')
@@ -446,5 +386,7 @@ class TestRepairFailureIsolation(unittest.TestCase):
 
 
 if __name__ == '__main__':
-    _init_ns()
+    print('=' * 60)
+    print('RAG 索引完整性单测 (refactor/rag-index-integrity)')
+    print('=' * 60)
     unittest.main(verbosity=2)

@@ -18,6 +18,7 @@ exec 到独立 namespace 跑 (避开 server 整个 import 链)。
 """
 import os, sys, json, sqlite3, time, re
 import unittest  # ★ fix/mini-test-code-repair-20260925: 补 import (class TestXxx(unittest.TestCase) + unittest.main 引用)
+import threading  # ★ fix/mini-test-code-repair-20260925 19:17: 补 import (commit 12 重写时丢, threading.Event 用于 cancel_event)
 import knowledge_service  # ★ fix/mini-test-code-repair-20260925: 真 import, 替代 exec 拼字符串 (Mac 端 6 setup error 治法, 老 brief 12:37 拍板 real_import_light_stub)
 
 
