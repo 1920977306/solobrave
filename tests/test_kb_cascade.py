@@ -145,10 +145,14 @@ class TestSoftDeleteCascade(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         """★ fix/mini-test-code-repair-20260925: 一次初始化, 所有 test_* 共享."""
-        cls.ns, cls._db = _init_ns()
+        # ★ fix/mini-test-code-repair-20260925 工单 FINAL ②: 删 setUpClass 共享连接 (setUp 自带)
 
     def setUp(self):
-        self.ns['init_test_tables'](self._db_conn())
+        # ★ fix/mini-test-code-repair-20260925 工单 FINAL ②: 治 39 failed
+        # setUpClass 共享 cls.ns / cls._db 是连接污染根因, 改 setUp 自带 ns + 独立连接
+        self.ns, self._db = _init_ns()
+        self.addCleanup(self._db.close)
+        self.ns['init_test_tables'](self._db)
         now_ms = int(time.time() * 1000)
         self._db.execute('''INSERT INTO kb_entries (id, title, content, scope, status, created_at, updated_at)
                        VALUES (?, ?, ?, 'global', 'ok', ?, ?)''',
@@ -207,10 +211,14 @@ class TestTransactionRollback(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         """★ fix/mini-test-code-repair-20260925: 一次初始化, 所有 test_* 共享."""
-        cls.ns, cls._db = _init_ns()
+        # ★ fix/mini-test-code-repair-20260925 工单 FINAL ②: 删 setUpClass 共享连接 (setUp 自带)
 
     def setUp(self):
-        self.ns['init_test_tables'](self._db_conn())
+        # ★ fix/mini-test-code-repair-20260925 工单 FINAL ②: 治 39 failed
+        # setUpClass 共享 cls.ns / cls._db 是连接污染根因, 改 setUp 自带 ns + 独立连接
+        self.ns, self._db = _init_ns()
+        self.addCleanup(self._db.close)
+        self.ns['init_test_tables'](self._db)
         now_ms = int(time.time() * 1000)
         self._db.execute('''INSERT INTO kb_entries (id, title, content, scope, status, created_at, updated_at)
                        VALUES (?, ?, ?, 'global', 'ok', ?, ?)''',
@@ -250,10 +258,14 @@ class TestCleanupDangling(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         """★ fix/mini-test-code-repair-20260925: 一次初始化, 所有 test_* 共享."""
-        cls.ns, cls._db = _init_ns()
+        # ★ fix/mini-test-code-repair-20260925 工单 FINAL ②: 删 setUpClass 共享连接 (setUp 自带)
 
     def setUp(self):
-        self.ns['init_test_tables'](self._db_conn())
+        # ★ fix/mini-test-code-repair-20260925 工单 FINAL ②: 治 39 failed
+        # setUpClass 共享 cls.ns / cls._db 是连接污染根因, 改 setUp 自带 ns + 独立连接
+        self.ns, self._db = _init_ns()
+        self.addCleanup(self._db.close)
+        self.ns['init_test_tables'](self._db)
         now_ms = int(time.time() * 1000)
         old_ms = now_ms - 10 * 24 * 60 * 60 * 1000  # 10 天前
 
@@ -317,10 +329,14 @@ class TestHardDelete(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         """★ fix/mini-test-code-repair-20260925: 一次初始化, 所有 test_* 共享."""
-        cls.ns, cls._db = _init_ns()
+        # ★ fix/mini-test-code-repair-20260925 工单 FINAL ②: 删 setUpClass 共享连接 (setUp 自带)
 
     def setUp(self):
-        self.ns['init_test_tables'](self._db_conn())
+        # ★ fix/mini-test-code-repair-20260925 工单 FINAL ②: 治 39 failed
+        # setUpClass 共享 cls.ns / cls._db 是连接污染根因, 改 setUp 自带 ns + 独立连接
+        self.ns, self._db = _init_ns()
+        self.addCleanup(self._db.close)
+        self.ns['init_test_tables'](self._db)
         now_ms = int(time.time() * 1000)
         self._db.execute('''INSERT INTO kb_entries (id, title, content, scope, status, created_at, updated_at)
                        VALUES (?, ?, ?, 'global', 'ok', ?, ?)''',

@@ -151,10 +151,14 @@ class TestVectorizeHelper(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         """★ fix/mini-test-code-repair-20260925: 一次初始化, 所有 test_* 共享."""
-        cls.ns, cls._db = _init_ns()
+        # ★ fix/mini-test-code-repair-20260925 工单 FINAL ②: 删 setUpClass 共享连接 (setUp 自带)
 
     def setUp(self):
-        self.ns['init_test_tables'](self._db_conn())
+        # ★ fix/mini-test-code-repair-20260925 工单 FINAL ②: 治 39 failed
+        # setUpClass 共享 cls.ns / cls._db 是连接污染根因, 改 setUp 自带 ns + 独立连接
+        self.ns, self._db = _init_ns()
+        self.addCleanup(self._db.close)
+        self.ns['init_test_tables'](self._db)
         _insert_entry('e1', title='Test', status='ok')
         # mock _vectorize_kb_chunks 抛错
         self._orig_vec = ns['_vectorize_kb_chunks']
@@ -189,10 +193,14 @@ class TestRetryEmbedding(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         """★ fix/mini-test-code-repair-20260925: 一次初始化, 所有 test_* 共享."""
-        cls.ns, cls._db = _init_ns()
+        # ★ fix/mini-test-code-repair-20260925 工单 FINAL ②: 删 setUpClass 共享连接 (setUp 自带)
 
     def setUp(self):
-        self.ns['init_test_tables'](self._db_conn())
+        # ★ fix/mini-test-code-repair-20260925 工单 FINAL ②: 治 39 failed
+        # setUpClass 共享 cls.ns / cls._db 是连接污染根因, 改 setUp 自带 ns + 独立连接
+        self.ns, self._db = _init_ns()
+        self.addCleanup(self._db.close)
+        self.ns['init_test_tables'](self._db)
         _insert_entry('e1', title='Failed', content='content-1', status='embedding_failed',
                       created_by='u1', emp_id='emp1')
         # 已有 chunk 但无 embedding (模拟 embedding_failed 后的状态)
@@ -277,10 +285,14 @@ class TestRetryAllFailed(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         """★ fix/mini-test-code-repair-20260925: 一次初始化, 所有 test_* 共享."""
-        cls.ns, cls._db = _init_ns()
+        # ★ fix/mini-test-code-repair-20260925 工单 FINAL ②: 删 setUpClass 共享连接 (setUp 自带)
 
     def setUp(self):
-        self.ns['init_test_tables'](self._db_conn())
+        # ★ fix/mini-test-code-repair-20260925 工单 FINAL ②: 治 39 failed
+        # setUpClass 共享 cls.ns / cls._db 是连接污染根因, 改 setUp 自带 ns + 独立连接
+        self.ns, self._db = _init_ns()
+        self.addCleanup(self._db.close)
+        self.ns['init_test_tables'](self._db)
         # 3 entries: 2 failed, 1 ok
         _insert_entry('e1', title='Failed1', status='embedding_failed', created_by='u1', emp_id='emp1')
         _insert_entry('e2', title='Failed2', status='error', created_by='u2', emp_id='emp1')
@@ -337,10 +349,14 @@ class TestReindexIncludesEmbeddingFailed(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         """★ fix/mini-test-code-repair-20260925: 一次初始化, 所有 test_* 共享."""
-        cls.ns, cls._db = _init_ns()
+        # ★ fix/mini-test-code-repair-20260925 工单 FINAL ②: 删 setUpClass 共享连接 (setUp 自带)
 
     def setUp(self):
-        self.ns['init_test_tables'](self._db_conn())
+        # ★ fix/mini-test-code-repair-20260925 工单 FINAL ②: 治 39 failed
+        # setUpClass 共享 cls.ns / cls._db 是连接污染根因, 改 setUp 自带 ns + 独立连接
+        self.ns, self._db = _init_ns()
+        self.addCleanup(self._db.close)
+        self.ns['init_test_tables'](self._db)
         # 3 entries: 1 pending, 1 embedding_failed, 1 ok
         _insert_entry('e1', title='Pending', content='c1', status='pending')
         _insert_entry('e2', title='EmbeddingFailed', content='c2', status='embedding_failed')

@@ -16,6 +16,9 @@ OpenClaw gateway 错误兜底单测 (refactor/openclaw-gateway-error-handling)
    Node.js 端 sanity check (.tmp/gateway_error_sanity.js) 验证 Python 镜像逻辑正确性
 """
 import os, sys, json, re
+from pathlib import Path
+
+IDX_HTML = Path(__file__).resolve().parent.parent / 'index.html'
 
 def _init_ns():
     """★ fix/mini-test-code-repair-20260925 P0-4: 初始化 ns (提取 + stub + exec).

@@ -288,12 +288,13 @@ class TestListRecent(_HeavyPipeTestBase):
         def runner(progress_cb, cancel_event):
             return {'x': 1}
         ids = [mgr.start_task('t1', {}, runner) for _ in range(3)]
-        # ★ fix/mini-test-code-repair-20260925 工单 FINAL B1: 治 race condition
-        # 3 task 并发启动, thread 调度顺序不保证 → started_at 顺序反转,
-        # sort reverse 后 recent[0] != ids[-1]. 治法: sleep 让 thread 启动有序
-        time.sleep(0.05)
         for tid in ids:
             wait_for_status(mgr, tid, 'success', timeout=2.0)
+        # ★ fix/mini-test-code-repair-20260925 工单 FINAL B1: 删 sleep, 改显式写时间戳
+        # 真 list_recent 是 sorted(self._tasks.values(), key=lambda t: t.started_at or 0, reverse=True)
+        # 显式设 started_at 让排序确定性 (不靠 thread 调度运气)
+        for i, tid in enumerate(ids):
+            mgr._tasks[tid].started_at = 1000 + i
         recent = mgr.list_recent(limit=10)
         self.assertGreaterEqual(len(recent), 3)
         # 应按 started_at 倒序

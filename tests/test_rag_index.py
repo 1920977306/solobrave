@@ -191,10 +191,14 @@ class TestVerifyDetectsIssues(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         """★ fix/mini-test-code-repair-20260925: 一次初始化, 所有 test_* 共享."""
-        cls.ns, cls._db = _init_ns()
+        # ★ fix/mini-test-code-repair-20260925 工单 FINAL ②: 删 setUpClass 共享连接 (setUp 自带)
 
     def setUp(self):
-        self.ns['init_test_tables'](self._db_conn())
+        # ★ fix/mini-test-code-repair-20260925 工单 FINAL ②: 治 39 failed
+        # setUpClass 共享 cls.ns / cls._db 是连接污染根因, 改 setUp 自带 ns + 独立连接
+        self.ns, self._db = _init_ns()
+        self.addCleanup(self._db.close)
+        self.ns['init_test_tables'](self._db)
         # e1: status=ok 但 0 chunks → missing_chunks
         _insert_entry('e1', title='Missing', status='ok', chunk_count=0)
         # e2: chunk_count=3 但实际 2 chunks → chunk_count_mismatch
@@ -263,10 +267,14 @@ class TestRepairDryRun(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         """★ fix/mini-test-code-repair-20260925: 一次初始化, 所有 test_* 共享."""
-        cls.ns, cls._db = _init_ns()
+        # ★ fix/mini-test-code-repair-20260925 工单 FINAL ②: 删 setUpClass 共享连接 (setUp 自带)
 
     def setUp(self):
-        self.ns['init_test_tables'](self._db_conn())
+        # ★ fix/mini-test-code-repair-20260925 工单 FINAL ②: 治 39 failed
+        # setUpClass 共享 cls.ns / cls._db 是连接污染根因, 改 setUp 自带 ns + 独立连接
+        self.ns, self._db = _init_ns()
+        self.addCleanup(self._db.close)
+        self.ns['init_test_tables'](self._db)
         _insert_entry('e1', title='Missing', status='ok', chunk_count=0)
         _insert_entry('e2', title='Healthy', status='ok', chunk_count=2)
         _insert_chunk('c2a', 'e2', 'a', embedding=b'\x00' * 4, model='m1')
@@ -311,10 +319,14 @@ class TestRepairConfirm(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         """★ fix/mini-test-code-repair-20260925: 一次初始化, 所有 test_* 共享."""
-        cls.ns, cls._db = _init_ns()
+        # ★ fix/mini-test-code-repair-20260925 工单 FINAL ②: 删 setUpClass 共享连接 (setUp 自带)
 
     def setUp(self):
-        self.ns['init_test_tables'](self._db_conn())
+        # ★ fix/mini-test-code-repair-20260925 工单 FINAL ②: 治 39 failed
+        # setUpClass 共享 cls.ns / cls._db 是连接污染根因, 改 setUp 自带 ns + 独立连接
+        self.ns, self._db = _init_ns()
+        self.addCleanup(self._db.close)
+        self.ns['init_test_tables'](self._db)
         # e1: missing_chunks (status=ok 但 0 chunks)
         _insert_entry('e1', title='Missing', status='ok', chunk_count=0, content='content-1')
         # e3: model_drift
@@ -377,10 +389,14 @@ class TestRepairFailureIsolation(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         """★ fix/mini-test-code-repair-20260925: 一次初始化, 所有 test_* 共享."""
-        cls.ns, cls._db = _init_ns()
+        # ★ fix/mini-test-code-repair-20260925 工单 FINAL ②: 删 setUpClass 共享连接 (setUp 自带)
 
     def setUp(self):
-        self.ns['init_test_tables'](self._db_conn())
+        # ★ fix/mini-test-code-repair-20260925 工单 FINAL ②: 治 39 failed
+        # setUpClass 共享 cls.ns / cls._db 是连接污染根因, 改 setUp 自带 ns + 独立连接
+        self.ns, self._db = _init_ns()
+        self.addCleanup(self._db.close)
+        self.ns['init_test_tables'](self._db)
         # e1: 正常可重建
         _insert_entry('e1', title='Normal', status='ok', chunk_count=0, content='c1')
         # e2: 构造一个会触发 rebuild 失败的 entry (status='deleted' 在 repair 内被过滤, _save 会返回 0 rows 不出错;
