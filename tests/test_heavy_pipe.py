@@ -22,6 +22,20 @@ import threading  # ★ fix/mini-test-code-repair-20260925 19:17: 补 import (co
 import knowledge_service  # ★ fix/mini-test-code-repair-20260925: 真 import, 替代 exec 拼字符串 (Mac 端 6 setup error 治法, 老 brief 12:37 拍板 real_import_light_stub)
 
 
+# ★ fix/mini-test-code-repair-20260925 20:41: _ImmuneConn 代理 (跟 KB 3 一致).
+# 产品代码 (kb_entries_reindex_pending L2970 + wrapper L2714 等) 在事务
+# 结束后调 self._db_conn().close() 关连接, 但测试 setUp 自己 addCleanup
+# 关 self._db, 不希望产品代码中间关. _ImmuneConn 让产品 close() 是 no-op,
+# 测试 addCleanup(self._db.close) 收尾.
+class _ImmuneConn:
+    def __init__(self, real):
+        self._real = real
+    def close(self):
+        pass  # 产品代码 close 不生效
+    def __getattr__(self, name):
+        return getattr(self._real, name)
+
+
 
 
 
@@ -326,7 +340,7 @@ class TestReindexBackwardCompat(_HeavyPipeTestBase):
             }),
             ('_save_kb_chunks_without_embedding', lambda *a, **k: None),
             ('_vectorize_kb_chunks', lambda *a, **k: None),
-            ('_db_conn', lambda: self._db),
+            ('_db_conn', lambda: _ImmuneConn(self._db)),  # ★ fix/mini-test-code-repair-20260925 20:41: 跟 KB 3 一致, 包装 _ImmuneConn 让产品 close() 是 no-op (治 closed database)
         ]:
             orig = getattr(knowledge_service, name)
             setattr(knowledge_service, name, mock)
