@@ -416,4 +416,4 @@ class TestRepairFailureIsolation(unittest.TestCase):
 
 if __name__ == '__main__':
     _init_ns()
-        unittest.main(verbosity=2)
+    unittest.main(verbosity=2)

@@ -345,4 +345,4 @@ if __name__ == '__main__':
     print('KB 软删级联单测 (refactor/kb-soft-delete-cascade)')
     print('=' * 60)
     _init_ns()
-        unittest.main(verbosity=2)
+    unittest.main(verbosity=2)
