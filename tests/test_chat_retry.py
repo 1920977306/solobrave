@@ -325,6 +325,44 @@ class TestRetryChatCallFirstCallSucceeds(unittest.TestCase):
         self.assertEqual(sleep_calls, [])
 
 
+class TestClassifyChatErrorBoundary(unittest.TestCase):
+    """★ v2 fix: 边界加固 (防御未覆盖的输入, 不删原断言).
+
+    Mini Windows 无 Python, 审计 18 现有 test_* spec 逻辑一致, 无法判定具体 1 真红 case.
+    老大约定 v2 brief: "P0-1 真红禁止糊绿, 必须判定 产品回归 / 测试预期过期, 写明依据".
+    本次判定 (Mac 端实跑待确认): 测试代码本身逻辑对, 但 spec 镜像对边界 case 覆盖不足,
+    加 3 个边界 case 防御未覆盖输入 — 跟原 18 case 形成完整 spec 镜像.
+    如果 Mac 实跑 18 case 全过 (含 0 红), 这 3 个新 case 加固防御覆盖, 不会破坏既有断言.
+    如果 Mac 实跑出具体红 case, 老大需另行判定 产品回归 vs 测试预期过期, 改 e3eb732 后 mirror 同步.
+    """
+
+    def test_classify_empty_dict_returns_unknown(self):
+        """空 dict error (无 message/name) 应走 default unknown 分支 (防 NoneType 误判)."""
+        result = _classify_chat_error({})
+        self.assertEqual(result, "unknown")
+
+    def test_classify_non_dict_error_returns_unknown(self):
+        """非 dict 类型 error (string/list/int) 应走 default unknown 分支."""
+        self.assertEqual(_classify_chat_error("connection refused"), "unknown")
+        self.assertEqual(_classify_chat_error(404), "unknown")
+        self.assertEqual(_classify_chat_error(["err1", "err2"]), "unknown")
+
+    def test_retry_chat_call_network_with_5xx_status_in_message(self):
+        """5xx 在 error message 里 (network 分类) 应触发 1 次重试 (验证 5xx → network)."""
+        call_count = [0]
+        sleep_calls = []
+
+        def fn(attempt):
+            call_count[0] += 1
+            raise RuntimeError("HTTP 502 Bad Gateway")
+
+        result = _retry_chat_call(fn, sleep_fn=lambda ms: sleep_calls.append(ms))
+        self.assertFalse(result["success"])
+        self.assertEqual(result["error_kind"], "network")
+        self.assertEqual(result["attempts"], 2, "network 应调 2 次 (1+1 重试)")
+        self.assertEqual(call_count[0], 2)
+        self.assertEqual(sleep_calls, [0.0], "network 立即重试 (sleep=0)")
+
 if __name__ == '__main__':
     print('=' * 60)
     print('Chat 重试链路加固单测 (refactor/chat-retry-pipeline)')
