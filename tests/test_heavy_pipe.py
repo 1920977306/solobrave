@@ -26,6 +26,64 @@ import knowledge_service  # ★ fix/mini-test-code-repair-20260925: 真 import, 
 
 
 
+def init_test_tables(conn):
+    """★ fix/mini-test-code-repair-20260925 工单 FINAL: 照抄 knowledge_service.init_db() 真实 schema.
+
+    治 KB 3 39 failed (setUp 调 self.ns['init_test_tables'] 但 _init_ns 没注入键)
+    + 治 heavy_pipe B2 no such column: emp_id (TestReindexBackwardCompat.setUp
+      旧 CREATE TABLE 缺 emp_id 列; kb_entries_reindex_pending 函数
+      SELECT id, emp_id, ... FROM kb_entries 需要).
+
+    Schema: kb_entries / kb_entry_chunks / kb_operation_log 三表
+    (KB 3 跟 heavy_pipe 共享), 含 emp_id 列 + knowledge_service.init_db() 全部列.
+    """
+    conn.execute('DROP TABLE IF EXISTS kb_entries')
+    conn.execute('DROP TABLE IF EXISTS kb_entry_chunks')
+    conn.execute('DROP TABLE IF EXISTS kb_operation_log')
+    conn.execute('''
+        CREATE TABLE kb_entries (
+            id TEXT PRIMARY KEY,
+            title TEXT NOT NULL,
+            content TEXT NOT NULL,
+            category TEXT DEFAULT '',
+            category_id INTEGER,
+            project_id TEXT DEFAULT '',
+            scope TEXT DEFAULT 'global',
+            team_id TEXT DEFAULT '',
+            group_ids TEXT DEFAULT '[]',
+            emp_id TEXT DEFAULT '',
+            status TEXT DEFAULT 'ok',
+            chunk_count INTEGER DEFAULT 0,
+            created_by TEXT DEFAULT '',
+            created_at INTEGER,
+            updated_at INTEGER
+        )
+    ''')
+    conn.execute('''
+        CREATE TABLE kb_entry_chunks (
+            id TEXT PRIMARY KEY,
+            entry_id TEXT NOT NULL,
+            emp_id TEXT DEFAULT '',
+            chunk_index INTEGER,
+            content TEXT NOT NULL,
+            embedding BLOB,
+            embedding_model TEXT DEFAULT '',
+            created_at INTEGER
+        )
+    ''')
+    conn.execute('''
+        CREATE TABLE kb_operation_log (
+            id TEXT PRIMARY KEY,
+            entry_id TEXT,
+            operation TEXT NOT NULL,
+            operator_id TEXT DEFAULT '',
+            details TEXT DEFAULT '{}',
+            created_at INTEGER
+        )
+    ''')
+    conn.commit()
+
+
 def _init_ns():
     """★ real_import_light_stub: 顶部已 import knowledge_service, ns = module.__dict__.copy()
 
@@ -85,6 +143,22 @@ class _HeavyPipeTestBase(unittest.TestCase):
         cls.ns, cls._db = _init_ns()
 
     def setUp(self):
+        # ★ fix/mini-test-code-repair-20260925 工单 FINAL: 每测试独立连接 (治 B3)
+        # 类级共享连接被前一测试 cleanup 关闭 → 后一测试 'Cannot operate on a closed database'
+        # 改每测试新建 sqlite3 in-memory + addCleanup 关, 弃用 setUpClass cls._db 共享
+        _db = sqlite3.connect(':memory:', check_same_thread=False)
+        _db.row_factory = sqlite3.Row
+        self._db = _db
+        self.addCleanup(_db.close)
+
+        # 注入 _db_conn stub 走 self._db (kb_entries_reindex_pending 调 module._db_conn)
+        orig_db_conn = getattr(knowledge_service, '_db_conn', None)
+        setattr(knowledge_service, '_db_conn', lambda: _db)
+        self.addCleanup(setattr, knowledge_service, '_db_conn', orig_db_conn)
+
+        # 初始化 KB 表 (照抄 knowledge_service.init_db() 真实 schema, 含 emp_id - 治 B2)
+        init_test_tables(_db)
+
         # 公共 stub: 类 globals 注入, 函数 globals=module 调到 stub
         for name, mock in [
             ('TIMEOUT_HEAVY_PIPE_MS', 500),  # 缩短默认 120s → 500ms 测试可控
@@ -214,6 +288,10 @@ class TestListRecent(_HeavyPipeTestBase):
         def runner(progress_cb, cancel_event):
             return {'x': 1}
         ids = [mgr.start_task('t1', {}, runner) for _ in range(3)]
+        # ★ fix/mini-test-code-repair-20260925 工单 FINAL B1: 治 race condition
+        # 3 task 并发启动, thread 调度顺序不保证 → started_at 顺序反转,
+        # sort reverse 后 recent[0] != ids[-1]. 治法: sleep 让 thread 启动有序
+        time.sleep(0.05)
         for tid in ids:
             wait_for_status(mgr, tid, 'success', timeout=2.0)
         recent = mgr.list_recent(limit=10)
@@ -251,23 +329,9 @@ class TestReindexBackwardCompat(_HeavyPipeTestBase):
             setattr(knowledge_service, name, mock)
             self.addCleanup(setattr, knowledge_service, name, orig)
 
-        # 初始化 KB 表 + 2 条 pending entry
-        self._db.execute('DROP TABLE IF EXISTS kb_entries')
-        self._db.execute('DROP TABLE IF EXISTS kb_entry_chunks')
-        self._db.execute('''
-            CREATE TABLE kb_entries (
-                id TEXT PRIMARY KEY, title TEXT NOT NULL, content TEXT NOT NULL,
-                status TEXT DEFAULT 'ok', chunk_count INTEGER DEFAULT 0,
-                created_at INTEGER, updated_at INTEGER
-            )
-        ''')
-        self._db.execute('''
-            CREATE TABLE kb_entry_chunks (
-                id TEXT PRIMARY KEY, entry_id TEXT NOT NULL, content TEXT NOT NULL,
-                embedding BLOB, embedding_model TEXT DEFAULT '', chunk_index INTEGER,
-                emp_id TEXT DEFAULT '', created_at INTEGER
-            )
-        ''')
+        # ★ fix/mini-test-code-repair-20260925 工单 FINAL:
+        # base class setUp 已调 init_test_tables(self._db) 建表 (含 emp_id),
+        # 这里只插 2 条 pending entry 给 kb_entries_reindex_pending 测试用
         now_ms = int(time.time() * 1000)
         for i in range(2):
             self._db.execute(

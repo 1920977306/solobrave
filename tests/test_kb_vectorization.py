@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """
 KB 向量化失败重试 单测 (refactor/kb-vectorization-error-handling)
 
@@ -77,6 +77,8 @@ def _init_ns():
     ns['can_edit_knowledge'] = _rebind(module.can_edit_knowledge)
     ns['kb_entry_get_by_id'] = _rebind(module.kb_entry_get_by_id)
 
+    # ★ fix/mini-test-code-repair-20260925 工单 FINAL: 治 KB3 39 failed (setUp 调 self.ns['init_test_tables'] 需要 ns 有这键)
+    ns['init_test_tables'] = init_test_tables
     return ns, _db
 
 

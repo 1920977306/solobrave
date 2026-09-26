@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """
 RAG 索引完整性单测 (refactor/rag-index-integrity)
 
@@ -109,6 +109,8 @@ def _init_ns():
     ns['kb_entry_verify_index'] = _rebind(module.kb_entry_verify_index)
     ns['kb_entry_repair_index'] = _rebind(module.kb_entry_repair_index)
 
+    # ★ fix/mini-test-code-repair-20260925 工单 FINAL: 治 KB3 39 failed (setUp 调 self.ns['init_test_tables'] 需要 ns 有这键)
+    ns['init_test_tables'] = init_test_tables
     return ns, _db
 
 
