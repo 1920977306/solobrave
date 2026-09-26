@@ -346,12 +346,20 @@ class TestRepairFailureIsolation(unittest.TestCase):
         _insert_entry(self._db, 'e1', title='Normal', status='ok', chunk_count=0, content='c1')
         # e2: 构造一个会触发 rebuild 失败的 entry
         _insert_entry(self._db, 'e2', title='WillFail', status='ok', chunk_count=0, content='c2')
-        # 让 _vectorize_kb_chunks 对 e2 抛错 (e1 走原始逻辑)
+        # 让 _vectorize_kb_chunks 对 e2 抛错, e1 走 mock success_vec (写 fake embedding)
         orig_vectorize = ks._vectorize_kb_chunks  # 保存原始, addCleanup 恢复
+        def success_vec(entry_id, *args, **kwargs):
+            import struct
+            emb_bytes = struct.pack('2f', 0.1, 0.2)
+            self._db.execute(
+                'UPDATE kb_entry_chunks SET embedding=?, embedding_model=? WHERE entry_id=?',
+                (emb_bytes, kwargs.get('model') or args[3], entry_id)
+            )
+            self._db.commit()
         def selective_vectorize(entry_id, *args, **kwargs):
             if entry_id == 'e2':
                 raise RuntimeError('mock embedding API failure for e2')
-            return orig_vectorize(entry_id, *args, **kwargs)
+            return success_vec(entry_id, *args, **kwargs)
         ks._vectorize_kb_chunks = selective_vectorize
         self.addCleanup(setattr, ks, '_vectorize_kb_chunks', orig_vectorize)
         # mock _save_kb_chunks_without_embedding 写 2 个 mock chunks

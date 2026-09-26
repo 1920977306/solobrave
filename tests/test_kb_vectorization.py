@@ -150,6 +150,13 @@ class TestRetryEmbedding(unittest.TestCase):
         self.addCleanup(setattr, ks, '_db_conn', self._orig_db_conn)
         _insert_entry(self._db, 'e1', title='Failed', content='content-1', status='embedding_failed',
                       created_by='u1', emp_id='emp1')
+        # 注入 mock api_key (否则 kb_entry_retry_embedding 走 fallback 路径设 status='error')
+        # ★ fix/mini-test-code-repair-20260925 19:44
+        self._orig_emb = ks.get_embedding_config
+        ks.get_embedding_config = lambda emp_id=None: {
+            'apiKey': 'mock-key', 'provider': 'openai', 'model': 'mock', 'baseUrl': None
+        }
+        self.addCleanup(setattr, ks, 'get_embedding_config', self._orig_emb)
         # 已有 chunk 但无 embedding (模拟 embedding_failed 后的状态)
         self._db.execute(
             '''INSERT INTO kb_entry_chunks (id, entry_id, content, embedding, embedding_model)
@@ -241,6 +248,13 @@ class TestRetryAllFailed(unittest.TestCase):
         _insert_entry(self._db, 'e1', title='Failed1', status='embedding_failed', created_by='u1', emp_id='emp1')
         _insert_entry(self._db, 'e2', title='Failed2', status='error', created_by='u2', emp_id='emp1')
         _insert_entry(self._db, 'e3', title='OK', status='ok', created_by='u3', emp_id='emp1')
+        # 注入 mock api_key (否则 kb_entry_retry_embedding 走 fallback 路径设 status='error')
+        # ★ fix/mini-test-code-repair-20260925 19:44
+        self._orig_emb = ks.get_embedding_config
+        ks.get_embedding_config = lambda emp_id=None: {
+            'apiKey': 'mock-key', 'provider': 'openai', 'model': 'mock', 'baseUrl': None
+        }
+        self.addCleanup(setattr, ks, 'get_embedding_config', self._orig_emb)
         # mock _vectorize_kb_chunks 成功
         self._orig_vec = ks._vectorize_kb_chunks
         def success_vec(entry_id, *args, **kwargs):

@@ -321,7 +321,8 @@ class TestReindexBackwardCompat(_HeavyPipeTestBase):
         super().setUp()
         for name, mock in [
             ('get_embedding_config', lambda emp_id=None: {
-                'apiKey': '', 'provider': 'openai', 'model': 'mock', 'baseUrl': None
+                'apiKey': 'mock-test-api-key',  # ★ fix/mini-test-code-repair-20260925 19:44: 非空让产品代码走真 vectorize 路径
+                'provider': 'openai', 'model': 'mock', 'baseUrl': None
             }),
             ('_save_kb_chunks_without_embedding', lambda *a, **k: None),
             ('_vectorize_kb_chunks', lambda *a, **k: None),
