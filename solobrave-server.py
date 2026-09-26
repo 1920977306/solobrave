@@ -21494,9 +21494,12 @@ def _update_talent_from_ocr_fields(talent_id, vision_field_maps):
         # ★ v4 amend: 跳过元数据字段 (不写入 talents 表, 只透传给 sidecar JSON)
         #   元数据: _distribution_incomplete / _confidence 等
         #   之前 L21490 不跳过会让 UPDATE talents SET _distribution_incomplete = ? 抛 SQL 错误
-        if db_col.startswith('_'):
-            continue
+        #   ★ fix/mini-test-code-repair-20260925 21:36: 跳过逻辑移入 for 循环内第一行 (之前错放在 for 外 → continue 无环可跳, SyntaxError + db_col NameError)
+        #   canonical dict 本身仍含 _ 开头 key, 给 L21527 sidecar 同步用 (canonical.get('_distribution_incomplete', {}) 不受 continue 位置影响)
         for db_col, val in canonical.items():
+            # 元数据字段只透传 sidecar, 不写 talents 表 (防 SQL 错误)
+            if db_col.startswith('_'):
+                continue
             # dict/list 序列化为 JSON 字符串 (fan_* 等分布字段)
             if isinstance(val, (dict, list)):
                 val = json.dumps(val, ensure_ascii=False)
