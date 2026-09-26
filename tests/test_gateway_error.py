@@ -250,4 +250,4 @@ if __name__ == '__main__':
     print('OpenClaw gateway 错误兜底单测 (refactor/openclaw-gateway-error-handling)')
     print('=' * 60)
     _init_ns()
-        unittest.main(verbosity=2)
+    unittest.main(verbosity=2)
