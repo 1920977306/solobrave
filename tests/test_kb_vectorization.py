@@ -61,9 +61,22 @@ def _init_ns():
     ns = module.__dict__.copy()
     ns['__name__'] = 'kb_vectorization_test'
 
-    def _db_conn():
-        return _db
-    ns['_db_conn'] = _db_conn
+    class _ImmuneConn:
+        """★ fix/mini-test-code-repair-20260925 工单 FINAL 17:27: 产品代码 close() 不生效代理.
+
+        治根因: 产品代码 (kb_entry_cleanup_dangling / kb_entries_reindex_pending)
+        在事务结束后调 self._db_conn().close() 关连接, 但测试下一 setUp 又开
+        新 in-memory 连接, 新连接被产品 close 抛 'Cannot operate on a closed database'.
+        _ImmuneConn 让产品 close() 调用是 no-op, 测试 setUp 自己 addCleanup 关.
+        """
+        def __init__(self, real):
+            self._real = real
+        def close(self):
+            pass  # 产品代码 close 不生效
+        def __getattr__(self, name):
+            return getattr(self._real, name)
+
+    ns['_db_conn'] = lambda: _ImmuneConn(_db)
     ns['_db'] = _db
 
     ns['_now_ms'] = lambda: int(time.time() * 1000)

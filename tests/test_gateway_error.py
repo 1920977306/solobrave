@@ -20,6 +20,16 @@ from pathlib import Path
 
 IDX_HTML = Path(__file__).resolve().parent.parent / 'index.html'
 
+import types
+# ★ fix/mini-test-code-repair-20260925 工单 FINAL 17:27: console stub 治段 3 NameError
+# 产品代码 console.log/warn/error/info 调用, 测试模块顶部无 console 定义, import 时 NameError
+console = types.SimpleNamespace(
+    log  = staticmethod(lambda *a, **k: None),
+    warn = staticmethod(lambda *a, **k: None),
+    error= staticmethod(lambda *a, **k: None),
+    info = staticmethod(lambda *a, **k: None),
+)
+
 def _init_ns():
     """★ fix/mini-test-code-repair-20260925 P0-4: 初始化 ns (提取 + stub + exec).
 
