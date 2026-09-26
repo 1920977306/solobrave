@@ -58,6 +58,16 @@ _strip_yuan = _solobrave_server._strip_yuan
 _update_talent_column_if_empty = _solobrave_server._update_talent_column_if_empty
 _parse_gmv_value = _solobrave_server._parse_gmv_value
 _merge_dist_by_normalized_key = _solobrave_server._merge_dist_by_normalized_key
+_migrate_existing_talents_fill_text_columns = _solobrave_server._migrate_existing_talents_fill_text_columns
+_talent_row_to_dict = _solobrave_server._talent_row_to_dict
+_get_confidence_level = _solobrave_server._get_confidence_level
+_set_confidence_level = _solobrave_server._set_confidence_level
+_normalize_distribution = _solobrave_server._normalize_distribution
+_MIN_DIST_KEYS = _solobrave_server._MIN_DIST_KEYS
+_set_distribution_incomplete = _solobrave_server._set_distribution_incomplete
+_get_distribution_incomplete_from_ocr_raw = _solobrave_server._get_distribution_incomplete_from_ocr_raw
+_detect_existing_collapsed_city_tier = _solobrave_server._detect_existing_collapsed_city_tier
+_reset_collapsed_city_tier = _solobrave_server._reset_collapsed_city_tier
 
 
 def _assert_equal(actual, expected, msg):
@@ -594,3 +604,519 @@ def test_merge_dist_by_normalized_key_city_with_space_v2():
     _assert_equal(len(merged), 2, 'v2 不合并 三线城市 和 三 线城市 (中间空格不同)')
     _assert_equal(merged.get('三线城市'), '24%', '三线城市 保留第一个值')
     _assert_equal(merged.get('三 线城市'), '25%', '三 线城市 保留原值')
+
+
+# ══════════════════════════════════════════════════════════════════════
+# ★ fix/ocr-canonical-sync-v3 (2026-09-25): 4 项治本新增 4 case
+# ══════════════════════════════════════════════════════════════════════
+
+
+def test_migrate_existing_talents_fill_text_columns():
+    """★ v3 治本: startup migration 回填 4 个 _text 列.
+
+    老大原话: "_update_talent_from_ocr_fields 加 startup 逻辑
+    遍历所有 talent 行, 从 ocr_raw_fields 回填 4 个 _text 列".
+
+    验证:
+    - talent 行 ocr_raw_fields 含 total_gmv='¥100万-500万' (字符串)
+    - talent 行 total_gmv_text='' 空
+    - 跑 _migrate_existing_talents_fill_text_columns
+    - DB total_gmv_text='¥100万-500万' (回填成功)
+    - video_gpm_text / live_gpm_text / avg_live_gmv_text 也回填
+    """
+    import sqlite3 as _sqlite3
+
+    # 准备 in-memory DB, mock _db_conn 返它
+    conn = _sqlite3.connect(':memory:')
+    conn.row_factory = _sqlite3.Row
+    conn.execute('''CREATE TABLE talents (
+        id TEXT PRIMARY KEY,
+        name TEXT,
+        ocr_raw_fields TEXT,
+        total_gmv_text TEXT DEFAULT '',
+        video_gpm_text TEXT DEFAULT '',
+        live_gpm_text TEXT DEFAULT '',
+        avg_live_gmv_text TEXT DEFAULT ''
+    )''')
+    conn.execute("""INSERT INTO talents (id, name, ocr_raw_fields, total_gmv_text, video_gpm_text, live_gpm_text, avg_live_gmv_text)
+                    VALUES (1, '李婶儿',
+                            '{"total_gmv":"¥100万-500万","video_gpm":"300","live_gpm":"500-1,000","avg_live_gmv":"¥2万-10万"}',
+                            '', '', '', '')""")
+    conn.commit()
+
+    # monkey-patch _db_conn 返测试 conn
+    original_db_conn = _solobrave_server._db_conn
+    _solobrave_server._db_conn = lambda: conn
+    try:
+        _migrate_existing_talents_fill_text_columns()
+        # 验证 4 _text 列都回填
+        row = conn.execute('SELECT total_gmv_text, video_gpm_text, live_gpm_text, avg_live_gmv_text FROM talents WHERE id = 1').fetchone()
+        _assert_equal(row['total_gmv_text'], '¥100万-500万', 'total_gmv_text 回填成功')
+        _assert_equal(row['video_gpm_text'], '300', 'video_gpm_text 回填成功')
+        _assert_equal(row['live_gpm_text'], '500-1,000', 'live_gpm_text 回填成功')
+        _assert_equal(row['avg_live_gmv_text'], '¥2万-10万', 'avg_live_gmv_text 回填成功')
+    finally:
+        _solobrave_server._db_conn = original_db_conn
+        conn.close()
+
+
+def test_migrate_existing_talents_skips_existing_text():
+    """★ v3 治本: startup migration 不覆盖已有 _text 值 (防覆盖手修值).
+
+    场景: 团长手修过 total_gmv_text='老修正值' (防 OCR 错误),
+    startup migration 看到 ocr_raw_fields 含 total_gmv='¥100万-500万'
+    但 total_gmv_text 非空, 应跳过 (不覆盖).
+    """
+    import sqlite3 as _sqlite3
+
+    conn = _sqlite3.connect(':memory:')
+    conn.row_factory = _sqlite3.Row
+    conn.execute('''CREATE TABLE talents (
+        id TEXT PRIMARY KEY, name TEXT, ocr_raw_fields TEXT,
+        total_gmv_text TEXT DEFAULT '',
+        video_gpm_text TEXT DEFAULT '',
+        live_gpm_text TEXT DEFAULT '',
+        avg_live_gmv_text TEXT DEFAULT ''
+    )''')
+    conn.execute("""INSERT INTO talents (id, name, ocr_raw_fields, total_gmv_text, video_gpm_text, live_gpm_text, avg_live_gmv_text)
+                    VALUES (1, '李婶儿',
+                            '{"total_gmv":"¥100万-500万","video_gpm":"300"}',
+                            '老修正值', '', '', '')""")
+    conn.commit()
+
+    original_db_conn = _solobrave_server._db_conn
+    _solobrave_server._db_conn = lambda: conn
+    try:
+        _migrate_existing_talents_fill_text_columns()
+        row = conn.execute('SELECT total_gmv_text, video_gpm_text FROM talents WHERE id = 1').fetchone()
+        # total_gmv_text 不被覆盖 (已有 '老修正值')
+        _assert_equal(row['total_gmv_text'], '老修正值', 'total_gmv_text 已有值不覆盖')
+        # video_gpm_text 应回填 (空)
+        _assert_equal(row['video_gpm_text'], '300', 'video_gpm_text 空, 已回填')
+    finally:
+        _solobrave_server._db_conn = original_db_conn
+        conn.close()
+
+
+def test_migrate_existing_talents_skips_talents_without_ocr_raw():
+    """★ v3 治本: startup migration 跳过 ocr_raw_fields IS NULL/空 的 talent 行.
+
+    防: 没有 OCR dump 的 legacy 行, migration 不报错不写 UPDATE.
+    """
+    import sqlite3 as _sqlite3
+
+    conn = _sqlite3.connect(':memory:')
+    conn.row_factory = _sqlite3.Row
+    conn.execute('''CREATE TABLE talents (
+        id TEXT PRIMARY KEY, name TEXT, ocr_raw_fields TEXT,
+        total_gmv_text TEXT DEFAULT '',
+        video_gpm_text TEXT DEFAULT '',
+        live_gpm_text TEXT DEFAULT '',
+        avg_live_gmv_text TEXT DEFAULT ''
+    )''')
+    conn.execute("INSERT INTO talents (id, name, ocr_raw_fields) VALUES (1, '李婶儿', NULL)")
+    conn.execute("INSERT INTO talents (id, name, ocr_raw_fields) VALUES (2, '王五', '')")
+    conn.commit()
+
+    original_db_conn = _solobrave_server._db_conn
+    _solobrave_server._db_conn = lambda: conn
+    try:
+        _migrate_existing_talents_fill_text_columns()
+        # 2 行 total_gmv_text 都应保持 ''
+        rows = conn.execute('SELECT id, total_gmv_text FROM talents ORDER BY id').fetchall()
+        _assert_equal(rows[0]['total_gmv_text'], '', 'legacy NULL 行 跳过')
+        _assert_equal(rows[1]['total_gmv_text'], '', 'legacy 空字符串 行 跳过')
+    finally:
+        _solobrave_server._db_conn = original_db_conn
+        conn.close()
+
+
+def test_talent_row_to_dict_missing_columns_no_error():
+    """★ v3 治本: _talent_row_to_dict 缺 4 _text + video_count 等列不抛 IndexError.
+
+    老大原话: "对未确认存在的列用 row.get('xxx') or default, 避免 API 500 No item with that key".
+
+    旧 DB (Mac 端生产 data/solobrave.db) 没跑过 v2 migration 时:
+      - 缺 4 _text 列 (total_gmv_text / video_gpm_text / live_gpm_text / avg_live_gmv_text)
+      - 缺 price_distribution / category_distribution
+      - 缺 main_category / video_count (任务 7)
+      - 缺 ocr_raw_fields
+    _talent_row_to_dict 加 _safe_row_get / _json_col 容错, 缺列返 default.
+
+    测试: sqlite3 in-memory 建老 schema (没 v3 关心列), INSERT 一行, 调 _talent_row_to_dict 不抛异常.
+    """
+    import sqlite3 as _sqlite3
+
+    conn = _sqlite3.connect(':memory:')
+    conn.row_factory = _sqlite3.Row
+    # ★ 故意只建老 schema 列 (没 v3 关心的 4 _text + price/category_distribution + main_category + video_count + ocr_raw_fields)
+    conn.execute('''CREATE TABLE talents (
+        id INTEGER PRIMARY KEY, name TEXT, avatar TEXT,
+        cooperation_status TEXT DEFAULT 'available'
+    )''')
+    conn.execute("INSERT INTO talents (id, name, avatar) VALUES (1, '李婶儿', 'avatar.png')")
+    conn.commit()
+    try:
+        row = conn.execute('SELECT * FROM talents WHERE id = 1').fetchone()
+        # ★ 不抛 IndexError
+        result = _talent_row_to_dict(row)
+        _assert_true(result is not None, '_talent_row_to_dict 不抛异常 (缺多列也 OK)')
+        _assert_equal(result['id'], 1, 'id 正确')
+        _assert_equal(result['name'], '李婶儿', 'name 正确')
+        # 缺列返 default
+        _assert_equal(result.get('total_gmv_text'), '', 'total_gmv_text 缺列 返空字符串')
+        _assert_equal(result.get('video_gpm_text'), '', 'video_gpm_text 缺列 返空字符串')
+        _assert_equal(result.get('live_gpm_text'), '', 'live_gpm_text 缺列 返空字符串')
+        _assert_equal(result.get('avg_live_gmv_text'), '', 'avg_live_gmv_text 缺列 返空字符串')
+        _assert_equal(result.get('price_distribution'), {}, 'price_distribution 缺列 返空 dict')
+        _assert_equal(result.get('category_distribution'), {}, 'category_distribution 缺列 返空 dict')
+        _assert_equal(result.get('main_category'), '', 'main_category 缺列 返空字符串')
+        # 任务 7: video_count 缺列 返 0 兜底
+        _assert_equal(result.get('video_count'), 0, 'video_count 缺列 返 0 (任务 7 兜底)')
+    finally:
+        conn.close()
+
+
+# ══════════════════════════════════════════════════════════════════════
+# ★ fix/ocr-canonical-sync-v4 (2026-09-25): P0 止血 + P2 补漏新增 8 case
+# ══════════════════════════════════════════════════════════════════════
+
+# ----- 任务 1: 白名单三级分级 (sidecar JSON) -----
+
+def test_get_confidence_level_default_l0():
+    """★ v4: _get_confidence_level 默认 'L0' (兼容旧数据无 _confidence 字段).
+
+    老大原话: "L0 raw (OCR 初值, ✅ 可被覆盖) / L1 verified / L2 confirmed (人工确认, ❌ 绝不覆盖)".
+    兼容旧数据: ocr_raw_fields 无 _confidence 子字段 → 默认 'L0' (可被覆盖).
+    """
+    # 1. None 输入 → 'L0'
+    _assert_equal(_get_confidence_level(None, 'total_gmv'), 'L0', 'None 输入 返 L0')
+    # 2. 空字符串 → 'L0'
+    _assert_equal(_get_confidence_level('', 'total_gmv'), 'L0', '空字符串 返 L0')
+    # 3. JSON 无 _confidence 字段 → 'L0'
+    _assert_equal(
+        _get_confidence_level('{"total_gmv":"¥100万-500万"}', 'total_gmv'),
+        'L0',
+        'JSON 无 _confidence 字段 返 L0 (兼容旧数据)',
+    )
+    # 4. JSON 解析失败 → 'L0'
+    _assert_equal(_get_confidence_level('{invalid json', 'total_gmv'), 'L0', 'JSON 解析失败 返 L0')
+    # 5. _confidence 不含 col → 'L0'
+    _assert_equal(
+        _get_confidence_level('{"_confidence":{"other_col":"L2"}}', 'total_gmv'),
+        'L0',
+        '_confidence 不含 col 返 L0',
+    )
+
+
+def test_get_confidence_level_l2():
+    """★ v4: _get_confidence_level L2 提升 (人工确认绝不覆盖).
+
+    L2 在 ocr_raw_fields._confidence[col] 时返 'L2', 触发 _update_talent_column_if_empty 跳过.
+    """
+    # 1. L2 提升
+    _assert_equal(
+        _get_confidence_level('{"_confidence":{"total_gmv":"L2"}}', 'total_gmv'),
+        'L2',
+        '_confidence[col]=L2 返 L2',
+    )
+    # 2. L1 verified (待 P1.2 实测, 暂不实现)
+    _assert_equal(
+        _get_confidence_level('{"_confidence":{"total_gmv":"L1"}}', 'total_gmv'),
+        'L1',
+        '_confidence[col]=L1 返 L1',
+    )
+    # 3. 非法值 → 兜底 'L0'
+    _assert_equal(
+        _get_confidence_level('{"_confidence":{"total_gmv":"L99"}}', 'total_gmv'),
+        'L0',
+        '非法 confidence 值 兜底 L0',
+    )
+    # 4. dict 输入 (不是 JSON 字符串) 也支持
+    _assert_equal(
+        _get_confidence_level({'_confidence': {'col': 'L2'}}, 'col'),
+        'L2',
+        'dict 输入 (非 JSON 字符串) 也支持',
+    )
+
+
+def test_set_confidence_level_writes_confidence():
+    """★ v4: _set_confidence_level 写 _confidence 字段到 ocr_raw_fields JSON.
+
+    保留原 OCR 字段不动, 只加/改 _confidence 子 dict.
+    """
+    ocr_raw = '{"total_gmv":"¥100万-500万","product_count":23}'
+    new_json = _set_confidence_level(ocr_raw, 'total_gmv', 'L2')
+    parsed = json.loads(new_json)
+    # 原字段保留
+    _assert_equal(parsed['total_gmv'], '¥100万-500万', '原字段 total_gmv 保留')
+    _assert_equal(parsed['product_count'], 23, '原字段 product_count 保留')
+    # 新增 _confidence
+    _assert_equal(parsed['_confidence']['total_gmv'], 'L2', '_confidence.total_gmv=L2')
+
+
+def test_update_talent_column_if_empty_l2_skips():
+    """★ v4: _update_talent_column_if_empty L2 绝不覆盖 (人工确认).
+
+    即使 DB 已有非空值 (v3 行为), L2 也额外跳过 — 防止 OCR 重跑覆盖人工确认值.
+    """
+    import sqlite3 as _sqlite3
+
+    conn = _sqlite3.connect(':memory:')
+    conn.row_factory = _sqlite3.Row
+    conn.execute('CREATE TABLE talents (id TEXT PRIMARY KEY, total_gmv_text TEXT DEFAULT "")')
+    conn.execute("INSERT INTO talents (id, total_gmv_text) VALUES ('1', 'L2-已确认值')")
+    conn.commit()
+
+    # 模拟 ocr_raw_fields._confidence.total_gmv=L2 (人工确认)
+    ocr_raw_l2 = '{"total_gmv":"¥100万-500万","_confidence":{"total_gmv":"L2"}}'
+
+    # 即使 total_gmv_text 是 'L2-已确认值', OCR 新值 '¥100万-500万' 应被跳过
+    result = _update_talent_column_if_empty(conn, '1', 'total_gmv_text', '¥100万-500万', ocr_raw_l2)
+    _assert_equal(result, False, 'L2 跳过 (返 False)')
+
+    conn.commit()
+    row = conn.execute('SELECT total_gmv_text FROM talents WHERE id = 1').fetchone()
+    # 仍 'L2-已确认值' (没被覆盖)
+    _assert_equal(row['total_gmv_text'], 'L2-已确认值', 'DB 值未被 L2 OCR 覆盖')
+
+    conn.close()
+
+
+# ----- 任务 2: 归一防塌缩前置守卫 -----
+
+def test_normalize_distribution_below_min_keys():
+    """★ v4: _normalize_distribution city_tier < 7 档不归一 (incomplete=True).
+
+    老大原话: "城市只抓到 2/7 档 → 归一逻辑在'值不全'时按现有值比例硬凑 100, 变成 50/50.
+     修复: 若捕获到的档位明显不全 (城市 < 7) → 禁止按比例硬凑 100."
+
+    OCR 只抓到 2 档 (三线 + 新一线), 不归一, 标记 incomplete=True.
+    """
+    dist = {'三线城市': 50, '新一线城市': 50}  # 总和 100, 但只 2 档
+    normalized, incomplete = _normalize_distribution(dist, field_name='fan_city_tier')
+    # 原始值保留
+    _assert_equal(normalized, dist, '< 7 档原始值保留 (不归一 100)')
+    # 标记 incomplete
+    _assert_equal(incomplete, True, '< 7 档标记 incomplete=True')
+    # _MIN_DIST_KEYS 验证
+    _assert_equal(_MIN_DIST_KEYS.get('fan_city_tier'), 7, 'fan_city_tier 最小 7 档')
+
+
+def test_normalize_distribution_total_over_105():
+    """★ v4: _normalize_distribution 总和 > 105 按比例归一到 100 (v2 行为保留).
+
+    类目 13 keys 总和 120, 归一后和 ≈ 100, incomplete=False.
+    """
+    dist = {'服饰内衣': 24, '个护家清': 19, '食品饮料': 17, '美妆': 12, '母婴': 10,
+            '家居': 8, '数码': 7, '运动户外': 6, '图书': 5, '汽车': 4,
+            '游戏': 3, '本地服务': 3, '其他': 2}
+    normalized, incomplete = _normalize_distribution(dist, field_name='category_distribution')
+    total = sum(v for v in normalized.values() if isinstance(v, (int, float)))
+    _assert_equal(round(total, 1), 100.0, '归一后总和 = 100')
+    _assert_equal(incomplete, False, '>= 13 档且总和 > 105 → 不 incomplete')
+    # 各值按比例缩放
+    _assert_equal(normalized['服饰内衣'], round(24 * 100 / 120, 2), '服饰内衣 缩放到 20.0')
+
+
+def test_normalize_distribution_total_90_to_110():
+    """★ v4: _normalize_distribution 总和在 90-110 已归一, 不动 (incomplete=False).
+
+    真实数据总和 95-105 (OCR 已归一过), 不重复归一, 防计算误差.
+    """
+    dist = {'服饰内衣': 24.5, '个护家清': 19.3, '食品饮料': 17.1, '美妆': 12.0, '母婴': 9.8}
+    normalized, incomplete = _normalize_distribution(dist, field_name='category_distribution')
+    # 5 档 < 13 (_MIN_DIST_KEYS), 但已知最小集合检查 → incomplete=True
+    # 这里验证规则 4 (90-110) 不适用, 因为档位数 < 13 优先触发 incomplete
+    _assert_equal(incomplete, True, '5 档 < 13 _MIN_DIST_KEYS → incomplete=True')
+
+
+def test_normalize_distribution_complete_90_to_110():
+    """★ v4: 13 keys 齐全且总和 90-110 → 已归一, 不动 (incomplete=False).
+
+    13 keys 总和 95, 已知最小集合 (13) 满足, 总和在 90-110 → 不归一, 不 incomplete.
+    """
+    dist = {f'类目{i}': 95/13 for i in range(1, 14)}
+    normalized, incomplete = _normalize_distribution(dist, field_name='category_distribution')
+    _assert_equal(incomplete, False, '13 档齐全 + 总和 90-110 → incomplete=False')
+    # 原始值不动
+    _assert_equal(normalized['类目1'], dist['类目1'], '已归一值不动')
+
+
+# ----- 任务 3: single_video_settlement migration 回填 -----
+
+def test_migrate_existing_talents_fill_single_video_settlement():
+    """★ v4 P2: _migrate_existing_talents_fill_text_columns 加 single_video_settlement 落库.
+
+    老大原话: "single_video_settlement 落库 + KPI 卡渲染".
+    从 ocr_raw_fields.extra_fields.视频带货数据.单视频结算额 反推填到 single_video_settlement.
+    防覆盖手修值 (已有非空跳过).
+    """
+    import sqlite3 as _sqlite3
+
+    conn = _sqlite3.connect(':memory:')
+    conn.row_factory = _sqlite3.Row
+    conn.execute('''CREATE TABLE talents (
+        id TEXT PRIMARY KEY, name TEXT, ocr_raw_fields TEXT,
+        total_gmv_text TEXT DEFAULT '', video_gpm_text TEXT DEFAULT '',
+        live_gpm_text TEXT DEFAULT '', avg_live_gmv_text TEXT DEFAULT '',
+        single_video_settlement TEXT DEFAULT ''
+    )''')
+    conn.execute("""INSERT INTO talents (id, name, ocr_raw_fields, single_video_settlement)
+                    VALUES ('1', '李婶儿',
+                            '{"extra_fields":{"视频带货数据":{"单视频结算额":"¥5,000-2万","视频GPM":"300"}}}',
+                            '')""")
+    conn.commit()
+
+    original_db_conn = _solobrave_server._db_conn
+    _solobrave_server._db_conn = lambda: conn
+    try:
+        _migrate_existing_talents_fill_text_columns()
+        row = conn.execute('SELECT single_video_settlement FROM talents WHERE id = 1').fetchone()
+        _assert_equal(row['single_video_settlement'], '¥5,000-2万', 'single_video_settlement 回填成功')
+    finally:
+        _solobrave_server._db_conn = original_db_conn
+        conn.close()
+
+# ══════════════════════════════════════════════════════════════════════
+# ★ fix/ocr-canonical-sync-v4 amend (2026-09-25): 补 3 city_tier pytest case
+#   - task 1: _FAN_SOURCE_MAP 4 段循环 city_tier 走 _normalize_distribution (2/7 档 + 7 档齐全)
+#   - task 3: _detect_existing_collapsed_city_tier 检测塌缩行
+# ══════════════════════════════════════════════════════════════════════
+
+def test_canonicalize_flattens_4_city_tier_uses_normalize():
+    """★ v4 amend task 1: _canonicalize_talent_row 4 段 city_tier 走 _normalize_distribution.
+
+    老大原话 (2026-09-25): "禁止硬凑 100, 变成 50/50" — 4 个 city_tier 字段 (fan_city_tier /
+    fan_group_city_tier / live_audience_city_tier / video_audience_city_tier) OCR 只抓到 2 档时
+    应保留原始值 + incomplete=True, 绝不能硬凑 100.
+
+    验证:
+    - 4 段 city_tier 各 2 档 + 总和 100 → out[col] = JSON 原始值 (不归一)
+    - out['_distribution_incomplete'] 包含 4 列标记
+    """
+    ocr_json = {
+        'fan_city_tier': '',         # 顶层空, 强制走 _FAN_SOURCE_MAP 循环
+        'fan_group_city_tier': '',
+        'live_audience_city_tier': '',
+        'video_audience_city_tier': '',
+        'extra_fields': {
+            '粉丝特征': {
+                '城市等级': {'三线城市': 60, '新一线城市': 40},  # 2 档 / 总和 100
+            },
+            '粉丝团特征': {
+                '城市等级': {'一线城市': 55, '四线城市': 45},
+            },
+            '直播间特征': {
+                '城市等级': {'二线城市': 70, '五线城市': 30},
+            },
+            '短视频特征': {
+                '城市等级': {'新一线城市': 80, '三线城市': 20},
+            },
+        },
+    }
+
+    result = _canonicalize_talent_row(ocr_json)
+
+    # 4 个 city_tier 列都应存在, 且原始值保留
+    for col, expected in [
+        ('fan_city_tier', {'三线城市': 60, '新一线城市': 40}),
+        ('fan_group_city_tier', {'一线城市': 55, '四线城市': 45}),
+        ('live_audience_city_tier', {'二线城市': 70, '五线城市': 30}),
+        ('video_audience_city_tier', {'新一线城市': 80, '三线城市': 20}),
+    ]:
+        _assert_true(col in result, f'{col} 应在 result dict 中')
+        # out[col] 是 JSON 字符串 (序列化)
+        actual = json.loads(result[col])
+        _assert_equal(actual, expected, f'{col} 原始值保留 (不归一 100)')
+
+    # incomplete 标记: 4 列都在 _distribution_incomplete 子 dict
+    inc = result.get('_distribution_incomplete', {})
+    _assert_true(isinstance(inc, dict), '_distribution_incomplete 是 dict')
+    for col in ['fan_city_tier', 'fan_group_city_tier', 'live_audience_city_tier', 'video_audience_city_tier']:
+        _assert_equal(inc.get(col), True, f'_distribution_incomplete[{col}] = True')
+
+
+def test_canonicalize_full_7_city_tier_normalizes():
+    """★ v4 amend task 1: 7 档齐全 + 总和 100 → _normalize_distribution 不归一 (incomplete=False).
+
+    老大原话 (2026-09-25): "禁止硬凑 100, 变成 50/50" — 但 7 档齐全时不应误判 incomplete.
+    验证:
+    - 7 档齐全 + 总和 100 → out[col] = 原始 7 档值
+    - out['_distribution_incomplete'] 不含 fan_city_tier (false, 不标记)
+    """
+    full_7_tier = {
+        '一线城市': 20, '新一线城市': 18, '二线城市': 16, '三线城市': 14,
+        '四线城市': 12, '五线城市': 10, '其他': 10,  # 7 档齐全 / 总和 100
+    }
+    ocr_json = {
+        'fan_city_tier': '',
+        'extra_fields': {
+            '粉丝特征': {'城市等级': full_7_tier},
+        },
+    }
+
+    result = _canonicalize_talent_row(ocr_json)
+    _assert_true('fan_city_tier' in result, 'fan_city_tier 在 result dict')
+    actual = json.loads(result['fan_city_tier'])
+    _assert_equal(actual, full_7_tier, '7 档齐全 → 原始值保留 (不归一不增减)')
+    # _MIN_DIST_KEYS 验证
+    _assert_equal(_MIN_DIST_KEYS.get('fan_city_tier'), 7, '_MIN_DIST_KEYS[fan_city_tier] = 7')
+    # 7 档齐全不 incomplete
+    inc = result.get('_distribution_incomplete', {})
+    _assert_equal(inc.get('fan_city_tier', False), False, '7 档齐全 → _distribution_incomplete 不标记')
+
+
+def test_detect_existing_collapsed_city_tier():
+    """★ v4 amend task 3: _detect_existing_collapsed_city_tier 识别存量塌缩行.
+
+    老大原话 (2026-09-25): "加函数可识别存量'档位不全却被凑成整百'的 city_tier 并重置.
+    (只写函数+pytest, 不执行不写库)".
+
+    规则:
+    - 4 city_tier 字段任一: 档位 < 7 且 95 <= total <= 105 → 标记塌缩
+    - 7 档齐全 / 总和 ≠ 100 → 不塌缩
+    """
+    import sqlite3 as _sqlite3
+
+    conn = _sqlite3.connect(':memory:')
+    conn.row_factory = _sqlite3.Row
+    conn.execute('''CREATE TABLE talents (
+        id TEXT PRIMARY KEY, name TEXT,
+        fan_city_tier TEXT DEFAULT '{}',
+        fan_group_city_tier TEXT DEFAULT '{}',
+        live_audience_city_tier TEXT DEFAULT '{}',
+        video_audience_city_tier TEXT DEFAULT '{}'
+    )''')
+
+    # row 1: 塌缩 (fan_city_tier 2 档 + 总和 100)
+    conn.execute("INSERT INTO talents VALUES (?, ?, ?, ?, ?, ?)", (
+        '1', '李婶儿',
+        json.dumps({'三线城市': 60, '新一线城市': 40}, ensure_ascii=False),  # 2 档 / 100 → 塌缩
+        '{}', '{}', '{}',
+    ))
+    # row 2: 7 档齐全 → 不塌缩
+    conn.execute("INSERT INTO talents VALUES (?, ?, ?, ?, ?, ?)", (
+        '2', '王二姐',
+        json.dumps({'一线': 20, '新一线': 18, '二线': 16, '三线': 14, '四线': 12, '五线': 10, '其他': 10}, ensure_ascii=False),
+        '{}', '{}', '{}',
+    ))
+    # row 3: 2 档但总和 = 50 → 不塌缩 (总和 ≠ 100)
+    conn.execute("INSERT INTO talents VALUES (?, ?, ?, ?, ?, ?)", (
+        '3', '张大奕',
+        json.dumps({'三线': 30, '新一线': 20}, ensure_ascii=False),  # 2 档 / 50 → 不塌缩
+        '{}', '{}', '{}',
+    ))
+    conn.commit()
+
+    collapsed = _detect_existing_collapsed_city_tier(conn)
+
+    # 只 row 1 fan_city_tier 塌缩, 其余 3 city_tier 列 (空 {}) 跳过
+    _assert_equal(len(collapsed), 1, '只有 row 1 fan_city_tier 1 个塌缩')
+    talent_id, col, current_val = collapsed[0]
+    _assert_equal(talent_id, '1', '塌缩 talent_id = 1 (李婶儿)')
+    _assert_equal(col, 'fan_city_tier', '塌缩列 = fan_city_tier')
+    _assert_equal(current_val, {'三线城市': 60, '新一线城市': 40}, '当前塌缩值原样返回')
+
+    conn.close()
+
