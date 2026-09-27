@@ -21388,6 +21388,40 @@ _FAN_SOURCE_MAP = [
 ]
 
 
+# ★ fix/mini-test-code-repair-20260925 03:45: _PROTECTED_COLUMNS 顶层化
+#   老大 raw 2026-09-28 03:44 钉死根因: 原本是 _update_talent_from_ocr_fields 函数内 local,
+#   测试从模块顶层取自然 AttributeError (Mac raw: 226 passed + 12 failed 全部 protect 类).
+#   修复方向: 顶层化, 跟 _CANONICAL_TEXT_COLUMNS / _FAN_SOURCE_MAP 同级
+#   (一个配置型常量本来就该是模块级, 让"保护列"这一契约被直接校验).
+#   注意: 必须只有一个真源, 函数内 local 必须整段删除 (不能保留让全局被遮蔽).
+#
+# ★ 14 列同步保护: 已有非空值则跳过 (防覆盖手修正值)
+#   老大 2026-09-25 闭环: OCR 视觉模型易读错数字 (23/22, 27.9% 错位, 区间错读),
+#   重跑同步若不保护, OCR 读错的数字会覆盖团长手修的正确值.
+_PROTECTED_COLUMNS = {
+    # 4 个 _text 列 (区间原文, 数值列 OCR 读错易覆盖手修值)
+    'total_gmv_text', 'video_gpm_text', 'live_gpm_text', 'avg_live_gmv_text',
+    # 4 个 fan 段起始列 (中文键分布, OCR 容易读错)
+    'fan_city_tier', 'fan_group_city_tier', 'live_audience_city_tier', 'video_audience_city_tier',
+    # 1 个 single (文本存, 不解析)
+    'single_video_settlement',
+    # ★ 新增 5 列 (老大明确)
+    'product_count',    # OCR 可能把 23 读成 22
+    'total_shops',      # OCR 可能读错合作店铺数
+    'live_ratio',       # OCR 可能把 27.9% 读错 (百分比数值)
+    'video_ratio',      # OCR 可能把 69.61% 读错 (百分比数值)
+    'avg_live_gmv',     # 区间值易读错 (已有 _text 列, 数值列也保护)
+    # ★ fix/mini-test-code-repair-20260925 23:40: 10 列同步保护 (OCR 易读错分布数字)
+    'live_audience_gender', 'live_audience_age', 'live_audience_crowd',
+    'live_audience_price_range', 'live_audience_category',
+    'video_audience_gender', 'video_audience_age', 'video_audience_crowd',
+    'video_audience_price_range', 'video_audience_category',
+    # ★ fix/mini-test-code-repair-20260925 28 02:46: 补 fan_ 前缀 2 列 (OCR 易读错分布数字)
+    'fan_activity',
+    'fan_device',
+}
+
+
 def _strip_yuan(v):
     """★ fix/ocr-canonical-sync-v2: 清掉所有 ¥ 和 ￥ 前缀 (含多前缀/全角半角).
     之前 v1 (a8c7de7) 只 lstrip('¥').lstrip('￥'), 漏部分情况 (多前缀如 '¥¥100').
@@ -21508,32 +21542,6 @@ def _update_talent_from_ocr_fields(talent_id, vision_field_maps):
 
     # ★ 幂等迁移: 新增 4 个 TEXT 列存区间原文 (PRAGMA 先查再 ALTER)
     _ensure_canonical_text_columns()
-
-    # ★ 14 列同步保护: 已有非空值则跳过 (防覆盖手修正值)
-    #   老大 2026-09-25 闭环: OCR 视觉模型易读错数字 (23/22, 27.9% 错位, 区间错读),
-    #   重跑同步若不保护, OCR 读错的数字会覆盖团长手修的正确值.
-    _PROTECTED_COLUMNS = {
-        # 4 个 _text 列 (区间原文, 数值列 OCR 读错易覆盖手修值)
-        'total_gmv_text', 'video_gpm_text', 'live_gpm_text', 'avg_live_gmv_text',
-        # 4 个 fan 段起始列 (中文键分布, OCR 容易读错)
-        'fan_city_tier', 'fan_group_city_tier', 'live_audience_city_tier', 'video_audience_city_tier',
-        # 1 个 single (文本存, 不解析)
-        'single_video_settlement',
-        # ★ 新增 5 列 (老大明确)
-        'product_count',    # OCR 可能把 23 读成 22
-        'total_shops',      # OCR 可能读错合作店铺数
-        'live_ratio',       # OCR 可能把 27.9% 读错 (百分比数值)
-        'video_ratio',      # OCR 可能把 69.61% 读错 (百分比数值)
-        'avg_live_gmv',     # 区间值易读错 (已有 _text 列, 数值列也保护)
-        # ★ fix/mini-test-code-repair-20260925 23:40: 10 列同步保护 (OCR 易读错分布数字)
-        'live_audience_gender', 'live_audience_age', 'live_audience_crowd',
-        'live_audience_price_range', 'live_audience_category',
-        'video_audience_gender', 'video_audience_age', 'video_audience_crowd',
-        'video_audience_price_range', 'video_audience_category',
-        # ★ fix/mini-test-code-repair-20260925 28 02:46: 补 fan_ 前缀 2 列 (OCR 易读错分布数字)
-        'fan_activity',
-        'fan_device',
-    }
 
     conn = _db_conn()
     try:
