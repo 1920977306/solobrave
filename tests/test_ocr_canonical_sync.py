@@ -541,11 +541,11 @@ def test_protected_columns_includes_5_new_columns():
     1. string match: _update_talent_from_ocr_fields 函数源码含 5 列名 (白名单定义)
     2. 行为验证: 5 列都有保护 (已有手修值不被 OCR 新值覆盖)
     """
-    import inspect
-    _update_talent_from_ocr_fields = _solobrave_server._update_talent_from_ocr_fields
-    func_src = inspect.getsource(_update_talent_from_ocr_fields)
+    # ★ fix/mini-test-code-repair-20260925 03:45 顶层化后改: 原函数源码字符串匹配失效
+    #   (a4450b0 顶层化后函数体内已无 _PROTECTED_COLUMNS 字面, 老断言 col not in func_src 全 False 但侥幸通过)
+    #   改为直接断言模块级 _solobrave_server._PROTECTED_COLUMNS set 含 5 列 (老大 2026-09-28 03:59 钉死)
     for col in ('product_count', 'total_shops', 'live_ratio', 'video_ratio', 'avg_live_gmv'):
-        _assert_true(col in func_src, f'_update_talent_from_ocr_fields 源码含 {col} 列名 (白名单)')
+        _assert_true(col in _solobrave_server._PROTECTED_COLUMNS, f'_PROTECTED_COLUMNS 顶层白名单含 {col} 列名')
 
     # 行为验证: 模拟重跑同步, OCR 读错的 5 个新值应被跳过 (老大原话)
     conn = sqlite3.connect(':memory:')
