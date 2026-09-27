@@ -1156,11 +1156,13 @@ _NEW_AUDIENCE_COLUMNS = [
 
 
 def _setup_new_columns_table(conn):
-    """fixture helper: 建 talents 表含 14 列 (region + city_tier + 10 新 + 其他基础)."""
+    """fixture helper: 建 talents 表含 16 列 (10 audience + 2 fan + 其他基础)."""
     conn.execute('''CREATE TABLE IF NOT EXISTS talents (
         id TEXT PRIMARY KEY,
         name TEXT,
         ocr_raw_fields TEXT,
+        fan_activity TEXT DEFAULT '{}',
+        fan_device TEXT DEFAULT '{}',
         live_audience_region TEXT DEFAULT '{}',
         live_audience_city_tier TEXT DEFAULT '{}',
         live_audience_gender TEXT DEFAULT '{}',
@@ -1386,4 +1388,40 @@ def test_read_video_audience_price_range():
 def test_read_video_audience_category():
     """★ 读取测试: _talent_row_to_dict 返 video_audience_category (JSON 解析)"""
     _test_read_column('video_audience_category', '{"美妆": 50, "数码": 50}')
+
+
+# ===== fan_ 前缀 2 列迁移/保护/读取测试 (6 case) =====
+#   ★ fix/mini-test-code-repair-20260925 28 02:46: 补 fan_ 前缀 2 列 (跟 fan_group_ 区分)
+#   ed2fb1b commit message 自报 "fan_activity/fan_device 已存在" 是误判
+#   (前缀子串匹配陷阱: grep fan_activity 会命中 fan_group_activity 子串)
+#   真实生产 DB PRAGMA 完全空, 现在补上.
+
+def test_migrate_fan_activity():
+    """★ 迁移测试: fan_activity 列存在 + INSERT + SELECT"""
+    _test_migrate_column('fan_activity', '{"高活跃": 60, "中活跃": 30, "低活跃": 10}')
+
+
+def test_migrate_fan_device():
+    """★ 迁移测试: fan_device 列存在 + INSERT + SELECT"""
+    _test_migrate_column('fan_device', '{"iOS": 50, "Android": 45, "其他": 5}')
+
+
+def test_protect_fan_activity():
+    """★ 保护测试: fan_activity 在 _PROTECTED_COLUMNS (防 OCR 覆盖)"""
+    _test_protect_column('fan_activity')
+
+
+def test_protect_fan_device():
+    """★ 保护测试: fan_device 在 _PROTECTED_COLUMNS (防 OCR 覆盖)"""
+    _test_protect_column('fan_device')
+
+
+def test_read_fan_activity():
+    """★ 读取测试: _talent_row_to_dict 返 fan_activity (JSON 解析)"""
+    _test_read_column('fan_activity', '{"高活跃": 60, "中活跃": 30, "低活跃": 10}')
+
+
+def test_read_fan_device():
+    """★ 读取测试: _talent_row_to_dict 返 fan_device (JSON 解析)"""
+    _test_read_column('fan_device', '{"iOS": 50, "Android": 45, "其他": 5}')
 

@@ -3372,6 +3372,7 @@ def init_db():
             ('avg_live_gmv', 'REAL DEFAULT 0'), ('live_gpm', 'REAL DEFAULT 0'), ('video_gpm', 'REAL DEFAULT 0'),
             ('fan_gender', "TEXT DEFAULT '{}'"), ('fan_age', "TEXT DEFAULT '{}'"), ('fan_region', "TEXT DEFAULT '{}'"),
             ('fan_crowd', "TEXT DEFAULT ''"), ('fan_price_range', "TEXT DEFAULT ''"), ('fan_category', "TEXT DEFAULT ''"),
+            ('fan_activity', "TEXT DEFAULT '{}'"), ('fan_device', "TEXT DEFAULT '{}'"),  # ★ fix/mini-test-code-repair-20260925 28 02:46: 补 fan_ 前缀 (跟 fan_group_ 区分)
             ('category', "TEXT DEFAULT ''"), ('content_style', "TEXT DEFAULT ''"), ('fans_profile', "TEXT DEFAULT '{}'"),
             ('ai_tags', "TEXT DEFAULT '[]'"), ('ai_rating', "TEXT DEFAULT ''"), ('ai_summary', "TEXT DEFAULT ''"),
             ('ai_analysis', "TEXT DEFAULT ''"), ('ai_reason', "TEXT DEFAULT ''"), ('risk_rating', "TEXT DEFAULT ''"),
@@ -4114,7 +4115,8 @@ _TALENT_COLUMNS = [
     'total_gmv', 'total_products', 'product_count', 'total_shops', 'average_price',
     'live_ratio', 'video_ratio', 'avg_live_gmv', 'live_gpm', 'video_gpm',
     'fan_gender', 'fan_age', 'fan_region', 'fan_crowd', 'fan_price_range',
-    'fan_category', 'category', 'content_style', 'fans_profile', 'ai_tags', 'ai_rating', 'ai_summary',
+    'fan_category', 'fan_activity', 'fan_device',  # ★ fix/mini-test-code-repair-20260925 28 02:46: 补 fan_ 前缀
+    'category', 'content_style', 'fans_profile', 'ai_tags', 'ai_rating', 'ai_summary',
     'ai_analysis',
     'total_history_days', 'live_sessions', 'live_views', 'video_plays',
     'single_video_settlement', 'video_completion_rate', 'video_likes', 'video_comments',
@@ -4275,6 +4277,8 @@ def _talent_row_to_dict(row):
         'fan_group_device': _json_col('fan_group_device', {}),
         'fan_group_price': _json_col('fan_group_price', {}),
         'fan_group_category': _json_col('fan_group_category', {}),
+        'fan_activity': _json_col('fan_activity', {}),  # ★ fix/mini-test-code-repair-20260925 28 02:46: fan_ 前缀 (跟 fan_group_ 区分)
+        'fan_device': _json_col('fan_device', {}),     # ★ fan_ 前缀
         'live_audience_region': _json_col('live_audience_region', {}),
         'live_audience_city_tier': _json_col('live_audience_city_tier', {}),
         'live_audience_gender': _json_col('live_audience_gender', {}),
@@ -21342,6 +21346,9 @@ _CANONICAL_TEXT_COLUMNS = [
     ('video_audience_crowd',      'TEXT DEFAULT \'{}\''),
     ('video_audience_price_range','TEXT DEFAULT \'{}\''),
     ('video_audience_category',   'TEXT DEFAULT \'{}\''),
+    # ★ fix/mini-test-code-repair-20260925 28 02:46: 补 fan_ 前缀 2 列 (跟 fan_group_ 区分)
+    ('fan_activity',     'TEXT DEFAULT \'{}\''),
+    ('fan_device',       'TEXT DEFAULT \'{}\''),
 ]
 # 避免每次 OCR 都查 PRAGMA 的 flag (进程级缓存)
 _canonical_columns_ensured = False
@@ -21362,6 +21369,7 @@ _FAN_SOURCE_MAP = [
     ('粉丝特征',   'fan',            {
         '性别': 'gender', '年龄': 'age', '城市等级': 'city_tier',
         '人群': 'crowd', '客单价': 'price_range', '品类偏好': 'category',
+        '活跃': 'activity', '设备': 'device',  # ★ fix/mini-test-code-repair-20260925 28 02:46: fan 独有 (fan_group 已有不动)
     }),
     ('粉丝团特征', 'fan_group',      {
         '性别': 'gender', '年龄': 'age', '城市等级': 'city_tier',
@@ -21522,6 +21530,9 @@ def _update_talent_from_ocr_fields(talent_id, vision_field_maps):
         'live_audience_price_range', 'live_audience_category',
         'video_audience_gender', 'video_audience_age', 'video_audience_crowd',
         'video_audience_price_range', 'video_audience_category',
+        # ★ fix/mini-test-code-repair-20260925 28 02:46: 补 fan_ 前缀 2 列 (OCR 易读错分布数字)
+        'fan_activity',
+        'fan_device',
     }
 
     conn = _db_conn()
