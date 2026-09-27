@@ -31901,6 +31901,77 @@ function renderTalentPanelFans(t) {
     html += '<div class="products-detail-item"><div class="products-detail-label">类目偏好</div><div class="products-detail-value">' + escapeHtml(_fanCategory || '-') + '</div></div>';
     html += '</div></div>';
   }
+
+  // ★ fix/mini-test-code-repair-20260925 04:15: 3 个新面板 (沿用 talents-panel-section + renderDist)
+  //   - 直播间受众 (live_audience 7 维: gender/age/crowd/price_range/category/region/city_tier)
+  //   - 短视频受众 (video_audience 7 维)
+  //   - 粉丝端画像 (fan_activity + fan_device 2 维, fan_ 前缀跟 fan_group_ 区分)
+  // incomplete 检测按后端实际写 key (老大 brief 钉死别猜):
+  //   后端 _set_distribution_incomplete / canonical 实际写入的 key: 4 city_tier + category_distribution
+  //   - 直播间 panel: 检测 live_audience_city_tier
+  //   - 短视频 panel: 检测 video_audience_city_tier
+  //   - 粉丝端 panel: 后端没写 fan_activity / fan_device → 不加 incomplete 检测
+
+  // ----- 直播间受众 (7 维) -----
+  var _liveGender = (t.live_audience_gender && Object.keys(t.live_audience_gender).length) ? t.live_audience_gender : _pickOcrDict('live_audience_gender');
+  var _liveAge = (t.live_audience_age && Object.keys(t.live_audience_age).length) ? t.live_audience_age : _pickOcrDict('live_audience_age');
+  var _liveCrowd = (t.live_audience_crowd && Object.keys(t.live_audience_crowd).length) ? t.live_audience_crowd : _pickOcrDict('live_audience_crowd');
+  var _livePrice = (t.live_audience_price_range && Object.keys(t.live_audience_price_range).length) ? t.live_audience_price_range : _pickOcrDict('live_audience_price_range');
+  var _liveCategory = (t.live_audience_category && Object.keys(t.live_audience_category).length) ? t.live_audience_category : _pickOcrDict('live_audience_category');
+  var _liveRegion = (t.live_audience_region && Object.keys(t.live_audience_region).length) ? t.live_audience_region : _pickOcrDict('live_audience_region');
+  var _liveCityTier = (t.live_audience_city_tier && Object.keys(t.live_audience_city_tier).length) ? t.live_audience_city_tier : _pickOcrDict('live_audience_city_tier');
+
+  if (_liveGender || _liveAge || _liveCrowd || _livePrice || _liveCategory || _liveRegion || _liveCityTier) {
+    var _liveIncomplete = (t._distribution_incomplete && typeof t._distribution_incomplete === 'object' && (
+      t._distribution_incomplete['live_audience_city_tier']
+    )) ? '（分布不完整）' : '';
+    html += '<div class="talents-panel-section"><div class="talents-panel-title">直播间受众' + _liveIncomplete + '</div>';
+    html += renderDist('性别分布', _liveGender);
+    html += renderDist('年龄分布', _liveAge);
+    html += renderDist('人群偏好', _liveCrowd);
+    html += renderDist('客单价分布', _livePrice);
+    html += renderDist('品类偏好', _liveCategory);
+    html += renderDist('地域分布', _liveRegion);
+    html += renderDist('城市等级分布', _liveCityTier);
+    html += '</div>';
+  }
+
+  // ----- 短视频受众 (7 维) -----
+  var _videoGender = (t.video_audience_gender && Object.keys(t.video_audience_gender).length) ? t.video_audience_gender : _pickOcrDict('video_audience_gender');
+  var _videoAge = (t.video_audience_age && Object.keys(t.video_audience_age).length) ? t.video_audience_age : _pickOcrDict('video_audience_age');
+  var _videoCrowd = (t.video_audience_crowd && Object.keys(t.video_audience_crowd).length) ? t.video_audience_crowd : _pickOcrDict('video_audience_crowd');
+  var _videoPrice = (t.video_audience_price_range && Object.keys(t.video_audience_price_range).length) ? t.video_audience_price_range : _pickOcrDict('video_audience_price_range');
+  var _videoCategory = (t.video_audience_category && Object.keys(t.video_audience_category).length) ? t.video_audience_category : _pickOcrDict('video_audience_category');
+  var _videoRegion = (t.video_audience_region && Object.keys(t.video_audience_region).length) ? t.video_audience_region : _pickOcrDict('video_audience_region');
+  var _videoCityTier = (t.video_audience_city_tier && Object.keys(t.video_audience_city_tier).length) ? t.video_audience_city_tier : _pickOcrDict('video_audience_city_tier');
+
+  if (_videoGender || _videoAge || _videoCrowd || _videoPrice || _videoCategory || _videoRegion || _videoCityTier) {
+    var _videoIncomplete = (t._distribution_incomplete && typeof t._distribution_incomplete === 'object' && (
+      t._distribution_incomplete['video_audience_city_tier']
+    )) ? '（分布不完整）' : '';
+    html += '<div class="talents-panel-section"><div class="talents-panel-title">短视频受众' + _videoIncomplete + '</div>';
+    html += renderDist('性别分布', _videoGender);
+    html += renderDist('年龄分布', _videoAge);
+    html += renderDist('人群偏好', _videoCrowd);
+    html += renderDist('客单价分布', _videoPrice);
+    html += renderDist('品类偏好', _videoCategory);
+    html += renderDist('地域分布', _videoRegion);
+    html += renderDist('城市等级分布', _videoCityTier);
+    html += '</div>';
+  }
+
+  // ----- 粉丝端画像 (fan_activity + fan_device, fan_ 前缀跟 fan_group_ 区分) -----
+  // 后端没写 fan_activity / fan_device incomplete 标记, 不加 incomplete 检测
+  var _fanActivity = (t.fan_activity && Object.keys(t.fan_activity).length) ? t.fan_activity : _pickOcrDict('fan_activity');
+  var _fanDevice = (t.fan_device && Object.keys(t.fan_device).length) ? t.fan_device : _pickOcrDict('fan_device');
+
+  if (_fanActivity || _fanDevice) {
+    html += '<div class="talents-panel-section"><div class="talents-panel-title">粉丝端画像</div>';
+    html += renderDist('活跃度分布', _fanActivity);
+    html += renderDist('设备分布', _fanDevice);
+    html += '</div>';
+  }
+
   if (!html) html = '<div class="products-empty"><div class="products-empty-text">暂无粉丝画像数据</div></div>';
   el.innerHTML = html;
 }
