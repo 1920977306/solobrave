@@ -3392,7 +3392,13 @@ def init_db():
             ('fan_group_crowd', "TEXT DEFAULT '{}'"), ('fan_group_activity', "TEXT DEFAULT '{}'"), ('fan_group_device', "TEXT DEFAULT '{}'"),
             ('fan_group_price', "TEXT DEFAULT '{}'"), ('fan_group_category', "TEXT DEFAULT '{}'"),
             ('live_audience_region', "TEXT DEFAULT '{}'"), ('live_audience_city_tier', "TEXT DEFAULT '{}'"),
+            ('live_audience_gender', "TEXT DEFAULT '{}'"), ('live_audience_age', "TEXT DEFAULT '{}'"),
+            ('live_audience_crowd', "TEXT DEFAULT '{}'"), ('live_audience_price_range', "TEXT DEFAULT '{}'"),
+            ('live_audience_category', "TEXT DEFAULT '{}'"),
             ('video_audience_region', "TEXT DEFAULT '{}'"), ('video_audience_city_tier', "TEXT DEFAULT '{}'"),
+            ('video_audience_gender', "TEXT DEFAULT '{}'"), ('video_audience_age', "TEXT DEFAULT '{}'"),
+            ('video_audience_crowd', "TEXT DEFAULT '{}'"), ('video_audience_price_range', "TEXT DEFAULT '{}'"),
+            ('video_audience_category', "TEXT DEFAULT '{}'"),
             # dev/feat: talents 修复 #2 — RAG 能直接按相似度查达人
             # (规律库自动归纳 cron 引用 talent 时可走 embedding 路径,
             #  RAG 端 search_talent_by_query 也能用)
@@ -4117,7 +4123,11 @@ _TALENT_COLUMNS = [
     'fan_city_tier', 'fan_group_gender', 'fan_group_age', 'fan_group_crowd',
     'fan_group_activity', 'fan_group_device', 'fan_group_price', 'fan_group_category',
     'live_audience_region', 'live_audience_city_tier',
+    'live_audience_gender', 'live_audience_age', 'live_audience_crowd',
+    'live_audience_price_range', 'live_audience_category',
     'video_audience_region', 'video_audience_city_tier',
+    'video_audience_gender', 'video_audience_age', 'video_audience_crowd',
+    'video_audience_price_range', 'video_audience_category',
     # ★ fix/talent-full-sync-r2: ALTER TABLE 加了 3 列, 必须同步到这里否则 UPDATE 永远漏写
     'account_fans_profile', 'video_fans_profile', 'cooperation_days',
     'ai_reason', 'risk_rating', 'group_id', 'status', 'created_by',
@@ -4267,8 +4277,18 @@ def _talent_row_to_dict(row):
         'fan_group_category': _json_col('fan_group_category', {}),
         'live_audience_region': _json_col('live_audience_region', {}),
         'live_audience_city_tier': _json_col('live_audience_city_tier', {}),
+        'live_audience_gender': _json_col('live_audience_gender', {}),
+        'live_audience_age': _json_col('live_audience_age', {}),
+        'live_audience_crowd': _json_col('live_audience_crowd', {}),
+        'live_audience_price_range': _json_col('live_audience_price_range', {}),
+        'live_audience_category': _json_col('live_audience_category', {}),
         'video_audience_region': _json_col('video_audience_region', {}),
         'video_audience_city_tier': _json_col('video_audience_city_tier', {}),
+        'video_audience_gender': _json_col('video_audience_gender', {}),
+        'video_audience_age': _json_col('video_audience_age', {}),
+        'video_audience_crowd': _json_col('video_audience_crowd', {}),
+        'video_audience_price_range': _json_col('video_audience_price_range', {}),
+        'video_audience_category': _json_col('video_audience_category', {}),
         'ai_reason': _safe_row_get('ai_reason') or '',
         'risk_rating': _safe_row_get('risk_rating') or '',
         'group_id': _safe_row_get('group_id') or '',
@@ -21311,6 +21331,17 @@ _CANONICAL_TEXT_COLUMNS = [
     ('live_gpm_text',      'TEXT DEFAULT ""'),   # 直播 GPM 区间原文
     ('avg_live_gmv_text',  'TEXT DEFAULT ""'),   # 场均结算额区间原文
     ('single_video_settlement', 'TEXT DEFAULT ""'),   # ★ fix/ocr-canonical-sync-v4 Patch 1: 单条结算区间原文 (老大 09-27 01:30 拍板补, 治 no such column)
+    # ★ fix/mini-test-code-repair-20260925 23:40: 10 列真新 (live_audience 5 + video_audience 5), 默认空 JSON {}
+    ('live_audience_gender',      'TEXT DEFAULT \'{}\''),
+    ('live_audience_age',         'TEXT DEFAULT \'{}\''),
+    ('live_audience_crowd',       'TEXT DEFAULT \'{}\''),
+    ('live_audience_price_range', 'TEXT DEFAULT \'{}\''),
+    ('live_audience_category',    'TEXT DEFAULT \'{}\''),
+    ('video_audience_gender',     'TEXT DEFAULT \'{}\''),
+    ('video_audience_age',        'TEXT DEFAULT \'{}\''),
+    ('video_audience_crowd',      'TEXT DEFAULT \'{}\''),
+    ('video_audience_price_range','TEXT DEFAULT \'{}\''),
+    ('video_audience_category',   'TEXT DEFAULT \'{}\''),
 ]
 # 避免每次 OCR 都查 PRAGMA 的 flag (进程级缓存)
 _canonical_columns_ensured = False
@@ -21320,6 +21351,12 @@ _canonical_columns_ensured = False
 #   老大 2026-09-25 反馈: v1 (a8c7de7) 走 extra_fields.粉丝分析.粉丝特征.<维度> 是错的,
 #   真实 OCR 输出是 FLAT: extra_fields.粉丝特征.<维度>, 没有"粉丝分析"中间层.
 #   维度中文键 → 列后缀 (snake_case), 与 _OCR_TO_TALENT_FIELDS 列对齐.
+# ★ fix/mini-test-code-repair-20260925 23:40: 重写 4 个前缀各一张维度映射
+#   严格对各前缀真实列名, 不得共用子表盲套:
+#   - fan (粉丝特征): 标准 6 维 (gender/age/city_tier/crowd/price_range/category)
+#   - fan_group (粉丝团特征): 客单价→price, 活跃→activity, 设备→device
+#     (客单价不同前缀不同列名, fan 是 price_range, fan_group 是 price)
+#   - live_audience / video_audience: 标准 6 维 (新增 gender/age/crowd/price_range/category 后)
 _FAN_SOURCE_MAP = [
     # (extra_fields 中文段落名, 列前缀, 维度中文键 → 列后缀)
     ('粉丝特征',   'fan',            {
@@ -21328,7 +21365,9 @@ _FAN_SOURCE_MAP = [
     }),
     ('粉丝团特征', 'fan_group',      {
         '性别': 'gender', '年龄': 'age', '城市等级': 'city_tier',
-        '人群': 'crowd', '客单价': 'price_range', '品类偏好': 'category',
+        '人群': 'crowd', '客单价': 'price',  # ★ fan_group 客单价 → price (不是 price_range!)
+        '活跃': 'activity', '设备': 'device',  # ★ fan_group 独有: activity + device
+        '品类偏好': 'category',
     }),
     ('直播间特征', 'live_audience',  {
         '性别': 'gender', '年龄': 'age', '城市等级': 'city_tier',
@@ -21478,6 +21517,11 @@ def _update_talent_from_ocr_fields(talent_id, vision_field_maps):
         'live_ratio',       # OCR 可能把 27.9% 读错 (百分比数值)
         'video_ratio',      # OCR 可能把 69.61% 读错 (百分比数值)
         'avg_live_gmv',     # 区间值易读错 (已有 _text 列, 数值列也保护)
+        # ★ fix/mini-test-code-repair-20260925 23:40: 10 列同步保护 (OCR 易读错分布数字)
+        'live_audience_gender', 'live_audience_age', 'live_audience_crowd',
+        'live_audience_price_range', 'live_audience_category',
+        'video_audience_gender', 'video_audience_age', 'video_audience_crowd',
+        'video_audience_price_range', 'video_audience_category',
     }
 
     conn = _db_conn()

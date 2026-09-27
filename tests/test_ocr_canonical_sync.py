@@ -1136,3 +1136,254 @@ def test_detect_existing_collapsed_city_tier():
 
     conn.close()
 
+
+# ★ fix/mini-test-code-repair-20260925 23:40: 30 case pytest 覆盖 10 列真新
+#   (live_audience 5 + video_audience 5, fan_activity/fan_device 已存在不在 12 列里)
+#   每个列 3 个 case: 迁移 / 保护 / 读取
+#   复用 _ImmuneConn 包装 _db_conn (commit 917a9c5 加的模式)
+_NEW_AUDIENCE_COLUMNS = [
+    ('live_audience_gender',     '{"男": 60, "女": 40}'),
+    ('live_audience_age',        '{"18-23": 30, "24-30": 50, "31-40": 20}'),
+    ('live_audience_crowd',      '{"都市银发": 15, "都市蓝领": 25}'),
+    ('live_audience_price_range','{"0-50": 40, "50-200": 60}'),
+    ('live_audience_category',   '{"美妆": 40, "服饰": 60}'),
+    ('video_audience_gender',    '{"男": 35, "女": 65}'),
+    ('video_audience_age',       '{"18-23": 25, "24-30": 55}'),
+    ('video_audience_crowd',     '{"Z世代": 40, "都市白领": 30}'),
+    ('video_audience_price_range','{"0-50": 30, "50-200": 50}'),
+    ('video_audience_category',  '{"美妆": 50, "数码": 50}'),
+]
+
+
+def _setup_new_columns_table(conn):
+    """fixture helper: 建 talents 表含 14 列 (region + city_tier + 10 新 + 其他基础)."""
+    conn.execute('''CREATE TABLE IF NOT EXISTS talents (
+        id TEXT PRIMARY KEY,
+        name TEXT,
+        ocr_raw_fields TEXT,
+        live_audience_region TEXT DEFAULT '{}',
+        live_audience_city_tier TEXT DEFAULT '{}',
+        live_audience_gender TEXT DEFAULT '{}',
+        live_audience_age TEXT DEFAULT '{}',
+        live_audience_crowd TEXT DEFAULT '{}',
+        live_audience_price_range TEXT DEFAULT '{}',
+        live_audience_category TEXT DEFAULT '{}',
+        video_audience_region TEXT DEFAULT '{}',
+        video_audience_city_tier TEXT DEFAULT '{}',
+        video_audience_gender TEXT DEFAULT '{}',
+        video_audience_age TEXT DEFAULT '{}',
+        video_audience_crowd TEXT DEFAULT '{}',
+        video_audience_price_range TEXT DEFAULT '{}',
+        video_audience_category TEXT DEFAULT '{}'
+    )''')
+    return conn
+
+
+def _test_migrate_column(col_name, sample_value):
+    """10 列迁移测试 helper: CREATE TABLE + INSERT + SELECT 读取"""
+    import sqlite3 as _sqlite3
+    conn = _sqlite3.connect(':memory:')
+    conn.row_factory = _sqlite3.Row
+    _setup_new_columns_table(conn)
+    conn.execute(
+        f"INSERT INTO talents (id, name, {col_name}) VALUES (1, '李婶儿', ?)",
+        (sample_value,)
+    )
+    conn.commit()
+
+    original_db_conn = _solobrave_server._db_conn
+    _solobrave_server._db_conn = lambda: _ImmuneConn(conn)
+    try:
+        cur = conn.execute("PRAGMA table_info(talents)")
+        cols = [row[1] for row in cur.fetchall()]
+        _assert_true(col_name in cols, f'{col_name} 在 CREATE TABLE 中')
+
+        row = conn.execute(f"SELECT {col_name} FROM talents WHERE id = 1").fetchone()
+        _assert_equal(row[col_name], sample_value, f'{col_name} 写入 + 读取 OK')
+    finally:
+        _solobrave_server._db_conn = original_db_conn
+        conn.close()
+
+
+def _test_protect_column(col_name):
+    """10 列保护测试 helper: _PROTECTED_COLUMNS 含该列 (防 OCR 覆盖手修值)"""
+    _assert_true(col_name in _solobrave_server._PROTECTED_COLUMNS,
+                 f'{col_name} 在 _PROTECTED_COLUMNS (防 OCR 读错覆盖手修值)')
+
+
+def _test_read_column(col_name, sample_value):
+    """10 列读取测试 helper: _talent_row_to_dict 返该列 (JSON 解析 OK)"""
+    import sqlite3 as _sqlite3
+    import json as _json
+    conn = _sqlite3.connect(':memory:')
+    conn.row_factory = _sqlite3.Row
+    _setup_new_columns_table(conn)
+    conn.execute(
+        f"INSERT INTO talents (id, name, {col_name}) VALUES (1, '李婶儿', ?)",
+        (sample_value,)
+    )
+    conn.commit()
+
+    row = conn.execute("SELECT * FROM talents WHERE id = 1").fetchone()
+    result = _solobrave_server._talent_row_to_dict(row)
+    _assert_true(col_name in result, f'_talent_row_to_dict 含 {col_name}')
+    _assert_equal(result[col_name], _json.loads(sample_value),
+                 f'_talent_row_to_dict {col_name} JSON 解析 OK')
+    conn.close()
+
+
+# ===== 10 列迁移测试 (10 case) =====
+
+def test_migrate_live_audience_gender():
+    """★ 迁移测试: live_audience_gender 列存在 + INSERT + SELECT"""
+    _test_migrate_column('live_audience_gender', '{"男": 60, "女": 40}')
+
+
+def test_migrate_live_audience_age():
+    """★ 迁移测试: live_audience_age 列存在 + INSERT + SELECT"""
+    _test_migrate_column('live_audience_age', '{"18-23": 30, "24-30": 50, "31-40": 20}')
+
+
+def test_migrate_live_audience_crowd():
+    """★ 迁移测试: live_audience_crowd 列存在 + INSERT + SELECT"""
+    _test_migrate_column('live_audience_crowd', '{"都市银发": 15, "都市蓝领": 25}')
+
+
+def test_migrate_live_audience_price_range():
+    """★ 迁移测试: live_audience_price_range 列存在 + INSERT + SELECT"""
+    _test_migrate_column('live_audience_price_range', '{"0-50": 40, "50-200": 60}')
+
+
+def test_migrate_live_audience_category():
+    """★ 迁移测试: live_audience_category 列存在 + INSERT + SELECT"""
+    _test_migrate_column('live_audience_category', '{"美妆": 40, "服饰": 60}')
+
+
+def test_migrate_video_audience_gender():
+    """★ 迁移测试: video_audience_gender 列存在 + INSERT + SELECT"""
+    _test_migrate_column('video_audience_gender', '{"男": 35, "女": 65}')
+
+
+def test_migrate_video_audience_age():
+    """★ 迁移测试: video_audience_age 列存在 + INSERT + SELECT"""
+    _test_migrate_column('video_audience_age', '{"18-23": 25, "24-30": 55}')
+
+
+def test_migrate_video_audience_crowd():
+    """★ 迁移测试: video_audience_crowd 列存在 + INSERT + SELECT"""
+    _test_migrate_column('video_audience_crowd', '{"Z世代": 40, "都市白领": 30}')
+
+
+def test_migrate_video_audience_price_range():
+    """★ 迁移测试: video_audience_price_range 列存在 + INSERT + SELECT"""
+    _test_migrate_column('video_audience_price_range', '{"0-50": 30, "50-200": 50}')
+
+
+def test_migrate_video_audience_category():
+    """★ 迁移测试: video_audience_category 列存在 + INSERT + SELECT"""
+    _test_migrate_column('video_audience_category', '{"美妆": 50, "数码": 50}')
+
+
+# ===== 10 列保护测试 (10 case) =====
+
+def test_protect_live_audience_gender():
+    """★ 保护测试: live_audience_gender 在 _PROTECTED_COLUMNS"""
+    _test_protect_column('live_audience_gender')
+
+
+def test_protect_live_audience_age():
+    """★ 保护测试: live_audience_age 在 _PROTECTED_COLUMNS"""
+    _test_protect_column('live_audience_age')
+
+
+def test_protect_live_audience_crowd():
+    """★ 保护测试: live_audience_crowd 在 _PROTECTED_COLUMNS"""
+    _test_protect_column('live_audience_crowd')
+
+
+def test_protect_live_audience_price_range():
+    """★ 保护测试: live_audience_price_range 在 _PROTECTED_COLUMNS"""
+    _test_protect_column('live_audience_price_range')
+
+
+def test_protect_live_audience_category():
+    """★ 保护测试: live_audience_category 在 _PROTECTED_COLUMNS"""
+    _test_protect_column('live_audience_category')
+
+
+def test_protect_video_audience_gender():
+    """★ 保护测试: video_audience_gender 在 _PROTECTED_COLUMNS"""
+    _test_protect_column('video_audience_gender')
+
+
+def test_protect_video_audience_age():
+    """★ 保护测试: video_audience_age 在 _PROTECTED_COLUMNS"""
+    _test_protect_column('video_audience_age')
+
+
+def test_protect_video_audience_crowd():
+    """★ 保护测试: video_audience_crowd 在 _PROTECTED_COLUMNS"""
+    _test_protect_column('video_audience_crowd')
+
+
+def test_protect_video_audience_price_range():
+    """★ 保护测试: video_audience_price_range 在 _PROTECTED_COLUMNS"""
+    _test_protect_column('video_audience_price_range')
+
+
+def test_protect_video_audience_category():
+    """★ 保护测试: video_audience_category 在 _PROTECTED_COLUMNS"""
+    _test_protect_column('video_audience_category')
+
+
+# ===== 10 列读取测试 (10 case) =====
+
+def test_read_live_audience_gender():
+    """★ 读取测试: _talent_row_to_dict 返 live_audience_gender (JSON 解析)"""
+    _test_read_column('live_audience_gender', '{"男": 60, "女": 40}')
+
+
+def test_read_live_audience_age():
+    """★ 读取测试: _talent_row_to_dict 返 live_audience_age (JSON 解析)"""
+    _test_read_column('live_audience_age', '{"18-23": 30, "24-30": 50, "31-40": 20}')
+
+
+def test_read_live_audience_crowd():
+    """★ 读取测试: _talent_row_to_dict 返 live_audience_crowd (JSON 解析)"""
+    _test_read_column('live_audience_crowd', '{"都市银发": 15, "都市蓝领": 25}')
+
+
+def test_read_live_audience_price_range():
+    """★ 读取测试: _talent_row_to_dict 返 live_audience_price_range (JSON 解析)"""
+    _test_read_column('live_audience_price_range', '{"0-50": 40, "50-200": 60}')
+
+
+def test_read_live_audience_category():
+    """★ 读取测试: _talent_row_to_dict 返 live_audience_category (JSON 解析)"""
+    _test_read_column('live_audience_category', '{"美妆": 40, "服饰": 60}')
+
+
+def test_read_video_audience_gender():
+    """★ 读取测试: _talent_row_to_dict 返 video_audience_gender (JSON 解析)"""
+    _test_read_column('video_audience_gender', '{"男": 35, "女": 65}')
+
+
+def test_read_video_audience_age():
+    """★ 读取测试: _talent_row_to_dict 返 video_audience_age (JSON 解析)"""
+    _test_read_column('video_audience_age', '{"18-23": 25, "24-30": 55}')
+
+
+def test_read_video_audience_crowd():
+    """★ 读取测试: _talent_row_to_dict 返 video_audience_crowd (JSON 解析)"""
+    _test_read_column('video_audience_crowd', '{"Z世代": 40, "都市白领": 30}')
+
+
+def test_read_video_audience_price_range():
+    """★ 读取测试: _talent_row_to_dict 返 video_audience_price_range (JSON 解析)"""
+    _test_read_column('video_audience_price_range', '{"0-50": 30, "50-200": 50}')
+
+
+def test_read_video_audience_category():
+    """★ 读取测试: _talent_row_to_dict 返 video_audience_category (JSON 解析)"""
+    _test_read_column('video_audience_category', '{"美妆": 50, "数码": 50}')
+
