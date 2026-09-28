@@ -41,6 +41,20 @@ def init_test_tables(conn):
     conn.execute('DROP TABLE IF EXISTS kb_entries')
     conn.execute('DROP TABLE IF EXISTS kb_entry_chunks')
     conn.execute('DROP TABLE IF EXISTS kb_operation_log')
+    # ★ fix/dev-merge-step5-kb-regression 18:55: 加 CREATE TABLE embedding_cache
+    #   kb_entries_reindex_pending 走 cascade cleanup (L11802) 时 DELETE FROM embedding_cache
+    #   该表在生产 init_db() 已建, 但测试侧缺建 → AssertionError 0 != 2
+    #   schema 照搬生产 .schema embedding_cache
+    conn.execute('DROP TABLE IF EXISTS embedding_cache')
+    conn.execute('''
+        CREATE TABLE embedding_cache (
+            content_hash TEXT NOT NULL,
+            model TEXT NOT NULL,
+            embedding BLOB NOT NULL,
+            created_at INTEGER,
+            PRIMARY KEY (content_hash, model)
+        )
+    ''')
     conn.execute('''
         CREATE TABLE kb_entries (
             id TEXT PRIMARY KEY,
@@ -345,6 +359,14 @@ class TestReindexIncludesEmbeddingFailed(unittest.TestCase):
             self._db.commit()
         ks._save_kb_chunks_without_embedding = save_chunks
         self.addCleanup(setattr, ks, '_save_kb_chunks_without_embedding', self._orig_save)
+        # ★ fix/dev-merge-step5-kb-regression 19:05: stub get_embedding_config 返空 apiKey
+        #   让 noKey 路径生效 (kb_entries_reindex_pending L2954 'if not api_key: stats[noKey]+=1')
+        #   否则 prod 真 siliconflow apiKey → 走真实 embedding API → HTTP 402 (余额不足) → stats[noKey]=0
+        self._orig_emb = ks.get_embedding_config
+        ks.get_embedding_config = lambda emp_id=None: {
+            'apiKey': '', 'provider': 'openai', 'model': 'mock', 'baseUrl': None
+        }
+        self.addCleanup(setattr, ks, 'get_embedding_config', self._orig_emb)
 
     def test_reindex_picks_up_embedding_failed(self):
         result = ks.kb_entries_reindex_pending()
