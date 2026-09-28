@@ -187,3 +187,39 @@ def test_dist_fields_includes_audience():
     for k in ('live_audience_region', 'live_audience_city_tier',
               'video_audience_region', 'video_audience_city_tier'):
         _assert_equal(k in _DIST_FIELDS_NORMALIZE, True, f'{k} 在列表')
+
+
+# ===== fix/mini-test-code-repair-20260925 16:06: 7 档归一全覆盖 =====
+
+def test_normalize_dist_key_city_tier_all_7_short_forms():
+    """★ fix/mini-test-code-repair-20260925 16:06: 7 档短形式全归一到长形式 (老大拍板方案 B).
+
+    老大 brief 钉死: "归一全部 6 档 (7 档全长形式, 数据一致)" + "六线及以下 → 六线及以下城市".
+    根因: 1029d29 只归一 '新一线', 老大截图 7 档全是短形式 (新一线/三线/二线/四线/五线/一线/六线及以下).
+    """
+    # 7 个短形式 → 长形式
+    _assert_equal(_normalize_dist_key('新一线'), '新一线城市', "'新一线' → '新一线城市'")
+    _assert_equal(_normalize_dist_key('一线'), '一线城市', "'一线' → '一线城市'")
+    _assert_equal(_normalize_dist_key('二线'), '二线城市', "'二线' → '二线城市'")
+    _assert_equal(_normalize_dist_key('三线'), '三线城市', "'三线' → '三线城市'")
+    _assert_equal(_normalize_dist_key('四线'), '四线城市', "'四线' → '四线城市'")
+    _assert_equal(_normalize_dist_key('五线'), '五线城市', "'五线' → '五线城市'")
+    _assert_equal(_normalize_dist_key('六线及以下'), '六线及以下城市', "'六线及以下' → '六线及以下城市'")
+
+    # 7 个长形式 identity
+    _assert_equal(_normalize_dist_key('新一线城市'), '新一线城市', "'新一线城市' identity")
+    _assert_equal(_normalize_dist_key('一线城市'), '一线城市', "'一线城市' identity")
+    _assert_equal(_normalize_dist_key('二线城市'), '二线城市', "'二线城市' identity")
+    _assert_equal(_normalize_dist_key('三线城市'), '三线城市', "'三线城市' identity")
+    _assert_equal(_normalize_dist_key('四线城市'), '四线城市', "'四线城市' identity")
+    _assert_equal(_normalize_dist_key('五线城市'), '五线城市', "'五线城市' identity")
+    _assert_equal(_normalize_dist_key('六线及以下城市'), '六线及以下城市', "'六线及以下城市' identity")
+
+    # 严格等值匹配 (不用 startswith / in)
+    _assert_equal(_normalize_dist_key('新一线城市abc'), '新一线城市abc', "'新一线城市abc' 不破坏扩展")
+    _assert_equal(_normalize_dist_key('一线城市新区'), '一线城市新区', "'一线城市新区' 不破坏扩展")
+
+    # 其他字段不受影响 (人群 / 地域 / 年龄)
+    _assert_equal(_normalize_dist_key('都市银发'), '都市银发', "人群标签 identity")
+    _assert_equal(_normalize_dist_key('广东'), '广东', "地域 identity")
+    _assert_equal(_normalize_dist_key('31-40岁'), '31-40岁', "年龄 identity")

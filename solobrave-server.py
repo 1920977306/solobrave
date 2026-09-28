@@ -22023,6 +22023,23 @@ _DIST_FIELDS_NORMALIZE = [
 ]
 
 
+# ★ fix/mini-test-code-repair-20260925 16:06: 7 档城市档位短→长映射表 (老大拍板方案 B)
+#   老大 brief 钉死: "归一全部 6 档 (7 档全长形式, 数据一致)" + "六线及以下 → 六线及以下城市"
+#   放在模块顶层 (而不是函数内) 因为:
+#     - 性能: 不用每次调用 _normalize_dist_key 重建 dict
+#     - Python 运行时解析顺序: _normalize_dist_key 函数定义时 dict 必须已定义
+#   严格 s == key 等值匹配 (跟 1029d29 '新一线' 严格等值匹配一致)
+_CITY_TIER_SHORT_TO_LONG = {
+    '新一线':     '新一线城市',
+    '一线':       '一线城市',
+    '二线':       '二线城市',
+    '三线':       '三线城市',
+    '四线':       '四线城市',
+    '五线':       '五线城市',
+    '六线及以下': '六线及以下城市',
+}
+
+
 def _normalize_dist_key(key):
     """归一化分布 dict 的 key.
     - None / 非 str 输入: 返 ''
@@ -22046,14 +22063,14 @@ def _normalize_dist_key(key):
     _FULLWIDTH_DIGITS = str.maketrans('０１２３４５６７８９．', '0123456789.')
     s = s.translate(_FULLWIDTH_DIGITS)
     s = re.sub(r'[\u2013\u2014\u2015\u2212]', '-', s) # 横线归一
-    # ★ fix/mini-test-code-repair-20260925 11:21: 城市档位短形式归一到长形式 (合并 "新一线" + "新一线城市")
-    #   老大 brief 钉死: 截图图3 城市等级分布同时出现 "新一线" (17.5%) + "新一线城市" (17.4%) 分两行
-    #   严格 s == '新一线' 等值匹配 (不用 startswith / in — 避免误命中 "新一线城市" 子串 / "新一线城市abc" 扩展)
-    #   老大 brief 字面只点 "新一线", 一线/二线/三线/四线/五线 也有短/长形式分裂风险 (fixture L1117/1123 用短形式),
-    #   但老大 brief 未要求, 不动 (最小改动, 注释说明后续可能扩大).
-    if s == '新一线':
-        s = '新一线城市'
-    return s
+    # ★ fix/mini-test-code-repair-20260925 11:21 (1029d29) + 16:06 扩到 7 档 (老大拍板方案 B):
+    #   城市档位短形式归一到长形式. 老大 2026-09-28 16:06 拍板:
+    #   "归一全部 6 档 (7 档全长形式, 数据一致)" + "六线及以下 → 六线及以下城市".
+    #   根因: 1029d29 fix 只在 _merge_dist_by_normalized_key (L22067) 生效,
+    #   canonical 列写入路径 (_normalize_distribution L22129) 完全不经过 → 老大截图 7 档全是短形式.
+    #   模块顶层 _CITY_TIER_SHORT_TO_LONG dict (L22026 之前定义) 查表, dict.get(s, s) 严格等值匹配.
+    #   不用 startswith / in — 避免误命中 '新一线城市' 子串 / '新一线城市abc' 扩展.
+    return _CITY_TIER_SHORT_TO_LONG.get(s, s)
 
 
 def _merge_dist_by_normalized_key(dist):
@@ -22664,6 +22681,24 @@ def _normalize_distribution(dist, field_name=None):
     """
     if not dist or not isinstance(dist, dict) or not dist:
         return None, True
+
+    # ★ fix/mini-test-code-repair-20260925 16:06: 统一 key 归一 (canonical 列路径补 _normalize_dist_key)
+    #   老大 brief 根因: _normalize_dist_key (含 1029d29 '新一线' → '新一线城市') 只在
+    #   _merge_dist_by_normalized_key L22067 被调, canonical 列写入路径完全经过 _normalize_distribution,
+    #   但本函数原本不调 _normalize_dist_key → OCR 原始短形式 key 原样落库, 老大截图 7 档全是短形式.
+    #   在 n_keys / total 计算前归一一次, 5 条 return 路径全部自动覆盖
+    #   (L22674 n_keys<5 / L22678 _MIN_DIST_KEYS / L22684 total>105 / L22688 90-110 / L22691 其他).
+    #   ⚠️ 冲突处理: 归一后 key 可能冲突 (如 '新一线' 17.5 + '新一线城市' 17.4 → 都归一到 '新一线城市'),
+    #   必须 max 合并 (跟 _merge_dist_by_normalized_key L22067-L22071 的 max 逻辑一致), 不能后者覆盖前者.
+    #   ⚠️ 档位数可能变 (是正确行为): 长短混用归一后合并, 7 → 6, _MIN_DIST_KEYS 判定从 pass 变 incomplete.
+    _keyed = {}
+    for _k, _v in dist.items():
+        _nk = _normalize_dist_key(_k)
+        if _nk in _keyed and isinstance(_v, (int, float)) and isinstance(_keyed[_nk], (int, float)):
+            _keyed[_nk] = max(_keyed[_nk], _v)
+        else:
+            _keyed[_nk] = _v
+    dist = _keyed
 
     n_keys = len(dist)
     values = [v for v in dist.values() if isinstance(v, (int, float))]

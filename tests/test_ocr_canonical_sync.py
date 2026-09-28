@@ -1425,3 +1425,38 @@ def test_read_fan_device():
     """★ 读取测试: _talent_row_to_dict 返 fan_device (JSON 解析)"""
     _test_read_column('fan_device', '{"iOS": 50, "Android": 45, "其他": 5}')
 
+
+# ===== fix/mini-test-code-repair-20260925 16:06: _normalize_distribution 5 路径全覆盖 =====
+
+def test_normalize_distribution_city_tier_keys_normalized():
+    """★ fix/mini-test-code-repair-20260925 16:06: _normalize_distribution 统一 key 归一.
+
+    老大截图场景: 7 档全是短形式 → 归一后全长形式, incomplete=False (7 档齐全 + 总和 100).
+    """
+    short_7 = {
+        '新一线': 22.08, '三线': 19.97, '二线': 19.56, '四线': 16.0,
+        '五线': 11.15, '一线': 10.6, '六线及以下': 0.61,
+    }  # 7 档 / 总和 100
+    normalized, incomplete = _normalize_distribution(short_7, field_name='video_audience_city_tier')
+    _assert_equal(incomplete, False, '7 档齐全 + 总和 100 → incomplete=False')
+    _assert_true('新一线城市' in normalized, "归一后有 '新一线城市'")
+    _assert_true('三线城市' in normalized, "归一后有 '三线城市'")
+    _assert_true('六线及以下城市' in normalized, "归一后有 '六线及以下城市'")
+    _assert_true('新一线' not in normalized, "归一后无短形式 '新一线'")
+    _assert_equal(len(normalized), 7, '7 档归一后仍 7 档 (档位数不变)')
+
+    # 冲突合并 case: 长短混用 → 归一后合并 (max 逻辑)
+    mixed = {'新一线': 17.5, '新一线城市': 17.4, '三线': 20.0, '二线': 19.6, '四线': 16.0, '五线': 11.2, '一线': 10.6}
+    normalized2, incomplete2 = _normalize_distribution(mixed, field_name='video_audience_city_tier')
+    _assert_equal(incomplete2, True, '混合后 6 档 (< 7) → incomplete=True (档位数变少, 正确行为)')
+    _assert_equal(len(normalized2), 6, '冲突合并后 6 档 (新一线 + 新一线城市 合并成 1 档)')
+    _assert_true('新一线城市' in normalized2, "冲突合并后 '新一线城市' 存在")
+
+    # incomplete 路径也归一 (老大截图 2 档塌缩场景)
+    short_2 = {'三线': 60, '新一线': 40}  # 2 档 / 总和 100 → incomplete=True
+    normalized3, incomplete3 = _normalize_distribution(short_2, field_name='fan_city_tier')
+    _assert_equal(incomplete3, True, '2 档 → incomplete=True')
+    _assert_true('三线城市' in normalized3, "incomplete 路径也归一: 有 '三线城市'")
+    _assert_true('新一线城市' in normalized3, "incomplete 路径也归一: 有 '新一线城市'")
+    _assert_true('三线' not in normalized3, "incomplete 路径无短形式 '三线'")
+
