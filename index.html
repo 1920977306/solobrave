@@ -30937,7 +30937,7 @@ function selectTalentItem(id) {
     document.querySelectorAll('.talent-card').forEach(function(el){ el.classList.remove('active'); });
     var activeEl = document.querySelector('.talent-card[data-id="' + escapeAttr(id) + '"]');
     if (activeEl) activeEl.classList.add('active');
-  }).catch(function(e){ showToast('加载失败'); });
+  }).catch(function(e){ console.error('[selectTalentItem]', e); showToast('加载失败: ' + ((e && e.message) ? e.message : String(e))); });
 }
 
 function renderTalentDetail(t) {
