@@ -22425,7 +22425,12 @@ def _update_talent_column_if_empty(conn, talent_id, column, new_value, ocr_raw_f
     # 已有非空值则跳过 (防覆盖手修正值) - v3 行为保留
     if row:
         existing = row[0]
-        if existing is not None and str(existing).strip() != '':
+        # ★ fix/mini-test-code-repair-20260925 14:03: 加 '{}' 排除 (序列化空 dict 视为空, 允许覆盖)
+        #   v4 amend 写产品代码时没考虑 '{}' 边界 case — '{}'.strip() != '' → 误判非空 → 跳过写入
+        #   李婶儿 fan_city_tier = '{}' 走 _update_talent_column_if_empty 时, 旧逻辑 return False
+        #   修复: '{}' 也视为空, 允许覆盖 (其他非空 数字/真实 dict/真实 list/字符串 仍保护)
+        #   '[]' 老大 brief 未要求, 最小改动不动 (后续可扩展)
+        if existing is not None and str(existing).strip() != '' and str(existing).strip() != '{}':
             return False
     conn.execute(f'UPDATE talents SET {column} = ? WHERE id = ?', (new_value, talent_id))
     return True
