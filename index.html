@@ -31357,24 +31357,47 @@ function renderTalentPanelOverview(t) {
   //   server 端 _normalize_distribution 标记的 _distribution_incomplete (sidecar JSON)
   //   4 个 city_tier 字段任一 incomplete=true → 拼接文本末尾追加 "（分布不完整）"
   //   老大原话: "禁止硬凑 100, 变成 50/50" — 渲染层必须显式提示用户原始值不完整
+  // ★ fix/overview-fans-profile-panels 16:29: 概览 tab 粉丝特征改分行 + 进度条 (老大拍板方案 B)
+  //   老大截图实证: 4 维度 (性别/年龄/城市等级/价格带) 拼单行 ' / ' 文本, 跨 3 视觉行, 一堵墙
+  //   精度 bug: 老实现 `label + pct + '%'` 没 toFixed → 16% 和 83.73% 混着显示像格式错乱
+  //   修法: 复用粉丝画像 tab renderDist 的 CSS class (products-progress-* / talents-panel-*),
+  //         每个维度一个 talents-panel-section 区块, 档位用进度条 + pct.toFixed(1) 统一精度
+  //   沿用现有 CSS class, 不另起风格; 保留 _distribution_incomplete "（分布不完整）" 提示逻辑 (per-dim)
+  //   _mergeDistByNormalizedKey (L31813 function 声明) hoist 安全, 运行时可用
+  var _FANS_DIM_LABELS = {
+    'fan_gender': '性别分布', 'fan_age': '年龄分布',
+    'fan_city_tier': '城市等级分布', 'fan_price_range': '客单价分布',
+    'fan_crowd': '人群偏好', 'fan_category': '品类偏好', 'fan_region': '地域分布',
+    'video_audience_gender': '性别分布', 'video_audience_age': '年龄分布',
+    'video_audience_city_tier': '城市等级分布', 'video_audience_price_range': '客单价分布',
+    'video_audience_region': '地域分布',
+    'fan_group_gender': '性别分布', 'fan_group_age': '年龄分布',
+    'fan_group_city_tier': '城市等级分布', 'fan_group_price': '客单价分布',
+    'fan_group_crowd': '人群偏好', 'fan_group_category': '品类偏好',
+    'fan_group_activity': '活跃度分布', 'fan_group_device': '设备分布',
+  };
   function _buildFansProfile(t, fieldKeys) {
     if (!t) return '';
-    var parts = [];
     var incomplete = (t._distribution_incomplete && typeof t._distribution_incomplete === 'object') ? t._distribution_incomplete : {};
-    var anyIncomplete = false;
+    var html = '';
     fieldKeys.forEach(function(k) {
       var v = t[k];
       if (v && typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length) {
-        var segs = Object.keys(v).map(function(label) {
-          var pct = parseFloat(v[label]) || 0;
-          return label + pct + '%';
-        }).join('、');
-        if (segs) parts.push(segs);
-        if (incomplete[k]) anyIncomplete = true;
+        var entries = _mergeDistByNormalizedKey(v);
+        if (entries.length) {
+          var total = entries.reduce(function(a, b){ return a + b.value; }, 0);
+          var dimLabel = _FANS_DIM_LABELS[k] || k;
+          var dimTitle = dimLabel + (incomplete[k] ? '（分布不完整）' : '');
+          html += '<div class="talents-panel-section"><div class="talents-panel-title">' + dimTitle + '</div>';
+          entries.forEach(function(e) {
+            var pct = total ? (e.value / total * 100) : 0;
+            html += '<div class="products-progress-item"><div class="products-progress-header"><span>' + escapeHtml(e.key) + '</span><span>' + pct.toFixed(1) + '%</span></div><div class="products-progress-bar"><div class="products-progress-fill" style="width:' + Math.min(pct, 100) + '%"></div></div></div>';
+          });
+          html += '</div>';
+        }
       }
     });
-    var result = parts.join(' / ');
-    return anyIncomplete ? result + '（分布不完整）' : result;
+    return html;
   }
   // ★ feature/influencer-form-validation: 空值 fallback '-' → '待补充' + 加 empty flag (CSS class value-empty 高亮橙色)
   // ★ fix/ocr-fallback: talent 表字段为空时, 从 ocr_raw_fields 模糊匹配填充
@@ -31387,8 +31410,8 @@ function renderTalentPanelOverview(t) {
     {label:'视频平均件单价',  val:(t.video_avg_price  || _ocrFallback(t, 'video_avg_price')  || '待补充'),     empty:!(t.video_avg_price  || _ocrFallback(t, 'video_avg_price')),  full:false},
     // ★ fix/ocr-canonical-sync-v3: 优先用 _buildFansProfile 从 4 个 fan_* dict 字段拼可读文本
     //   (兜底: t.account_fans_profile 标量 → _ocrFallback)
-    {label:'账号粉丝特征',   val:(_buildFansProfile(t, ['fan_gender', 'fan_age', 'fan_city_tier', 'fan_price_range']) || t.account_fans_profile || _ocrFallback(t, 'account_fans_profile') || '待补充'), empty:!(_buildFansProfile(t, ['fan_gender', 'fan_age', 'fan_city_tier', 'fan_price_range']) || t.account_fans_profile || _ocrFallback(t, 'account_fans_profile')), full:true},
-    {label:'短视频粉丝特征',  val:(_buildFansProfile(t, ['video_audience_gender', 'video_audience_age', 'video_audience_city_tier', 'video_audience_price_range']) || _buildFansProfile(t, ['video_audience_region', 'video_audience_city_tier']) || t.video_fans_profile || _ocrFallback(t, 'video_fans_profile') || '待补充'), empty:!(_buildFansProfile(t, ['video_audience_gender', 'video_audience_age', 'video_audience_city_tier', 'video_audience_price_range']) || _buildFansProfile(t, ['video_audience_region', 'video_audience_city_tier']) || t.video_fans_profile || _ocrFallback(t, 'video_fans_profile')), full:true},
+    {label:'账号粉丝特征',   val:(_buildFansProfile(t, ['fan_gender', 'fan_age', 'fan_city_tier', 'fan_price_range']) || t.account_fans_profile || _ocrFallback(t, 'account_fans_profile') || '待补充'), empty:!(_buildFansProfile(t, ['fan_gender', 'fan_age', 'fan_city_tier', 'fan_price_range']) || t.account_fans_profile || _ocrFallback(t, 'account_fans_profile')), full:true, html: true},
+    {label:'短视频粉丝特征',  val:(_buildFansProfile(t, ['video_audience_gender', 'video_audience_age', 'video_audience_city_tier', 'video_audience_price_range']) || _buildFansProfile(t, ['video_audience_region', 'video_audience_city_tier']) || t.video_fans_profile || _ocrFallback(t, 'video_fans_profile') || '待补充'), empty:!(_buildFansProfile(t, ['video_audience_gender', 'video_audience_age', 'video_audience_city_tier', 'video_audience_price_range']) || _buildFansProfile(t, ['video_audience_region', 'video_audience_city_tier']) || t.video_fans_profile || _ocrFallback(t, 'video_fans_profile')), full:true, html: true},
     {label:'备注',           val:(t.remark           || _ocrFallback(t, 'remark')           || '待补充'),     empty:!(t.remark           || _ocrFallback(t, 'remark')),            full:true},
   ];
   var _biHasAny = _bi.some(function(i){ return !i.empty; });
@@ -31399,7 +31422,8 @@ function renderTalentPanelOverview(t) {
     for (var _i = 0; _i < _bi.length; _i++) {
       var _it = _bi[_i];
       // ★ feature/influencer-form-validation: 空值字段加 value-empty class (橙色高亮)
-      html += '<div class="talents-info-item' + (_it.full ? ' full-width' : '') + '"><label>' + escapeHtml(_it.label) + '</label><div class="value' + (_it.empty ? ' value-empty' : '') + '">' + escapeHtml(_it.val) + '</div></div>';
+      // ★ fix/overview-fans-profile-panels 16:29: _it.html=true 跳过 escapeHtml (新 _buildFansProfile 返回 HTML 块, 转义会变可见源码)
+      html += '<div class="talents-info-item' + (_it.full ? ' full-width' : '') + '"><label>' + escapeHtml(_it.label) + '</label><div class="value' + (_it.empty ? ' value-empty' : '') + '">' + (_it.html ? _it.val : escapeHtml(_it.val)) + '</div></div>';
     }
   }
   html += '</div></div>';
