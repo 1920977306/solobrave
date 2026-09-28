@@ -22046,6 +22046,13 @@ def _normalize_dist_key(key):
     _FULLWIDTH_DIGITS = str.maketrans('０１２３４５６７８９．', '0123456789.')
     s = s.translate(_FULLWIDTH_DIGITS)
     s = re.sub(r'[\u2013\u2014\u2015\u2212]', '-', s) # 横线归一
+    # ★ fix/mini-test-code-repair-20260925 11:21: 城市档位短形式归一到长形式 (合并 "新一线" + "新一线城市")
+    #   老大 brief 钉死: 截图图3 城市等级分布同时出现 "新一线" (17.5%) + "新一线城市" (17.4%) 分两行
+    #   严格 s == '新一线' 等值匹配 (不用 startswith / in — 避免误命中 "新一线城市" 子串 / "新一线城市abc" 扩展)
+    #   老大 brief 字面只点 "新一线", 一线/二线/三线/四线/五线 也有短/长形式分裂风险 (fixture L1117/1123 用短形式),
+    #   但老大 brief 未要求, 不动 (最小改动, 注释说明后续可能扩大).
+    if s == '新一线':
+        s = '新一线城市'
     return s
 
 

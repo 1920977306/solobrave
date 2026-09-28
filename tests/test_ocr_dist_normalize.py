@@ -104,6 +104,33 @@ def test_merge_take_max():
     _assert_equal(merged['31-40'], 40.5, '取较大值 40.5')
 
 
+def test_normalize_dist_key_new_tier_alias_merged():
+    """★ fix/mini-test-code-repair-20260925 11:21: '新一线' + '新一线城市' 合并.
+
+    老大 brief 钉死: OCR 录入 city_tier dict 同时含短形式 '新一线' (17.5%) + 长形式 '新一线城市' (17.4%),
+    旧 _normalize_dist_key 中文键 identity 不动 → 合并阶段因 key 不同不合并, 两行展示.
+    现在: '新一线' → '新一线城市' 归一, 合并阶段同 key 合并 (max 取较大值).
+    """
+    # 基础归一
+    _assert_equal(_normalize_dist_key('新一线'), '新一线城市', "'新一线' 短形式归一为 '新一线城市'")
+    _assert_equal(_normalize_dist_key('新一线城市'), '新一线城市', "'新一线城市' 长形式 identity")
+    _assert_equal(_normalize_dist_key('  新一线  '), '新一线城市', "trim + 短归一")
+    _assert_equal(_normalize_dist_key('  新一线城市  '), '新一线城市', "trim + identity")
+
+    # 反向不破坏 (其他档位未改, 短长形式都保留原值)
+    _assert_equal(_normalize_dist_key('一线城市'), '一线城市', "'一线城市' identity (其他档未改)")
+    _assert_equal(_normalize_dist_key('三线城市'), '三线城市', "'三线城市' identity")
+
+    # 严格匹配, 扩展字符串不破坏
+    _assert_equal(_normalize_dist_key('新一线城市abc'), '新一线城市abc', "'新一线城市abc' 严格 s== 不破坏扩展")
+
+    # 合并 case (归一后同 key, _merge_dist_by_normalized_key 取 max)
+    merged = _merge_dist_by_normalized_key({'新一线': 17.5, '新一线城市': 17.4})
+    _assert_equal(len(merged), 1, "合并后 1 个 key ('新一线' 归一为 '新一线城市')")
+    _assert_equal('新一线城市' in merged, True, "合并后 key = '新一线城市'")
+    _assert_equal(merged['新一线城市'], 17.5, "合并后值取较大值 17.5 (max 逻辑)")
+
+
 def test_merge_fullwidth_dash():
     """全角数字 + 横线归一后合并"""
     dist = {'３１-４０岁': 30.1, '31-40': 40.5}
