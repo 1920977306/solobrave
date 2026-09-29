@@ -31896,6 +31896,39 @@ function renderTalentPanelFans(t) {
     return section;
   }
 
+  // 紧凑分布 (内嵌单行 Top-N)
+  //   - dict      → 'key1 pct% · key2 pct% · key3 pct%' (Top N 按 value 降序)
+  //   - JSON 串   → JSON.parse 后走 dict 路径 (治 OCR v3 存 JSON 字符串未 parse 的兼容)
+  //   - 标量 string → escapeHtml 原样输出 (治 demo/mock 老数据, e.g. '精致妈妈')
+  //   - 空 / null / undefined → '-'
+  // 治 fan_crowd / fan_price_range / fan_category 等原本按标量设计、但 Mini OCR v3
+  //   (b80f16b) 收进 _DIST_FIELDS_NORMALIZE 变 dict 后前端 escapeHtml 误 dump JSON 字符串的 bug
+  // key 归一映射: ★ 老大 2026-09-29 brief 钉死 — OCR 模型偶尔把 'Z世代' 误识别为 'genz',
+  //   这里只换这一个 key 的显示文本, 其他 key 原样 (不要扩大归一, 跟 _normalize_dist_key 解耦)
+  var _INLINE_DIST_KEY_DISPLAY = { 'genz': 'Z世代' };
+  function _inlineDistTopN(v, n) {
+    if (v === null || v === undefined || v === '') return '-';
+    var obj = v;
+    if (typeof v === 'string') {
+      var trimmed = v.trim();
+      if (trimmed.charAt(0) === '{') {
+        try { obj = JSON.parse(trimmed); } catch (e) { return escapeHtml(v); }
+      } else {
+        return escapeHtml(v);
+      }
+    }
+    if (typeof obj === 'object' && !Array.isArray(obj)) {
+      var entries = Object.keys(obj)
+        .map(function(k){ return { k: (_INLINE_DIST_KEY_DISPLAY[k] || k), v: Number(obj[k]) || 0 }; })
+        .filter(function(e){ return e.k && e.v > 0; })
+        .sort(function(a, b){ return b.v - a.v; })
+        .slice(0, n || 3);
+      if (!entries.length) return '-';
+      return entries.map(function(e){ return escapeHtml(e.k) + ' ' + e.v.toFixed(1) + '%'; }).join(' · ');
+    }
+    return escapeHtml(String(v));
+  }
+
   // 粉丝画像总览 (加 ocr 兜底)
   var hasFansData = ((fans.cities && fans.cities.length) || (fans.interest && fans.interest.length) || _pickOcrDict('fan_gender','fan_group_gender') || _pickOcrDict('fan_age','fan_group_age') || _pickOcrDict('fan_region','fan_city_tier','live_audience_city_tier'));
   if (hasFansData) {
@@ -31933,16 +31966,17 @@ function renderTalentPanelFans(t) {
   if (_device) html += renderDist('粉丝团设备', _device);
   var _activity = _pickOcrDict('fan_group_activity');
   if (_activity) html += renderDist('粉丝团活跃度', _activity);
-  // ★ ocr 兜底: 人群偏好 (标量字段)
+  // ★ ocr 兜底: 人群偏好 (OCR v3 之前 fan_crowd/price_range/category 是标量,
+  //   Mini b80f16b 收进 _DIST_FIELDS_NORMALIZE 后变 dict, _inlineDistTopN 自动兼容两种)
   var _fanCrowd = t.fan_crowd || _pickOcrScalar('fan_crowd','fan_group_crowd');
   var _fanPrice = (typeof t.fan_price_range === 'string' ? t.fan_price_range : '') || _pickOcrScalar('fan_price_range','fan_group_price');
   var _fanCategory = (typeof t.fan_category === 'string' ? t.fan_category : '') || _pickOcrScalar('fan_category','fan_group_category');
   if (_fanCrowd || _fanPrice || _fanCategory) {
     html += '<div class="talents-panel-section"><div class="talents-panel-title">人群偏好</div>';
     html += '<div class="products-detail-grid">';
-    html += '<div class="products-detail-item"><div class="products-detail-label">人群画像</div><div class="products-detail-value">' + escapeHtml(_fanCrowd || '-') + '</div></div>';
-    html += '<div class="products-detail-item"><div class="products-detail-label">价格带</div><div class="products-detail-value">' + escapeHtml(String(_fanPrice || '-')) + '</div></div>';
-    html += '<div class="products-detail-item"><div class="products-detail-label">类目偏好</div><div class="products-detail-value">' + escapeHtml(String(_fanCategory || '-')) + '</div></div>';
+    html += '<div class="products-detail-item"><div class="products-detail-label">人群画像</div><div class="products-detail-value">' + _inlineDistTopN(_fanCrowd, 3) + '</div></div>';
+    html += '<div class="products-detail-item"><div class="products-detail-label">价格带</div><div class="products-detail-value">' + _inlineDistTopN(_fanPrice, 3) + '</div></div>';
+    html += '<div class="products-detail-item"><div class="products-detail-label">类目偏好</div><div class="products-detail-value">' + _inlineDistTopN(_fanCategory, 3) + '</div></div>';
     html += '</div></div>';
   }
 
