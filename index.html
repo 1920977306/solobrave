@@ -29740,7 +29740,7 @@ function _renderProductTalentMatches() {
     html += '<div class="ai-match-card-left">' + avatar + '</div>';
     html += '<div class="ai-match-card-main">';
     html += '<div class="ai-match-card-title">' + escapeHtml(t.name || '-') + ' <span style="font-size:11px;color:var(--text-secondary);font-weight:400;">' + (t.level || '') + '</span></div>';
-    html += '<div class="ai-match-card-meta">粉丝 ' + formatNumber(t.followers || 0) + ' · ' + escapeHtml(t.fan_category || t.category || '未分类') + '</div>';
+    html += '<div class="ai-match-card-meta">粉丝 ' + formatNumber(t.followers || 0) + ' · ' + escapeHtml(String(t.fan_category || t.category || '未分类')) + '</div>';
     html += '<div class="ai-match-card-tags">';
     html += '<span class="ai-match-tag">历史GMV ¥' + formatNumber(t.total_gmv || 0) + '</span>';
     html += '</div>';
@@ -30527,7 +30527,7 @@ function renderTalentList(talents) {
       ? '<span class="chip chip-platform" style="--chip-color:' + platformColor + ';">' + escapeHtml(platform) + '</span>'
       : '<span class="chip chip-platform">' + escapeHtml(platform) + '</span>';
     // 类目 chips（按 / , 拆，最多 2 个）
-    var categories = (t.category || t.fan_category || mock.category || '').split(/[\/，,]/).map(function(s){ return s.trim(); }).filter(Boolean).slice(0, 2);
+    var categories = (t.category || (typeof t.fan_category === 'string' ? t.fan_category : '') || mock.category || '').split(/[\/，,]/).map(function(s){ return s.trim(); }).filter(Boolean).slice(0, 2);
     var catChips = categories.map(function(c){ return '<span class="chip">' + escapeHtml(c) + '</span>'; }).join('');
     // 数字
     var followersText = formatFollowers(t.followers || 0).replace('w', '万');
@@ -31272,7 +31272,7 @@ function renderTalentPanelOverview(t) {
   var ai = t.ai_reason ? (function(){ try { return JSON.parse(t.ai_reason); } catch(e){ return {}; } })() : {};
   var tags = (t.ai_tags && t.ai_tags.length) ? t.ai_tags : mock.ai_tags;
   var avatar = t.avatar ? '<img src="' + escapeAttr(t.avatar) + '" style="width:100%;height:100%;object-fit:cover;border-radius:50%;">' : '<span style="font-size:28px;">' + (t.name || '?').charAt(0) + '</span>';
-  var category = t.category || t.fan_category || mock.category || '-';
+  var category = t.category || (typeof t.fan_category === 'string' ? t.fan_category : '') || mock.category || '-';
   var productCount = t.product_count || t.total_products || mock.product_count || 0;
   var averagePrice = t.average_price || mock.average_price || 0;
   var totalGmv = t.total_gmv || mock.total_gmv || 0;
@@ -31289,7 +31289,7 @@ function renderTalentPanelOverview(t) {
   html += '<div class="talents-overview-pills">';
   html += '<span class="talents-overview-pill"><label>抖音号</label>' + escapeHtml(t.douyin_id || '-') + '</span>';
   html += '<span class="talents-overview-pill"><label>粉丝</label>' + formatFollowers(t.followers || 0) + '</span>';
-  html += '<span class="talents-overview-pill"><label>类目</label>' + escapeHtml(category) + '</span>';
+  html += '<span class="talents-overview-pill"><label>类目</label>' + escapeHtml(String(category)) + '</span>';
   html += '<span class="talents-overview-pill"><label>风险</label>' + escapeHtml(_formatRiskLabel(t.risk_rating || mock.risk_rating)) + '</span>';
   html += '</div>';
   if (t.bio) html += '<div class="talents-overview-bio">' + escapeHtml(t.bio) + '</div>';
@@ -31928,14 +31928,14 @@ function renderTalentPanelFans(t) {
   if (_activity) html += renderDist('粉丝团活跃度', _activity);
   // ★ ocr 兜底: 人群偏好 (标量字段)
   var _fanCrowd = t.fan_crowd || _pickOcrScalar('fan_crowd','fan_group_crowd');
-  var _fanPrice = t.fan_price_range || _pickOcrScalar('fan_price_range','fan_group_price');
-  var _fanCategory = t.fan_category || _pickOcrScalar('fan_category','fan_group_category');
+  var _fanPrice = (typeof t.fan_price_range === 'string' ? t.fan_price_range : '') || _pickOcrScalar('fan_price_range','fan_group_price');
+  var _fanCategory = (typeof t.fan_category === 'string' ? t.fan_category : '') || _pickOcrScalar('fan_category','fan_group_category');
   if (_fanCrowd || _fanPrice || _fanCategory) {
     html += '<div class="talents-panel-section"><div class="talents-panel-title">人群偏好</div>';
     html += '<div class="products-detail-grid">';
     html += '<div class="products-detail-item"><div class="products-detail-label">人群画像</div><div class="products-detail-value">' + escapeHtml(_fanCrowd || '-') + '</div></div>';
-    html += '<div class="products-detail-item"><div class="products-detail-label">价格带</div><div class="products-detail-value">' + escapeHtml(_fanPrice || '-') + '</div></div>';
-    html += '<div class="products-detail-item"><div class="products-detail-label">类目偏好</div><div class="products-detail-value">' + escapeHtml(_fanCategory || '-') + '</div></div>';
+    html += '<div class="products-detail-item"><div class="products-detail-label">价格带</div><div class="products-detail-value">' + escapeHtml(String(_fanPrice || '-')) + '</div></div>';
+    html += '<div class="products-detail-item"><div class="products-detail-label">类目偏好</div><div class="products-detail-value">' + escapeHtml(String(_fanCategory || '-')) + '</div></div>';
     html += '</div></div>';
   }
 
