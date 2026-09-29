@@ -1416,7 +1416,7 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   font-size: 14px;
   color: var(--text-primary);
   font-weight: 500;
-  /* ★ fix/mini-test-code-repair-20260925: 人群偏好 Top 5 是纯文本多行 ('标签 百分比%\n...'),
+  /* ★ fix/mini-test-code-repair-20260925: 人群偏好是纯文本多行 ('标签 百分比%\n...', 每项一行),
      HTML 默认折叠空白 → \n 不换行就挤成一堵墙. pre-line = 保留换行 + 折叠连续空格.
      跟 .talents-info-item .value (L2702) 同一套方案; 不含 \n 的存量字段行为不变. */
   white-space: pre-line;
@@ -31386,7 +31386,8 @@ function _crowdPrefLabel(key) {
 }
 
 // ★ 人群偏好 (fan_crowd / fan_group_crowd) 纯文本渲染, 三路输入兼容:
-//   dict        → 按占比降序取 Top 5, 每行 '标签 百分比%' (百分比按本组 total 归一)
+//   dict        → 按占比降序, 每一项一行 '标签 百分比%', 不截断 (老大 2026-09-29 改: 8 项全展示,
+//                 跟年龄 / 性别 / 城市等级分布同风格; 百分比按本组 total 归一)
 //   JSON 字符串 → 先 JSON.parse, 再按 dict 走 (DB TEXT 列原样返回的情况)
 //   其它标量   → legacy '精致妈妈' / 'Z世代' 这类单值, 原样显示
 //   null / 空   → '' (调用方兜 '待补充')
@@ -31413,7 +31414,7 @@ function _renderCrowdPrefText(v) {
   if (!arr.length) return '';
   arr.sort(function (a, b) { return b.value - a.value; });
   var total = arr.reduce(function (a, b) { return a + b.value; }, 0);
-  return arr.slice(0, 5).map(function (e) {
+  return arr.map(function (e) {
     var pct = total ? (e.value / total * 100) : 0;
     return _crowdPrefLabel(e.key) + ' ' + pct.toFixed(1) + '%';
   }).join('\n');
@@ -32040,7 +32041,7 @@ function renderTalentPanelFans(t) {
   if (_device) html += renderDist('粉丝团设备', _device);
   var _activity = _pickOcrDict('fan_group_activity');
   if (_activity) html += renderDist('粉丝团活跃度', _activity);
-  // ★ 人群偏好 (老大 2026-09-29 工单): dict → Top 5 '标签 百分比%' (genz 显示 Z世代),
+  // ★ 人群偏好 (老大 2026-09-29 工单): dict → 每项一行 '标签 百分比%' 全展示不截断 (genz 显示 Z世代),
   //   JSON 串 → parse 后同路, legacy 标量 → 原样, null/空 → '待补充'. 禁甩原始 JSON.
   var _fanCrowdSrc = (t.fan_crowd && typeof t.fan_crowd === 'object' && !Array.isArray(t.fan_crowd) && Object.keys(t.fan_crowd).length) ? t.fan_crowd
                    : ((typeof t.fan_crowd === 'string' && t.fan_crowd.trim()) ? t.fan_crowd
