@@ -31297,8 +31297,21 @@ function _normalizeDistKey(k) {
 //     - function(key) → 返回 rank 数字, 小的排前面 (年龄 / 客单价用)
 //     - object {归一key: rank} → 查表排 (城市等级等语义序用)
 //   未知 key 一律排最后, 未知之间仍按 value 降序 (不打乱已有观感)
+// ★ 纵深防御 (原生产 35b8384 守卫, 切 dev 前补回): 只接受 {str:number} 分布 dict,
+//   拒绝 {标题/说明/数据:list} 复杂 dict, 不渲染垃圾墙, 走空/暂无数据.
+function _isValidDistDict(v) {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return false;
+  var ks = Object.keys(v);
+  if (!ks.length) return false;
+  for (var i = 0; i < ks.length; i++) {
+    var raw = v[ks[i]];
+    var n = (typeof raw === 'number') ? raw : parseFloat(raw);
+    if (raw === null || raw === '' || typeof raw === 'object' || isNaN(n)) return false;
+  }
+  return true;
+}
 function _mergeDistByNormalizedKey(obj, orderSpec) {
-  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return [];
+  if (!_isValidDistDict(obj)) return [];
   var merged = {};        // 归一化 key → { value, displayKey }
   Object.keys(obj).forEach(function(rawKey){
     var norm = _normalizeDistKey(rawKey);
