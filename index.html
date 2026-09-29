@@ -31068,8 +31068,8 @@ function parseTalentAIReport(text) {
     return body.split('\n').map(function(l){ return l.trim(); }).filter(function(l){
       // 跳过纯 --- 分隔符行(已用 hr 替代)
       if (/^-+$/.test(l)) return false;
-      return /^[-*✓!]\s+/.test(l);
-    }).map(function(l){ return l.replace(/^[-*✓!]\s+/, ''); });
+      return /^[-*✓!•·]+(?:\s*[-*✓!•·]+)*\s*/.test(l);
+    }).map(function(l){ return l.replace(/^[-*✓!•·]+(?:\s*[-*✓!•·]+)*\s*/, ''); });
   }
 
   if (sections['3']) {
@@ -31289,7 +31289,8 @@ function _normalizeDistKey(k) {
     .replace(/[\uFF01-\uFF5E]/g, function(c){ // 全角 → 半角
       return String.fromCharCode(c.charCodeAt(0) - 0xFEE0);
     })
-    .trim();
+    .trim()
+    .replace(/城市$/, '');             // 城市档: 新一线 / 新一线城市 归一到同档, merge 才能合并
 }
 // ★ fix/mini-test-code-repair-20260925 (老大 2026-09-29 工单: 档位自然排序):
 //   新增可选第 2 参 orderSpec (不传 = 老行为, 按 value 降序, 一行不差):
@@ -31327,7 +31328,10 @@ function _mergeDistByNormalizedKey(obj, orderSpec) {
   //   排序也吃这个映射后的 key: 但映射只改 genz 一种, 而 genz 不是 age/price/city_tier 档位,
   //   _distNumericRank / _DIST_ORDER_CITY_TIER 查表结果不受影响.
   var arr = Object.keys(merged).map(function(n){
-    return { key: _crowdPrefLabel(merged[n].displayKey), value: merged[n].value };
+    var _dispKey = _crowdPrefLabel(merged[n].displayKey);
+    // 城市档合并后统一显示长名 (归一已剥去结尾"城市", 出口补回)
+    if (_CITY_TIER_LONG_NAME[n]) _dispKey = _CITY_TIER_LONG_NAME[n];
+    return { key: _dispKey, value: merged[n].value };
   });
   if (orderSpec) {
     var isRankFn = (typeof orderSpec === 'function');
@@ -31362,6 +31366,11 @@ function _distNumericRank(key) {
 //   长短形式都收: b1896ba 之前的存量数据 / OCR 原样还有 '一线' / '新一线' / '六线及以下' 短形式.
 //   ★ 2026-09-29 老大复验后改档: 新一线排在 一线 之前 (实测 '新一线 17.6% → 一线 8.1%'),
 //   与今天早上工单里写的 '一线→新一线' 相反, 以本次拍板为准.
+var _CITY_TIER_LONG_NAME = {
+  '新一线': '新一线城市', '一线': '一线城市', '二线': '二线城市',
+  '三线': '三线城市', '四线': '四线城市', '五线': '五线城市',
+  '六线及以下': '六线及以下'
+};
 var _DIST_ORDER_CITY_TIER = (function () {
   var buckets = [
     ['新一线', '新一线城市', '新1线', '新1线城市'],
