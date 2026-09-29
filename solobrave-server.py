@@ -21207,9 +21207,45 @@ def _fix_single_quotes(s):
     return re.sub(r"'([^'\"\\]*)'", r'"\1"', s)
 
 
+def _closing_brackets(text):
+    """扫一段文本算还欠哪些闭合符, 倒序返回 (e.g. 欠 1 个 { 和 1 个 [ → '}]').
+    只认还没闭合的容器, 字符串内的括号不计 (跟 _repair_truncated 同一套跳过规则)."""
+    stack = []
+    in_str = False
+    escaped = False
+    for c in text:
+        if in_str:
+            if escaped:
+                escaped = False
+            elif c == '\\':
+                escaped = True
+            elif c == '"':
+                in_str = False
+            continue
+        if c == '"':
+            in_str = True
+        elif c in '{[':
+            stack.append(c)
+        elif c in '}]' and stack:
+            stack.pop()
+    return ''.join('}' if c == '{' else ']' for c in reversed(stack))
+
+
 def _repair_truncated(s):
-    """截断恢复: 扫到最后一个大括号平衡位置就截断; 全文一次都没平衡 (截断在中间) 则补闭合.
-    字符串内部的引号做了跳过处理 (含反斜杠转义), 避免 value 里的 '}' 被误判成闭合."""
+    """截断恢复 —— 原则: 只丢不造.
+    ★ 老大 2026-09-29 定调: 修 JSON 绝不能凭空补 value 造出假 key
+      (早期想法是给半截 key 补 ': null', 结果 '{"18-2' → '{"18-2": null}',
+      假 key 会混进年龄分布被渲染出来. 改成把结尾不完整的碎片回退到最近的结构边界.)
+
+    两步:
+      1) 扫到最后一个大括号平衡位置 → 整段截断 (原有行为, 尾部半截碎片自动丢弃)
+      2) 一次都没平衡 (尾部被 max_tokens 截断) → 按结尾形态决定:
+         - EOF 停在未闭合字符串里 (半截 key 或半截 value) → 一律回退
+         - EOF 在字符串外, 结尾是完整值 (数字 / true / false / null / 已闭合容器 /
+           冒号后的已闭合字符串) → 保留, 只补闭合符
+         - EOF 在字符串外, 结尾是缺冒号的 key / 光一个冒号 / 刚开的容器 → 回退
+    回退规则: 边界是逗号就连逗号一起去掉; 边界是 { 或 [ 就保留该容器, 使之为空.
+    最后按容器栈补 } 或 ] 闭合."""
     start = s.find('{')
     if start < 0:
         return s
@@ -21217,6 +21253,8 @@ def _repair_truncated(s):
     in_str = False
     escaped = False
     last_balanced = -1
+    boundary_pos = -1          # 最近一个结构边界 (, { [) 的位置
+    boundary_ch = ''           # 该边界的字符
     for i in range(start, len(s)):
         c = s[i]
         if in_str:
@@ -21229,21 +21267,47 @@ def _repair_truncated(s):
             continue
         if c == '"':
             in_str = True
-        elif c == '{':
+        elif c in '{[':
             depth += 1
-        elif c == '}':
+            boundary_pos = i
+            boundary_ch = c
+        elif c in '}]':
             depth -= 1
             if depth == 0:
                 last_balanced = i
+        elif c == ',':
+            boundary_pos = i
+            boundary_ch = ','
+
     if last_balanced >= 0:
         return s[start:last_balanced + 1]
-    # 一次都没平衡: 补齐没闭合的字符串和括号, 截断的 JSON 才能 parse
+
     tail = s[start:].rstrip()
+    need_rollback = False
+    if in_str:
+        need_rollback = True                     # 半截 key 或半截 value, 都是碎片
+    else:
+        last_ch = tail[-1] if tail else ''
+        if last_ch in '}':
+            need_rollback = False               # 已闭合容器 = 完整值
+        elif last_ch == '"':
+            # 已闭合字符串: 紧跟在冒号后 = value (完整), 否则是缺冒号的 key (碎片)
+            j = len(tail) - 2
+            while j >= 0 and tail[j] in ' \t':
+                j -= 1
+            need_rollback = not (j >= 0 and tail[j] == ':')
+        elif last_ch in ':,{[' or not last_ch:
+            need_rollback = True                 # 冒号后缺值 / 刚开的容器 / 空
+        else:
+            need_rollback = False               # 数字 / true / false / null 结尾
+
+    if need_rollback:
+        # 边界是逗号 → 连逗号一起去掉; 边界是 { 或 [ → 保留该容器使之为空
+        cut = (boundary_pos + 1) if boundary_ch in '{[' else boundary_pos
+        tail = s[start:cut].rstrip() if cut > start else '{'
     if tail.endswith(','):
         tail = tail[:-1].rstrip()
-    if in_str:
-        tail += '"'
-    return tail + ('}' * max(depth, 1))
+    return tail + _closing_brackets(tail)
 
 
 def _repair_vision_json(text):

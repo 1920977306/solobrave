@@ -84,11 +84,44 @@ def test_repair_truncated_in_string():
 
 
 def test_repair_truncated_after_complete_object():
-    """★ 尾部截断但已有完整顶层对象 → 截到最后一个平衡位置, 不被半截尾巴带崩"""
+    """★ 截断在第二个键的 value 中间 → 回退到最近结构边界, 不捏造假 key.
+    老大 2026-09-29 回归: 老实现给半截 key 补 ': null', 造出 {"18-2": null} 这种假 key,
+    假 key 会混进年龄分布被前端渲染出来. 现在原则是只丢不造."""
     text = '{"粉丝特征": {"性别": {"男": 60, "女": 40}}, "age": {"18-2'
     obj = _parse_vision_json(text)
     _assert_true(obj is not None, '截断在第二个键时仍能解析')
     _assert_equal(obj['粉丝特征']['性别'], {'男': 60, '女': 40}, '第一个完整对象保留')
+    _assert_true('18-2' not in obj, '没有捏造 "18-2" 这个 key')
+    _assert_true('18-2' not in json.dumps(obj, ensure_ascii=False), '结果里完全不含 "18-2"')
+    _assert_equal(obj.get('age'), {}, 'age 回退为空对象而不是 {"18-2": null}')
+
+
+def test_repair_truncated_half_value_rollback():
+    """★ 半截 value 所在维度回退为空, 同段完整字段不受影响"""
+    text = '{"粉丝特征": {"性别": {"男": 60, "女": 40}, "年龄": {"18-2'
+    obj = _parse_vision_json(text)
+    _assert_true(obj is not None, '半截 value 回退后仍能解析')
+    _assert_equal(obj['粉丝特征']['性别'], {'男': 60, '女': 40}, '完整字段保留')
+    _assert_equal(obj['粉丝特征'].get('年龄'), {}, '半截 value 的维度回退为空')
+
+
+def test_repair_truncated_keeps_complete_tail_value():
+    """★ 结尾是完整数字值时必须保留, 只补闭合符 (不能误丢)"""
+    _assert_equal(_parse_vision_json('{"男": 60'), {'男': 60}, '结尾完整数字值保留, 只补 }')
+    _assert_equal(_parse_vision_json('{"a": 1, "b": 2'), {'a': 1, 'b': 2}, '多键截断, 结尾完整值保留')
+    _assert_equal(_parse_vision_json('{"a": true'), {'a': True}, '结尾 true 保留')
+
+
+def test_repair_truncated_key_without_colon_rolls_back():
+    """★ 已闭合但缺冒号的半截 key → 回退, 不留孤儿 key"""
+    _assert_equal(_parse_vision_json('{"a": 1, "b"'), {'a': 1}, '缺冒号的 key 被回退')
+    _assert_equal(_parse_vision_json('{"a": 1, "b": 2, "c"'), {'a': 1, 'b': 2}, '只回退最后那对')
+
+
+def test_repair_truncated_colon_without_value_rolls_back():
+    """★ 冒号后缺值 → 回退, 不补 null (老大定调: 只丢不造)"""
+    _assert_equal(_parse_vision_json('{"a": 1, "b":'), {'a': 1}, '冒号后缺值 → 回退, 不补 null')
+    _assert_equal(_parse_vision_json('{"a": {'), {'a': {}}, '刚开的容器 → 补成空容器')
 
 
 def test_repair_trailing_comma_and_single_quote():
