@@ -20612,7 +20612,10 @@ def _call_minimax_vision_fallback(image_base64, media_type='image/jpeg', role=No
     body = {
         'model': model,
         'messages': messages,
-        'max_tokens': 1024,
+        # ★ fix/vision-json-repair: 1024 → 4096 (老大 2026-09-29 拍板 C).
+        #   1024 对 4 段 + 20+ 维的达人截图 OCR 输出是硬瓶颈, 尾部被截断 → _parse_vision_json
+        #   解析失败 → 整页字段丢失. OCR 完整性收益远大于延迟成本.
+        'max_tokens': 4096,
         'stream': False
     }
 
@@ -21159,18 +21162,207 @@ _HEAVY_CORE_FIELDS = ('followers', 'main_category', 'total_gmv', 'video_ratio', 
 _HEAVY_LOW_COVERAGE_THRESHOLD = 0.2
 
 
+# ★ fix/vision-json-repair: vision 返回坏 JSON 的修复层 (老大 2026-09-29 拍板 A+B, 1 个 commit 全做)
+#   vision 模型返回的 JSON 有 4 类常见坏法, 这里在 json 解析之前先尽力修:
+#     1) markdown ```json 围栏 + 围栏外说明文字
+#     2) max_tokens 截断 (尾部缺 '}' / 字符串没闭合)
+#     3) 裸 key 行 (只有 key, 没有冒号和值)
+#     4) 尾逗号 / 单引号
+#   json_repair 是增强不是硬依赖 (老大 2026-09-29 明确): import 成功且修出的结果能 json.loads
+#   才采用; 装不上 / 报错 / 没修好, 静默降级到自研 4 步, 绝不因为缺一个包把 vision 链路堵死.
+
+
+def _strip_json_fence(text):
+    """剥 markdown ```json 围栏, 返回从第一个 '{' 开始的正文.
+    有围栏取围栏内内容; 无围栏直接取首个 '{' 之后全部 (尾部杂文交给 raw_decode 忽略)."""
+    s = str(text).strip()
+    m = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', s, re.DOTALL)
+    if m:
+        return m.group(1)
+    start = s.find('{')
+    return s[start:] if start >= 0 else ''
+
+
+def _drop_bare_key_lines(s):
+    """丢弃'缺冒号和值'的裸 key 行 (OCR 截断 / 识别错时经常吐半截 key).
+    规则: 行 strip 后不含 ':' 且不以 { } [ ] , 开头 → 判为裸 key 整行丢.
+    合法 JSON 的行要么含 ':' (key: value), 要么是纯结构符号行, 所以不会误删真数据."""
+    out = []
+    for line in s.split('\n'):
+        t = line.strip()
+        if t and ':' not in t and t[0] not in '{}[],':
+            continue
+        out.append(line)
+    return '\n'.join(out)
+
+
+def _fix_trailing_commas(s):
+    """容忍尾逗号: {"a":1, } → {"a":1}, [1,2, ] → [1,2]"""
+    return re.sub(r',(\s*[}\]])', r'\1', s)
+
+
+def _fix_single_quotes(s):
+    """容忍单引号: {'a':1} → {"a":1}.
+    内容里含双引号或反斜杠的片段不动 (避免破坏 JSON 字符串内部)."""
+    return re.sub(r"'([^'\"\\]*)'", r'"\1"', s)
+
+
+def _closing_brackets(text):
+    """扫一段文本算还欠哪些闭合符, 倒序返回 (e.g. 欠 1 个 { 和 1 个 [ → '}]').
+    只认还没闭合的容器, 字符串内的括号不计 (跟 _repair_truncated 同一套跳过规则)."""
+    stack = []
+    in_str = False
+    escaped = False
+    for c in text:
+        if in_str:
+            if escaped:
+                escaped = False
+            elif c == '\\':
+                escaped = True
+            elif c == '"':
+                in_str = False
+            continue
+        if c == '"':
+            in_str = True
+        elif c in '{[':
+            stack.append(c)
+        elif c in '}]' and stack:
+            stack.pop()
+    return ''.join('}' if c == '{' else ']' for c in reversed(stack))
+
+
+def _repair_truncated(s):
+    """截断恢复 —— 原则: 只丢不造.
+    ★ 老大 2026-09-29 定调: 修 JSON 绝不能凭空补 value 造出假 key
+      (早期想法是给半截 key 补 ': null', 结果 '{"18-2' → '{"18-2": null}',
+      假 key 会混进年龄分布被渲染出来. 改成把结尾不完整的碎片回退到最近的结构边界.)
+
+    两步:
+      1) 扫到最后一个大括号平衡位置 → 整段截断 (原有行为, 尾部半截碎片自动丢弃)
+      2) 一次都没平衡 (尾部被 max_tokens 截断) → 按结尾形态决定:
+         - EOF 停在未闭合字符串里 (半截 key 或半截 value) → 一律回退
+         - EOF 在字符串外, 结尾是完整值 (数字 / true / false / null / 已闭合容器 /
+           冒号后的已闭合字符串) → 保留, 只补闭合符
+         - EOF 在字符串外, 结尾是缺冒号的 key / 光一个冒号 / 刚开的容器 → 回退
+    回退规则: 边界是逗号就连逗号一起去掉; 边界是 { 或 [ 就保留该容器, 使之为空.
+    最后按容器栈补 } 或 ] 闭合."""
+    start = s.find('{')
+    if start < 0:
+        return s
+    depth = 0
+    in_str = False
+    escaped = False
+    last_balanced = -1
+    boundary_pos = -1          # 最近一个结构边界 (, { [) 的位置
+    boundary_ch = ''           # 该边界的字符
+    for i in range(start, len(s)):
+        c = s[i]
+        if in_str:
+            if escaped:
+                escaped = False
+            elif c == '\\':
+                escaped = True
+            elif c == '"':
+                in_str = False
+            continue
+        if c == '"':
+            in_str = True
+        elif c in '{[':
+            depth += 1
+            boundary_pos = i
+            boundary_ch = c
+        elif c in '}]':
+            depth -= 1
+            if depth == 0:
+                last_balanced = i
+        elif c == ',':
+            boundary_pos = i
+            boundary_ch = ','
+
+    if last_balanced >= 0:
+        return s[start:last_balanced + 1]
+
+    tail = s[start:].rstrip()
+    need_rollback = False
+    if in_str:
+        need_rollback = True                     # 半截 key 或半截 value, 都是碎片
+    else:
+        last_ch = tail[-1] if tail else ''
+        if last_ch in '}':
+            need_rollback = False               # 已闭合容器 = 完整值
+        elif last_ch == '"':
+            # 已闭合字符串: 紧跟在冒号后 = value (完整), 否则是缺冒号的 key (碎片)
+            j = len(tail) - 2
+            while j >= 0 and tail[j] in ' \t':
+                j -= 1
+            need_rollback = not (j >= 0 and tail[j] == ':')
+        elif last_ch in ':,{[' or not last_ch:
+            need_rollback = True                 # 冒号后缺值 / 刚开的容器 / 空
+        else:
+            need_rollback = False               # 数字 / true / false / null 结尾
+
+    if need_rollback:
+        # 边界是逗号 → 连逗号一起去掉; 边界是 { 或 [ → 保留该容器使之为空
+        cut = (boundary_pos + 1) if boundary_ch in '{[' else boundary_pos
+        tail = s[start:cut].rstrip() if cut > start else '{'
+    if tail.endswith(','):
+        tail = tail[:-1].rstrip()
+    return tail + _closing_brackets(tail)
+
+
+def _repair_vision_json(text):
+    """修复 vision 返回的坏 JSON, 返回修复后的字符串 (定位不到 '{' 时返回原串).
+    顺序: 剥围栏 → json_repair 增强 (可选, 结果能 parse 才采用) → 自研 4 步.
+    本函数不外抛异常: 修复是增强手段, 修不好也要把原文交回 _parse_vision_json 走老路."""
+    if not text or not isinstance(text, str):
+        return text
+    s = _strip_json_fence(text)
+    if not s:
+        return text
+    # 增强: json_repair (可选依赖, 装不上就跳过)
+    try:
+        import json_repair
+        repaired = json_repair.repair(s)
+        if isinstance(repaired, dict) and repaired:
+            return json.dumps(repaired, ensure_ascii=False)
+        if isinstance(repaired, str) and repaired.strip():
+            try:
+                json.loads(repaired)
+                return repaired
+            except Exception:
+                pass    # json_repair 也没修好 → 走自研
+    except Exception:
+        pass        # 没装 / 导入报错 → 走自研, 不阻塞
+    # 自研确定性修复
+    try:
+        s = _drop_bare_key_lines(s)
+        s = _fix_trailing_commas(s)
+        s = _fix_single_quotes(s)
+        s = _repair_truncated(s)
+    except Exception as e:
+        logger.warning(f'  [VisionJSON] 自研修复异常, 退回原文: {type(e).__name__}: {e}')
+        return text
+    return s
+
+
 def _parse_vision_json(desc):
-    """从单张图片的 vision 识别文本中提取扁平 JSON 对象（兼容 markdown 代码围栏/前后杂文本）。
-    解析失败返回 None。"""
+    """从单张图片的 vision 识别文本中提取扁平 JSON 对象
+    (兼容 markdown 代码围栏 / 前后杂文本 / 截断 / 裸 key / 尾逗号 / 单引号).
+    ★ fix/vision-json-repair: 解析前先过 _repair_vision_json.
+    解析失败返回 None, 并把失败原因 + 原文前 200 字符透出到日志
+    (老实现静默 except → return None, 线上字段丢失完全查不到)."""
     if not desc:
         return None
-    start = desc.find('{')
+    repaired = _repair_vision_json(desc)
+    start = repaired.find('{') if isinstance(repaired, str) else -1
     if start < 0:
+        logger.warning(f'  [VisionJSON] 修复后找不到 {{, 原文前 200 字符: {str(desc)[:200]}')
         return None
     try:
-        obj, _ = json.JSONDecoder().raw_decode(desc[start:])
+        obj, _ = json.JSONDecoder().raw_decode(repaired[start:])
         return obj if isinstance(obj, dict) else None
-    except Exception:
+    except Exception as e:
+        logger.warning(f'  [VisionJSON] 修复后仍解析失败: {type(e).__name__}: {e} | 原文前 200 字符: {str(desc)[:200]}')
         return None
 
 
@@ -21404,6 +21596,236 @@ _FAN_SOURCE_MAP = [
 ]
 
 
+# ★ fix/vision-json-repair: 自由 key → 标准列后缀 白名单 (老大 2026-09-29 拍板 D+E)
+#   根因: minimax 没按 4 段输出时中文键自由发挥 ('城市等级分布' / '客单价水平' / '八大人群占比' / ...),
+#   而 _FAN_SOURCE_MAP 只认固定的 8 个中文维度键, 认不出的 key 直接被丢弃 → 字段永远进不了库.
+#   ⚠️ 人群后缀是 'crowd' 不是 'crowd_pref': 库里真列是 fan_crowd / fan_group_crowd /
+#   live_audience_crowd / video_audience_crowd, 没有任何 *_crowd_pref 列,
+#   写成 crowd_pref 会拼出 fan_crowd_pref → UPDATE 报 no such column, 整条同步炸掉.
+_SCHEMA_ALIAS_MAP = {
+    'city_level_distribution': 'city_tier',
+    '城市等级分布柱状图': 'city_tier',
+    '城市等级分布': 'city_tier',
+    '客单价水平': 'price_range',
+    '客单价分布': 'price_range',
+    '性别分布': 'gender',
+    '年龄分布': 'age',
+    '人群分布': 'crowd',
+    '八大人群占比': 'crowd',
+    '类目分布': 'category',
+    '活跃度分布': 'activity',
+    '设备分布': 'device',
+}
+# 判不出来源前缀时默认归 fan_ (跟前端 fan → video_audience 的 fallback 链一致, 不新建来源段)
+_SCHEMA_ALIAS_DEFAULT_PREFIX = 'fan'
+
+
+def _fan_cn_key_by_suffix():
+    """从 _FAN_SOURCE_MAP 的 fan 段反查 '列后缀 → 中文维度键'.
+    不硬编码第二张表: _FAN_SOURCE_MAP 改了维度这里自动跟着变, 不会出现两张表打架."""
+    for _src_name, _prefix, _dim_map in _FAN_SOURCE_MAP:
+        if _prefix == _SCHEMA_ALIAS_DEFAULT_PREFIX:
+            return {_en: _cn for _cn, _en in _dim_map.items()}
+    return {}
+
+
+_FAN_CN_KEY_BY_SUFFIX = _fan_cn_key_by_suffix()
+
+
+def _normalize_alias_key(k):
+    """自由 key 归一: 去空白 / 全角转半角 / 英文小写, 让白名单能等值匹配."""
+    s = str(k or '').strip()
+    if not s:
+        return ''
+    out = []
+    for ch in s:
+        code = ord(ch)
+        if 0xFF01 <= code <= 0xFF5E:
+            out.append(chr(code - 0xFEE0))       # 全角 → 半角
+        elif ch in ('\u3000', ' ', '\t', '\n', '\r'):
+            continue                            # 去各种空白
+        else:
+            out.append(ch)
+    return ''.join(out).lower()
+
+
+def _is_clean_dist(v):
+    """★ fix/vision-json-repair 0929 (闸门③): 干净分布 dict 判定 —
+    非空 dict 且所有值都是数字 (int/float, bool 不算).
+    用于「顶层 canonical 优先」判定: 顶层 fan_<suffix> 是这种 dict 时,
+    extra_fields 里的同名自由 key (可能是图表描述对象) 一律不得覆盖."""
+    return (isinstance(v, dict) and len(v) > 0
+            and all(isinstance(x, (int, float)) and not isinstance(x, bool) for x in v.values()))
+
+
+# 图表描述对象的「数据行列表」键 / 占比键 / 元数据键 (归一后小写等值匹配)
+_CHART_ROWS_KEYS = ('数据', 'items', 'rows', 'data')
+_CHART_PCT_KEYS = ('占比', 'percentage', 'percent', 'value', '比例')
+_CHART_META_KEYS = ('标题', '说明', '说明文字', '图表类型', '图例', '单位', '来源', '时间',
+                    '切换标签', '当前选中', '地图图例',
+                    'title', 'description', 'type', 'chart_type', 'unit', 'source')
+_CHART_PCT_KEYS_N = {_normalize_alias_key(k) for k in _CHART_PCT_KEYS}
+_CHART_META_KEYS_N = {_normalize_alias_key(k) for k in _CHART_META_KEYS}
+
+
+def _chart_obj_to_dist(v):
+    """★ fix/vision-json-repair 0929 (闸门③): 图表描述对象 → 标准分布 {label: float}.
+
+    识别形态: dict 里有 list 型的 数据/items/rows, 元素是 {<维度中文键>, <占比键>}
+    (维度键如 城市等级/性别/年龄/类目, 占比键如 占比/percentage/percent/value,
+    值带 % 也能解析成 float).
+    例: {'标题': '城市等级分布', '图表类型': '柱状图',
+         '数据': [{'城市等级': '新一线', '占比': '17.58%'}, ...]}
+      → {'新一线': 17.58, ...}
+    抽不出任何数值行 (纯 {标题,说明文字,...} 元数据对象 / 数据行无占比键) → 返 None,
+    调用方必须把 None 当作「不得注入」."""
+    if not isinstance(v, dict):
+        return None
+    rows = None
+    for rk in _CHART_ROWS_KEYS:
+        if isinstance(v.get(rk), list):
+            rows = v[rk]
+            break
+    if not rows:
+        return None
+    dist = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        label = None
+        pct = None
+        for k, rv in row.items():
+            kn = _normalize_alias_key(k)
+            if kn in _CHART_PCT_KEYS_N:
+                pct = rv
+            elif (label is None and kn not in _CHART_META_KEYS_N
+                  and isinstance(rv, (str, int, float)) and not isinstance(rv, bool)
+                  and str(rv).strip()):
+                label = str(rv).strip()
+        if label is None or pct is None:
+            continue
+        try:
+            dist[label] = float(str(pct).replace('%', '').strip())
+        except (TypeError, ValueError):
+            continue
+    return dist or None
+
+
+def _sections_to_dist(sections):
+    """minimax 的 sections[].features[].label/percentage 列表结构 → {列后缀: {label: 百分比}}.
+    这是结构变换不是静态别名, 光靠 _SCHEMA_ALIAS_MAP 兜不住, 必须专门展开."""
+    out = {}
+    if not isinstance(sections, list):
+        return out
+    for sec in sections:
+        if not isinstance(sec, dict):
+            continue
+        title = sec.get('title') or sec.get('name') or sec.get('label') or ''
+        suffix = _SCHEMA_ALIAS_MAP.get(_normalize_alias_key(title))
+        if not suffix:
+            continue
+        features = sec.get('features') or sec.get('items') or sec.get('data') or []
+        if not isinstance(features, list):
+            continue
+        dist = {}
+        for feat in features:
+            if not isinstance(feat, dict):
+                continue
+            label = feat.get('label') or feat.get('name') or feat.get('category') or ''
+            pct = feat.get('percentage')
+            if pct is None:
+                pct = feat.get('percent')
+            if pct is None:
+                pct = feat.get('value')
+            label = str(label).strip()
+            if not label or pct is None:
+                continue
+            try:
+                dist[label] = float(str(pct).replace('%', '').strip())
+            except (TypeError, ValueError):
+                continue
+        if dist:
+            out[suffix] = dist
+    return out
+
+
+def _apply_schema_aliases(merged):
+    """把 vision JSON 里的自由 key 归一到 _canonicalize_talent_row 认识的形状.
+    ★ fix/vision-json-repair: 在 _update_talent_from_ocr_fields 跨图合并后、
+      _canonicalize_talent_row 与写库之前调用.
+
+    为什么是注入 extra_fields.粉丝特征 而不是直接吐 fan_* 列名:
+      _canonicalize_talent_row 只从 2 个口子取 fan_* 值 ——
+        (1) _OCR_TO_TALENT_FIELDS 顶层 snake_case 键 (21 个字段, 不含任何 fan_*)
+        (2) extra_fields.<4 段中文段名>.<维度中文键> 走 _FAN_SOURCE_MAP
+      所以直接在 merged 顶层塞 fan_city_tier 会被完全忽略. 注入到 粉丝特征 段后,
+      由 _FAN_SOURCE_MAP 自然拼成 fan_<后缀>, 等于"默认归 fan_ 前缀".
+    冲突策略: 已存在的维度不覆盖 (先到先得, 跟 _update_talent_from_ocr_fields 合并逻辑一致).
+    ★ fix/vision-json-repair 0929 (闸门③): 顶层 canonical 优先 — merged 顶层已有干净
+      fan_<suffix> 分布 dict (非空 key→数字) 时, 该 suffix 一律不注入,
+      防 extra_fields 里的「图表描述对象」({标题,说明文字,图表类型,数据:[...]})
+      覆盖顶层真值 (fan_city_tier 落库成图表对象的 bug).
+    返回新 dict, 不改入参; 没有任何自由 key 时原样返回入参."""
+    if not isinstance(merged, dict):
+        return merged
+    extra = merged.get('extra_fields')
+    extra = dict(extra) if isinstance(extra, dict) else {}
+    fan_block = extra.get('粉丝特征')
+    fan_block = dict(fan_block) if isinstance(fan_block, dict) else {}
+    injected = set()
+
+    def _inject(suffix, value):
+        if not suffix or value is None or suffix in injected:
+            return
+        cn_key = _FAN_CN_KEY_BY_SUFFIX.get(suffix)
+        if not cn_key:
+            return
+        # ★ 0929: 顶层 canonical 优先 — 已有干净 fan_<suffix> 分布 dict → 不注入
+        if _is_clean_dist(merged.get('fan_' + suffix)):
+            return
+        if fan_block.get(cn_key) not in (None, '', {}, []):
+            return                      # 已有值 → 不覆盖 (先到先得)
+        injected.add(suffix)
+        fan_block[cn_key] = value
+
+    # 1) sections[] 列表结构展开 (minimax 特有)
+    for suffix, dist in _sections_to_dist(merged.get('sections')).items():
+        _inject(suffix, dist)
+
+    # 2) 递归找自由 key (顶层 / extra_fields / 段内 都覆盖)
+    def _walk(node, depth=0):
+        if depth > 6 or not isinstance(node, dict):
+            return
+        for k, v in node.items():
+            if isinstance(v, dict):
+                _walk(v, depth + 1)
+            suffix = _SCHEMA_ALIAS_MAP.get(_normalize_alias_key(k))
+            if not suffix:
+                continue
+            if isinstance(v, dict):
+                # ★ 0929: dict 值三态 —
+                #   (a) 图表描述对象 → 抽 数据[].{维度键,占比键} 成标准分布 dict 再注入
+                #   (b) 本身已是 label→数字 的干净分布 dict → 直接用
+                #   (c) 含 标题/说明文字/图表类型 等元数据键又抽不出数值 → 不注入
+                #   绝不允许把图表描述对象整体注入 (fan_city_tier 污染根因).
+                dist = _chart_obj_to_dist(v)
+                if dist is not None:
+                    _inject(suffix, dist)
+                elif _is_clean_dist(v):
+                    _inject(suffix, v)
+            elif isinstance(v, list):
+                _inject(suffix, v)
+
+    _walk(merged)
+
+    if not injected:
+        return merged
+    extra['粉丝特征'] = fan_block
+    out = dict(merged)
+    out['extra_fields'] = extra
+    return out
+
+
 # ★ fix/mini-test-code-repair-20260925 03:45: _PROTECTED_COLUMNS 顶层化
 #   老大 raw 2026-09-28 03:44 钉死根因: 原本是 _update_talent_from_ocr_fields 函数内 local,
 #   测试从模块顶层取自然 AttributeError (Mac raw: 226 passed + 12 failed 全部 protect 类).
@@ -21550,6 +21972,11 @@ def _update_talent_from_ocr_fields(talent_id, vision_field_maps):
                 continue
             if k not in merged:
                 merged[k] = v
+
+    # ★ fix/vision-json-repair: 自由 key 归一层 (E) —— 必须夹在跨图合并之后 / canonicalize 之前.
+    #   自由 key 归一成 extra_fields.粉丝特征.<中文维度键>, 后面 _canonicalize_talent_row
+    #   走 _FAN_SOURCE_MAP 拼出 fan_<后缀> 落库. 认不出的 key 原样传下去, 行为不变.
+    merged = _apply_schema_aliases(merged)
 
     # 规范化: 顶层 snake_case 优先 + extra_fields FLAT 4 段 + 区间值双轨
     canonical = _canonicalize_talent_row(merged)
@@ -22154,12 +22581,25 @@ def _canonicalize_talent_row(ocr_json):
         if not isinstance(block, dict):
             continue
         for cn_key, en_suffix in dim_map.items():
-            v = block.get(cn_key)
-            if v is None:
-                continue
             db_col = col_prefix + '_' + en_suffix
             # 已存在 (顶层优先) 跳过
             if db_col in out:
+                continue
+            # ★ fix/vision-json-repair 0929 (闸门③): 顶层 canonical 优先 — merged 顶层已有
+            #   干净 fan_* 分布 dict (非空 key→数字) 时直接采用顶层值原样落库, 不再读 fan_block.
+            #   根因: extra_fields 里的「图表描述对象」经 _apply_schema_aliases 整体注入后
+            #   在这里覆盖顶层干净 dict, fan_city_tier 落库成 {标题,说明文字,数据,...} 图表对象.
+            #   顶层即真值 (先到先得), 不走 _normalize_distribution (不改写顶层 key/数值).
+            top_dist = ocr_json.get(db_col)
+            if _is_clean_dist(top_dist):
+                # ★ 一致性补丁 0929: 顶层 fan_* dict 落库前对 key 调 _normalize_dist_key,
+                #   复用既有短→长城市档位映射 (_CITY_TIER_SHORT_TO_LONG), 只统一 key、数值原样,
+                #   消除与历史数据 (长名, 见李婶儿记录) 的长短名不一致. 非分布字段不受影响.
+                top_dist = {_normalize_dist_key(k) or k: v for k, v in top_dist.items()}
+                out[db_col] = json.dumps(top_dist, ensure_ascii=False)
+                continue
+            v = block.get(cn_key)
+            if v is None:
                 continue
             # ★ v4 amend: 4 个 city_tier (fan_city_tier / fan_group_city_tier /
             #   live_audience_city_tier / video_audience_city_tier) 走 _normalize_distribution
