@@ -31265,6 +31265,55 @@ function _countOcrFieldsLeaf(obj) {
   return n;
 }
 
+// ★ fix/talent-age-normalize (老大 2026-09-24 09:00 反馈):
+//   截图 5 显示粉丝年龄 "31-40岁 30.1%" 和 "31-40 30.1%" 同时出现 (key 字符串不同)
+//   之前 commit 4 的 _dedup 是按字面 key dedup (no-op, dict key 天然唯一), 救不了"同义异名"
+//   治标: key 归一化 (去"岁" / 去空格 / 全半角统一 / 横线统一 / trim) + 合并 (取较大值 + console.warn)
+//   治本: 后端 OCR dedup 阶段做同义归一 (Mini 端任务)
+// ★ fix/mini-test-code-repair-20260925 12:00: 这 2 个函数原在 renderTalentPanelFans 函数体内 (L31840-L31878),
+//   但 _buildFansProfile 在 renderTalentPanelOverview 函数体内 (L31393) 调用 _mergeDistByNormalizedKey,
+//   两个不同函数作用域互相看不见 → ReferenceError: _mergeDistByNormalizedKey is not defined.
+//   移到顶层 (老大 brief), 让两个函数都能 hoist 访问 (Mavis 25e3ccf 误判 hoist 跨函数生效).
+function _normalizeDistKey(k) {
+  if (!k) return '';
+  return String(k)
+    .replace(/[ \t\u3000]/g, '')            // 去半角空格/tab/全角空格
+    .replace(/岁/g, '')                      // 去"岁"字
+    .replace(/[‐-―—]/g, '-')                 // 各种横线统一为半角 -
+    .replace(/[\uFF01-\uFF5E]/g, function(c){ // 全角 → 半角
+      return String.fromCharCode(c.charCodeAt(0) - 0xFEE0);
+    })
+    .trim();
+}
+function _mergeDistByNormalizedKey(obj) {
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return [];
+  var merged = {};        // 归一化 key → { value, displayKey }
+  Object.keys(obj).forEach(function(rawKey){
+    var norm = _normalizeDistKey(rawKey);
+    if (!norm) return;
+    var v = parseFloat(obj[rawKey]) || 0;
+    if (merged[norm] === undefined) {
+      merged[norm] = { value: v, displayKey: rawKey };
+    } else {
+      // 同义异名: 取较大值, 记录告警
+      if (Math.abs(v - merged[norm].value) > 0.001) {
+        console.warn('[renderDist] 同义异名 key 占比不同, 取较大值: "'
+          + merged[norm].displayKey + '"(' + merged[norm].value
+          + '%) vs "' + rawKey + '"(' + v + '%)');
+      }
+      if (v > merged[norm].value) {
+        merged[norm] = { value: v, displayKey: rawKey };
+      }
+    }
+  });
+  // 转成渲染用的 { displayKey: value } 数组, 按 value 降序
+  var arr = Object.keys(merged).map(function(n){
+    return { key: merged[n].displayKey, value: merged[n].value };
+  });
+  arr.sort(function(a, b){ return b.value - a.value; });
+  return arr;
+}
+
 function renderTalentPanelOverview(t) {
   var el = document.getElementById('talentsPanelOverview');
   if (!el) return;
@@ -31832,50 +31881,7 @@ function renderTalentPanelFans(t) {
     return '';
   }
   var html = '';
-  // ★ fix/talent-age-normalize (老大 2026-09-24 09:00 反馈):
-  //   截图 5 显示粉丝年龄 "31-40岁 30.1%" 和 "31-40 30.1%" 同时出现 (key 字符串不同)
-  //   之前 commit 4 的 _dedup 是按字面 key dedup (no-op, dict key 天然唯一), 救不了"同义异名"
-  //   治标: key 归一化 (去"岁" / 去空格 / 全半角统一 / 横线统一 / trim) + 合并 (取较大值 + console.warn)
-  //   治本: 后端 OCR dedup 阶段做同义归一 (Mini 端任务)
-  function _normalizeDistKey(k) {
-    if (!k) return '';
-    return String(k)
-      .replace(/[ \t\u3000]/g, '')            // 去半角空格/tab/全角空格
-      .replace(/岁/g, '')                      // 去"岁"字
-      .replace(/[‐-―—]/g, '-')                 // 各种横线统一为半角 -
-      .replace(/[\uFF01-\uFF5E]/g, function(c){ // 全角 → 半角
-        return String.fromCharCode(c.charCodeAt(0) - 0xFEE0);
-      })
-      .trim();
-  }
-  function _mergeDistByNormalizedKey(obj) {
-    if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return [];
-    var merged = {};        // 归一化 key → { value, displayKey }
-    Object.keys(obj).forEach(function(rawKey){
-      var norm = _normalizeDistKey(rawKey);
-      if (!norm) return;
-      var v = parseFloat(obj[rawKey]) || 0;
-      if (merged[norm] === undefined) {
-        merged[norm] = { value: v, displayKey: rawKey };
-      } else {
-        // 同义异名: 取较大值, 记录告警
-        if (Math.abs(v - merged[norm].value) > 0.001) {
-          console.warn('[renderDist] 同义异名 key 占比不同, 取较大值: "'
-            + merged[norm].displayKey + '"(' + merged[norm].value
-            + '%) vs "' + rawKey + '"(' + v + '%)');
-        }
-        if (v > merged[norm].value) {
-          merged[norm] = { value: v, displayKey: rawKey };
-        }
-      }
-    });
-    // 转成渲染用的 { displayKey: value } 数组, 按 value 降序
-    var arr = Object.keys(merged).map(function(n){
-      return { key: merged[n].displayKey, value: merged[n].value };
-    });
-    arr.sort(function(a, b){ return b.value - a.value; });
-    return arr;
-  }
+
   function renderDist(title, obj) {
     if (!obj || (typeof obj === 'object' && !Array.isArray(obj) && Object.keys(obj).length === 0)) return '';
     var entries = _mergeDistByNormalizedKey(obj);
