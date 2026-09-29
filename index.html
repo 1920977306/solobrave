@@ -32059,7 +32059,15 @@ function renderTalentPanelFans(t) {
   html += renderDist('性别分布', _fanGender);
   html += renderDist('年龄分布', _fanAge, 'fan_age');
   html += renderDist('地域分布', _fanRegion);
-  var _cityTier = _pickOcrDict('fan_city_tier','live_audience_city_tier','video_audience_city_tier');
+  // ★ 2026-09-29 老大: 城市等级分布取值改跟 L32056-57 性别/年龄同模式
+  //   优先级: t.fan_city_tier (canonical 列, OCR v3 落库后的真实来源)
+  //          → t.video_audience_city_tier
+  //          → _pickOcrDict('fan_city_tier','live_audience_city_tier','video_audience_city_tier') 兜底
+  //   根因: 老写法只读 ocr_raw_fields, canonical 列有值时反而取不到 → 城市等级分布整块不显示.
+  //   加 typeof/Array.isArray 守卫: Object.keys('字符串') 非空会误判为真, 跟 _distSource 同一套.
+  var _cityTier = (t.fan_city_tier && typeof t.fan_city_tier === 'object' && !Array.isArray(t.fan_city_tier) && Object.keys(t.fan_city_tier).length) ? t.fan_city_tier
+                : ((t.video_audience_city_tier && typeof t.video_audience_city_tier === 'object' && !Array.isArray(t.video_audience_city_tier) && Object.keys(t.video_audience_city_tier).length) ? t.video_audience_city_tier
+                   : _pickOcrDict('fan_city_tier','live_audience_city_tier','video_audience_city_tier'));
   if (_cityTier) {
     // ★ v4 amend: 4 个 city_tier 字段 (fan_city_tier / fan_group_city_tier / live_audience_city_tier /
     //   video_audience_city_tier) 任一 incomplete → 标题后追加 "（分布不完整）" 提示用户原始值不完整
