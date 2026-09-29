@@ -1416,6 +1416,10 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   font-size: 14px;
   color: var(--text-primary);
   font-weight: 500;
+  /* ★ fix/mini-test-code-repair-20260925: 人群偏好 Top 5 是纯文本多行 ('标签 百分比%\n...'),
+     HTML 默认折叠空白 → \n 不换行就挤成一堵墙. pre-line = 保留换行 + 折叠连续空格.
+     跟 .talents-info-item .value (L2702) 同一套方案; 不含 \n 的存量字段行为不变. */
+  white-space: pre-line;
 }
 .products-sku-table {
   width: 100%;
@@ -31285,7 +31289,12 @@ function _normalizeDistKey(k) {
     })
     .trim();
 }
-function _mergeDistByNormalizedKey(obj) {
+// ★ fix/mini-test-code-repair-20260925 (老大 2026-09-29 工单: 档位自然排序):
+//   新增可选第 2 参 orderSpec (不传 = 老行为, 按 value 降序, 一行不差):
+//     - function(key) → 返回 rank 数字, 小的排前面 (年龄 / 客单价用)
+//     - object {归一key: rank} → 查表排 (城市等级等语义序用)
+//   未知 key 一律排最后, 未知之间仍按 value 降序 (不打乱已有观感)
+function _mergeDistByNormalizedKey(obj, orderSpec) {
   if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return [];
   var merged = {};        // 归一化 key → { value, displayKey }
   Object.keys(obj).forEach(function(rawKey){
@@ -31306,12 +31315,108 @@ function _mergeDistByNormalizedKey(obj) {
       }
     }
   });
-  // 转成渲染用的 { displayKey: value } 数组, 按 value 降序
+  // 转成渲染用的 { displayKey: value } 数组
   var arr = Object.keys(merged).map(function(n){
     return { key: merged[n].displayKey, value: merged[n].value };
   });
-  arr.sort(function(a, b){ return b.value - a.value; });
+  if (orderSpec) {
+    var isRankFn = (typeof orderSpec === 'function');
+    arr.sort(function(a, b){
+      var ra = isRankFn ? orderSpec(a.key) : orderSpec[_normalizeDistKey(a.key)];
+      var rb = isRankFn ? orderSpec(b.key) : orderSpec[_normalizeDistKey(b.key)];
+      var aUnknown = (ra === undefined || ra === null || isNaN(ra));
+      var bUnknown = (rb === undefined || rb === null || isNaN(rb));
+      if (aUnknown && bUnknown) return b.value - a.value;   // 都认不出 → 维持占比降序
+      if (aUnknown) return 1;                              // 认不出的排最后
+      if (bUnknown) return -1;
+      if (ra !== rb) return ra - rb;                       // 自然序 (小的在前)
+      return b.value - a.value;
+    });
+  } else {
+    arr.sort(function(a, b){ return b.value - a.value; });
+  }
   return arr;
+}
+
+// ★ 年龄 / 客单价自然序: 取 key 里的首个数字当 rank.
+//   为什么不用硬编码 5 档查表: 真实数据分档写法不统一 —— '18-23' / '18-25' / '31-40岁' /
+//   '41+' / '50岁以上' / '0~25' / '500+' 都见过 (老 demo 数据是 18-25/26-30/31-35/36-40/41+,
+//   OCR 数据是 18-23/24-30/31-40/41-50/50岁以上). 按下界数值排 → 两种写法都落到同一条自然序,
+//   且完全符合老大 brief: 18-23 → 24-30 → 31-40 → 41-50 → 50岁以上.
+function _distNumericRank(key) {
+  var m = String(key == null ? '' : key).match(/\d+(\.\d+)?/);
+  return m ? parseFloat(m[0]) : NaN;
+}
+
+// ★ 城市等级自然序: 语义序, 数字推不出来 → 显式 7 档表 (老大拍板的 7 档长名).
+//   长短形式都收: b1896ba 之前的存量数据 / OCR 原样还有 '一线' / '新一线' / '六线及以下' 短形式.
+var _DIST_ORDER_CITY_TIER = (function () {
+  var buckets = [
+    ['一线', '一线城市', '1线', '1线城市'],
+    ['新一线', '新一线城市', '新1线', '新1线城市'],
+    ['二线', '二线城市', '2线', '2线城市'],
+    ['三线', '三线城市', '3线', '3线城市'],
+    ['四线', '四线城市', '4线', '4线城市'],
+    ['五线', '五线城市', '5线', '5线城市'],
+    ['六线及以下', '六线及以下城市', '六线以下', '六线及以下']
+  ];
+  var map = {};
+  buckets.forEach(function (aliases, i) {
+    aliases.forEach(function (a) { var n = _normalizeDistKey(a); if (n) map[n] = i; });
+  });
+  return map;
+})();
+
+// ★ 字段 → 排序规则: 只给年龄 / 客单价 / 城市等级三个维度开自然序.
+//   性别 / 地域 / 设备 / 活跃度 / 人群 / 品类 传 null → 维持原占比降序 (老大: 只改这三处).
+function _distOrderForField(field) {
+  if (!field) return null;
+  if (/city_tier/.test(field)) return _DIST_ORDER_CITY_TIER;
+  if (/age|price/.test(field)) return _distNumericRank;
+  return null;
+}
+
+// ★ 人群偏好标签归一: OCR / 旧数据里 genz / GenZ / z世代 混用, 统一显示 'Z世代'
+function _crowdPrefLabel(key) {
+  var s = String(key == null ? '' : key).trim();
+  if (!s) return '';
+  var low = s.toLowerCase();
+  if (low === 'genz' || low === 'z世代' || low === 'z世代人群') return 'Z世代';
+  return s;
+}
+
+// ★ 人群偏好 (fan_crowd / fan_group_crowd) 纯文本渲染, 三路输入兼容:
+//   dict        → 按占比降序取 Top 5, 每行 '标签 百分比%' (百分比按本组 total 归一)
+//   JSON 字符串 → 先 JSON.parse, 再按 dict 走 (DB TEXT 列原样返回的情况)
+//   其它标量   → legacy '精致妈妈' / 'Z世代' 这类单值, 原样显示
+//   null / 空   → '' (调用方兜 '待补充')
+// ⚠️ 返回纯文本不是 HTML: 调用方必须 escapeHtml, 靠 .products-detail-value 的
+//    white-space: pre-line 换行 (跟 _buildFansProfile 概览分行同一套方案, 不开 html:true).
+function _renderCrowdPrefText(v) {
+  var obj = v;
+  if (typeof obj === 'string') {
+    var s = obj.trim();
+    if (!s) return '';
+    if (s.charAt(0) === '{') {
+      try {
+        var p = JSON.parse(s);
+        if (p && typeof p === 'object' && !Array.isArray(p)) obj = p;
+        else return _crowdPrefLabel(s);
+      } catch (e) { return _crowdPrefLabel(s); }   // 坏 JSON → 当标量原样, 不甩给用户
+    }
+    if (obj === v) return _crowdPrefLabel(s);
+  }
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return '';
+  var arr = Object.keys(obj).map(function (k) {
+    return { key: k, value: parseFloat(obj[k]) || 0 };
+  }).filter(function (e) { return e.key !== ''; });
+  if (!arr.length) return '';
+  arr.sort(function (a, b) { return b.value - a.value; });
+  var total = arr.reduce(function (a, b) { return a + b.value; }, 0);
+  return arr.slice(0, 5).map(function (e) {
+    var pct = total ? (e.value / total * 100) : 0;
+    return _crowdPrefLabel(e.key) + ' ' + pct.toFixed(1) + '%';
+  }).join('\n');
 }
 
 function renderTalentPanelOverview(t) {
@@ -31446,7 +31551,7 @@ function renderTalentPanelOverview(t) {
     fieldKeys.forEach(function(k) {
       var v = t[k];
       if (v && typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length) {
-        var entries = _mergeDistByNormalizedKey(v);
+        var entries = _mergeDistByNormalizedKey(v, _distOrderForField(k));
         if (entries.length) {
           var total = entries.reduce(function(a, b){ return a + b.value; }, 0);
           var dimLabel = _FANS_DIM_LABELS[k] || k;
@@ -31882,9 +31987,11 @@ function renderTalentPanelFans(t) {
   }
   var html = '';
 
-  function renderDist(title, obj) {
+  // ★ 档位自然排序: 第 3 参 fieldKey 决定排序规则
+  //   (年龄 / 客单价 / 城市等级 = 自然序, 性别 / 地域 / 设备 / 活跃度 / 人群 / 品类 = 维持占比降序)
+  function renderDist(title, obj, fieldKey) {
     if (!obj || (typeof obj === 'object' && !Array.isArray(obj) && Object.keys(obj).length === 0)) return '';
-    var entries = _mergeDistByNormalizedKey(obj);
+    var entries = _mergeDistByNormalizedKey(obj, _distOrderForField(fieldKey));
     if (!entries.length) return '';
     var total = entries.reduce(function(a, b){ return a + b.value; }, 0);
     var section = '<div class="talents-panel-section"><div class="talents-panel-title">' + title + '</div>';
@@ -31916,7 +32023,7 @@ function renderTalentPanelFans(t) {
   var _fanAge = (t.fan_age && Object.keys(t.fan_age).length) ? t.fan_age : (_pickOcrDict('fan_age','fan_group_age') || fans.age);
   var _fanRegion = (t.fan_region && Object.keys(t.fan_region).length) ? t.fan_region : (_pickOcrDict('fan_region') || (fans.region || {}));
   html += renderDist('性别分布', _fanGender);
-  html += renderDist('年龄分布', _fanAge);
+  html += renderDist('年龄分布', _fanAge, 'fan_age');
   html += renderDist('地域分布', _fanRegion);
   var _cityTier = _pickOcrDict('fan_city_tier','live_audience_city_tier','video_audience_city_tier');
   if (_cityTier) {
@@ -31928,19 +32035,25 @@ function renderTalentPanelFans(t) {
       t._distribution_incomplete['live_audience_city_tier'] ||
       t._distribution_incomplete['video_audience_city_tier']
     )) ? '（分布不完整）' : '';
-    html += renderDist('城市等级分布' + _ctIncomplete, _cityTier);
+    html += renderDist('城市等级分布' + _ctIncomplete, _cityTier, 'fan_city_tier');
   }  var _device = _pickOcrDict('fan_group_device');
   if (_device) html += renderDist('粉丝团设备', _device);
   var _activity = _pickOcrDict('fan_group_activity');
   if (_activity) html += renderDist('粉丝团活跃度', _activity);
-  // ★ ocr 兜底: 人群偏好 (标量字段)
-  var _fanCrowd = t.fan_crowd || _pickOcrScalar('fan_crowd','fan_group_crowd');
+  // ★ 人群偏好 (老大 2026-09-29 工单): dict → Top 5 '标签 百分比%' (genz 显示 Z世代),
+  //   JSON 串 → parse 后同路, legacy 标量 → 原样, null/空 → '待补充'. 禁甩原始 JSON.
+  var _fanCrowdSrc = (t.fan_crowd && typeof t.fan_crowd === 'object' && !Array.isArray(t.fan_crowd) && Object.keys(t.fan_crowd).length) ? t.fan_crowd
+                   : ((typeof t.fan_crowd === 'string' && t.fan_crowd.trim()) ? t.fan_crowd
+                      : ((t.fan_group_crowd && typeof t.fan_group_crowd === 'object' && !Array.isArray(t.fan_group_crowd) && Object.keys(t.fan_group_crowd).length) ? t.fan_group_crowd
+                         : ((typeof t.fan_group_crowd === 'string' && t.fan_group_crowd.trim()) ? t.fan_group_crowd
+                            : (_pickOcrDict('fan_crowd', 'fan_group_crowd') || _pickOcrScalar('fan_crowd', 'fan_group_crowd')))));
+  var _fanCrowd = _renderCrowdPrefText(_fanCrowdSrc);
   var _fanPrice = (typeof t.fan_price_range === 'string' ? t.fan_price_range : '') || _pickOcrScalar('fan_price_range','fan_group_price');
   var _fanCategory = (typeof t.fan_category === 'string' ? t.fan_category : '') || _pickOcrScalar('fan_category','fan_group_category');
   if (_fanCrowd || _fanPrice || _fanCategory) {
     html += '<div class="talents-panel-section"><div class="talents-panel-title">人群偏好</div>';
     html += '<div class="products-detail-grid">';
-    html += '<div class="products-detail-item"><div class="products-detail-label">人群画像</div><div class="products-detail-value">' + escapeHtml(_fanCrowd || '-') + '</div></div>';
+    html += '<div class="products-detail-item"><div class="products-detail-label">人群画像</div><div class="products-detail-value">' + escapeHtml(_fanCrowd || '待补充') + '</div></div>';
     html += '<div class="products-detail-item"><div class="products-detail-label">价格带</div><div class="products-detail-value">' + escapeHtml(String(_fanPrice || '-')) + '</div></div>';
     html += '<div class="products-detail-item"><div class="products-detail-label">类目偏好</div><div class="products-detail-value">' + escapeHtml(String(_fanCategory || '-')) + '</div></div>';
     html += '</div></div>';
@@ -31971,12 +32084,12 @@ function renderTalentPanelFans(t) {
     )) ? '（分布不完整）' : '';
     html += '<div class="talents-panel-section"><div class="talents-panel-title">直播间受众' + _liveIncomplete + '</div>';
     html += renderDist('性别分布', _liveGender);
-    html += renderDist('年龄分布', _liveAge);
+    html += renderDist('年龄分布', _liveAge, 'live_audience_age');
     html += renderDist('人群偏好', _liveCrowd);
-    html += renderDist('客单价分布', _livePrice);
+    html += renderDist('客单价分布', _livePrice, 'live_audience_price_range');
     html += renderDist('品类偏好', _liveCategory);
     html += renderDist('地域分布', _liveRegion);
-    html += renderDist('城市等级分布', _liveCityTier);
+    html += renderDist('城市等级分布', _liveCityTier, 'live_audience_city_tier');
     html += '</div>';
   }
 
@@ -31995,12 +32108,12 @@ function renderTalentPanelFans(t) {
     )) ? '（分布不完整）' : '';
     html += '<div class="talents-panel-section"><div class="talents-panel-title">短视频受众' + _videoIncomplete + '</div>';
     html += renderDist('性别分布', _videoGender);
-    html += renderDist('年龄分布', _videoAge);
+    html += renderDist('年龄分布', _videoAge, 'video_audience_age');
     html += renderDist('人群偏好', _videoCrowd);
-    html += renderDist('客单价分布', _videoPrice);
+    html += renderDist('客单价分布', _videoPrice, 'video_audience_price_range');
     html += renderDist('品类偏好', _videoCategory);
     html += renderDist('地域分布', _videoRegion);
-    html += renderDist('城市等级分布', _videoCityTier);
+    html += renderDist('城市等级分布', _videoCityTier, 'video_audience_city_tier');
     html += '</div>';
   }
 
