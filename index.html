@@ -31197,7 +31197,9 @@ function renderTalentAIReport(text) {
     html += _renderUnverifiedPlaceholder('潜在问题');
   } else if (report.issues.length) {
     html += '<div class="ai-section"><div class="ai-section-title">潜在问题</div><ul class="ai-section-list ai-issues">';
-    report.issues.forEach(function(item){ html += '<li>' + formatMessageInline(item) + '</li>'; });
+    // ★ fix/ai-issues-double-punct (2026-09-30): CSS .ai-issues li::before 已显示 '!',
+    //   去掉每条 issue 文本行首自带的标点 (!！.。• 等), 避免双感叹号. risks 不受影响.
+    report.issues.forEach(function(item){ html += '<li>' + formatMessageInline(String(item).replace(/^[\s!！.。•·:：]+/, '')) + '</li>'; });
     html += '</ul></div>';
   }
   // 1-2 / 2-3 / 3-4 section 之间插 1px divider(只在两段都渲染时)
@@ -31981,6 +31983,16 @@ function renderTalentPanelFans(t) {
   //   (_OCR_TO_TALENT_FIELDS 只同步 17 个标量字段, 没同步这些 dict 字段)
   //   OCR 识别的粉丝画像都在 ocr_raw_fields 里, 这里加 ocr_raw_fields 兜底
   var ocr = t.ocr_raw_fields || {};
+  // ★ fix/live-dist-incomplete (2026-09-30): _distribution_incomplete 后端可能返 JSON 字符串,
+  //   前端 typeof==='object' 判断会漏 → 这里统一 parse 成对象供 renderDist / 标题判断使用.
+  var _incompleteObj = {};
+  if (t._distribution_incomplete) {
+    if (typeof t._distribution_incomplete === 'object') {
+      _incompleteObj = t._distribution_incomplete;
+    } else {
+      try { _incompleteObj = JSON.parse(t._distribution_incomplete) || {}; } catch (e) { _incompleteObj = {}; }
+    }
+  }
   // _pickOcr: 按顺序找第一个非空值 (dict 类型用 Object.keys.length 判空)
   function _pickOcrDict() {
     for (var i = 0; i < arguments.length; i++) {
@@ -31996,19 +32008,57 @@ function renderTalentPanelFans(t) {
     }
     return '';
   }
+  // ★ fix/vision-json-repair: "标签+百分比" 字符串 → 单档分布 {label: pct}.
+  //   vision 模型对性别/年龄/人群/客单价/品类常给 "女性95%" / "31-40岁44%" / "资深中产18%" 这种串,
+  //   canonical 只解析 dict, 字符串维度落库成 {} → 前端整块丢. 这里只做提取 (不造数):
+  //   拆出尾部数字占比与中文标签, 拆不出返 null.
+  function _parseTraitString(v) {
+    if (v == null) return null;
+    if (typeof v === 'object') return (v && !Array.isArray(v) && Object.keys(v).length) ? v : null;
+    var s = String(v).trim();
+    if (!s) return null;
+    var m = s.match(/^(.*?)(\d+(?:\.\d+)?)\s*%?$/);
+    if (!m) return null;
+    var label = m[1].replace(/[：:]+$/, '').trim();
+    var num = parseFloat(m[2]);
+    if (!label || isNaN(num)) return null;
+    var o = {}; o[label] = num; return o;
+  }
+  // 分布取值兜底: 顶层 canonical/ocr dict → extra_fields.<中文段>.<维度中文键> 字符串解析.
+  function _distFallback(topKey, blockName, cnKey) {
+    var top = ocr[topKey];
+    if (top && typeof top === 'object' && !Array.isArray(top) && Object.keys(top).length) return top;
+    var extra = ocr.extra_fields;
+    if (extra && extra[blockName] && extra[blockName][cnKey] != null) {
+      return _parseTraitString(extra[blockName][cnKey]);
+    }
+    return null;
+  }
   var html = '';
 
   // ★ 档位自然排序: 第 3 参 fieldKey 决定排序规则
   //   (年龄 / 客单价 / 城市等级 = 自然序, 性别 / 地域 / 设备 / 活跃度 / 人群 / 品类 = 维持占比降序)
-  function renderDist(title, obj, fieldKey) {
+  function renderDist(title, obj, fieldKey, forceIncomplete) {
     if (!obj || (typeof obj === 'object' && !Array.isArray(obj) && Object.keys(obj).length === 0)) return '';
     var entries = _mergeDistByNormalizedKey(obj, _distOrderForField(fieldKey));
     if (!entries.length) return '';
+    // ★ fix/live-dist-incomplete: 残档不硬凑 100.
+    //   incomplete = 后端 sidecar 标记 (fieldKey) / 调用方 forceIncomplete / 单档 (OCR 抓不全).
+    //   残档时每档直接显示原始数值 (本就是占比) 或标注 "原始值", 不再按 total 比例放大成 100%.
+    var _isIncomplete = !!forceIncomplete || (fieldKey && _incompleteObj[fieldKey]) || entries.length === 1;
     var total = entries.reduce(function(a, b){ return a + b.value; }, 0);
-    var section = '<div class="talents-panel-section"><div class="talents-panel-title">' + title + '</div>';
+    var section = '<div class="talents-panel-section"><div class="talents-panel-title">' + title + (_isIncomplete ? '（分布不完整）' : '') + '</div>';
     entries.forEach(function(e){
-      var pct = total ? (e.value / total * 100) : 0;
-      section += '<div class="products-progress-item"><div class="products-progress-header"><span>' + escapeHtml(e.key) + '</span><span>' + pct.toFixed(1) + '%</span></div><div class="products-progress-bar"><div class="products-progress-fill" style="width:' + Math.min(pct, 100) + '%"></div></div></div>';
+      var pct;
+      if (_isIncomplete) {
+        // 残档: 值在 0-100 区间当占比直接显示; 否则视为原始计数, 显示原始值不换算成百分比
+        pct = (e.value >= 0 && e.value <= 100) ? e.value : null;
+      } else {
+        pct = total ? (e.value / total * 100) : 0;
+      }
+      var _label = pct === null ? escapeHtml(String(e.value)) : (pct.toFixed(1) + '%');
+      var _fill = pct === null ? 0 : Math.min(pct, 100);
+      section += '<div class="products-progress-item"><div class="products-progress-header"><span>' + escapeHtml(e.key) + '</span><span>' + _label + '</span></div><div class="products-progress-bar"><div class="products-progress-fill" style="width:' + _fill + '%"></div></div></div>';
     });
     section += '</div>';
     return section;
@@ -32127,37 +32177,42 @@ function renderTalentPanelFans(t) {
   //   - 粉丝端 panel: 后端没写 fan_activity / fan_device → 不加 incomplete 检测
 
   // ----- 直播间受众 (7 维) -----
-  var _liveGender = (t.live_audience_gender && Object.keys(t.live_audience_gender).length) ? t.live_audience_gender : _pickOcrDict('live_audience_gender');
-  var _liveAge = (t.live_audience_age && Object.keys(t.live_audience_age).length) ? t.live_audience_age : _pickOcrDict('live_audience_age');
-  var _liveCrowd = (t.live_audience_crowd && Object.keys(t.live_audience_crowd).length) ? t.live_audience_crowd : _pickOcrDict('live_audience_crowd');
-  var _livePrice = (t.live_audience_price_range && Object.keys(t.live_audience_price_range).length) ? t.live_audience_price_range : _pickOcrDict('live_audience_price_range');
-  var _liveCategory = (t.live_audience_category && Object.keys(t.live_audience_category).length) ? t.live_audience_category : _pickOcrDict('live_audience_category');
-  var _liveRegion = (t.live_audience_region && Object.keys(t.live_audience_region).length) ? t.live_audience_region : _pickOcrDict('live_audience_region');
-  var _liveCityTier = (t.live_audience_city_tier && Object.keys(t.live_audience_city_tier).length) ? t.live_audience_city_tier : _pickOcrDict('live_audience_city_tier');
+  var _liveGender = _distFallback('live_audience_gender', '直播间特征', '性别');
+  var _liveAge = _distFallback('live_audience_age', '直播间特征', '年龄');
+  var _liveCrowd = _distFallback('live_audience_crowd', '直播间特征', '人群');
+  var _livePrice = _distFallback('live_audience_price_range', '直播间特征', '客单价');
+  var _liveCategory = _distFallback('live_audience_category', '直播间特征', '品类偏好');
+  var _liveRegion = _pickOcrDict('live_audience_region');
+  var _liveCityTier = _distFallback('live_audience_city_tier', '直播间特征', '城市等级');
 
+  // ★ fix/live-dist-incomplete: 直播间受众数据 OCR 多为残档 (单 key / 原始计数 95,21),
+  //   任一维度残档 → 面板标题整体标 "（分布不完整）", 各 renderDist 传对应 incomplete key.
+  var _liveAnyIncomplete = (
+    _incompleteObj['live_audience_city_tier'] || _incompleteObj['live_audience_age'] ||
+    _incompleteObj['live_audience_crowd'] || _incompleteObj['live_audience_price_range'] ||
+    _incompleteObj['live_audience_category'] || _incompleteObj['live_audience_region'] ||
+    (_liveGender && Object.keys(_liveGender).length === 1)
+  );
   if (_liveGender || _liveAge || _liveCrowd || _livePrice || _liveCategory || _liveRegion || _liveCityTier) {
-    var _liveIncomplete = (t._distribution_incomplete && typeof t._distribution_incomplete === 'object' && (
-      t._distribution_incomplete['live_audience_city_tier']
-    )) ? '（分布不完整）' : '';
-    html += '<div class="talents-panel-section"><div class="talents-panel-title">直播间受众' + _liveIncomplete + '</div>';
-    html += renderDist('性别分布', _liveGender);
+    html += '<div class="talents-panel-section"><div class="talents-panel-title">直播间受众' + (_liveAnyIncomplete ? '（分布不完整）' : '') + '</div>';
+    html += renderDist('性别分布', _liveGender, 'live_audience_gender', _liveGender && Object.keys(_liveGender).length === 1);
     html += renderDist('年龄分布', _liveAge, 'live_audience_age');
-    html += renderDist('人群偏好', _liveCrowd);
+    html += renderDist('人群偏好', _liveCrowd, 'live_audience_crowd');
     html += renderDist('客单价分布', _livePrice, 'live_audience_price_range');
-    html += renderDist('品类偏好', _liveCategory);
-    html += renderDist('地域分布', _liveRegion);
+    html += renderDist('品类偏好', _liveCategory, 'live_audience_category');
+    html += renderDist('地域分布', _liveRegion, 'live_audience_region');
     html += renderDist('城市等级分布', _liveCityTier, 'live_audience_city_tier');
     html += '</div>';
   }
 
   // ----- 短视频受众 (7 维) -----
-  var _videoGender = (t.video_audience_gender && Object.keys(t.video_audience_gender).length) ? t.video_audience_gender : _pickOcrDict('video_audience_gender');
-  var _videoAge = (t.video_audience_age && Object.keys(t.video_audience_age).length) ? t.video_audience_age : _pickOcrDict('video_audience_age');
-  var _videoCrowd = (t.video_audience_crowd && Object.keys(t.video_audience_crowd).length) ? t.video_audience_crowd : _pickOcrDict('video_audience_crowd');
-  var _videoPrice = (t.video_audience_price_range && Object.keys(t.video_audience_price_range).length) ? t.video_audience_price_range : _pickOcrDict('video_audience_price_range');
-  var _videoCategory = (t.video_audience_category && Object.keys(t.video_audience_category).length) ? t.video_audience_category : _pickOcrDict('video_audience_category');
-  var _videoRegion = (t.video_audience_region && Object.keys(t.video_audience_region).length) ? t.video_audience_region : _pickOcrDict('video_audience_region');
-  var _videoCityTier = (t.video_audience_city_tier && Object.keys(t.video_audience_city_tier).length) ? t.video_audience_city_tier : _pickOcrDict('video_audience_city_tier');
+  var _videoGender = _distFallback('video_audience_gender', '短视频特征', '性别');
+  var _videoAge = _distFallback('video_audience_age', '短视频特征', '年龄');
+  var _videoCrowd = _distFallback('video_audience_crowd', '短视频特征', '人群');
+  var _videoPrice = _distFallback('video_audience_price_range', '短视频特征', '客单价');
+  var _videoCategory = _distFallback('video_audience_category', '短视频特征', '品类偏好');
+  var _videoRegion = _pickOcrDict('video_audience_region');
+  var _videoCityTier = _distFallback('video_audience_city_tier', '短视频特征', '城市等级');
 
   if (_videoGender || _videoAge || _videoCrowd || _videoPrice || _videoCategory || _videoRegion || _videoCityTier) {
     var _videoIncomplete = (t._distribution_incomplete && typeof t._distribution_incomplete === 'object' && (
