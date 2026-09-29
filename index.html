@@ -9653,7 +9653,7 @@ window.doLogin = function () {
         var rating = t.ai_rating || t.rating_score || '';
         var ratingStr = rating ? '★ ' + (typeof rating === 'number' ? rating.toFixed(1) : rating) : '';
         var followers = formatNum(t.followers);
-        var cat = t.category || t.main_category || '';
+        var cat = (typeof t.category === 'string' ? t.category : '') || (typeof t.main_category === 'string' ? t.main_category : '');
         var status = t.cooperation_status || t.status || '';
         var focused = (focusedId && t.id === focusedId) ? ' focused' : '';
         var navFn = 'closeSelectionDashboard(); switchModule(\'influencers\'); setTimeout(function(){ if(typeof selectTalentItem===\'function\')selectTalentItem(\'' + escapeAttr(t.id || '') + '\'); }, 80);';
@@ -30350,7 +30350,7 @@ function _renderTalentCooperationAdvice(status) {
 
 function _getTalentMockData(t) {
   return {
-    category: t.category || t.fan_category || '',
+    category: (typeof t.category === 'string' ? t.category : '') || (typeof t.fan_category === 'string' ? t.fan_category : ''),
     city: t.city || '',
     level: t.level || '',
     risk_rating: t.risk_rating || '',
@@ -30527,7 +30527,8 @@ function renderTalentList(talents) {
       ? '<span class="chip chip-platform" style="--chip-color:' + platformColor + ';">' + escapeHtml(platform) + '</span>'
       : '<span class="chip chip-platform">' + escapeHtml(platform) + '</span>';
     // 类目 chips（按 / , 拆，最多 2 个）
-    var categories = (t.category || (typeof t.fan_category === 'string' ? t.fan_category : '') || mock.category || '').split(/[\/，,]/).map(function(s){ return s.trim(); }).filter(Boolean).slice(0, 2);
+    var catSource = (typeof t.category === 'string' ? t.category : '') || (typeof t.fan_category === 'string' ? t.fan_category : '') || (typeof mock.category === 'string' ? mock.category : '') || '';
+    var categories = catSource.split(/[\/，,]/).map(function(s){ return s.trim(); }).filter(Boolean).slice(0, 2);
     var catChips = categories.map(function(c){ return '<span class="chip">' + escapeHtml(c) + '</span>'; }).join('');
     // 数字
     var followersText = formatFollowers(t.followers || 0).replace('w', '万');
@@ -31272,7 +31273,7 @@ function renderTalentPanelOverview(t) {
   var ai = t.ai_reason ? (function(){ try { return JSON.parse(t.ai_reason); } catch(e){ return {}; } })() : {};
   var tags = (t.ai_tags && t.ai_tags.length) ? t.ai_tags : mock.ai_tags;
   var avatar = t.avatar ? '<img src="' + escapeAttr(t.avatar) + '" style="width:100%;height:100%;object-fit:cover;border-radius:50%;">' : '<span style="font-size:28px;">' + (t.name || '?').charAt(0) + '</span>';
-  var category = t.category || (typeof t.fan_category === 'string' ? t.fan_category : '') || mock.category || '-';
+  var category = (typeof t.category === 'string' ? t.category : '') || (typeof t.fan_category === 'string' ? t.fan_category : '') || (typeof mock.category === 'string' ? mock.category : '') || '-';
   var productCount = t.product_count || t.total_products || mock.product_count || 0;
   var averagePrice = t.average_price || mock.average_price || 0;
   var totalGmv = t.total_gmv || mock.total_gmv || 0;
@@ -31418,7 +31419,7 @@ function renderTalentPanelOverview(t) {
   //   (e.g. talent_type 为空 → 试 ocr.talent_type → 试 ocr.main_category)
   var _bi = [
     {label:'内容类型',       val:(t.talent_type      || _ocrFallback(t, 'talent_type')      || '待补充'),     empty:!(t.talent_type      || _ocrFallback(t, 'talent_type')),      full:false},
-    {label:'类目',           val:(t.category         || _ocrFallback(t, 'category')         || mock.category || '待补充'), empty:!(t.category         || _ocrFallback(t, 'category')         || mock.category), full:false},
+    {label:'类目',           val:((typeof t.category === 'string' ? t.category : '')         || _ocrFallback(t, 'category')         || (typeof mock.category === 'string' ? mock.category : '') || '待补充'), empty:!((typeof t.category === 'string' ? t.category : '')         || _ocrFallback(t, 'category')         || (typeof mock.category === 'string' ? mock.category : '')), full:false},
     {label:'内容风格',       val:(t.content_style    || _ocrFallback(t, 'content_style')    || mock.content_style || '待补充'), empty:!(t.content_style    || _ocrFallback(t, 'content_style')    || mock.content_style), full:false},
     {label:'视频结算额占比',  val:(t.video_settlement_ratio || _ocrFallback(t, 'video_settlement_ratio') || '待补充'), empty:!(t.video_settlement_ratio || _ocrFallback(t, 'video_settlement_ratio')), full:false},
     {label:'视频平均件单价',  val:(t.video_avg_price  || _ocrFallback(t, 'video_avg_price')  || '待补充'),     empty:!(t.video_avg_price  || _ocrFallback(t, 'video_avg_price')),  full:false},
@@ -32995,7 +32996,7 @@ function editCurrentTalent() {
     document.getElementById('talentDouyinId').value = t.douyin_id || '';
     document.getElementById('talentRealName').value = t.real_name || '';
     document.getElementById('talentFollowers').value = t.followers || 0;
-    document.getElementById('talentCategory').value = t.category || t.fan_category || '';
+    document.getElementById('talentCategory').value = (typeof t.category === 'string' ? t.category : '') || (typeof t.fan_category === 'string' ? t.fan_category : '');
     document.getElementById('talentLevel').value = t.level || '';
     document.getElementById('talentRiskRating').value = t.risk_rating || '';
     document.getElementById('talentCity').value = t.city || '';
