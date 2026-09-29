@@ -277,3 +277,95 @@ def test_business_vision_prompt_untouched():
     """★ BUSINESS_VISION_PROMPT 没被这次改动碰过 (只改解析层不改提示词)"""
     prompt = _solobrave_server.BUSINESS_VISION_PROMPT
     _assert_true(isinstance(prompt, str) and len(prompt) > 0, 'BUSINESS_VISION_PROMPT 仍是非空字符串')
+
+
+# ===== 0929 闸门③: 图表描述对象不得污染顶层 canonical fan_* =====
+# 复现 (g3_raw.txt): 顶层 fan_city_tier 是干净 7 档 dict,
+# extra_fields.城市等级分布 是 {标题,说明文字,图表类型,数据:[{城市等级,占比}]} 图表对象,
+# 老实现把图表对象整体注入 → fan_city_tier 落库成图表对象 (污染).
+
+_FAN_CITY_TIER_TOP = {'新一线': 17.58, '一线': 8.05, '二线': 19.93, '三线': 20.97,
+                      '四线': 18.68, '五线': 14.08, '六线及以下': 0.69}
+
+# ★ 一致性补丁 0929: 落库期望的长名 7 档 (历史数据格式, 见李婶儿记录)
+_FAN_CITY_TIER_TOP_LONG = {'新一线城市': 17.58, '一线城市': 8.05, '二线城市': 19.93,
+                           '三线城市': 20.97, '四线城市': 18.68, '五线城市': 14.08,
+                           '六线及以下城市': 0.69}
+
+_CITY_CHART_OBJ = {
+    '标题': '城市等级分布',
+    '说明文字': '三线城市居多，占比20.97%',
+    '图表类型': '柱状图',
+    'Y轴范围': '0% - 25%',
+    '数据': [
+        {'城市等级': '新一线', '占比': '17.58%'},
+        {'城市等级': '一线', '占比': '8.05%'},
+        {'城市等级': '二线', '占比': '19.93%'},
+        {'城市等级': '三线', '占比': '20.97%'},
+        {'城市等级': '四线', '占比': '18.68%'},
+        {'城市等级': '五线', '占比': '14.08%'},
+        {'城市等级': '六线及以下', '占比': '0.69%'},
+    ],
+}
+
+
+def test_top_level_canonical_fan_city_tier_not_polluted_by_chart_obj():
+    """★ 闸门③回归 (要求 A): 顶层已有干净 fan_city_tier 时,
+    extra_fields.城市等级分布 图表描述对象不得污染 —
+    (1) 图表对象不被注入 粉丝特征.城市等级;
+    (2) 落库值 (_canonicalize_talent_row 的 fan_city_tier) == 顶层 7 档 dict (原值原样)."""
+    merged = {'fan_city_tier': dict(_FAN_CITY_TIER_TOP),
+              'extra_fields': {'城市等级分布': _CITY_CHART_OBJ}}
+    out = _apply_schema_aliases(merged)
+    block = out.get('extra_fields', {}).get('粉丝特征', {})
+    _assert_true('城市等级' not in block,
+                 '顶层 canonical 已有时, 图表对象不被注入 粉丝特征.城市等级')
+    canonical = _canonicalize_talent_row(out)
+    _assert_true('fan_city_tier' in canonical, 'fan_city_tier 落库键存在')
+    _assert_equal(json.loads(canonical['fan_city_tier']), _FAN_CITY_TIER_TOP_LONG,
+                  '落库 fan_city_tier == 顶层 7 档 dict (不被图表对象污染, key 归一长名/数值原样)')
+
+
+def test_chart_obj_rows_extracted_to_standard_dist():
+    """★ 要求 B: 图表对象 数据[].城市等级/占比 能被抽成标准 7 档分布 dict
+    (值是数字不是 '17.58%' 字符串, 和≈99.94), 并落到 fan_city_tier"""
+    merged = _apply_schema_aliases({'extra_fields': {'城市等级分布': _CITY_CHART_OBJ}})
+    block = merged['extra_fields']['粉丝特征']
+    dist = block.get('城市等级')
+    _assert_true(isinstance(dist, dict), '注入的是抽取后的分布 dict, 不是图表对象')
+    _assert_equal(set(dist), set(_FAN_CITY_TIER_TOP), '7 档 key 齐全 (元数据键 标题/说明文字 不得混入)')
+    _assert_true(all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in dist.values()),
+                 "值全是数字 (不是 '17.58%' 这种字符串)")
+    total = sum(dist.values())
+    _assert_true(abs(total - 99.94) < 0.1, f'和≈99.94 (实测 7 档相加 {total}, 截图四舍五入误差)', )
+    _assert_equal(dist, _FAN_CITY_TIER_TOP, '抽取结果与顶层 7 档数值一致')
+    canonical = _canonicalize_talent_row(merged)
+    _assert_true('fan_city_tier' in canonical, '抽取后能落 fan_city_tier')
+
+
+def test_pure_meta_chart_obj_not_injected():
+    """★ 要求 C: 纯元数据图表对象不注入、不产生假键 —
+    (a) 无 数据/items/rows 的 {标题,说明文字,图表类型} 对象 → 原样返回 (无注入);
+    (b) 有 数据 但行里没有占比键 → 同样不注入."""
+    src = {'extra_fields': {'城市等级分布': {'标题': '城市等级分布', '说明文字': '三线城市居多',
+                                           '图表类型': '柱状图', 'Y轴范围': '0% - 25%'}}}
+    _assert_true(_apply_schema_aliases(src) is src, '纯元数据图表对象 → 无注入, 原样返回入参')
+    src2 = {'extra_fields': {'城市等级分布': {'标题': '城市等级分布',
+                                            '数据': [{'城市等级': '新一线'}, {'城市等级': '一线'}]}}}
+    _assert_true(_apply_schema_aliases(src2) is src2, '数据行无占比键 → 抽不出数值, 不注入')
+    canonical = _canonicalize_talent_row(src)
+    _assert_true('fan_city_tier' not in canonical, '不注入 → canonical 不产生假的 fan_city_tier')
+
+
+def test_top_level_fan_city_tier_keys_normalized_to_long_names():
+    """★ 一致性补丁 0929: 顶层 fan_city_tier 经落库后 key 全部为长名且值不变 —
+    历史长短名两种输入统一成长名 (新一线城市=17.58 等), 与历史数据 (李婶儿记录) 一致."""
+    # 输入 1: 短名 (OCR 原始短形式)
+    canonical = _canonicalize_talent_row({'fan_city_tier': dict(_FAN_CITY_TIER_TOP)})
+    _assert_true('fan_city_tier' in canonical, '短名输入: fan_city_tier 落库键存在')
+    _assert_equal(json.loads(canonical['fan_city_tier']), _FAN_CITY_TIER_TOP_LONG,
+                  '短名输入: 落库 key 全部归一长名, 数值原样 (新一线城市=17.58 等)')
+    # 输入 2: 长名 (已是历史格式) — 归一后保持不变
+    canonical2 = _canonicalize_talent_row({'fan_city_tier': dict(_FAN_CITY_TIER_TOP_LONG)})
+    _assert_equal(json.loads(canonical2['fan_city_tier']), _FAN_CITY_TIER_TOP_LONG,
+                  '长名输入: 归一后仍是长名, 数值原样')

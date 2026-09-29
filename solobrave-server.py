@@ -21649,6 +21649,68 @@ def _normalize_alias_key(k):
     return ''.join(out).lower()
 
 
+def _is_clean_dist(v):
+    """★ fix/vision-json-repair 0929 (闸门③): 干净分布 dict 判定 —
+    非空 dict 且所有值都是数字 (int/float, bool 不算).
+    用于「顶层 canonical 优先」判定: 顶层 fan_<suffix> 是这种 dict 时,
+    extra_fields 里的同名自由 key (可能是图表描述对象) 一律不得覆盖."""
+    return (isinstance(v, dict) and len(v) > 0
+            and all(isinstance(x, (int, float)) and not isinstance(x, bool) for x in v.values()))
+
+
+# 图表描述对象的「数据行列表」键 / 占比键 / 元数据键 (归一后小写等值匹配)
+_CHART_ROWS_KEYS = ('数据', 'items', 'rows', 'data')
+_CHART_PCT_KEYS = ('占比', 'percentage', 'percent', 'value', '比例')
+_CHART_META_KEYS = ('标题', '说明', '说明文字', '图表类型', '图例', '单位', '来源', '时间',
+                    '切换标签', '当前选中', '地图图例',
+                    'title', 'description', 'type', 'chart_type', 'unit', 'source')
+_CHART_PCT_KEYS_N = {_normalize_alias_key(k) for k in _CHART_PCT_KEYS}
+_CHART_META_KEYS_N = {_normalize_alias_key(k) for k in _CHART_META_KEYS}
+
+
+def _chart_obj_to_dist(v):
+    """★ fix/vision-json-repair 0929 (闸门③): 图表描述对象 → 标准分布 {label: float}.
+
+    识别形态: dict 里有 list 型的 数据/items/rows, 元素是 {<维度中文键>, <占比键>}
+    (维度键如 城市等级/性别/年龄/类目, 占比键如 占比/percentage/percent/value,
+    值带 % 也能解析成 float).
+    例: {'标题': '城市等级分布', '图表类型': '柱状图',
+         '数据': [{'城市等级': '新一线', '占比': '17.58%'}, ...]}
+      → {'新一线': 17.58, ...}
+    抽不出任何数值行 (纯 {标题,说明文字,...} 元数据对象 / 数据行无占比键) → 返 None,
+    调用方必须把 None 当作「不得注入」."""
+    if not isinstance(v, dict):
+        return None
+    rows = None
+    for rk in _CHART_ROWS_KEYS:
+        if isinstance(v.get(rk), list):
+            rows = v[rk]
+            break
+    if not rows:
+        return None
+    dist = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        label = None
+        pct = None
+        for k, rv in row.items():
+            kn = _normalize_alias_key(k)
+            if kn in _CHART_PCT_KEYS_N:
+                pct = rv
+            elif (label is None and kn not in _CHART_META_KEYS_N
+                  and isinstance(rv, (str, int, float)) and not isinstance(rv, bool)
+                  and str(rv).strip()):
+                label = str(rv).strip()
+        if label is None or pct is None:
+            continue
+        try:
+            dist[label] = float(str(pct).replace('%', '').strip())
+        except (TypeError, ValueError):
+            continue
+    return dist or None
+
+
 def _sections_to_dist(sections):
     """minimax 的 sections[].features[].label/percentage 列表结构 → {列后缀: {label: 百分比}}.
     这是结构变换不是静态别名, 光靠 _SCHEMA_ALIAS_MAP 兜不住, 必须专门展开."""
@@ -21699,6 +21761,10 @@ def _apply_schema_aliases(merged):
       所以直接在 merged 顶层塞 fan_city_tier 会被完全忽略. 注入到 粉丝特征 段后,
       由 _FAN_SOURCE_MAP 自然拼成 fan_<后缀>, 等于"默认归 fan_ 前缀".
     冲突策略: 已存在的维度不覆盖 (先到先得, 跟 _update_talent_from_ocr_fields 合并逻辑一致).
+    ★ fix/vision-json-repair 0929 (闸门③): 顶层 canonical 优先 — merged 顶层已有干净
+      fan_<suffix> 分布 dict (非空 key→数字) 时, 该 suffix 一律不注入,
+      防 extra_fields 里的「图表描述对象」({标题,说明文字,图表类型,数据:[...]})
+      覆盖顶层真值 (fan_city_tier 落库成图表对象的 bug).
     返回新 dict, 不改入参; 没有任何自由 key 时原样返回入参."""
     if not isinstance(merged, dict):
         return merged
@@ -21713,6 +21779,9 @@ def _apply_schema_aliases(merged):
             return
         cn_key = _FAN_CN_KEY_BY_SUFFIX.get(suffix)
         if not cn_key:
+            return
+        # ★ 0929: 顶层 canonical 优先 — 已有干净 fan_<suffix> 分布 dict → 不注入
+        if _is_clean_dist(merged.get('fan_' + suffix)):
             return
         if fan_block.get(cn_key) not in (None, '', {}, []):
             return                      # 已有值 → 不覆盖 (先到先得)
@@ -21731,7 +21800,20 @@ def _apply_schema_aliases(merged):
             if isinstance(v, dict):
                 _walk(v, depth + 1)
             suffix = _SCHEMA_ALIAS_MAP.get(_normalize_alias_key(k))
-            if suffix and isinstance(v, (dict, list)):
+            if not suffix:
+                continue
+            if isinstance(v, dict):
+                # ★ 0929: dict 值三态 —
+                #   (a) 图表描述对象 → 抽 数据[].{维度键,占比键} 成标准分布 dict 再注入
+                #   (b) 本身已是 label→数字 的干净分布 dict → 直接用
+                #   (c) 含 标题/说明文字/图表类型 等元数据键又抽不出数值 → 不注入
+                #   绝不允许把图表描述对象整体注入 (fan_city_tier 污染根因).
+                dist = _chart_obj_to_dist(v)
+                if dist is not None:
+                    _inject(suffix, dist)
+                elif _is_clean_dist(v):
+                    _inject(suffix, v)
+            elif isinstance(v, list):
                 _inject(suffix, v)
 
     _walk(merged)
@@ -22499,12 +22581,25 @@ def _canonicalize_talent_row(ocr_json):
         if not isinstance(block, dict):
             continue
         for cn_key, en_suffix in dim_map.items():
-            v = block.get(cn_key)
-            if v is None:
-                continue
             db_col = col_prefix + '_' + en_suffix
             # 已存在 (顶层优先) 跳过
             if db_col in out:
+                continue
+            # ★ fix/vision-json-repair 0929 (闸门③): 顶层 canonical 优先 — merged 顶层已有
+            #   干净 fan_* 分布 dict (非空 key→数字) 时直接采用顶层值原样落库, 不再读 fan_block.
+            #   根因: extra_fields 里的「图表描述对象」经 _apply_schema_aliases 整体注入后
+            #   在这里覆盖顶层干净 dict, fan_city_tier 落库成 {标题,说明文字,数据,...} 图表对象.
+            #   顶层即真值 (先到先得), 不走 _normalize_distribution (不改写顶层 key/数值).
+            top_dist = ocr_json.get(db_col)
+            if _is_clean_dist(top_dist):
+                # ★ 一致性补丁 0929: 顶层 fan_* dict 落库前对 key 调 _normalize_dist_key,
+                #   复用既有短→长城市档位映射 (_CITY_TIER_SHORT_TO_LONG), 只统一 key、数值原样,
+                #   消除与历史数据 (长名, 见李婶儿记录) 的长短名不一致. 非分布字段不受影响.
+                top_dist = {_normalize_dist_key(k) or k: v for k, v in top_dist.items()}
+                out[db_col] = json.dumps(top_dist, ensure_ascii=False)
+                continue
+            v = block.get(cn_key)
+            if v is None:
                 continue
             # ★ v4 amend: 4 个 city_tier (fan_city_tier / fan_group_city_tier /
             #   live_audience_city_tier / video_audience_city_tier) 走 _normalize_distribution
