@@ -31316,8 +31316,16 @@ function _mergeDistByNormalizedKey(obj, orderSpec) {
     }
   });
   // 转成渲染用的 { displayKey: value } 数组
+  //   ★ 2026-09-29 老大: key 显示映射下沉到这里 (函数出口) ——
+  //   genz → Z世代 之前只活在 _renderCrowdPrefText (人群偏好区) 和 _INLINE_DIST_KEY_DISPLAY (价格带/类目)
+  //   两个 helper 里, 走 _mergeDistByNormalizedKey 的分布卡拿不到 ——
+  //   renderDist 的短视频人群偏好卡 / 直播间人群卡 / 概览 _buildFansProfile 截图显示原始 'genz 15.5%'.
+  //   出口统一走 _crowdPrefLabel, 所有 dict 路径共用, 不用逐个渲染点补.
+  //   合并与同义异名告警仍用原始 key (merged[].displayKey), 只在最终展示层映射, 不影响去重逻辑.
+  //   排序也吃这个映射后的 key: 但映射只改 genz 一种, 而 genz 不是 age/price/city_tier 档位,
+  //   _distNumericRank / _DIST_ORDER_CITY_TIER 查表结果不受影响.
   var arr = Object.keys(merged).map(function(n){
-    return { key: merged[n].displayKey, value: merged[n].value };
+    return { key: _crowdPrefLabel(merged[n].displayKey), value: merged[n].value };
   });
   if (orderSpec) {
     var isRankFn = (typeof orderSpec === 'function');
@@ -31350,10 +31358,12 @@ function _distNumericRank(key) {
 
 // ★ 城市等级自然序: 语义序, 数字推不出来 → 显式 7 档表 (老大拍板的 7 档长名).
 //   长短形式都收: b1896ba 之前的存量数据 / OCR 原样还有 '一线' / '新一线' / '六线及以下' 短形式.
+//   ★ 2026-09-29 老大复验后改档: 新一线排在 一线 之前 (实测 '新一线 17.6% → 一线 8.1%'),
+//   与今天早上工单里写的 '一线→新一线' 相反, 以本次拍板为准.
 var _DIST_ORDER_CITY_TIER = (function () {
   var buckets = [
-    ['一线', '一线城市', '1线', '1线城市'],
     ['新一线', '新一线城市', '新1线', '新1线城市'],
+    ['一线', '一线城市', '1线', '1线城市'],
     ['二线', '二线城市', '2线', '2线城市'],
     ['三线', '三线城市', '3线', '3线城市'],
     ['四线', '四线城市', '4线', '4线城市'],
