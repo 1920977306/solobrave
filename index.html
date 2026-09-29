@@ -2703,6 +2703,10 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   font-size: 13px;
   color: var(--text-primary);
   word-break: break-all;
+  /* ★ fix/overview-fans-profile-panels 20:23: 概览 tab 粉丝特征分行 (老大拍板方案 A)
+     _buildFansProfile 返回纯文本, 纯文本里的 \n 需要 pre-line 才换行 (HTML 默认折叠空白).
+     pre-line = 保留换行 + 折叠连续空格. 不影响其他 .value 纯文本字段 (它们没 \n, 行为不变). */
+  white-space: pre-line;
 }
 .talents-info-item .value.empty { color: #c9cdd4; }
 /* ★ feature/influencer-form-validation: 详情页基础信息空值高亮 (用项目 --warning token) */
@@ -9649,7 +9653,7 @@ window.doLogin = function () {
         var rating = t.ai_rating || t.rating_score || '';
         var ratingStr = rating ? '★ ' + (typeof rating === 'number' ? rating.toFixed(1) : rating) : '';
         var followers = formatNum(t.followers);
-        var cat = t.category || t.main_category || '';
+        var cat = (typeof t.category === 'string' ? t.category : '') || (typeof t.main_category === 'string' ? t.main_category : '');
         var status = t.cooperation_status || t.status || '';
         var focused = (focusedId && t.id === focusedId) ? ' focused' : '';
         var navFn = 'closeSelectionDashboard(); switchModule(\'influencers\'); setTimeout(function(){ if(typeof selectTalentItem===\'function\')selectTalentItem(\'' + escapeAttr(t.id || '') + '\'); }, 80);';
@@ -29736,7 +29740,7 @@ function _renderProductTalentMatches() {
     html += '<div class="ai-match-card-left">' + avatar + '</div>';
     html += '<div class="ai-match-card-main">';
     html += '<div class="ai-match-card-title">' + escapeHtml(t.name || '-') + ' <span style="font-size:11px;color:var(--text-secondary);font-weight:400;">' + (t.level || '') + '</span></div>';
-    html += '<div class="ai-match-card-meta">粉丝 ' + formatNumber(t.followers || 0) + ' · ' + escapeHtml(t.fan_category || t.category || '未分类') + '</div>';
+    html += '<div class="ai-match-card-meta">粉丝 ' + formatNumber(t.followers || 0) + ' · ' + escapeHtml(String(t.fan_category || t.category || '未分类')) + '</div>';
     html += '<div class="ai-match-card-tags">';
     html += '<span class="ai-match-tag">历史GMV ¥' + formatNumber(t.total_gmv || 0) + '</span>';
     html += '</div>';
@@ -30346,7 +30350,7 @@ function _renderTalentCooperationAdvice(status) {
 
 function _getTalentMockData(t) {
   return {
-    category: t.category || t.fan_category || '',
+    category: (typeof t.category === 'string' ? t.category : '') || (typeof t.fan_category === 'string' ? t.fan_category : ''),
     city: t.city || '',
     level: t.level || '',
     risk_rating: t.risk_rating || '',
@@ -30523,7 +30527,8 @@ function renderTalentList(talents) {
       ? '<span class="chip chip-platform" style="--chip-color:' + platformColor + ';">' + escapeHtml(platform) + '</span>'
       : '<span class="chip chip-platform">' + escapeHtml(platform) + '</span>';
     // 类目 chips（按 / , 拆，最多 2 个）
-    var categories = (t.category || t.fan_category || mock.category || '').split(/[\/，,]/).map(function(s){ return s.trim(); }).filter(Boolean).slice(0, 2);
+    var catSource = (typeof t.category === 'string' ? t.category : '') || (typeof t.fan_category === 'string' ? t.fan_category : '') || (typeof mock.category === 'string' ? mock.category : '') || '';
+    var categories = catSource.split(/[\/，,]/).map(function(s){ return s.trim(); }).filter(Boolean).slice(0, 2);
     var catChips = categories.map(function(c){ return '<span class="chip">' + escapeHtml(c) + '</span>'; }).join('');
     // 数字
     var followersText = formatFollowers(t.followers || 0).replace('w', '万');
@@ -30933,7 +30938,7 @@ function selectTalentItem(id) {
     document.querySelectorAll('.talent-card').forEach(function(el){ el.classList.remove('active'); });
     var activeEl = document.querySelector('.talent-card[data-id="' + escapeAttr(id) + '"]');
     if (activeEl) activeEl.classList.add('active');
-  }).catch(function(e){ showToast('加载失败'); });
+  }).catch(function(e){ console.error('[selectTalentItem]', e); showToast('加载失败: ' + ((e && e.message) ? e.message : String(e))); });
 }
 
 function renderTalentDetail(t) {
@@ -31260,6 +31265,55 @@ function _countOcrFieldsLeaf(obj) {
   return n;
 }
 
+// ★ fix/talent-age-normalize (老大 2026-09-24 09:00 反馈):
+//   截图 5 显示粉丝年龄 "31-40岁 30.1%" 和 "31-40 30.1%" 同时出现 (key 字符串不同)
+//   之前 commit 4 的 _dedup 是按字面 key dedup (no-op, dict key 天然唯一), 救不了"同义异名"
+//   治标: key 归一化 (去"岁" / 去空格 / 全半角统一 / 横线统一 / trim) + 合并 (取较大值 + console.warn)
+//   治本: 后端 OCR dedup 阶段做同义归一 (Mini 端任务)
+// ★ fix/mini-test-code-repair-20260925 12:00: 这 2 个函数原在 renderTalentPanelFans 函数体内 (L31840-L31878),
+//   但 _buildFansProfile 在 renderTalentPanelOverview 函数体内 (L31393) 调用 _mergeDistByNormalizedKey,
+//   两个不同函数作用域互相看不见 → ReferenceError: _mergeDistByNormalizedKey is not defined.
+//   移到顶层 (老大 brief), 让两个函数都能 hoist 访问 (Mavis 25e3ccf 误判 hoist 跨函数生效).
+function _normalizeDistKey(k) {
+  if (!k) return '';
+  return String(k)
+    .replace(/[ \t\u3000]/g, '')            // 去半角空格/tab/全角空格
+    .replace(/岁/g, '')                      // 去"岁"字
+    .replace(/[‐-―—]/g, '-')                 // 各种横线统一为半角 -
+    .replace(/[\uFF01-\uFF5E]/g, function(c){ // 全角 → 半角
+      return String.fromCharCode(c.charCodeAt(0) - 0xFEE0);
+    })
+    .trim();
+}
+function _mergeDistByNormalizedKey(obj) {
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return [];
+  var merged = {};        // 归一化 key → { value, displayKey }
+  Object.keys(obj).forEach(function(rawKey){
+    var norm = _normalizeDistKey(rawKey);
+    if (!norm) return;
+    var v = parseFloat(obj[rawKey]) || 0;
+    if (merged[norm] === undefined) {
+      merged[norm] = { value: v, displayKey: rawKey };
+    } else {
+      // 同义异名: 取较大值, 记录告警
+      if (Math.abs(v - merged[norm].value) > 0.001) {
+        console.warn('[renderDist] 同义异名 key 占比不同, 取较大值: "'
+          + merged[norm].displayKey + '"(' + merged[norm].value
+          + '%) vs "' + rawKey + '"(' + v + '%)');
+      }
+      if (v > merged[norm].value) {
+        merged[norm] = { value: v, displayKey: rawKey };
+      }
+    }
+  });
+  // 转成渲染用的 { displayKey: value } 数组, 按 value 降序
+  var arr = Object.keys(merged).map(function(n){
+    return { key: merged[n].displayKey, value: merged[n].value };
+  });
+  arr.sort(function(a, b){ return b.value - a.value; });
+  return arr;
+}
+
 function renderTalentPanelOverview(t) {
   var el = document.getElementById('talentsPanelOverview');
   if (!el) return;
@@ -31268,7 +31322,7 @@ function renderTalentPanelOverview(t) {
   var ai = t.ai_reason ? (function(){ try { return JSON.parse(t.ai_reason); } catch(e){ return {}; } })() : {};
   var tags = (t.ai_tags && t.ai_tags.length) ? t.ai_tags : mock.ai_tags;
   var avatar = t.avatar ? '<img src="' + escapeAttr(t.avatar) + '" style="width:100%;height:100%;object-fit:cover;border-radius:50%;">' : '<span style="font-size:28px;">' + (t.name || '?').charAt(0) + '</span>';
-  var category = t.category || t.fan_category || mock.category || '-';
+  var category = (typeof t.category === 'string' ? t.category : '') || (typeof t.fan_category === 'string' ? t.fan_category : '') || (typeof mock.category === 'string' ? mock.category : '') || '-';
   var productCount = t.product_count || t.total_products || mock.product_count || 0;
   var averagePrice = t.average_price || mock.average_price || 0;
   var totalGmv = t.total_gmv || mock.total_gmv || 0;
@@ -31285,7 +31339,7 @@ function renderTalentPanelOverview(t) {
   html += '<div class="talents-overview-pills">';
   html += '<span class="talents-overview-pill"><label>抖音号</label>' + escapeHtml(t.douyin_id || '-') + '</span>';
   html += '<span class="talents-overview-pill"><label>粉丝</label>' + formatFollowers(t.followers || 0) + '</span>';
-  html += '<span class="talents-overview-pill"><label>类目</label>' + escapeHtml(category) + '</span>';
+  html += '<span class="talents-overview-pill"><label>类目</label>' + escapeHtml(String(category)) + '</span>';
   html += '<span class="talents-overview-pill"><label>风险</label>' + escapeHtml(_formatRiskLabel(t.risk_rating || mock.risk_rating)) + '</span>';
   html += '</div>';
   if (t.bio) html += '<div class="talents-overview-bio">' + escapeHtml(t.bio) + '</div>';
@@ -31357,31 +31411,64 @@ function renderTalentPanelOverview(t) {
   //   server 端 _normalize_distribution 标记的 _distribution_incomplete (sidecar JSON)
   //   4 个 city_tier 字段任一 incomplete=true → 拼接文本末尾追加 "（分布不完整）"
   //   老大原话: "禁止硬凑 100, 变成 50/50" — 渲染层必须显式提示用户原始值不完整
+  // ★ fix/overview-fans-profile-panels 16:29: 概览 tab 粉丝特征改分行 + 进度条 (老大拍板方案 B)
+  //   老大截图实证: 4 维度 (性别/年龄/城市等级/价格带) 拼单行 ' / ' 文本, 跨 3 视觉行, 一堵墙
+  //   精度 bug: 老实现 `label + pct + '%'` 没 toFixed → 16% 和 83.73% 混着显示像格式错乱
+  //   修法: 复用粉丝画像 tab renderDist 的 CSS class (products-progress-* / talents-panel-*),
+  //         每个维度一个 talents-panel-section 区块, 档位用进度条 + pct.toFixed(1) 统一精度
+  //   沿用现有 CSS class, 不另起风格; 保留 _distribution_incomplete "（分布不完整）" 提示逻辑 (per-dim)
+  //   _mergeDistByNormalizedKey (L31813 function 声明) hoist 安全, 运行时可用
+  var _FANS_DIM_LABELS = {
+    'fan_gender': '性别分布', 'fan_age': '年龄分布',
+    'fan_city_tier': '城市等级分布', 'fan_price_range': '客单价分布',
+    'fan_crowd': '人群偏好', 'fan_category': '品类偏好', 'fan_region': '地域分布',
+    'video_audience_gender': '性别分布', 'video_audience_age': '年龄分布',
+    'video_audience_city_tier': '城市等级分布', 'video_audience_price_range': '客单价分布',
+    'video_audience_region': '地域分布',
+    'fan_group_gender': '性别分布', 'fan_group_age': '年龄分布',
+    'fan_group_city_tier': '城市等级分布', 'fan_group_price': '客单价分布',
+    'fan_group_crowd': '人群偏好', 'fan_group_category': '品类偏好',
+    'fan_group_activity': '活跃度分布', 'fan_group_device': '设备分布',
+  };
+  // ★ fix/overview-fans-profile-panels 20:23: 概览 tab 粉丝特征改分行 (老大拍板方案 A)
+  //   老大截图实证: 4 维度 (性别/年龄/城市等级/客单价) 拼单行 ' / ' 文本, 跨 3 视觉行, 一堵墙
+  //   老大 3 条铁约束: (1) 不碰 html:true / 不跳过 escapeHtml (2) 只动本函数 (3) 241 passed 才算完
+  //   老大拍板方案 A: 纯文本 \n 分行 + .value CSS white-space: pre-line (不生成进度条, 不开 XSS 洞)
+  //   撤 639bb2f (老大否决 html:true 路线): 不再用 <div> 块 / products-progress-* 进度条
+  //   格式: 每档 '档位 百分比%' (档位名与百分比之间一个空格), 百分比统一 toFixed(1)
+  //   4 维度之间用 \n\n (空行) 分隔 = 视觉上 4 个独立小块
+  //   ⚠️ 返回纯文本 (不是 HTML), 必须走 escapeHtml (老大铁约束 1)
+  //   ⚠️ 维度名走 _FANS_DIM_LABELS (639bb2f 已加, 保留), incomplete 提示保留 (per-dim)
   function _buildFansProfile(t, fieldKeys) {
     if (!t) return '';
-    var parts = [];
     var incomplete = (t._distribution_incomplete && typeof t._distribution_incomplete === 'object') ? t._distribution_incomplete : {};
-    var anyIncomplete = false;
+    var blocks = [];
     fieldKeys.forEach(function(k) {
       var v = t[k];
       if (v && typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length) {
-        var segs = Object.keys(v).map(function(label) {
-          var pct = parseFloat(v[label]) || 0;
-          return label + pct + '%';
-        }).join('、');
-        if (segs) parts.push(segs);
-        if (incomplete[k]) anyIncomplete = true;
+        var entries = _mergeDistByNormalizedKey(v);
+        if (entries.length) {
+          var total = entries.reduce(function(a, b){ return a + b.value; }, 0);
+          var dimLabel = _FANS_DIM_LABELS[k] || k;
+          var dimTitle = dimLabel + (incomplete[k] ? '（分布不完整）' : '');
+          var lines = [dimTitle];
+          entries.forEach(function(e) {
+            var pct = total ? (e.value / total * 100) : 0;
+            lines.push(e.key + ' ' + pct.toFixed(1) + '%');
+          });
+          blocks.push(lines.join('\n'));
+        }
       }
     });
-    var result = parts.join(' / ');
-    return anyIncomplete ? result + '（分布不完整）' : result;
+    // 4 维度之间用 \n\n (空行) 分隔 = 视觉上 4 个独立小块
+    return blocks.join('\n\n');
   }
   // ★ feature/influencer-form-validation: 空值 fallback '-' → '待补充' + 加 empty flag (CSS class value-empty 高亮橙色)
   // ★ fix/ocr-fallback: talent 表字段为空时, 从 ocr_raw_fields 模糊匹配填充
   //   (e.g. talent_type 为空 → 试 ocr.talent_type → 试 ocr.main_category)
   var _bi = [
     {label:'内容类型',       val:(t.talent_type      || _ocrFallback(t, 'talent_type')      || '待补充'),     empty:!(t.talent_type      || _ocrFallback(t, 'talent_type')),      full:false},
-    {label:'类目',           val:(t.category         || _ocrFallback(t, 'category')         || mock.category || '待补充'), empty:!(t.category         || _ocrFallback(t, 'category')         || mock.category), full:false},
+    {label:'类目',           val:((typeof t.category === 'string' ? t.category : '')         || _ocrFallback(t, 'category')         || (typeof mock.category === 'string' ? mock.category : '') || '待补充'), empty:!((typeof t.category === 'string' ? t.category : '')         || _ocrFallback(t, 'category')         || (typeof mock.category === 'string' ? mock.category : '')), full:false},
     {label:'内容风格',       val:(t.content_style    || _ocrFallback(t, 'content_style')    || mock.content_style || '待补充'), empty:!(t.content_style    || _ocrFallback(t, 'content_style')    || mock.content_style), full:false},
     {label:'视频结算额占比',  val:(t.video_settlement_ratio || _ocrFallback(t, 'video_settlement_ratio') || '待补充'), empty:!(t.video_settlement_ratio || _ocrFallback(t, 'video_settlement_ratio')), full:false},
     {label:'视频平均件单价',  val:(t.video_avg_price  || _ocrFallback(t, 'video_avg_price')  || '待补充'),     empty:!(t.video_avg_price  || _ocrFallback(t, 'video_avg_price')),  full:false},
@@ -31794,50 +31881,7 @@ function renderTalentPanelFans(t) {
     return '';
   }
   var html = '';
-  // ★ fix/talent-age-normalize (老大 2026-09-24 09:00 反馈):
-  //   截图 5 显示粉丝年龄 "31-40岁 30.1%" 和 "31-40 30.1%" 同时出现 (key 字符串不同)
-  //   之前 commit 4 的 _dedup 是按字面 key dedup (no-op, dict key 天然唯一), 救不了"同义异名"
-  //   治标: key 归一化 (去"岁" / 去空格 / 全半角统一 / 横线统一 / trim) + 合并 (取较大值 + console.warn)
-  //   治本: 后端 OCR dedup 阶段做同义归一 (Mini 端任务)
-  function _normalizeDistKey(k) {
-    if (!k) return '';
-    return String(k)
-      .replace(/[ \t\u3000]/g, '')            // 去半角空格/tab/全角空格
-      .replace(/岁/g, '')                      // 去"岁"字
-      .replace(/[‐-―—]/g, '-')                 // 各种横线统一为半角 -
-      .replace(/[\uFF01-\uFF5E]/g, function(c){ // 全角 → 半角
-        return String.fromCharCode(c.charCodeAt(0) - 0xFEE0);
-      })
-      .trim();
-  }
-  function _mergeDistByNormalizedKey(obj) {
-    if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return [];
-    var merged = {};        // 归一化 key → { value, displayKey }
-    Object.keys(obj).forEach(function(rawKey){
-      var norm = _normalizeDistKey(rawKey);
-      if (!norm) return;
-      var v = parseFloat(obj[rawKey]) || 0;
-      if (merged[norm] === undefined) {
-        merged[norm] = { value: v, displayKey: rawKey };
-      } else {
-        // 同义异名: 取较大值, 记录告警
-        if (Math.abs(v - merged[norm].value) > 0.001) {
-          console.warn('[renderDist] 同义异名 key 占比不同, 取较大值: "'
-            + merged[norm].displayKey + '"(' + merged[norm].value
-            + '%) vs "' + rawKey + '"(' + v + '%)');
-        }
-        if (v > merged[norm].value) {
-          merged[norm] = { value: v, displayKey: rawKey };
-        }
-      }
-    });
-    // 转成渲染用的 { displayKey: value } 数组, 按 value 降序
-    var arr = Object.keys(merged).map(function(n){
-      return { key: merged[n].displayKey, value: merged[n].value };
-    });
-    arr.sort(function(a, b){ return b.value - a.value; });
-    return arr;
-  }
+
   function renderDist(title, obj) {
     if (!obj || (typeof obj === 'object' && !Array.isArray(obj) && Object.keys(obj).length === 0)) return '';
     var entries = _mergeDistByNormalizedKey(obj);
@@ -31891,14 +31935,14 @@ function renderTalentPanelFans(t) {
   if (_activity) html += renderDist('粉丝团活跃度', _activity);
   // ★ ocr 兜底: 人群偏好 (标量字段)
   var _fanCrowd = t.fan_crowd || _pickOcrScalar('fan_crowd','fan_group_crowd');
-  var _fanPrice = t.fan_price_range || _pickOcrScalar('fan_price_range','fan_group_price');
-  var _fanCategory = t.fan_category || _pickOcrScalar('fan_category','fan_group_category');
+  var _fanPrice = (typeof t.fan_price_range === 'string' ? t.fan_price_range : '') || _pickOcrScalar('fan_price_range','fan_group_price');
+  var _fanCategory = (typeof t.fan_category === 'string' ? t.fan_category : '') || _pickOcrScalar('fan_category','fan_group_category');
   if (_fanCrowd || _fanPrice || _fanCategory) {
     html += '<div class="talents-panel-section"><div class="talents-panel-title">人群偏好</div>';
     html += '<div class="products-detail-grid">';
     html += '<div class="products-detail-item"><div class="products-detail-label">人群画像</div><div class="products-detail-value">' + escapeHtml(_fanCrowd || '-') + '</div></div>';
-    html += '<div class="products-detail-item"><div class="products-detail-label">价格带</div><div class="products-detail-value">' + escapeHtml(_fanPrice || '-') + '</div></div>';
-    html += '<div class="products-detail-item"><div class="products-detail-label">类目偏好</div><div class="products-detail-value">' + escapeHtml(_fanCategory || '-') + '</div></div>';
+    html += '<div class="products-detail-item"><div class="products-detail-label">价格带</div><div class="products-detail-value">' + escapeHtml(String(_fanPrice || '-')) + '</div></div>';
+    html += '<div class="products-detail-item"><div class="products-detail-label">类目偏好</div><div class="products-detail-value">' + escapeHtml(String(_fanCategory || '-')) + '</div></div>';
     html += '</div></div>';
   }
 
@@ -32958,7 +33002,7 @@ function editCurrentTalent() {
     document.getElementById('talentDouyinId').value = t.douyin_id || '';
     document.getElementById('talentRealName').value = t.real_name || '';
     document.getElementById('talentFollowers').value = t.followers || 0;
-    document.getElementById('talentCategory').value = t.category || t.fan_category || '';
+    document.getElementById('talentCategory').value = (typeof t.category === 'string' ? t.category : '') || (typeof t.fan_category === 'string' ? t.fan_category : '');
     document.getElementById('talentLevel').value = t.level || '';
     document.getElementById('talentRiskRating').value = t.risk_rating || '';
     document.getElementById('talentCity').value = t.city || '';

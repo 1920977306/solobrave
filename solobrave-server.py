@@ -270,6 +270,22 @@ BUSINESS_VISION_PROMPT = """你是一个专业的抖音达人数据提取员。�
 
 所有字段名必须严格使用上述英文名，数组和分布类字段输出为JSON对象或数组。
 
+【★ fix/ocr-key-concat 16:29: 档位 key 严格规范 (老大拍板)】
+
+分布类字段 (fan_age / fan_price_range / fan_group_age / *_city_tier / *_region 等) 的 JSON key 必须是**截图上原始档位标签的完整文本**, 严禁:
+1. 把占比数字粘到 key 后面 (禁止 "18-2343.33" / "0~258.23" / "200~50016.46" 这种 key)
+2. 把相邻档位合并 (禁止 "4-500" 覆盖 "0-50" 或 "4-50")
+3. 自造截图上没有的档位名
+4. 把百分比符号 % 写进 key
+
+正确示例 (key 和 value 严格分离):
+  ✅ {"18-23": 4.33, "24-30": 24.84, "31-40": 42.87, "41-50": 17.03, "50岁以上": 10.9}
+  ✅ {"0~25": 8.23, "25~50": 15, "50~100": 27.09, "100~200": 28.42, "200~500": 16.46, "500+": 4.8}
+  ❌ {"18-2343.33": ..., "0~258.23": ...}  ← key 里粘了占比数字
+  ❌ {"4-500": ...}  ← 把 "0-50" 和 "4-50" 合并了
+
+判读方法: 读到某个档位时, **先把 key 读到截图上该标签的完整边界 (到空白/换行/百分号为止)**, 再读后面的占比数字. 不要跨空白连续读.
+
 【★ fix/ocr-full + vision-prompt-boost-v2: 截图所有数据点全部提取, 不能给少了】
 
 1. **预设 schema 字段**: 按上面所有分组逐条提取, 截图里没有的字段标注 null (严禁跳过)
@@ -4244,8 +4260,8 @@ def _talent_row_to_dict(row):
         'fan_age': _json_col('fan_age', {}),
         'fan_region': _json_col('fan_region', {}),
         'fan_crowd': _safe_row_get('fan_crowd') or '',
-        'fan_price_range': _safe_row_get('fan_price_range') or '',
-        'fan_category': _safe_row_get('fan_category') or '',
+        'fan_price_range': _json_col('fan_price_range', {}),
+        'fan_category': _json_col('fan_category', {}),
         'category': _safe_row_get('category') or '',
         'content_style': _safe_row_get('content_style') or '',
         'contentStyle': _safe_row_get('content_style') or '',
