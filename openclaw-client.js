@@ -1097,6 +1097,13 @@ class OpenClawClient {
     return this.send('sessions.reset', { key: sessionKey });
   }
 
+  // ★ 请求级模型: chat.send 是 closed schema 不收 model 参数,
+  //   客户指定模型时通过 per-session model override 实现 (sessions.patch, operator.write)。
+  //   patch 里传 model: null 可清除覆盖, 恢复 agent 默认模型。
+  async patchSession(sessionKey, patch) {
+    return this.send('sessions.patch', { key: sessionKey, ...patch });
+  }
+
   // 获取模型列表
   async listModels() {
     return this.send('models.list', {});

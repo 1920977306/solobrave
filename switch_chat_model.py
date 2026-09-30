@@ -1,6 +1,12 @@
 #!/usr/bin/env python3
 """
-一键切换 OpenClaw Gateway 的 chat 模型（前端 chat 走 OpenClaw WS，所以切这里）。
+【已废弃硬切】OpenClaw Gateway chat 模型只读诊断 + 推荐配置生成器
+
+2026-09-30 起, 全局硬切逻辑废弃:
+  - 前端 pill 改为「请求级模型指定」(REQUEST_CHAT_MODEL → sessions.patch → chat.send
+    → lifecycle 结束自动还原), 不改全局配置, 不影响其他客户
+  - 本脚本默认只读: 打印当前配置 + 生成推荐 patch, 不落盘
+  - 确需改全局默认(如全员降级应急)时, 显式加 --apply, 且每次仍自动备份
 
 架构原则（硬约束）: 前端 chat 必须经 OpenClaw Gateway，不允许任何路径
 直连外部 LLM provider API（前端/solobrave BFF 都不行）。所有模型切换都
@@ -13,10 +19,9 @@
   restore → 恢复到切换前的默认（pre-zhipu.bak 备份）
 
 用法:
-  python switch_chat_model.py zhipu
-  python switch_chat_model.py kimi
-  python switch_chat_model.py minimax
-  python switch_chat_model.py restore
+  python switch_chat_model.py zhipu              # 只读: 当前配置 + 推荐 patch
+  python switch_chat_model.py zhipu --apply      # 废弃例外: 真正打 patch (全局硬切)
+  python switch_chat_model.py restore --apply    # 从备份恢复 (需 --apply)
 
 minimax 配置（设到 solobrave .env）:
   OPENCLAW_MINIMAX_API_KEY=<your-minimax-key>
@@ -26,12 +31,6 @@ minimax 配置（设到 solobrave .env）:
 
 注: Kimi (coding/) 和 MiniMax (anthropic/) 都是 coding 模型，OpenClaw 协议
     都用 anthropic-messages; zhipu 是通用 chat，用 openai-completions。
-
-设计原则（最小入侵 + 留回滚）:
-  - 每次切换前自动备份当前配置到 ~/.openclaw/openclaw.json.bak.switch.<ts>
-  - 用 `openclaw config patch` 走 schema 校验，不会写出非法配置
-  - OpenClaw 支持 hot reload，patch 后无需重启 gateway
-  - 切换后用 `openclaw config get` 抽查员工 model.primary 验证生效
 """
 import json
 import os
@@ -43,6 +42,9 @@ from pathlib import Path
 OPENCLAW_CONFIG = Path.home() / ".openclaw" / "openclaw.json"
 BACKUP_PREFIX = "openclaw.json.bak.switch"
 SOLOBRAVE_ENV = Path("/Users/qichen/solobrave-prod/.env")
+
+APPLY = "--apply" in sys.argv
+PROFILE_ARGS = [a for a in sys.argv[1:] if not a.startswith("-")]
 
 # 6 个员工的 agent id（与 openclaw.json 当前 entries 一致；如果新员工手动加）
 AGENT_IDS = [
@@ -92,7 +94,7 @@ def _restart_gateway() -> None:
     pass
 
 
-def _verify(profile: str, want_substr: str) -> None:
+def _verify(want_substr: str) -> None:
     print(f"  (expecting '{want_substr}' in model name)")
     for agent_id in AGENT_IDS:
         proc = subprocess.run(
@@ -102,6 +104,34 @@ def _verify(profile: str, want_substr: str) -> None:
         actual = proc.stdout.strip()
         ok = "✅" if want_substr in actual else "❌"
         print(f"  {ok} {agent_id}: {actual}")
+
+
+def _read_current() -> str:
+    proc = subprocess.run(
+        ["openclaw", "config", "get", "agents.defaults.model.primary"],
+        capture_output=True, text=True,
+    )
+    return proc.stdout.strip() if proc.returncode == 0 else f"<read failed: {proc.stderr.strip()[:120]}>"
+
+
+def _mask_secrets(obj):
+    """打印推荐配置前脱敏: apiKey/token 类字段替换为 *** (防止密钥进终端/日志)"""
+    if isinstance(obj, dict):
+        return {k: ('***' if any(t in k.lower() for t in ('key', 'token', 'secret')) else _mask_secrets(v))
+                for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_mask_secrets(v) for v in obj]
+    return obj
+
+
+def _print_readonly_header(profile: str) -> None:
+    print("=" * 64)
+    print(f"[只读模式] profile={profile}  (加 --apply 才真正修改全局配置)")
+    print(f"当前 agents.defaults.model.primary = {_read_current()}")
+    print("推荐配置 patch JSON 如下, 人工核对后可:")
+    print(f"  1) python switch_chat_model.py {profile} --apply")
+    print("  2) 或手动: openclaw config patch --stdin < patch.json")
+    print("=" * 64)
 
 
 def profile_zhipu() -> None:
@@ -133,11 +163,15 @@ def profile_zhipu() -> None:
     for aid in AGENT_IDS:
         patch["agents"].setdefault("entries", {})[aid] = {"model": {"primary": "zhipu/glm-4-flash"}}
 
+    if not APPLY:
+        _print_readonly_header("zhipu")
+        print(json.dumps(_mask_secrets(patch), ensure_ascii=False, indent=2))
+        return
     bak = _backup()
     print(f"Backup → {bak.name}")
     _patch(patch)
     print("Verify (zhipu):")
-    _verify("zhipu", "glm-4-flash")
+    _verify("glm-4-flash")
 
 
 def profile_kimi() -> None:
@@ -156,17 +190,21 @@ def profile_kimi() -> None:
             },
         }
     }
+    if not APPLY:
+        _print_readonly_header("kimi")
+        print(json.dumps(_mask_secrets(patch), ensure_ascii=False, indent=2))
+        return
     bak = _backup()
     print(f"Backup → {bak.name}")
     _patch(patch)
     print("Verify (kimi):")
-    _verify("kimi", "k3")
+    _verify("k3")
 
 
 def profile_minimax() -> None:
     """Kimi 和 MiniMax 都是 coding 模型，走 Anthropic-messages 协议（与 Kimi 同结构）。
 
-    baseUrl 默认海外 MiniMax coding endpoint；国内用 https://api.MiniMax.cn/coding/。
+    baseUrl 默认国内 MiniMax coding endpoint；海外用 https://api.minimax.io/anthropic。
     model 默认 MiniMax-M3；可改 M2 / M2-mini。
     """
     key = _read_env("OPENCLAW_MINIMAX_API_KEY")
@@ -206,11 +244,15 @@ def profile_minimax() -> None:
         },
     }
 
+    if not APPLY:
+        _print_readonly_header(f"minimax={model} @ {base_url}")
+        print(json.dumps(_mask_secrets(patch), ensure_ascii=False, indent=2))
+        return
     bak = _backup()
     print(f"Backup → {bak.name}")
     _patch(patch)
     print(f"Verify (minimax={model} @ {base_url}):")
-    _verify("minimax", model)
+    _verify("minimax")
 
 
 def profile_restore() -> None:
@@ -223,6 +265,11 @@ def profile_restore() -> None:
         if not switch_baks:
             sys.exit("ERR: no backup found")
         src = switch_baks[-1]
+    if not APPLY:
+        _print_readonly_header("restore")
+        print(f"将用备份恢复: {src.name}")
+        print("确认后执行: python switch_chat_model.py restore --apply")
+        return
     print(f"Restoring from {src.name}")
     OPENCLAW_CONFIG.write_bytes(src.read_bytes())
     _restart_gateway()
@@ -237,11 +284,11 @@ PROFILES = {
 
 
 def main() -> None:
-    if len(sys.argv) != 2 or sys.argv[1] not in PROFILES:
+    if len(PROFILE_ARGS) != 1 or PROFILE_ARGS[0] not in PROFILES:
         print(__doc__)
         print(f"\nUnknown profile. Choices: {', '.join(PROFILES)}")
         sys.exit(2)
-    PROFILES[sys.argv[1]]()
+    PROFILES[PROFILE_ARGS[0]]()
 
 
 if __name__ == "__main__":

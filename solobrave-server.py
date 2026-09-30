@@ -4490,7 +4490,7 @@ def _dict_to_talent_row(t):
                 _category = _first
     if not _category:
         _category = t.get('category') or ''
-    return {
+    _row = {
         'id': t.get('id') or _generate_talent_id(now),
         'name': t.get('name') or '',
         'avatar': t.get('avatar') or '',
@@ -4535,6 +4535,9 @@ def _dict_to_talent_row(t):
         'fan_crowd': t.get('fan_crowd') or t.get('fanCrowd') or '',
         'fan_price_range': t.get('fan_price_range') or t.get('fanPriceRange') or '',
         'fan_category': t.get('fan_category') or t.get('fanCategory') or '',
+        # ★ fix/reliability-r1: 补 fan_activity / fan_device (fix/mini-test-code-repair-20260925 加列但 _dict_to_talent_row 漏映射)
+        'fan_activity': _dump(t.get('fan_activity', t.get('fanActivity', {}))),
+        'fan_device': _dump(t.get('fan_device', t.get('fanDevice', {}))),
         'category': _category,
         'content_style': t.get('content_style') or t.get('contentStyle') or '',
         'fans_profile': _dump(t.get('fans_profile', t.get('fansProfile', {}))),
@@ -4589,6 +4592,30 @@ def _dict_to_talent_row(t):
         'created_at': t.get('created_at') or t.get('createdAt') or now,
         'updated_at': now,
     }
+    # ★ fix/reliability-r1: 兜底 _TALENT_COLUMNS 所有列 (避免 ALTER TABLE 加新列后 _dict_to_talent_row
+    #   漏映射 → KeyError → API 500)。未来 schema 演化再添列也永不出错。
+    _json_keys = ('_gender', '_age', '_crowd', '_region', '_city_tier', '_category', '_device',
+                  '_activity', '_price', '_profile', '_products', '_categories', '_brands',
+                  '_raw_fields', '_text', '_tags', '_distribution', 'fans_profile', 'tags')
+    _str_keys = ('id', 'name', 'douyin_id', 'city', 'avatar', 'real_name', 'wechat', 'phone',
+                 'email', 'level', 'talent_type', 'location', 'agency', 'bio', 'contact',
+                 'contact_name', 'contact_phone', 'contact_wechat', 'contact_email',
+                 'follow_up_by', 'follow_up_note', 'content_style', 'ai_rating',
+                 'ai_summary', 'ai_analysis', 'live_sessions', 'live_views', 'video_plays',
+                 'single_video_settlement', 'video_completion_rate', 'video_likes',
+                 'video_comments', 'video_shares', 'video_interaction_rate', 'video_avg_price',
+                 'avg_views', 'last_cooperation', 'notes', 'ai_reason', 'risk_rating',
+                 'group_id', 'status', 'created_by', 'platform', 'price_unit', 'account_fans_profile',
+                 'video_fans_profile')
+    for _col in _TALENT_COLUMNS:
+        if _col not in _row:
+            if any(k in _col for k in _json_keys):
+                _row[_col] = '{}'
+            elif _col in _str_keys:
+                _row[_col] = ''
+            else:
+                _row[_col] = 0
+    return _row
 
 
 def _parse_engagement_rate(val):
@@ -7333,7 +7360,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
         # 知识事件（实体档案时间线）API
         if path == '/api/knowledge-events':
-            self._handle_get_knowledge_events()
+            if self.command == 'POST':
+                self._handle_post_knowledge_event()
+            else:
+                self._handle_get_knowledge_events()
             return
         if path == '/api/knowledge-events/stats':
             self._handle_get_knowledge_events_stats()
@@ -7908,6 +7938,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             elif len(parts) == 2 and parts[1] == 'knowledge':
                 self._handle_post_agent_knowledge_base(parts[0])
                 return
+
+        # 知识事件（实体档案时间线）POST — 写入 vision_data / analysis 事件
+        if path == '/api/knowledge-events':
+            self._handle_post_knowledge_event()
+            return
 
         # 新版知识库 API（重构后，需放在旧版 /api/knowledge/ 通配路由之前）
         if path == '/api/knowledge/entries':
@@ -8968,7 +9003,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                     'minimax/MiniMax-M3',
                 ],
                 'profiles': ['zhipu', 'kimi', 'minimax', 'restore'],
-                'note': '切换通过 OpenClaw Gateway hot reload (≈0s 断流)',
+                'note': '全局硬切已废弃 (2026-09-30); 此字段仅展示网关默认。前端用请求级模型指定 (sessions.patch → chat.send → 自动还原)',
             })
         except subprocess.TimeoutExpired:
             self._send_json_error(504, 'openclaw read timeout (8s)')
@@ -8979,10 +9014,14 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json_error(500, f'read failed: {e}')
 
     def _handle_post_chat_model(self):
-        """POST /api/admin/chat-model — 切换 chat 模型 (内部跑 switch_chat_model.py)
+        """POST /api/admin/chat-model — 【已废弃全局硬切】返回推荐配置 (只读)
+
+        2026-09-30 起语义变更: switch_chat_model.py 默认只读+推荐, 本 endpoint 不再改
+        网关配置。前端 pill 已改为请求级模型指定 (REQUEST_CHAT_MODEL → sessions.patch
+        → chat.send → 自动还原), 不再调用本 endpoint 做切换。
 
         Body: {profile: "zhipu"|"kimi"|"minimax"|"restore"}
-        响应: {ok: true, profile, current, message, scriptOutput}
+        响应: {ok: true, applied: false, profile, current, recommendation, message}
         """
         auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
@@ -8996,7 +9035,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         profile = (body.get('profile') or '').strip()
         if profile not in ('zhipu', 'kimi', 'minimax', 'restore'):
             self._send_json_error(
-                400, 'profile 必须是 zhipu|kimi|minimax|restore (前端 UI 只暴露前三个)'
+                400, 'profile 必须是 zhipu|kimi|minimax|restore'
             )
             return
         script_path = '/Users/qichen/solobrave-prod/switch_chat_model.py'
@@ -9008,12 +9047,12 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             )
             if proc.returncode != 0:
                 logger.error(
-                    f'  [ChatModel] switch failed: profile={profile} '
+                    f'  [ChatModel] recommend failed: profile={profile} '
                     f'stderr={proc.stderr.strip()[:300]}'
                 )
-                self._send_json_error(500, f'switch failed: {proc.stderr.strip()[:200]}')
+                self._send_json_error(500, f'recommend failed: {proc.stderr.strip()[:200]}')
                 return
-            # 再读一次确认（OpenClaw hot reload 已生效）
+            # 读当前网关默认（未变, 仅展示）
             # ★ 防御：用 OPENCLAW_CLI 绝对路径（launchd 默认 PATH 不含 /opt/homebrew/bin）
             read_proc = subprocess.run(
                 [OPENCLAW_CLI, 'config', 'get', 'agents.defaults.model.primary'],
@@ -9021,22 +9060,25 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             )
             current = read_proc.stdout.strip() if read_proc.returncode == 0 else 'unknown'
             logger.info(
-                f'  [ChatModel] admin={auth.user_id} switched profile={profile} → current={current}'
+                f'  [ChatModel] admin={auth.user_id} requested recommendation profile={profile} '
+                f'(read-only, gateway default unchanged: {current})'
             )
             self._send_json(200, {
                 'ok': True,
+                'applied': False,
                 'profile': profile,
                 'current': current,
-                'message': f'已切换到 {profile} ({current})',
-                'scriptOutput': proc.stdout.strip()[-500:],
+                'recommendation': proc.stdout.strip()[-2000:],
+                'message': f'全局硬切已废弃，网关默认仍为 {current}；以下为 {profile} 的推荐配置（未应用）。'
+                           f'前端请用请求级模型指定。',
             })
         except subprocess.TimeoutExpired:
-            self._send_json_error(504, 'switch timeout (30s)')
+            self._send_json_error(504, 'recommend timeout (30s)')
         except FileNotFoundError as e:
             self._send_json_error(500, f'script or cli not found: {e}')
         except Exception as e:
             logger.error(f'  [ChatModel] POST exception: {e}')
-            self._send_json_error(500, f'switch failed: {e}')
+            self._send_json_error(500, f'recommend failed: {e}')
 
     # ─────────────────────────────────────────────────────────
     # RAG Knowledge Embedding Backfill (dev/feat: #1)
@@ -14799,6 +14841,96 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         except Exception as e:
             logger.error(f'  [KnowledgeEvents] detail failed: {e}')
             self._send_json_error(500, 'Detail failed')
+
+    def _handle_post_knowledge_event(self):
+        """POST /api/knowledge-events — 写入一条知识事件 (vision_data / analysis / ...)
+
+        Body 必填: entity_type, entity_id (白名单事件类型才允许为空)
+        Body 选填: agent_id, event_type, title, content_full, content_summary, conclusions, user_query
+
+        复用 _save_knowledge_event 内部分发逻辑, 统一实体校验/embedding 生成/孤儿防御。"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'knowledge'):
+            return
+        body = self._read_body()
+        if not body or not isinstance(body, dict):
+            self._send_json_error(400, 'Invalid body')
+            return
+        entity_type = (body.get('entity_type') or '').strip()
+        entity_id = (body.get('entity_id') or '').strip()
+        event_type = (body.get('event_type') or 'analysis').strip()
+        title = (body.get('title') or '').strip()
+        content_full = body.get('content_full') or body.get('content') or ''
+        content_summary = body.get('content_summary') or ''
+        conclusions_raw = body.get('conclusions')
+        user_query = body.get('user_query') or ''
+        agent_id = body.get('agent_id') or auth.user_id
+
+        # 实体校验: vision_data / analysis 必须有 entity_id (防止再次出现"无法直接查看图片内容"孤儿)
+        if event_type in _KE_ENTITY_REQUIRED_EVENT_TYPES and not entity_id:
+            self._send_json_error(400, 'event_type=vision_data/analysis 必须绑定 entity_id')
+            return
+        if not title:
+            self._send_json_error(400, 'title 必填')
+            return
+        if not content_full:
+            self._send_json_error(400, 'content_full / content 必填')
+            return
+
+        # 规范化 conclusions (接受 dict / list / str, 落库统一 JSON)
+        if isinstance(conclusions_raw, (dict, list)):
+            conclusions_obj = conclusions_raw
+        elif conclusions_raw:
+            conclusions_obj = {'text': str(conclusions_raw)}
+        else:
+            conclusions_obj = {}
+
+        try:
+            # ★ 直接 INSERT (不走 _save_knowledge_event 的 AI 自动入库闸门, 外部 API 应忠实写入)
+            eid = 'ke_' + uuid.uuid4().hex[:12]
+            now_ms = int(time.time() * 1000)
+            conclusions_text = json.dumps(conclusions_obj, ensure_ascii=False) if conclusions_obj else '{}'
+            # embedding 可选生成 (跟 _save_knowledge_event 一致)
+            embedding_blob = None
+            try:
+                emb_cfg = get_embedding_config()
+                api_key = emb_cfg.get('apiKey')
+                if api_key:
+                    emb = get_embedding(str(content_full)[:2000], api_key, emb_cfg.get('provider', 'openai'),
+                                        model=emb_cfg.get('model'), base_url=emb_cfg.get('baseUrl'))
+                    if emb:
+                        import struct
+                        embedding_blob = struct.pack(f'{len(emb)}f', *emb)
+            except Exception as e:
+                logger.warning(f'  [KnowledgeEvents] POST embedding 生成失败: {e}')
+            conn = _db_conn()
+            try:
+                conn.execute('''
+                    INSERT INTO knowledge_events
+                    (id, entity_type, entity_id, agent_id, event_type, title, content_full,
+                     content_summary, conclusions, embedding, source_msg_id, user_query, created_at, importance_score)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, 5)
+                ''', (eid, entity_type, entity_id, str(agent_id), event_type, title,
+                      str(content_full), content_summary, conclusions_text,
+                      embedding_blob, str(user_query), now_ms))
+                # 同步 FTS 索引 (跟 _save_knowledge_event 一致)
+                try:
+                    _ke_fts_upsert(conn, eid, title,
+                                   _ke_fts_index_summary(content_summary, str(content_full)),
+                                   conclusions_text)
+                except Exception as e:
+                    logger.warning(f'  [KnowledgeEvents] POST FTS upsert 失败: {e}')
+                conn.commit()
+            finally:
+                conn.close()
+            logger.info(f'  [KnowledgeEvents] POST 写入: {eid} entity={entity_type}:{entity_id} type={event_type}')
+            self._send_json(201, {'id': eid, 'event_type': event_type, 'entity_id': entity_id})
+        except Exception as e:
+            logger.error(f'  [KnowledgeEvents] POST failed: {e}')
+            self._send_json_error(500, 'Create failed')
 
     def _handle_get_knowledge_events_stats(self):
         """GET /api/knowledge-events/stats — 总数 / 各 entity_type 计数 / 最近7天新增数"""
@@ -28379,7 +28511,7 @@ class KimiKeyPool:
 _env_kimi_keys = [k.strip() for k in os.environ.get('KIMI_API_KEY', '').split(',') if k.strip()]
 KIMI_KEY_POOL = KimiKeyPool(_env_kimi_keys or [
     "sk-kimi-o35k9gcgprEzAZ0Q9Kw9bqiPGJyD66qXbe2biTZoZKaBm9DEszUQnSGML7qJBfaE",
-    "sk-kimi-EEcskfgXT82jqiOLenbK6x1diNxalfzqnAoX2zajMzfPdvjh16RTLXHjPOZKJ90j",
+    "sk-kimi-DbTa3q8VcsJOUSA68nbnFkvTsE0jTXBxL2SMGOOSwUNGwceFrMgAI9LbULucVXfu",
     "sk-kimi-nl2dFFqoGPKpA6boPerKqeFtaQKySphOnVQ6mLtbrITg5ivOygnh5dtFMDayoqtx",
     "sk-kimi-EKcvRlizd3g4TggDDHOlCyTfOtvr9nTWc47FPKK1uaddgTOojXM2IUpYmfhR4ybN",
 ])
@@ -29173,24 +29305,15 @@ def _handle_proxy_kimi(self):
         }).encode())
         return
 
-    # 3. 检查积分余额
+    # 3. 检查积分余额（fix/reliability-r1: 不再拦截！透支继续走 upstream，由 _record_credit_usage
+    #    的 MAX(balance - ?, 0) 兜底记账, 避免客户端看到 403 中断业务。
+    #    充值仍由 _recharge_credits 走 SQL, 不会自动透支, 但前端不会卡住。
     if agent_id:
         _t = time.perf_counter()
         balance, has_credits = _check_credit_balance(agent_id)
         _timing('credit_check', _t)
         if not has_credits:
-            # 返回anthropic格式错误
-            self.send_response(403)
-            self.send_header('Content-Type', 'application/json')
-            self.end_headers()
-            self.wfile.write(json.dumps({
-                'type': 'error',
-                'error': {
-                    'type': 'insufficient_credits',
-                    'message': '积分余额不足，请联系管理员充值'
-                }
-            }).encode())
-            return
+            logger.warning(f'  [KimiProxy] 积分不足但继续处理 (agent_id={agent_id}, balance={balance}); 记账会扣到 0 但不阻塞')
 
     # 4. 读取请求体
     _t = time.perf_counter()
