@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
@@ -13734,7 +13734,9 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr, images, ch
     }
     var hasSentWorking = false;
     var hasSentCoding = false;
-    var lifecycleOptions = {};
+    // ★ 请求级模型: 客户通过 model pill 指定时透传给 _sendChatWaitForLifecycle
+    //   (null=跟随网关默认, 由后者在发送前 sessions.patch 覆盖、结束后还原)
+    var lifecycleOptions = { model: REQUEST_CHAT_MODEL };
     
     // 有图片时：先调后端 vision 接口转成文字描述拼进消息文本，
     // OpenClaw 网关只收纯文本，不依赖网关的多模态能力（attachments 参数会被网关丢弃）
@@ -13917,7 +13919,7 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr, images, ch
           onToolStart: function () {},
           onToolEnd: function () {},
           onLifecycleEnd: function () {}
-        }), TIMEOUT_CHAT_MS, 'chat:retry');
+        }, { model: REQUEST_CHAT_MODEL }), TIMEOUT_CHAT_MS, 'chat:retry');
         if (retryResult && retryResult.reply && retryResult.reply.indexOf('抱歉，我暂时无法处理') === -1) {
           chatResult = retryResult;
           console.log('[OpenClaw] retry 成功, 用 retry 的 reply');
@@ -13943,7 +13945,7 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr, images, ch
       emp._fallbackToMain = true;
       var fallbackKey = 'agent:main:chat-' + emp.id;
       try {
-        var retryResult = await _sendChatWaitForLifecycle(fallbackKey, fullMessage);
+        var retryResult = await _sendChatWaitForLifecycle(fallbackKey, fullMessage, {}, { model: REQUEST_CHAT_MODEL });
         console.debug('[OpenClaw] main agent 重试返回:', JSON.stringify(retryResult));
         if (retryResult.reply) {
           if (groupId) {
@@ -18143,7 +18145,7 @@ async function _sendGroupMessage(groupId, message, mentions, images) {
               })
             }).catch(function (e) { console.warn('[ToolLog] 记录失败:', e); });
           }
-        });
+        }, { model: REQUEST_CHAT_MODEL });
         var finalReply = (chatResult.reply || '').trim();
         console.debug('[sendGroupMessage] lifecycle结束，回复长度=' + finalReply.length + '，是否错误=' + chatResult.isError + '，lifecycleEnded=' + chatResult.lifecycleEnded);
         if (!finalReply) {
@@ -18281,6 +18283,7 @@ function _sendChatWaitForLifecycle(sessionKey, prompt, callbacks, options) {
             //   onStream 首次 delta 调 displayAIReply 时 replyText 只是部分文本, 双条件/字段提取都 miss
             //   完整 reply 才到时再调一次, 保证 dedup 真生效
             if (fullReply) _tryAutoPutTalentFromReply(fullReply);
+            if (typeof restoreModelOverride === 'function') restoreModelOverride();
             resolve({ reply: fullReply, isError: lifecycleError, lifecycleEnded: true, fullReply: fullReply });
             done();
           }
@@ -18292,6 +18295,7 @@ function _sendChatWaitForLifecycle(sessionKey, prompt, callbacks, options) {
         if (!lifecycleEnded) {
           console.warn('[LifecycleWait] 超时未收到 lifecycle end（' + lifecycleWaitMs + 'ms），返回已收集内容，长度=' + fullReply.length);
           openclaw.off('agent', handler);
+          if (typeof restoreModelOverride === 'function') restoreModelOverride();
           resolve({ reply: fullReply, isError: false, lifecycleEnded: false, fullReply: fullReply });
           done();
         }
@@ -18305,25 +18309,55 @@ function _sendChatWaitForLifecycle(sessionKey, prompt, callbacks, options) {
           return { type: "image", url: img.base64 || img.url || img };
         });
       }
-      openclaw.sendChat(sessionKey, prompt, sendExtraParams).then(function (result) {
-        // 如果 lifecycle 在 sendChat resolve 之前已经触发，resolve 已在 handler 中完成
-        // 如果 lifecycle 尚未触发，sendChat 返回的 result.content 可作为备用
-        if (!lifecycleEnded && result) {
-          var resultContent = (result.result && result.result.content) || result.content;
-          if (resultContent && !fullReply) {
-            if (typeof resultContent === 'string') {
-              fullReply = resultContent;
-            } else if (Array.isArray(resultContent)) {
-              fullReply = resultContent.map(function (c) { return c.text || ''; }).join('');
+      // ★ dev/feat: 请求级 model —— chat.send 协议是 closed schema（已核对 OpenClaw
+      //   2026.8.1 ChatSendParamsSchema, 无 model 字段, 直接透传会被参数校验拒绝）。
+      //   客户指定模型时改为 per-session model override: 先 sessions.patch({model})
+      //   再发 chat.send; lifecycle 结束后 patch({model:null}) 还原, 保证严格"请求级",
+      //   不影响同 sessionKey 的其他客户/后续请求（sessionKey 是按员工的, 全局共享）。
+      //   patch 失败降级为网关默认模型, 不阻断聊天。options.model 不进 sendExtraParams。
+      var requestModelPatch = (typeof options.model === 'string' && options.model.trim()) ? options.model.trim() : '';
+      var restoreModelOverride = function () {
+        if (!requestModelPatch || !openclaw.patchSession) return;
+        openclaw.patchSession(sessionKey, { model: null }).catch(function (e) {
+          console.warn('[ModelPassthrough] 还原 session 模型失败（不影响功能）:', (e && e.message) || e);
+        });
+      };
+      var doSendChat = function () {
+        openclaw.sendChat(sessionKey, prompt, sendExtraParams).then(function (result) {
+          // 如果 lifecycle 在 sendChat resolve 之前已经触发，resolve 已在 handler 中完成
+          // 如果 lifecycle 尚未触发，sendChat 返回的 result.content 可作为备用
+          if (!lifecycleEnded && result) {
+            var resultContent = (result.result && result.result.content) || result.content;
+            if (resultContent && !fullReply) {
+              if (typeof resultContent === 'string') {
+                fullReply = resultContent;
+              } else if (Array.isArray(resultContent)) {
+                fullReply = resultContent.map(function (c) { return c.text || ''; }).join('');
+              }
             }
           }
-        }
-      }).catch(function (e) {
-        if (lifecycleTimeout) clearTimeout(lifecycleTimeout);
-        openclaw.off('agent', handler);
-        reject(e);
-        done();
-      });
+        }).catch(function (e) {
+          if (lifecycleTimeout) clearTimeout(lifecycleTimeout);
+          openclaw.off('agent', handler);
+          restoreModelOverride();
+          reject(e);
+          done();
+        });
+      };
+      if (requestModelPatch && openclaw.patchSession) {
+        // 先等 patch 落库再发 chat.send, 避免模型覆盖晚于消息派发
+        openclaw.patchSession(sessionKey, { model: requestModelPatch }).then(function (patchRes) {
+          if (patchRes && patchRes.model) {
+            console.log('[ModelPassthrough] session 模型已临时覆盖为 ' + patchRes.model + '（请求级, lifecycle 结束自动还原）');
+          }
+          doSendChat();
+        }).catch(function (e) {
+          console.warn('[ModelPassthrough] sessions.patch model 失败（可能无 operator.write 权限）, 用网关默认模型继续:', (e && e.message) || e);
+          doSendChat();
+        });
+      } else {
+        doSendChat();
+      }
     }, priority);
   });
 }
@@ -18569,7 +18603,7 @@ async function _askAgentToReply(mid, groupId, senderId, messageContent) {
           renderEmployeeList();
         }
       }
-    });
+    }, { model: REQUEST_CHAT_MODEL });
     var reply = (chatResult.reply || '').trim();
     console.debug('[askAgentToReply] ' + emp.name + ' lifecycle结束，回复长度=' + reply.length + '，是否错误=' + chatResult.isError + '，前100字:', reply.substring(0, 100));
     emp.status = 'online';
@@ -18682,7 +18716,7 @@ async function initiateAgentDiscussion(groupId) {
         initiator.status = 'thinking';
         renderEmployeeList();
       }
-    });
+    }, { model: REQUEST_CHAT_MODEL });
     var reply = (chatResult.reply || '').trim();
 
     var t = document.getElementById('initTyping_' + initiator.id);
@@ -19080,7 +19114,7 @@ async function _triggerMentionedAgent(emp, groupId, fromId, source, userMessage)
           renderEmployeeList();
         }
       }
-    });
+    }, { model: REQUEST_CHAT_MODEL });
     var finalReply = (chatResult.reply || '').trim();
     console.debug('[triggerMentionedAgent] ' + emp.name + ' lifecycle结束，回复长度=' + finalReply.length + '，是否错误=' + chatResult.isError + '，lifecycleEnded=' + chatResult.lifecycleEnded);
     if (!finalReply) {
@@ -21095,20 +21129,34 @@ function filterModels(q) {
 // ============ Model Switcher Pill (ui/model-switcher) ============
 // 位置: 输入框 toolbar (/model slash command + pill 点击)
 // 设计: 必须经 OpenClaw Gateway，不直连 LLM API（前端 chat 架构硬约束）
-// 后端契约 (待 dev 同事实现):
-//   GET  /api/admin/chat-model    → {current: "zhipu/glm-4-flash", available: [{key, label, desc}]}
-//   POST /api/admin/chat-model    {profile: "zhipu"|"kimi"|"minimax"} → {ok, current}
-// 前端职责:
-//   1) 启动拉一次 GET → 渲染 pill
-//   2) 点击 pill → 展开 dropdown 选项
-//   3) 选中 profile → POST 切换 → 更新 pill + toast
-//   4) 失败回滚 pill 文字 + 显示错误 toast
+// ★ dev/feat 收尾 (2026-09-30): 全局硬切废弃 —— POST /api/admin/chat-model 不再改网关配置
+//   (switch_chat_model.py 改为只读+推荐)。pill 语义改为「请求级模型指定」:
+//   客户选中后写入 REQUEST_CHAT_MODEL, 后续本人发起的聊天在 _sendChatWaitForLifecycle
+//   里先 sessions.patch({model}) 再 chat.send, lifecycle 结束自动 patch({model:null}) 还原。
+//   不改全局配置、不影响其他客户、不碰后台归纳/通知等内部任务。
+// 后端契约:
+//   GET  /api/admin/chat-model    → {current: "zhipu/glm-4-flash", ...} 只用于展示网关默认
 var MODEL_AVAILABLE = [
-  { key: 'zhipu',   icon: '⚡', label: '智谱 GLM-4-flash', desc: '快 + 便宜，测试首选 (openai-completions)' },
-  { key: 'kimi',    icon: '🌙', label: 'Kimi K3',         desc: '强 + 按员工隔离 API key (anthropic-messages)' },
-  { key: 'minimax', icon: '🤖', label: 'MiniMax M3',      desc: '最新 1M context coding 模型 (anthropic-messages)' }
+  { key: 'zhipu',   icon: '⚡', label: '智谱 GLM-4-flash', desc: '快 + 便宜，测试首选 (openai-completions)', modelRef: 'zhipu/glm-4-flash' },
+  { key: 'kimi',    icon: '🌙', label: 'Kimi K3',         desc: '强 + 按员工隔离 API key (anthropic-messages)', modelRef: 'kimi/k3' },
+  { key: 'minimax', icon: '🤖', label: 'MiniMax M3',      desc: '最新 1M context coding 模型 (anthropic-messages)', modelRef: 'minimax/MiniMax-M3' }
 ];
 var MODEL_FALLBACK_PROFILE = 'zhipu';
+// 请求级模型: null = 跟随网关默认; 否则为 "provider/model" ref, 仅作用于本浏览器发起的聊天
+var REQUEST_CHAT_MODEL = null;
+var GATEWAY_DEFAULT_MODEL = '';
+
+// pill 文字: 请求级选择优先, 否则显示跟随网关默认
+function _refreshModelPillLabel() {
+  if (REQUEST_CHAT_MODEL) {
+    var sel = MODEL_AVAILABLE.find(function (m) { return m.modelRef === REQUEST_CHAT_MODEL; });
+    _setModelPillLabel((sel ? sel.icon + ' ' + sel.label.split(' ')[0] : REQUEST_CHAT_MODEL), { disabled: false });
+  } else {
+    var cur = (GATEWAY_DEFAULT_MODEL || '').split('/')[0];
+    var curItem = MODEL_AVAILABLE.find(function (m) { return m.key === cur; });
+    _setModelPillLabel('跟随默认' + (curItem ? '·' + curItem.label.split(' ')[0] : ''), { disabled: false });
+  }
+}
 
 function _setModelPillLabel(text, opts) {
   opts = opts || {};
@@ -21121,12 +21169,23 @@ function _setModelPillLabel(text, opts) {
   }
 }
 
-function _renderModelDropdown(currentProfile) {
+function _renderModelDropdown() {
   var dd = document.getElementById('modelDropdown');
   if (!dd) return;
   var html = '';
+  // 第一项: 跟随网关默认（请求级不指定模型）
+  html += '<div class="model-dropdown-item ' + (!REQUEST_CHAT_MODEL ? 'active' : '') + '" '
+       + 'data-profile="default" '
+       + 'onclick="switchChatModel(\'default\')">'
+       + '<span class="mdi-icon">🔧</span>'
+       + '<span class="mdi-text">'
+       +   '<div class="mdi-name">跟随网关默认</div>'
+       +   '<div class="mdi-desc">' + (GATEWAY_DEFAULT_MODEL ? '当前网关默认: ' + GATEWAY_DEFAULT_MODEL : '不指定模型，用网关配置的默认') + '</div>'
+       + '</span>'
+       + '<span class="mdi-check">✓</span>'
+       + '</div>';
   MODEL_AVAILABLE.forEach(function (m) {
-    var active = m.key === currentProfile;
+    var active = REQUEST_CHAT_MODEL === m.modelRef;
     html += '<div class="model-dropdown-item ' + (active ? 'active' : '') + '" '
          + 'data-profile="' + m.key + '" '
          + 'onclick="switchChatModel(\'' + m.key + '\')">'
@@ -21139,7 +21198,7 @@ function _renderModelDropdown(currentProfile) {
          + '</div>';
   });
   html += '<div class="model-dropdown-footer">'
-       + '切换通过 <code>POST /api/admin/chat-model</code> → OpenClaw Gateway hot reload'
+       + '请求级指定：只影响你发起的聊天（sessions.patch → chat.send → 自动还原），不改全局配置'
        + '</div>';
   dd.innerHTML = html;
 }
@@ -21165,7 +21224,7 @@ function toggleModelDropdown() {
 }
 
 function loadChatModelState() {
-  // 启动拉取当前模型；失败时 pill 显示兜底文案（不阻塞输入）
+  // 启动拉取网关默认模型（仅展示用，不再代表当前选择）；失败不阻塞输入
   var btn = document.getElementById('modelSwitcherBtn');
   if (btn) btn.disabled = true;
   apiFetch('/api/admin/chat-model')
@@ -21174,16 +21233,15 @@ function loadChatModelState() {
     })
     .then(function (data) {
       if (!data) throw new Error('empty response');
-      var cur = (data.current || '').split('/')[0] || MODEL_FALLBACK_PROFILE;
-      var curItem = MODEL_AVAILABLE.find(function (m) { return m.key === cur; });
-      _setModelPillLabel((curItem ? curItem.icon + ' ' + curItem.label.split(' ')[0] : '模型'), { disabled: false });
-      _renderModelDropdown(cur);
+      GATEWAY_DEFAULT_MODEL = data.current || '';
+      _refreshModelPillLabel();
+      _renderModelDropdown();
       if (btn) btn.disabled = false;
     })
     .catch(function (e) {
       console.warn('[ModelSwitcher] load failed:', e);
       _setModelPillLabel('🤖 模型', { disabled: false });
-      _renderModelDropdown(MODEL_FALLBACK_PROFILE);
+      _renderModelDropdown();
       if (btn) btn.disabled = false;
     });
 }
@@ -21191,31 +21249,24 @@ function loadChatModelState() {
 function switchChatModel(profile) {
   if (!profile) return;
   _closeModelDropdown();
-  _setModelPillLabel('切换中…', { disabled: true });
-
-  apiFetch('/api/admin/chat-model', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ profile: profile })
-  })
-    .then(function (r) {
-      return r && r.ok ? r.json().then(function (j) { return { ok: true, data: j }; })
-                        : r && r.json().then(function (j) { return { ok: false, err: j }; });
-    })
-    .catch(function (e) { return { ok: false, err: { error: String(e) } }; })
-    .then(function (out) {
-      if (out && out.ok && out.data && out.data.current) {
-        var cur = (out.data.current || '').split('/')[0] || profile;
-        var curItem = MODEL_AVAILABLE.find(function (m) { return m.key === cur; });
-        _setModelPillLabel((curItem ? curItem.icon + ' ' + curItem.label.split(' ')[0] : '模型'), { disabled: false });
-        _renderModelDropdown(cur);
-        showToast && showToast('已切换到 ' + (curItem ? curItem.label : cur));
-      } else {
-        var msg = (out && out.err && (out.err.error || out.err.message)) || '切换失败';
-        showToast && showToast('❌ ' + msg);
-        loadChatModelState();
-      }
-    });
+  // ★ 请求级语义: 只写本浏览器的 REQUEST_CHAT_MODEL, 不打 POST 改全局配置
+  if (profile === 'default') {
+    REQUEST_CHAT_MODEL = null;
+  } else {
+    var item = MODEL_AVAILABLE.find(function (m) { return m.key === profile; });
+    if (!item) {
+      showToast && showToast('❌ 未知模型 profile: ' + profile);
+      return;
+    }
+    REQUEST_CHAT_MODEL = item.modelRef;
+  }
+  _refreshModelPillLabel();
+  _renderModelDropdown();
+  if (REQUEST_CHAT_MODEL) {
+    showToast && showToast('已指定请求级模型 ' + REQUEST_CHAT_MODEL + '（只影响你发起的聊天，自动还原）');
+  } else {
+    showToast && showToast('已恢复跟随网关默认模型');
+  }
 }
 
 // 把旧的占位 /model slash command 接到新 pill（统一入口）
@@ -30676,11 +30727,13 @@ function loadAnalyzedTalents() {
   apiFetch('/api/knowledge-events?entity_type=talent&limit=200').then(function(r){return r.json();}).then(function(data){
     var events = data.events || [];
     // 列表按 created_at DESC 返回，每个 entity_id 的首条 analysis 事件即最新一条
+    // fix/helen-knowledge-events-visibility: 后端已按两层架构过滤 (非 admin 只看其子库 + AI 员工子库),
+    // 前端不再做 name: 前置过滤 (会丢掉 tal_XXX 实体, 而这些是绝大多数 Helen 真实分析的)
     var byEntity = {};
     events.forEach(function(ev){
       if (ev.event_type !== 'analysis') return;
       var key = ev.entity_id || '';
-      if (!key || key.indexOf('name:') !== 0) return;  // 只保留 name:XXX 实体，过滤 inf_*/tal_* 等脏数据
+      if (!key) return;
       if (byEntity[key]) return;
       byEntity[key] = ev;
     });
@@ -35195,7 +35248,7 @@ function closeMatchModal() {
      跟 avatars.js?v=1778166504 一致的版本号策略
      v2 (202609241444): 初始破缓存 + skip-device 守卫
      v3 (202609241420): probe 误导文案澄清 (fingerprint fallback → token-only) -->
-<script src="openclaw-client.js?v=202609241420"></script>
+<script src="openclaw-client.js?v=202609301548"></script>
 <script>// ========================================
 // Badge 紧急标记功能
 // ========================================

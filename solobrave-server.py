@@ -8968,7 +8968,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                     'minimax/MiniMax-M3',
                 ],
                 'profiles': ['zhipu', 'kimi', 'minimax', 'restore'],
-                'note': '切换通过 OpenClaw Gateway hot reload (≈0s 断流)',
+                'note': '全局硬切已废弃 (2026-09-30); 此字段仅展示网关默认。前端用请求级模型指定 (sessions.patch → chat.send → 自动还原)',
             })
         except subprocess.TimeoutExpired:
             self._send_json_error(504, 'openclaw read timeout (8s)')
@@ -8979,10 +8979,14 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json_error(500, f'read failed: {e}')
 
     def _handle_post_chat_model(self):
-        """POST /api/admin/chat-model — 切换 chat 模型 (内部跑 switch_chat_model.py)
+        """POST /api/admin/chat-model — 【已废弃全局硬切】返回推荐配置 (只读)
+
+        2026-09-30 起语义变更: switch_chat_model.py 默认只读+推荐, 本 endpoint 不再改
+        网关配置。前端 pill 已改为请求级模型指定 (REQUEST_CHAT_MODEL → sessions.patch
+        → chat.send → 自动还原), 不再调用本 endpoint 做切换。
 
         Body: {profile: "zhipu"|"kimi"|"minimax"|"restore"}
-        响应: {ok: true, profile, current, message, scriptOutput}
+        响应: {ok: true, applied: false, profile, current, recommendation, message}
         """
         auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
@@ -8996,7 +9000,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         profile = (body.get('profile') or '').strip()
         if profile not in ('zhipu', 'kimi', 'minimax', 'restore'):
             self._send_json_error(
-                400, 'profile 必须是 zhipu|kimi|minimax|restore (前端 UI 只暴露前三个)'
+                400, 'profile 必须是 zhipu|kimi|minimax|restore'
             )
             return
         script_path = '/Users/qichen/solobrave-prod/switch_chat_model.py'
@@ -9008,12 +9012,12 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             )
             if proc.returncode != 0:
                 logger.error(
-                    f'  [ChatModel] switch failed: profile={profile} '
+                    f'  [ChatModel] recommend failed: profile={profile} '
                     f'stderr={proc.stderr.strip()[:300]}'
                 )
-                self._send_json_error(500, f'switch failed: {proc.stderr.strip()[:200]}')
+                self._send_json_error(500, f'recommend failed: {proc.stderr.strip()[:200]}')
                 return
-            # 再读一次确认（OpenClaw hot reload 已生效）
+            # 读当前网关默认（未变, 仅展示）
             # ★ 防御：用 OPENCLAW_CLI 绝对路径（launchd 默认 PATH 不含 /opt/homebrew/bin）
             read_proc = subprocess.run(
                 [OPENCLAW_CLI, 'config', 'get', 'agents.defaults.model.primary'],
@@ -9021,22 +9025,25 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             )
             current = read_proc.stdout.strip() if read_proc.returncode == 0 else 'unknown'
             logger.info(
-                f'  [ChatModel] admin={auth.user_id} switched profile={profile} → current={current}'
+                f'  [ChatModel] admin={auth.user_id} requested recommendation profile={profile} '
+                f'(read-only, gateway default unchanged: {current})'
             )
             self._send_json(200, {
                 'ok': True,
+                'applied': False,
                 'profile': profile,
                 'current': current,
-                'message': f'已切换到 {profile} ({current})',
-                'scriptOutput': proc.stdout.strip()[-500:],
+                'recommendation': proc.stdout.strip()[-2000:],
+                'message': f'全局硬切已废弃，网关默认仍为 {current}；以下为 {profile} 的推荐配置（未应用）。'
+                           f'前端请用请求级模型指定。',
             })
         except subprocess.TimeoutExpired:
-            self._send_json_error(504, 'switch timeout (30s)')
+            self._send_json_error(504, 'recommend timeout (30s)')
         except FileNotFoundError as e:
             self._send_json_error(500, f'script or cli not found: {e}')
         except Exception as e:
             logger.error(f'  [ChatModel] POST exception: {e}')
-            self._send_json_error(500, f'switch failed: {e}')
+            self._send_json_error(500, f'recommend failed: {e}')
 
     # ─────────────────────────────────────────────────────────
     # RAG Knowledge Embedding Backfill (dev/feat: #1)
@@ -14738,7 +14745,15 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json_error(500, 'Stats failed')
 
     def _handle_get_knowledge_events(self):
-        """GET /api/knowledge-events?entity_type=&entity_id= — 实体分析事件列表（不含 content_full）"""
+        """GET /api/knowledge-events?entity_type=&entity_id= — 实体分析事件列表（不含 content_full）
+
+        fix/helen-knowledge-events-visibility:
+          - JOIN talents 取 talent.created_by, 跟 _handle_get_talents 同样的两层架构可见性
+            (非 admin 只看其 created_by IN (uid, agent_ids) 的 events)
+          - 返回 event 加 talent_created_by 字段, 前端用做"我分析过"标签筛选
+          - entity_id 是 tal_/inf_ (可达 talents 表) 才走可见性过滤;
+            是 name:XXX / 其它 (不在 talents 表) 视为游离记录, 仅 admin 看全
+        """
         auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
@@ -14752,18 +14767,21 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         except (TypeError, ValueError):
             limit = 50
         try:
-            sql = ('SELECT id, entity_type, entity_id, agent_id, event_type, title, '
-                   'content_summary, conclusions, user_query, created_at FROM knowledge_events')
+            sql = ('SELECT ke.id, ke.entity_type, ke.entity_id, ke.agent_id, ke.event_type, ke.title, '
+                   'ke.content_summary, ke.conclusions, ke.user_query, ke.created_at, '
+                   't.created_by AS talent_created_by '
+                   'FROM knowledge_events ke LEFT JOIN talents t ON ke.entity_id = t.id '
+                   'AND ke.entity_type = \'talent\'')
             conds, params = [], []
             if entity_type:
-                conds.append('entity_type = ?')
+                conds.append('ke.entity_type = ?')
                 params.append(entity_type)
             if entity_id:
-                conds.append('entity_id = ?')
+                conds.append('ke.entity_id = ?')
                 params.append(entity_id)
             if conds:
                 sql += ' WHERE ' + ' AND '.join(conds)
-            sql += ' ORDER BY created_at DESC LIMIT ?'
+            sql += ' ORDER BY ke.created_at DESC LIMIT ?'
             params.append(limit)
             conn = _db_conn()
             try:
@@ -14771,6 +14789,13 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             finally:
                 conn.close()
             events = [dict(r) for r in rows]
+            # 两层架构可见性: entity_type=talent 且非 admin 时, 按 talent.created_by 过滤
+            # (游离事件 — entity_id 没匹配 talents 行 — 仅 admin 看)
+            if entity_type == 'talent' and (not auth.is_admin or getattr(auth, 'localhost_agent_id', None)):
+                uid = _resolve_talent_owner_id(auth)
+                visible_ids = {uid} | set(_get_user_emp_ids(uid))
+                events = [e for e in events if e.get('talent_created_by') and
+                          e['talent_created_by'] in visible_ids]
             self._send_json(200, {'events': events, 'total': len(events)})
         except Exception as e:
             logger.error(f'  [KnowledgeEvents] list failed: {e}')
