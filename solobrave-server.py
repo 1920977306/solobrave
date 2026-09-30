@@ -4732,6 +4732,119 @@ def _migrate_inf_to_tal_prefix():
     return (migrated, skipped)
 
 
+def _add_talent_foreign_keys():
+    """给 3 个引用表加 FOREIGN KEY (talent_id) → talents(id) ON DELETE CASCADE (idempotent).
+
+    纵深防御 (fix/talent-id-prefix-r2): 之前 talents.id 无外键约束, 改 PRIMARY KEY 是 implicit
+    assumption, 没有 schema-level 保证引用一致性. 加 FK 后:
+      - DB schema 明文约束 (前后端 + 直查 DB 工具都遵守)
+      - PRAGMA foreign_keys=ON (在 _db_conn() 已开启) 会强制级联
+      - 删 talent 自动 cascade 删 follow_ups / deals / product_talent_match
+        (这些是从属表, 跟 talent 生命周期同步)
+
+    Recreate 策略 (SQLite ALTER TABLE 不支持加 FK):
+      1. PRAGMA foreign_keys=OFF (临时关, 避免 recreate 期间 INSERT 触发 FK 检查)
+      2. _old_table 存旧数据 → 创建 _new_<table> 带 FK → INSERT back
+      3. DROP _old → ALTER _new_<table> RENAME TO <table>
+      4. PRAGMA foreign_keys=ON (恢复)
+
+    idempotent: 用 PRAGMA foreign_key_list(<table>) 看是否已有 FK 引用 talents.
+    返回 (migrated_tables, skipped_tables)。
+    """
+    # 三个表的新 schema (与原 schema 完全一致, 唯一新增是 talent_id 的 FK)
+    _PTM_NEW = '''CREATE TABLE product_talent_match_new (
+        id TEXT PRIMARY KEY,
+        product_id TEXT NOT NULL,
+        talent_id TEXT NOT NULL REFERENCES talents(id) ON DELETE CASCADE,
+        match_score REAL DEFAULT 0,
+        match_reason TEXT DEFAULT '',
+        sales_volume INTEGER DEFAULT 0,
+        conversion_rate REAL DEFAULT 0,
+        is_ai_recommended INTEGER DEFAULT 0,
+        created_at INTEGER,
+        updated_at INTEGER,
+        UNIQUE(product_id, talent_id)
+    )'''
+    _TFU_NEW = '''CREATE TABLE talent_follow_ups_new (
+        id TEXT PRIMARY KEY,
+        talent_id TEXT NOT NULL REFERENCES talents(id) ON DELETE CASCADE,
+        follow_up_by TEXT DEFAULT '',
+        follow_up_at INTEGER DEFAULT 0,
+        next_follow_up_at INTEGER DEFAULT 0,
+        content TEXT DEFAULT '',
+        result TEXT DEFAULT '',
+        status TEXT DEFAULT 'completed',
+        created_at INTEGER,
+        updated_at INTEGER
+    )'''
+    _DEALS_NEW = '''CREATE TABLE deals_new (
+        id TEXT PRIMARY KEY,
+        talent_id TEXT NOT NULL REFERENCES talents(id) ON DELETE CASCADE,
+        product_id TEXT DEFAULT '',
+        product_name TEXT DEFAULT '',
+        deal_type TEXT DEFAULT '',
+        commission_rate REAL DEFAULT 0,
+        status TEXT DEFAULT 'pending',
+        scheduled_at INTEGER DEFAULT 0,
+        actual_gmv REAL DEFAULT 0,
+        actual_roi REAL DEFAULT 0,
+        actual_units INTEGER DEFAULT 0,
+        result_note TEXT DEFAULT '',
+        predicted_conclusion TEXT DEFAULT '',
+        predicted_event_id TEXT DEFAULT '',
+        verification TEXT DEFAULT '',
+        created_by TEXT DEFAULT '',
+        created_at INTEGER,
+        updated_at INTEGER,
+        win_loss_category TEXT DEFAULT '',
+        key_moment TEXT DEFAULT '',
+        decision_maker_feedback TEXT DEFAULT ''
+    )'''
+
+    plan = [
+        ('product_talent_match', 'product_talent_match_new', _PTM_NEW),
+        ('talent_follow_ups', 'talent_follow_ups_new', _TFU_NEW),
+        ('deals', 'deals_new', _DEALS_NEW),
+    ]
+
+    conn = _db_conn()
+    migrated = skipped = 0
+    try:
+        for old, new, ddl in plan:
+            fks = conn.execute(f'PRAGMA foreign_key_list({old})').fetchall()
+            # (id, seq, table, from, to, on_update, on_delete, match)
+            has_talent_fk = any(fk[2] == 'talents' and fk[3] == 'talent_id' for fk in fks)
+            if has_talent_fk:
+                skipped += 1
+                continue
+            # 取老表实际列名(按 schema 顺序), 用显式列名 INSERT 而不是 SELECT *
+            # (避免新表列数/顺序跟老表不一致时炸 — 单元测试用简化 schema 已踩过这个坑)
+            old_cols = [row[1] for row in conn.execute(f'PRAGMA table_info({old})').fetchall()]
+            col_list = ', '.join(old_cols)
+            # recreate
+            conn.execute('PRAGMA foreign_keys=OFF')
+            try:
+                conn.execute('BEGIN')
+                conn.execute(ddl)
+                conn.execute(f'INSERT INTO {new} ({col_list}) SELECT {col_list} FROM {old}')
+                conn.execute(f'DROP TABLE {old}')
+                conn.execute(f'ALTER TABLE {new} RENAME TO {old}')
+                conn.execute('COMMIT')
+                migrated += 1
+                logger.info(f'  [FK Add] {old}.talent_id → talents.id ON DELETE CASCADE 已加')
+            except Exception as e:
+                conn.execute('ROLLBACK')
+                logger.warning(f'  [FK Add] {old} 失败: {e}')
+                skipped += 1
+            finally:
+                conn.execute('PRAGMA foreign_keys=ON')
+        if migrated or skipped:
+            logger.info(f'  [FK Add] 加 FK {migrated} 张表 (跳过 {skipped} 张已存在)')
+    finally:
+        conn.close()
+    return (migrated, skipped)
+
+
 def _influencer_body_to_talent(body):
     """把 legacy /api/influencers 请求体/JSON 记录映射为 talents 表字段（供 _dict_to_talent_row 使用）"""
     return {
@@ -31137,6 +31250,10 @@ def main():
     # demo/seed 的 inf_huahuac/inf_xiaomei/... 短 slug 不会被迁移(留作演示)。
     _migrate_inf_to_tal_prefix()
     _export_influencers_json_cache()
+    # 纵深防御 (fix/talent-id-prefix-r2): 给 product_talent_match / talent_follow_ups / deals
+    # 加 FOREIGN KEY (talent_id) → talents(id) ON DELETE CASCADE, 防止 talent 孤儿引用
+    # (本次能改 PRIMARY KEY 是因为没 FK, 加 FK 后 schema 明文约束)
+    _add_talent_foreign_keys()
     # 旧数据迁移已停用（旧 knowledge 表/JSON 不再作为数据源，函数定义保留备查）
     # ks.knowledge_migrate_from_json(DATA_DIR, lambda eid: _get_agent_by_id(eid) or {})
     # 旧 knowledge 表数据迁移到新版 kb_entries（幂等）
