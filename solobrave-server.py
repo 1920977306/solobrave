@@ -7460,6 +7460,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if path == '/api/talents':
             self._handle_get_talents()
             return
+        if path == '/api/talents/analyzed':
+            self._handle_get_analyzed_talents()
+            return
         if path == '/api/talents/injection-text':
             self._handle_get_talent_injection_text()
             return
@@ -14778,6 +14781,73 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         except Exception as e:
             logger.error(f'  [KBStats] failed: {e}')
             self._send_json_error(500, 'Stats failed')
+
+    def _handle_get_analyzed_talents(self):
+        """GET /api/talents/analyzed — 「已分析达人」语义接口（fix/analyzed-talents-decouple）
+
+        设计: 以 talents 表为主聚合每个达人【最近一条 analysis 事件】，不再复用
+        /api/knowledge-events（后者要求 knowledge 模块权限，贺主管子账号 ayn 的
+        override 里 knowledge:false，会 403；且它不做达人可见性过滤）。
+
+        权限: 走 influencers 模块 gate + 达人两层架构可见性，跟 _handle_get_talents
+        完全一致 —— 非 admin 只能拿 created_by ∈ {自己, 自己的 AI 员工} 的达人，
+        主库（created_by 为空）仅 admin 可见；没有分析记录的达人不出现。
+
+        Query: limit（默认 200，上限 500）
+        响应: {events: [...], total: n}
+          每个元素是"最近事件"形态（保留 knowledge_events 字段名，前端卡片渲染
+          零改动），另加:
+            talent_id    达人表 id（tal_/inf_）
+            talent_name  达人表 name
+            entity_id    最近事件原始 entity_id（可能是 tal_/inf_/name:XXX）
+            id           最近事件 id
+            title/content_summary/conclusions/content_full/created_at/...
+        """
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'influencers'): return
+        qs = parse_qs(urlparse(self.path).query)
+        try:
+            limit = max(1, min(500, int(qs.get('limit', [200])[0] or 200)))
+        except (TypeError, ValueError):
+            limit = 200
+        # 非 admin（含 AI 员工本地调用）按子库可见性在 SQL 内过滤，
+        # 跟 _handle_get_talents 的 visible_ids 逻辑同源
+        if not auth.is_admin or getattr(auth, 'localhost_agent_id', None):
+            uid = _resolve_talent_owner_id(auth)
+            visible_ids = {uid} | set(_get_user_emp_ids(uid))
+            visible_list = [x for x in visible_ids if x]
+            placeholders = ','.join('?' * len(visible_list))
+            vis_where = f" AND COALESCE(t.created_by, '') IN ({placeholders})"
+        else:
+            visible_list = []
+            vis_where = ''
+        sql = (
+            'SELECT t.id AS talent_id, t.name AS talent_name, t.created_by AS talent_created_by, '
+            'ke.id, ke.entity_type, ke.entity_id, ke.agent_id, ke.event_type, ke.title, '
+            'ke.content_full, ke.content_summary, ke.conclusions, ke.user_query, ke.created_at '
+            'FROM talents t '
+            'JOIN knowledge_events ke ON ke.entity_type = \'talent\' '
+            '  AND ke.id = (SELECT ke2.id FROM knowledge_events ke2 '
+            '               WHERE ke2.entity_type = \'talent\' AND ke2.event_type = \'analysis\' '
+            '                 AND (ke2.entity_id = t.id OR ke2.entity_id = \'name:\' || t.name) '
+            '               ORDER BY ke2.created_at DESC, ke2.id DESC LIMIT 1) '
+            'WHERE 1=1' + vis_where + ' '
+            'ORDER BY ke.created_at DESC LIMIT ?'
+        )
+        try:
+            conn = _db_conn()
+            try:
+                rows = conn.execute(sql, visible_list + [limit]).fetchall()
+            finally:
+                conn.close()
+            events = [dict(r) for r in rows]
+            self._send_json(200, {'events': events, 'total': len(events)})
+        except Exception as e:
+            logger.error(f'  [AnalyzedTalents] list failed: {e}')
+            self._send_json_error(500, 'List failed')
 
     def _handle_get_knowledge_events(self):
         """GET /api/knowledge-events?entity_type=&entity_id= — 实体分析事件列表（不含 content_full）"""

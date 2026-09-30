@@ -11791,6 +11791,11 @@ async function apiFetch(url, options = {}) {
     }
     if (resp.status === 403) {
       var method = (options.method || 'GET').toUpperCase();
+      // critical=true 表示主数据源请求：403 不再静默成空列表，
+      // 抛出让调用方走可见的错误/提示路径（fix/analyzed-talents-decouple）
+      if (options.critical) {
+        throw new Error('权限不足 (403)');
+      }
       if (method === 'GET') {
         console.warn('[apiFetch] 403 Forbidden, skipping:', url);
         return new Response('[]', { status: 200, headers: { 'Content-Type': 'application/json' } });
@@ -30724,22 +30729,19 @@ function switchTalentMidTab(tab) {
 function loadAnalyzedTalents() {
   var listEl = document.getElementById('talentsAnalyzedList');
   if (listEl) listEl.innerHTML = renderSkeleton('list', 4);
-  apiFetch('/api/knowledge-events?entity_type=talent&limit=200').then(function(r){return r.json();}).then(function(data){
+  // fix/analyzed-talents-decouple: 改用语义接口 /api/talents/analyzed
+  // （旧 /api/knowledge-events?entity_type=talent 要求 knowledge 模块权限，
+  // 贺主管子账号 knowledge:false 会 403 且被静默吞成空）。
+  // 新接口以 talents 为主、按达人可见性聚合最近一条 analysis，元素含
+  // talent_id/talent_name + 完整事件字段；critical 让 403/错误走可见提示。
+  apiFetch('/api/talents/analyzed?limit=200', { critical: true }).then(function(r){return r.json();}).then(function(data){
     var events = data.events || [];
-    // 列表按 created_at DESC 返回，每个 entity_id 的首条 analysis 事件即最新一条
-    var byEntity = {};
-    events.forEach(function(ev){
-      if (ev.event_type !== 'analysis') return;
-      var key = ev.entity_id || '';
-      if (!key || key.indexOf('name:') !== 0) return;  // 只保留 name:XXX 实体，过滤 inf_*/tal_* 等脏数据
-      if (byEntity[key]) return;
-      byEntity[key] = ev;
-    });
-    _analyzedList = Object.keys(byEntity).map(function(k){ return byEntity[k]; });
+    // 后端已按达人聚合（每达人最近一条 analysis）并完成可见性过滤，直接使用
+    _analyzedList = events;
     renderAnalyzedPage();
     if (!_talentCurrentId) showTalentEmptyState();
   }).catch(function(){
-    if (listEl) listEl.innerHTML = '<div class="products-empty"><div class="products-empty-text">加载失败</div></div>';
+    if (listEl) listEl.innerHTML = '<div class="products-empty"><div class="products-empty-text">加载失败（可能无权限），请稍后重试或联系管理员</div></div>';
   });
 }
 
@@ -30781,16 +30783,14 @@ function renderAnalyzedPage() {
     listEl.innerHTML = '<div class="products-empty"><div class="products-empty-icon">📊</div><div class="products-empty-text">暂无已分析达人</div></div>';
     return;
   }
-  // 列表接口不含 content_full，先并发拉取本页事件详情再渲染
-  Promise.all(pageItems.map(function(it){
-    if (it.content_full) return Promise.resolve(it);
-    return apiFetch('/api/knowledge-events/' + encodeURIComponent(it.id)).then(function(r){return r.json();}).then(function(full){
-      it.content_full = full.content_full || '';
-      return it;
-    }).catch(function(){ return it; });
-  })).then(function(items){
-    listEl.innerHTML = items.map(renderAnalyzedTalentCard).join('');
-  });
+  // 新接口已返回 content_full，直接渲染（旧逻辑会按事件 id 补拉 /api/knowledge-events/:id，
+  // 该接口要求 knowledge 权限，ayn 等子账号会 403）
+  try {
+    listEl.innerHTML = pageItems.map(renderAnalyzedTalentCard).join('');
+  } catch (e) {
+    console.error('[AnalyzedTalents] render failed:', e);
+    listEl.innerHTML = '<div class="products-empty"><div class="products-empty-text">渲染失败，请稍后重试</div></div>';
+  }
 }
 
 function renderAnalyzedPagination(total, page, pageSize) {
@@ -30892,10 +30892,15 @@ function renderAnalyzedTalentCard(item) {
   var text = _analyzedEventText(item);
   var metrics = _extractAnalysisMetrics(text);
   var rating = metrics.rating || 'unrated';
-  // 名称优先取 entity_id 的 'name:XXX' 部分；title 需去掉「截图识别原始数据：」前缀
-  var rawId = String(item.entity_id || '');
+  // 名称优先取 talent_name（新接口以 talents 为主聚合）；
+  // 兼容旧事件形态：entity_id 的 'name:XXX' 部分，title 需去掉「截图识别原始数据：」前缀
+  var rawId = String(item.talent_id || item.entity_id || '');
   var name = '';
-  if (rawId.indexOf('name:') === 0) name = rawId.slice(5).trim();
+  if (item.talent_name) name = String(item.talent_name).trim();
+  if (!name) {
+    var _eid = String(item.entity_id || '');
+    if (_eid.indexOf('name:') === 0) name = _eid.slice(5).trim();
+  }
   if (!name && item.title) name = String(item.title).replace(/^截图识别原始数据[：:]\s*/, '').trim();
   if (!name) name = rawId || '未知达人';
   var timeText = item.created_at ? new Date(item.created_at).toLocaleString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '-';
@@ -30940,8 +30945,17 @@ function renderAnalyzedTalentCard(item) {
   return html;
 }
 
-// 点击已分析达人卡片：entity_id 可能是达人 id、达人名或 'name:xxx' 形式，先解析到主库达人再加载详情
+// 点击已分析达人卡片：新接口元素带 talent_id（一定在 talents 表），
+// 直接选中主库达人；兼容旧 name:XXX 游离事件（无 talents row）走 stub 渲染
 function openAnalyzedTalentDetail(entityId, name) {
+  var item = _analyzedList.find(function(it){
+    return String(it.talent_id || it.entity_id || '') === String(entityId || '');
+  });
+  if (item && item.talent_id) {
+    _talentCurrentId = item.talent_id;
+    selectTalentItem(item.talent_id);
+    return;
+  }
   var key = String(entityId || '').replace(/^name:/, '') || name || '';
   if (!key) return;
   apiFetch('/api/talents?q=' + encodeURIComponent(key) + '&limit=50').then(function(r){ return r.json(); }).then(function(data){
@@ -30950,18 +30964,12 @@ function openAnalyzedTalentDetail(entityId, name) {
          || list.find(function(x){ return x.name === key || x.name === name; })
          || list[0];
     if (t) { selectTalentItem(t.id); return; }
-    // 主库查不到：用 knowledge_events 聚合数据构造最小达人对象渲染右侧面板
+    // 主库查不到：用列表元素（新接口已带 content_full）构造最小达人对象渲染右侧面板
     var ev = _analyzedList.find(function(it){ return String(it.entity_id || '') === String(entityId || ''); })
           || _analyzedList.find(function(it){ return String(it.entity_id || '').replace(/^name:/, '') === key; });
-    // 列表接口不含 content_full，缺全文时先拉详情再构造 stub，保证评级/粉丝等指标可提取
-    var withFull = (ev && !ev.content_full && ev.id)
-      ? apiFetch('/api/knowledge-events/' + encodeURIComponent(ev.id)).then(function(r){ return r.json(); }).then(function(full){ ev.content_full = full.content_full || ''; return ev; }).catch(function(){ return ev; })
-      : Promise.resolve(ev);
-    withFull.then(function(fullEv){
-      var stub = _buildAnalyzedTalentStub(entityId, name, fullEv);
-      _talentCurrentId = stub.id;
-      renderTalentDetail(stub);
-    });
+    var stub = _buildAnalyzedTalentStub(entityId, name, ev);
+    _talentCurrentId = stub.id;
+    renderTalentDetail(stub);
   }).catch(function(){ showToast('加载失败'); });
 }
 
