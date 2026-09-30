@@ -4491,7 +4491,7 @@ def _dict_to_talent_row(t):
     if not _category:
         _category = t.get('category') or ''
     return {
-        'id': t.get('id') or ('tal_' + str(now) + '_' + uuid.uuid4().hex[:6]),
+        'id': t.get('id') or _generate_talent_id(now),
         'name': t.get('name') or '',
         'avatar': t.get('avatar') or '',
         'douyin_id': t.get('douyin_id') or t.get('douyinId') or '',
@@ -4672,6 +4672,64 @@ def _normalize_cooperation_status(raw, default='available'):
     if not key:
         return default
     return _TALENT_COOPERATION_ALIASES.get(key, default)
+
+
+def _generate_talent_id(now=None):
+    """生成一条新的真达人 ID (tal_ 前缀)。
+
+    命名空间契约 (fix/talent-id-prefix):
+      - 真达人(飞书录入 / API 录入 / AI 员工录入)统一用 tal_ 前缀
+      - inf_ 前缀仅留给纯演示数据 (data/influencers/inf_*.json 的 seed)
+      - 历史遗留的 inf_ 真达人由 _migrate_inf_to_tal_prefix() 一次性迁移
+
+    返回 tal_<timestamp_ms>_<uuid6> 形式。
+    """
+    if now is None:
+        now = int(time.time() * 1000)
+    return f'tal_{now}_{uuid.uuid4().hex[:6]}'
+
+
+def _migrate_inf_to_tal_prefix():
+    """把 DB 里所有 inf_ 开头的真实录入达人批量改成 tal_ (idempotent)。
+
+    判别 inf_ 真达人 vs inf_ 演示数据:
+      - 真达人: created_at 在 1780000000000 (=2026-05-29 之后) 且 id 形如 inf_<digits>_<6hex>
+      - demo:    created_at 早于 1780000000000 或 id 是短 slug (如 inf_huahuac)
+                 → 这些是 data/influencers/inf_*.json 的 seed,保留不动
+
+    返回 (migrated, skipped) 元组,启动时调用,日志记录一次。
+    """
+    conn = _db_conn()
+    migrated = skipped = 0
+    try:
+        rows = conn.execute(
+            "SELECT id, created_at FROM talents WHERE id LIKE 'inf_%'"
+        ).fetchall()
+        for row in rows:
+            old_id = row['id']
+            created = row['created_at'] or 0
+            # 短 slug (无时间戳数字) → demo,跳过
+            tail = old_id[len('inf_'):]
+            if '_' not in tail or not tail.split('_', 1)[0].isdigit():
+                skipped += 1
+                continue
+            # 时间戳早于 1780000000000 → demo,跳过
+            if created < 1780000000000:
+                skipped += 1
+                continue
+            new_id = _generate_talent_id(now=created)
+            try:
+                conn.execute('UPDATE talents SET id = ? WHERE id = ?', (new_id, old_id))
+                migrated += 1
+            except Exception as e:
+                logger.warning(f'  [ID Migrate] 跳过 {old_id}: {e}')
+                skipped += 1
+        conn.commit()
+        if migrated:
+            logger.info(f'  [ID Migrate] inf_ → tal_ 迁移 {migrated} 条 (跳过 {skipped} 条 demo)')
+    finally:
+        conn.close()
+    return (migrated, skipped)
 
 
 def _influencer_body_to_talent(body):
@@ -18147,7 +18205,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         # 统一数据源：录入只写 SQLite talents 表，JSON 文件不再作为写入目标
         now = int(time.time() * 1000)
         talent = _influencer_body_to_talent(body)
-        talent['id'] = body.get('id') or f'inf_{now}_{uuid.uuid4().hex[:6]}'
+        # ID 命名空间契约 (fix/talent-id-prefix):
+        #   - 真达人(飞书录入/API 录入/AI 员工录入)统一用 tal_ 前缀
+        #   - inf_ 仅留给纯演示数据 (seed/demo)
+        #   - 历史遗留 inf_ 真达人由迁移脚本统一改成 tal_
+        talent['id'] = body.get('id') or _generate_talent_id(now)
         talent['status'] = 'active'
         # 匿名 localhost 调用（无 X-Agent-Id / body agent_id）无法确定归属，拒绝写入，
         # 避免 created_by='localhost' 的脏数据（不匹配任何真实用户，子账号查不到）
@@ -31069,6 +31131,11 @@ def main():
     # （跳过 id 已存在的），再把 SQLite 导出回 JSON 作为只读缓存。顺序不能反，
     # 否则未迁移的 JSON 数据会被导出覆盖。
     _migrate_influencers_json_to_sqlite()
+    _export_influencers_json_cache()
+    # ID 命名空间契约 (fix/talent-id-prefix): 把历史遗留的 inf_ 真达人批量迁移成 tal_，
+    # 再重新导出 JSON 缓存,让 data/influencers/*.json 反映新 id。
+    # demo/seed 的 inf_huahuac/inf_xiaomei/... 短 slug 不会被迁移(留作演示)。
+    _migrate_inf_to_tal_prefix()
     _export_influencers_json_cache()
     # 旧数据迁移已停用（旧 knowledge 表/JSON 不再作为数据源，函数定义保留备查）
     # ks.knowledge_migrate_from_json(DATA_DIR, lambda eid: _get_agent_by_id(eid) or {})
