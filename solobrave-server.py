@@ -16154,7 +16154,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
         try:
             allowed_cats = _allowed_knowledge_categories(auth)
-            result = ks.rag_retrieve(
+            result = ks.rag_retrieve_kb(
                 query, emp_id, api_key, provider, agent_config,
                 top_k_docs=top_k, allowed_categories=allowed_cats,
                 model=emb_cfg.get('model'), base_url=emb_cfg.get('baseUrl'),
@@ -26464,7 +26464,9 @@ def _call_ai_api(agent, user_message, user_info=None, include_history=True, grou
                 rag_agent_config = dict(agent) if agent else None
                 if rag_agent_config and emb_cfg.get('model'):
                     rag_agent_config['embeddingModel'] = emb_cfg['model']
-                rag_result = ks.rag_retrieve(
+                # ★ RAG 切换：召回数据源由旧表 knowledge/knowledge_chunks 改为新表 kb_entries/kb_entry_chunks
+                #   入参与返回结构与 rag_retrieve 完全一致；四层 scope 隔离由 requester_id/is_admin/team_ids/group_ids 承载。
+                rag_result = ks.rag_retrieve_kb(
                     user_text, agent_id, rag_api_key, rag_provider, rag_agent_config,
                     top_k_docs=2, allowed_categories=allowed_knowledge_categories,
                     model=emb_cfg.get('model'), base_url=emb_cfg.get('baseUrl'),

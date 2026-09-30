@@ -1955,6 +1955,156 @@ def rag_retrieve(query, emp_id, api_key=None, provider='openai', agent_config=No
         return {'docs': [], 'context': ''}
 
 
+def rag_retrieve_kb(query, emp_id, api_key=None, provider='openai', agent_config=None, top_k_docs=3, allowed_categories=None,
+                    model=None, base_url=None, requester_id=None, is_admin=False, team_ids=None, group_ids=None, emp_ids=None):
+    """
+    新版 RAG 检索：在 kb_entry_chunks + kb_entries 中搜索（替代读旧表的 rag_retrieve）。
+
+    与 rag_retrieve 保持完全一致的：
+    - 入参签名（调用方可无感切换）
+    - 返回结构 {'docs': [...], 'context': '...'}（docs 元素字段 id/title/category/content/relevantChunk/similarity）
+    - 向量检索语义：全局 embedding 配置 → query embedding → 全量 chunk 余弦 → top 2*k 按 entry 聚合去重 → format_rag_context
+    - 四层 scope 隔离：global 全员可读 / personal 仅本人及其 agent（emp_ids）/ team 团队（team_ids）/ group 项目组（group_ids）
+    - 审核闸 + 模型隔离：e.status='ok' AND c.embedding_model=<query 模型> AND c.embedding IS NOT NULL
+    - 语义缓存（key 含 requester/admin/team/group scope 维度）
+
+    差异：仅数据源为 kb_entries/kb_entry_chunks；不夹带 knowledge_patterns 规律块（规律库与旧表生命周期一致，后续单独收口）。
+    全函数 try/except 保护，出错降级返回空结果。
+    """
+    if group_ids is None:
+        group_ids = []
+    if team_ids is None:
+        team_ids = []
+    if emp_ids is None:
+        emp_ids = []
+    if requester_id and requester_id not in emp_ids:
+        emp_ids = list(emp_ids) + [requester_id]
+    try:
+        if isinstance(query, list):
+            text_parts = [item.get('text', '') for item in query if isinstance(item, dict) and item.get('type') == 'text']
+            query = ''.join(text_parts)
+        if not query or not query.strip():
+            return {'docs': [], 'context': ''}
+
+        # 1. 全局 embedding 配置（与生产一致：.env 优先，智谱 embedding-2）
+        emb_cfg = get_embedding_config(emp_id or None)
+        api_key = emb_cfg['apiKey']
+        provider = emb_cfg['provider']
+        embedding_model = emb_cfg['model']
+        base_url = emb_cfg['baseUrl']
+        if not api_key:
+            return {'docs': [], 'context': ''}
+
+        # 2. query embedding
+        query_emb = get_embedding_cached(query, api_key, provider, embedding_model, base_url=base_url)
+        if not query_emb:
+            return {'docs': [], 'context': ''}
+
+        # 3. 缓存（分类 + scope 维度入 key）
+        query_hash = hashlib.md5(query.encode('utf-8')).hexdigest()
+        cats_hash = ''
+        if allowed_categories is not None:
+            cats_hash = hashlib.md5(json.dumps(allowed_categories, sort_keys=True).encode()).hexdigest()[:8]
+        scope_hash = hashlib.md5(f'{requester_id}:{is_admin}:{sorted(team_ids or [])}:{sorted(group_ids or [])}'.encode()).hexdigest()[:8]
+        cache_key = _rag_cache_key(emp_id, query_hash, top_k_docs, 'kb:' + embedding_model + ':' + cats_hash + ':' + scope_hash)
+        cached = _rag_cache_get(cache_key, ttl=300)
+        if cached is not None:
+            return cached
+
+        import struct
+        q_vec = query_emb
+
+        where_clauses = ["e.status = 'ok'", "c.embedding_model = ?", "c.embedding IS NOT NULL"]
+        sql_params = [embedding_model]
+
+        # 4. 四层隔离（未提供 requester_id 时不限制，保持与 rag_retrieve 相同兼容行为）
+        if requester_id is not None and not is_admin:
+            readable = ["(e.scope IS NULL OR e.scope = 'global')"]
+            if emp_ids:
+                placeholders = ', '.join('?' for _ in emp_ids)
+                readable.append(f"(e.scope = 'personal' AND e.emp_id IN ({placeholders}))")
+                sql_params.extend(emp_ids)
+            if team_ids:
+                placeholders = ', '.join('?' for _ in team_ids)
+                readable.append(f"(e.scope = 'team' AND e.team_id IN ({placeholders}))")
+                sql_params.extend(team_ids)
+            if group_ids:
+                placeholders = ', '.join('?' for _ in group_ids)
+                readable.append(f"(e.scope = 'group' AND EXISTS (SELECT 1 FROM json_each(e.group_ids) WHERE value IN ({placeholders})))")
+                sql_params.extend(group_ids)
+            where_clauses.append('(' + ' OR '.join(readable) + ')')
+
+        if allowed_categories is not None and '*' not in allowed_categories:
+            if allowed_categories:
+                placeholders = ', '.join('?' for _ in allowed_categories)
+                where_clauses.append(f'e.category IN ({placeholders})')
+                sql_params.extend(allowed_categories)
+            else:
+                where_clauses.append('1 = 0')
+
+        conn = _db_conn()
+        try:
+            rows = conn.execute(f'''
+                SELECT e.id, e.title, e.category, e.content, e.emp_id, e.status, e.scope, e.team_id,
+                       c.chunk_index, c.content AS chunk_content, c.embedding
+                FROM kb_entry_chunks c
+                JOIN kb_entries e ON c.entry_id = e.id
+                WHERE {' AND '.join(where_clauses)}
+            ''', tuple(sql_params)).fetchall()
+
+            results = []
+            for row in rows:
+                try:
+                    chunk_emb = struct.unpack(f'{len(row["embedding"])//4}f', row['embedding'])
+                    sim = cosine_similarity(q_vec, chunk_emb)
+                    if sim > 0.0:
+                        results.append({
+                            'entry_id': row['id'],
+                            'title': row['title'],
+                            'category': row['category'],
+                            'full_content': row['content'],
+                            'chunk_index': row['chunk_index'],
+                            'chunk_content': row['chunk_content'],
+                            'similarity': sim
+                        })
+                except Exception as ce:
+                    logger.warning(f'  [RAG-KB] 单条 chunk sim 算失败 (continue): id={row["id"]} {ce}')
+                    continue
+        finally:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+        # 5. top 2*k 后按 entry 聚合去重
+        results.sort(key=lambda x: x['similarity'], reverse=True)
+        top_chunks = results[:top_k_docs * 2]
+
+        seen = set()
+        docs = []
+        for r in top_chunks:
+            if r['entry_id'] not in seen:
+                seen.add(r['entry_id'])
+                docs.append({
+                    'id': r['entry_id'],
+                    'title': r['title'],
+                    'category': r['category'],
+                    'content': r['full_content'],
+                    'relevantChunk': r['chunk_content'],
+                    'similarity': r['similarity']
+                })
+                if len(docs) >= top_k_docs:
+                    break
+
+        context = format_rag_context(docs)
+        result = {'docs': docs, 'context': context}
+        _rag_cache_set(cache_key, result, ttl=300)
+        return result
+    except Exception as e:
+        print(f'  [RAG-KB] rag_retrieve_kb 异常: {e}', flush=True)
+        return {'docs': [], 'context': ''}
+
+
 def format_rag_context(docs):
     """将检索结果格式化为注入 system prompt 的文本"""
     lines = []
