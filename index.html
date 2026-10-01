@@ -9952,6 +9952,187 @@ window.doLogin = function () {
 </div>
 </div>
 
+<style id="sb2-shell">
+/* ============================================================
+ * SoloBrave 2.0 壳层 (feat/redesign-shell)
+ * 独立 --sb2-* 命名空间 token: 不覆盖任何旧变量, 旧模块渲染零变化
+ * 三栏骨架: 60px 图标轨(替换旧 left-nav, 旧导航保留 DOM 隐藏作回归兜底)
+ *          + 236px 上下文侧栏(工作台屏自带, 旧模块沿用其原侧栏)
+ *          + 内容区
+ * ============================================================ */
+:root{
+  --sb2-bg:#F6F6F8; --sb2-s1:#FFFFFF; --sb2-s2:#FAFAFB; --sb2-s3:#F1F1F4;
+  --sb2-border:#E6E6EA; --sb2-border-strong:#D6D6DC;
+  --sb2-t1:#18181B; --sb2-t2:#5A5A66; --sb2-t3:#9C9CA8;
+  --sb2-brand:#FF5A36; --sb2-brand-strong:#E8441F; --sb2-brand-soft:rgba(255,90,54,.09);
+  --sb2-ink:#18181B; --sb2-ink-hover:#34343A;
+  --sb2-accent:#3B5BFD; --sb2-accent-soft:rgba(59,91,253,.09);
+  --sb2-success:#17A34A; --sb2-success-soft:rgba(23,163,74,.10);
+  --sb2-warning:#D97706; --sb2-warning-soft:rgba(217,119,6,.10);
+  --sb2-danger:#DC2626; --sb2-danger-soft:rgba(220,38,38,.09);
+  --sb2-gold:#B8860B; --sb2-gold-soft:rgba(184,134,11,.10);
+  --sb2-r-sm:6px; --sb2-r-md:10px; --sb2-r-lg:14px; --sb2-r-full:999px;
+  --sb2-sh1:0 1px 2px rgba(24,24,27,.05);
+  --sb2-sh2:0 1px 3px rgba(24,24,27,.07),0 4px 12px rgba(24,24,27,.05);
+  --sb2-sh3:0 8px 30px rgba(24,24,27,.12);
+}
+[data-sb2-theme="dark"]{
+  --sb2-bg:#101013; --sb2-s1:#17171B; --sb2-s2:#1C1C21; --sb2-s3:#232329;
+  --sb2-border:#2A2A31; --sb2-border-strong:#3A3A43;
+  --sb2-t1:#F4F4F5; --sb2-t2:#A7A7B3; --sb2-t3:#63636E;
+  --sb2-brand:#FF6B4A; --sb2-brand-soft:rgba(255,107,74,.13);
+  --sb2-ink:#F4F4F5; --sb2-ink-hover:#D9D9DE;
+  --sb2-accent:#6B84FF; --sb2-accent-soft:rgba(107,132,255,.14);
+  --sb2-success:#34C06A; --sb2-success-soft:rgba(52,192,106,.14);
+  --sb2-warning:#F0A22E; --sb2-warning-soft:rgba(240,162,46,.14);
+  --sb2-danger:#EF5757; --sb2-danger-soft:rgba(239,87,87,.13);
+  --sb2-sh1:0 1px 2px rgba(0,0,0,.3);
+  --sb2-sh2:0 1px 3px rgba(0,0,0,.35),0 4px 12px rgba(0,0,0,.25);
+  --sb2-sh3:0 8px 30px rgba(0,0,0,.5);
+}
+
+/* —— 图标轨(固定于 48px 顶栏之下) —— */
+.sb2-rail{
+  position:fixed; left:0; top:48px; bottom:0; width:60px; z-index:90;
+  background:var(--sb2-s1); border-right:1px solid var(--sb2-border);
+  display:flex; flex-direction:column; align-items:center;
+  padding:10px 0; gap:2px;
+}
+.sb2-rail-logo{
+  width:34px; height:34px; border-radius:var(--sb2-r-md); margin-bottom:10px;
+  background:linear-gradient(135deg,#FF7A3D,#FF3D2E);
+  display:grid; place-items:center; color:#fff;
+  font:800 13px/1 "PingFang SC",sans-serif;
+  box-shadow:0 3px 10px rgba(255,90,54,.35);
+}
+.sb2-rail-btn{
+  width:40px; height:40px; border-radius:var(--sb2-r-md);
+  display:grid; place-items:center; color:var(--sb2-t3);
+  position:relative; transition:all .15s ease; margin-bottom:1px;
+}
+.sb2-rail-btn:hover{ background:var(--sb2-s3); color:var(--sb2-t1); }
+.sb2-rail-btn.active{ background:var(--sb2-brand-soft); color:var(--sb2-brand); }
+.sb2-rail-btn svg{ width:19px; height:19px; }
+.sb2-rail-tip{
+  position:absolute; left:calc(100% + 10px); top:50%;
+  transform:translateY(-50%) translateX(-4px);
+  background:var(--sb2-ink); color:#fff; font:500 11px/1 "PingFang SC",sans-serif;
+  padding:5px 9px; border-radius:var(--sb2-r-sm); white-space:nowrap;
+  opacity:0; pointer-events:none; transition:all .12s ease; z-index:99;
+}
+.sb2-rail-btn:hover .sb2-rail-tip{ opacity:1; transform:translateY(-50%) translateX(0); }
+.sb2-rail-badge{
+  position:absolute; top:3px; right:3px; min-width:14px; height:14px; padding:0 3px;
+  background:var(--sb2-brand); color:#fff; border-radius:99px;
+  font:700 9px/14px sans-serif; text-align:center;
+}
+.sb2-rail-spacer{ flex:1; }
+
+/* 旧 left-nav 隐藏(保留 DOM 作回归兜底, 移动端回退显示) */
+.left-nav{ display:none !important; }
+.app-container{ margin-left:60px; }
+
+/* —— 工作台屏 —— */
+.sb2-dash{
+  position:fixed; top:48px; left:60px; right:0; bottom:0; z-index:80;
+  display:none; background:var(--sb2-bg);
+}
+.sb2-dash.on{ display:flex; }
+.sb2-dash-side{
+  width:236px; flex-shrink:0; background:var(--sb2-s2);
+  border-right:1px solid var(--sb2-border);
+  display:flex; flex-direction:column; padding:18px 14px;
+}
+.sb2-dash-side h3{ font:600 15px/1.3 "PingFang SC",sans-serif; color:var(--sb2-t1); }
+.sb2-dash-side .sub{ font:400 11px/1.4 "PingFang SC",sans-serif; color:var(--sb2-t3); margin-top:3px; }
+.sb2-dash-quick{
+  margin-top:16px; display:flex; flex-direction:column; gap:2px;
+}
+.sb2-dash-quick button{
+  display:flex; align-items:center; gap:9px; text-align:left;
+  padding:8px 10px; border-radius:var(--sb2-r-md);
+  font:400 13px/1.4 "PingFang SC",sans-serif; color:var(--sb2-t2);
+  transition:all .12s;
+}
+.sb2-dash-quick button:hover{ background:var(--sb2-s3); color:var(--sb2-t1); }
+.sb2-dash-main{ flex:1; overflow-y:auto; padding:26px 34px 60px; }
+.sb2-wrap{ max-width:1180px; margin:0 auto; }
+
+.sb2-greet{ display:flex; align-items:flex-end; gap:16px; margin-bottom:22px; }
+.sb2-greet .date{ font:500 11px/1.4 "PingFang SC",sans-serif; color:var(--sb2-t3); letter-spacing:.08em; }
+.sb2-greet h1{ font:600 24px/1.25 "PingFang SC",sans-serif; color:var(--sb2-t1); margin-top:4px; }
+.sb2-greet .acts{ margin-left:auto; display:flex; gap:8px; }
+
+.sb2-btn{
+  display:inline-flex; align-items:center; gap:6px;
+  padding:7px 14px; border-radius:var(--sb2-r-md);
+  font:400 13px/1.4 "PingFang SC",sans-serif; transition:all .15s;
+  border:1px solid transparent; cursor:pointer;
+}
+.sb2-btn-ghost{ border-color:var(--sb2-border-strong); color:var(--sb2-t2); background:var(--sb2-s1); }
+.sb2-btn-ghost:hover{ color:var(--sb2-t1); border-color:var(--sb2-t3); }
+.sb2-btn-brand{ background:var(--sb2-brand); color:#fff; }
+.sb2-btn-brand:hover{ background:var(--sb2-brand-strong); box-shadow:0 4px 14px rgba(255,90,54,.35); transform:translateY(-1px); }
+
+.sb2-kpis{ display:grid; grid-template-columns:repeat(4,1fr); gap:14px; }
+.sb2-kpi{
+  background:var(--sb2-s1); border:1px solid var(--sb2-border);
+  border-radius:var(--sb2-r-lg); box-shadow:var(--sb2-sh1);
+  padding:16px 18px; transition:all .2s;
+}
+.sb2-kpi:hover{ box-shadow:var(--sb2-sh2); transform:translateY(-2px); border-color:var(--sb2-border-strong); }
+.sb2-kpi .kl{ font:500 11px/1.4 "PingFang SC",sans-serif; color:var(--sb2-t3); display:flex; gap:6px; align-items:center; }
+.sb2-kpi .kn{ font:600 22px/1.2 ui-monospace,"SF Mono",monospace; margin-top:6px; color:var(--sb2-t1); font-variant-numeric:tabular-nums; }
+.sb2-kpi .ks{ font:400 11px/1.4 "PingFang SC",sans-serif; color:var(--sb2-t3); margin-top:4px; }
+
+.sb2-sec{ display:flex; align-items:baseline; gap:10px; margin:28px 0 14px; }
+.sb2-sec h2{ font:600 17px/1.35 "PingFang SC",sans-serif; color:var(--sb2-t1); }
+.sb2-sec .hint{ font:400 12px/1.5 "PingFang SC",sans-serif; color:var(--sb2-t3); }
+.sb2-sec .more{ margin-left:auto; font:400 12px/1.5 "PingFang SC",sans-serif; color:var(--sb2-accent); cursor:pointer; }
+
+.sb2-focus{ display:grid; grid-template-columns:1.6fr 1fr; gap:14px; }
+.sb2-list{ display:flex; flex-direction:column; gap:10px; }
+.sb2-item{
+  background:var(--sb2-s1); border:1px solid var(--sb2-border); border-radius:var(--sb2-r-lg);
+  box-shadow:var(--sb2-sh1); padding:14px 16px; display:flex; gap:13px; align-items:center;
+  cursor:pointer; transition:all .18s;
+}
+.sb2-item:hover{ box-shadow:var(--sb2-sh2); border-color:var(--sb2-border-strong); transform:translateY(-1px); }
+.sb2-item .body{ flex:1; min-width:0; }
+.sb2-item .t{ font:600 13px/1.5 "PingFang SC",sans-serif; color:var(--sb2-t1); }
+.sb2-item .d{ font:400 12px/1.5 "PingFang SC",sans-serif; color:var(--sb2-t3); margin-top:2px; }
+.sb2-tag{
+  display:inline-flex; align-items:center; gap:4px; flex-shrink:0;
+  font:500 11px/1.4 "PingFang SC",sans-serif; padding:3px 9px; border-radius:var(--sb2-r-full);
+  background:var(--sb2-s3); color:var(--sb2-t2);
+}
+.sb2-tag-brand{ background:var(--sb2-brand-soft); color:var(--sb2-brand); }
+.sb2-tag-accent{ background:var(--sb2-accent-soft); color:var(--sb2-accent); }
+.sb2-tag-success{ background:var(--sb2-success-soft); color:var(--sb2-success); }
+.sb2-tag-warning{ background:var(--sb2-warning-soft); color:var(--sb2-warning); }
+.sb2-tag-gold{ background:var(--sb2-gold-soft); color:var(--sb2-gold); }
+
+.sb2-mini{
+  background:var(--sb2-s1); border:1px solid var(--sb2-border); border-radius:var(--sb2-r-lg);
+  box-shadow:var(--sb2-sh1); padding:16px 18px;
+}
+.sb2-mini .row{ display:flex; justify-content:space-between; padding:8px 0; font:400 13px/1.5 "PingFang SC",sans-serif; color:var(--sb2-t2); border-bottom:1px dashed var(--sb2-border); }
+.sb2-mini .row:last-child{ border-bottom:none; }
+.sb2-mini .row b{ color:var(--sb2-t1); font-family:ui-monospace,monospace; }
+
+/* 窄屏/移动端回退: 旧导航回归, 壳层让位 */
+@media (max-width:768px){
+  .left-nav{ display:flex !important; }
+  .sb2-rail{ display:none; }
+  .sb2-dash{ left:0; }
+  .sb2-dash-side{ display:none; }
+  .app-container{ margin-left:0; }
+  .sb2-kpis{ grid-template-columns:repeat(2,1fr); }
+  .sb2-focus{ grid-template-columns:1fr; }
+  .sb2-dash-main{ padding:16px; }
+}
+</style>
+
 <div class="app-container">
 
 <!-- Left Navigation (56px) -->
@@ -37726,6 +37907,302 @@ function syncFeishuProductsFromSettings() {
     })
     .catch(function(e) { showToast('网络错误: ' + e, 'error'); });
 }
+</script>
+<script id="sb2-shell-js">
+/* ============================================================
+ * SoloBrave 2.0 壳层 JS (feat/redesign-shell)
+ * - 图标轨桥接旧全局函数(switchModule/openLobsterOffice/...), 旧模块逻辑零改动
+ * - 工作台 KPI 全部取真实接口值, 取不到显示 '-', 严禁编造
+ * - 旧 left-nav 保留 DOM 隐藏(display:none), 作回归兜底
+ * ============================================================ */
+(function(){
+'use strict';
+
+var SB2 = { dashVisible: false };
+
+/* ---------- 图标库(lucide 风格描边) ---------- */
+function icon(p){ return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">'+p+'</svg>'; }
+var ICONS = {
+  dash:   icon('<rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/>'),
+  chat:   icon('<path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/>'),
+  lobster:icon('<circle cx="12" cy="12" r="9"/><path d="M8 12h8M12 8v8"/>'),
+  book:   icon('<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>'),
+  sigma:  icon('<path d="M18 4H6l6 8-6 8h12"/>'),
+  box:    icon('<path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="M3.3 7l8.7 5 8.7-5"/><path d="M12 22V12"/>'),
+  users:  icon('<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>'),
+  task:   icon('<path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>'),
+  gear:   icon('<circle cx="12" cy="12" r="3"/><path d="M12 1v4m0 14v4M4.2 4.2l2.8 2.8m9.9 9.9 2.8 2.8M1 12h4m14 0h4M4.2 19.8l2.8-2.8m9.9-9.9 2.8-2.8"/>'),
+  search: icon('<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>'),
+  bell:   icon('<path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>')
+};
+
+/* ---------- 导航定义(permission = 旧 hasModulePermission 模块名) ---------- */
+var MODULES = [
+  { id:'dashboard', label:'工作台',      icon:ICONS.dash,   perm:null },
+  { id:'messages',  label:'即时通讯',    icon:ICONS.chat,   perm:'messages' },
+  { id:'lobster',   label:'龙虾办公室',  icon:ICONS.lobster,perm:'messages', fn:'openLobsterOffice' },
+  { id:'knowledge', label:'知识库',      icon:ICONS.book,   perm:'knowledge' },
+  { id:'patterns',  label:'规律库',      icon:ICONS.sigma,  perm:'patterns' },
+  { id:'products',  label:'商品库',      icon:ICONS.box,    perm:'products' },
+  { id:'influencers',label:'达人库',     icon:ICONS.users,  perm:'influencers' },
+  { id:'tasks',     label:'任务',        icon:ICONS.task,   perm:'tasks' },
+  { id:'settings',  label:'设置',        icon:ICONS.gear,   perm:'settings' }
+];
+
+function hasPerm(p){
+  if (!p) return true;
+  try { if (typeof hasModulePermission === 'function') return hasModulePermission(p); } catch(e){}
+  return true;
+}
+
+/* ---------- 图标轨 ---------- */
+function buildRail(){
+  var rail = document.createElement('nav');
+  rail.className = 'sb2-rail';
+  rail.id = 'sb2Rail';
+  var html = '<div class="sb2-rail-logo">SB</div>';
+  MODULES.forEach(function(m){
+    if (!hasPerm(m.perm)) return;
+    html += '<button class="sb2-rail-btn" data-sb2="'+m.id+'" onclick="sb2Go(\''+m.id+'\')">'
+          + m.icon + '<span class="sb2-rail-tip">'+m.label+'</span></button>';
+  });
+  html += '<div class="sb2-rail-spacer"></div>'
+        + '<button class="sb2-rail-btn" onclick="openGlobalSearch()">'+ICONS.search+'<span class="sb2-rail-tip">搜索</span></button>'
+        + '<button class="sb2-rail-btn" onclick="toggleNotificationPanel()">'+ICONS.bell
+        + '<span class="sb2-rail-badge" id="sb2RailBell" style="display:none;">0</span><span class="sb2-rail-tip">通知</span></button>';
+  rail.innerHTML = html;
+  var app = document.querySelector('.app-container');
+  app.parentNode.insertBefore(rail, app);
+}
+
+/* 通知数桥接: 旧代码更新 #navNotifications badge 时同步到轨上 */
+function hookBellBadge(){
+  var navBell = document.getElementById('navNotifications');
+  if (!navBell) return;
+  var target = navBell.querySelector('[data-count]') || navBell;
+  var obs = new MutationObserver(function(){
+    var n = target.getAttribute('data-count') || '0';
+    var el = document.getElementById('sb2RailBell');
+    if (!el) return;
+    var v = parseInt(n, 10) || 0;
+    el.style.display = v > 0 ? '' : 'none';
+    el.textContent = v > 99 ? '99+' : String(v);
+  });
+  obs.observe(target, { attributes:true, childList:true, subtree:true, characterData:true });
+}
+
+/* ---------- 工作台屏 ---------- */
+function buildDashboard(){
+  if (document.getElementById('sb2Dash')) return;
+  var dash = document.createElement('div');
+  dash.className = 'sb2-dash';
+  dash.id = 'sb2Dash';
+  dash.innerHTML =
+    '<div class="sb2-dash-side">'
+    + '<h3>工作台</h3><div class="sub" id="sb2DashDate"></div>'
+    + '<div class="sb2-dash-quick">'
+    +   '<button onclick="sb2Go(\'messages\')">💬 即时通讯</button>'
+    +   '<button onclick="sb2Go(\'lobster\')">🦞 龙虾办公室</button>'
+    +   '<button onclick="sb2Go(\'knowledge\')">📖 知识库</button>'
+    +   '<button onclick="sb2Go(\'patterns\')">📐 规律库</button>'
+    +   '<button onclick="sb2Go(\'influencers\')">👥 达人库</button>'
+    +   '<button onclick="sb2Go(\'tasks\')">✅ 任务</button>'
+    + '</div></div>'
+    + '<div class="sb2-dash-main"><div class="sb2-wrap">'
+    +   '<div class="sb2-greet">'
+    +     '<div><div class="date" id="sb2GreetDate"></div><h1 id="sb2GreetTitle">工作台</h1></div>'
+    +     '<div class="acts"><button class="sb2-btn sb2-btn-ghost" onclick="sb2Go(\'influencers\')">达人跟进</button>'
+    +     '<button class="sb2-btn sb2-btn-brand" onclick="sb2Go(\'lobster\')">进入龙虾办公室</button></div>'
+    +   '</div>'
+    +   '<div class="sb2-kpis">'
+    +     kpi('sb2KpiGmv','达人库结算总额','GMV 汇总自 total_gmv')
+    +     kpi('sb2KpiTalents','在库达人','当前可见范围')
+    +     kpi('sb2KpiKb','知识库已入库','kb_entries status=ok')
+    +     kpi('sb2KpiAgents','AI 员工在线','/api/agents 实时状态')
+    +   '</div>'
+    +   '<div class="sb2-sec"><h2>今日关注</h2><span class="hint">来自真实数据, 点击跳转处理</span></div>'
+    +   '<div class="sb2-focus"><div class="sb2-list" id="sb2FocusList"></div>'
+    +   '<div class="sb2-mini"><div style="font:600 13px/1.5 \'PingFang SC\',sans-serif; color:var(--sb2-t1); margin-bottom:6px;">数据速览</div><div id="sb2MiniBody"></div></div></div>'
+    + '</div></div>';
+  document.body.appendChild(dash);
+  // 日期/问候
+  var now = new Date();
+  var wd = ['日','一','二','三','四','五','六'][now.getDay()];
+  var dateStr = (now.getMonth()+1)+'月'+now.getDate()+'日 星期'+wd;
+  document.getElementById('sb2DashDate').textContent = dateStr;
+  document.getElementById('sb2GreetDate').textContent = dateStr;
+  var h = now.getHours();
+  var greet = h < 6 ? '夜深了' : h < 12 ? '早上好' : h < 14 ? '中午好' : h < 18 ? '下午好' : '晚上好';
+  var user = null;
+  try { user = JSON.parse(localStorage.getItem('sb_current_user') || 'null'); } catch(e){}
+  var name = (user && (user.displayName || user.username || user.name)) || '';
+  document.getElementById('sb2GreetTitle').textContent = greet + (name ? '，' + name : '');
+}
+function kpi(id, label, sub){
+  return '<div class="sb2-kpi" id="'+id+'"><div class="kl">'+label+'</div>'
+       + '<div class="kn" data-v="-">-</div><div class="ks">'+sub+'</div></div>';
+}
+function setKpi(id, val){
+  var el = document.querySelector('#'+id+' .kn');
+  if (el) { el.textContent = val; el.setAttribute('data-v', val); }
+}
+function fmtMoney(n){
+  if (n >= 1e8) return '≈¥' + (n/1e8).toFixed(2) + '亿';
+  if (n >= 1e4) return '≈¥' + (n/1e4).toFixed(1) + '万';
+  return '¥' + Math.round(n).toLocaleString();
+}
+
+/* ---------- KPI 真实数据 ---------- */
+function loadKpis(){
+  var tok = localStorage.getItem('sb_auth_token') || '';
+  var headers = { 'Authorization': 'Bearer ' + tok };
+  var t0 = Date.now();
+
+  // ① 达人库: 总数 + total_gmv 汇总(真实数值字段)
+  fetch('/api/talents?limit=10000', { headers: headers }).then(function(r){ return r.json(); }).then(function(d){
+    var list = (d && d.talents) || [];
+    setKpi('sb2KpiTalents', String((d && typeof d.total === 'number') ? d.total : list.length));
+    var gmv = 0, gotAny = false, weekNew = 0;
+    var cutoff = Date.now() - 7*864e5;
+    list.forEach(function(t){
+      var g = parseFloat(t.total_gmv);
+      if (!isNaN(g)) { gmv += g; gotAny = true; }
+      var ct = Date.parse(t.created_at || t.createdAt || '');
+      if (!isNaN(ct) && ct >= cutoff) weekNew++;
+    });
+    setKpi('sb2KpiGmv', gotAny ? fmtMoney(gmv) : '-');
+    SB2.weekNewTalents = weekNew;
+    SB2.talentTotal = (d && typeof d.total === 'number') ? d.total : list.length;
+  }).catch(function(){ setKpi('sb2KpiTalents','-'); setKpi('sb2KpiGmv','-'); });
+
+  // ② 知识库 kb_entries: 翻页统计 status='ok' (真实值, 封顶1000条)
+  (function kbLoop(offset, ok, total){
+    fetch('/api/knowledge/entries?limit=100&offset='+offset, { headers: headers })
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        var docs = (d && d.docs) || [];
+        docs.forEach(function(x){ if (x.status === 'ok') ok++; });
+        var t = (d && typeof d.total === 'number') ? d.total : null;
+        if (t !== null) SB2.kbTotal = t;
+        if (docs.length === 100 && offset < 900) { kbLoop(offset+100, ok, t); return; }
+        var prefix = (SB2.kbTotal !== null && SB2.kbTotal > offset + docs.length) ? '≥' : '';
+        setKpi('sb2KpiKb', prefix + String(ok));
+        SB2.kbOk = ok;
+        SB2.kbFullyCounted = (SB2.kbTotal !== null && SB2.kbTotal <= offset + docs.length);
+      })
+      .catch(function(){ setKpi('sb2KpiKb','-'); });
+  })(0, 0, null);
+
+  // ③ AI 员工在线: /api/agents status 字段
+  fetch('/api/agents', { headers: headers }).then(function(r){ return r.json(); }).then(function(d){
+    var list = Array.isArray(d) ? d : ((d && (d.agents || d.data)) || []);
+    var online = 0;
+    list.forEach(function(a){ if ((a.status || 'online') === 'online') online++; });
+    setKpi('sb2KpiAgents', String(online) + ' / ' + String(list.length));
+    SB2.agentsOffline = list.length - online;
+    SB2.agentsTotal = list.length;
+  }).catch(function(){ setKpi('sb2KpiAgents','-'); });
+
+  // 今日关注: 数据齐后组装(全部真实值, 取不到的项不渲染)
+  setTimeout(buildFocus, 1800);
+}
+
+function focusItem(tagCls, tag, title, desc, target){
+  return '<div class="sb2-item" onclick="sb2Go(\''+target+'\')">'
+       + '<div class="body"><div class="t">'+title+'</div><div class="d">'+desc+'</div></div>'
+       + '<span class="sb2-tag '+tagCls+'">'+tag+'</span></div>';
+}
+function buildFocus(){
+  var html = '', mini = '';
+  // 知识待审核(仅在 kb 全量统计完成时给精确值)
+  if (typeof SB2.kbOk === 'number' && SB2.kbFullyCounted && typeof SB2.kbTotal === 'number') {
+    var pending = SB2.kbTotal - SB2.kbOk;
+    if (pending > 0) html += focusItem('sb2-tag-warning','待审核', pending + ' 条知识待审核', 'kb_entries 中 status≠ok 的条目, 点击去知识库处理', 'knowledge');
+    else html += focusItem('sb2-tag-success','知识库','知识库全部入库','kb_entries ' + SB2.kbTotal + ' 条均已审核', 'knowledge');
+    mini += '<div class="row"><span>知识库条目</span><b>'+SB2.kbTotal+'</b></div>';
+  }
+  if (typeof SB2.weekNewTalents === 'number' && SB2.weekNewTalents > 0)
+    html += focusItem('sb2-tag-brand','达人', '近 7 天新增达人 ' + SB2.weekNewTalents + ' 位', '点击去达人库查看与评级', 'influencers');
+  if (typeof SB2.agentsOffline === 'number' && SB2.agentsOffline > 0)
+    html += focusItem('sb2-tag-accent','员工', SB2.agentsOffline + ' 位 AI 员工离线/忙碌', '共 ' + SB2.agentsTotal + ' 位, 点击去即时通讯检查', 'messages');
+  if (!html) html = '<div class="sb2-item"><div class="body"><div class="t">暂无待办信号</div><div class="d">数据正常, 没有需要立即处理的事项</div></div></div>';
+  var listEl = document.getElementById('sb2FocusList');
+  if (listEl) listEl.innerHTML = html;
+  if (typeof SB2.talentTotal === 'number') mini += '<div class="row"><span>在库达人</span><b>'+SB2.talentTotal+'</b></div>';
+  if (typeof SB2.kbOk === 'number') mini += '<div class="row"><span>已入库知识</span><b>'+SB2.kbOk+'</b></div>';
+  var miniEl = document.getElementById('sb2MiniBody');
+  if (miniEl) miniEl.innerHTML = mini || '<div class="row"><span>数据加载中…</span></div>';
+}
+
+/* ---------- 显隐控制 ---------- */
+function showDash(){
+  buildDashboard();
+  SB2.dashVisible = true;
+  document.getElementById('sb2Dash').classList.add('on');
+  var app = document.querySelector('.app-container');
+  if (app) app.style.visibility = 'hidden';
+  setActive('dashboard');
+  loadKpis();
+}
+function hideDash(){
+  if (!SB2.dashVisible) return;
+  SB2.dashVisible = false;
+  var dash = document.getElementById('sb2Dash');
+  if (dash) dash.classList.remove('on');
+  var app = document.querySelector('.app-container');
+  if (app) app.style.visibility = '';
+}
+function setActive(id){
+  document.querySelectorAll('.sb2-rail-btn[data-sb2]').forEach(function(b){
+    b.classList.toggle('active', b.getAttribute('data-sb2') === id);
+  });
+}
+
+/* ---------- 全局导出入口 ---------- */
+window.sb2Go = function(id){
+  if (id === 'dashboard') { showDash(); return; }
+  hideDash();
+  var m = null;
+  MODULES.forEach(function(x){ if (x.id === id) m = x; });
+  if (m && m.fn && typeof window[m.fn] === 'function') { setActive(id); window[m.fn](); return; }
+  if (typeof switchModule === 'function') switchModule(id);
+  else setActive(id);
+};
+
+/* ---------- 桥接旧函数 ---------- */
+// switchModule 包装: 旧代码任何入口(壳/旧UI/快捷面板)切模块都同步壳状态
+var _sb2OrigSwitch = window.switchModule;
+if (typeof _sb2OrigSwitch === 'function') {
+  window.switchModule = function(module){
+    var r = _sb2OrigSwitch.apply(this, arguments);
+    hideDash();
+    setActive(typeof currentModule !== 'undefined' ? currentModule : module);
+    return r;
+  };
+}
+// 登录后默认落工作台
+var _sb2OrigShowMain = window.showMainApp;
+if (typeof _sb2OrigShowMain === 'function') {
+  window.showMainApp = function(){
+    var r = _sb2OrigShowMain.apply(this, arguments);
+    setTimeout(showDash, 120);
+    return r;
+  };
+}
+
+/* ---------- 启动 ---------- */
+function init(){
+  buildRail();
+  hookBellBadge();
+  // 已登录刷新场景: showMainApp 可能已跑过, 主动落工作台
+  var tok = localStorage.getItem('sb_auth_token') || '';
+  var overlay = document.getElementById('loginOverlay');
+  if (tok && overlay && overlay.hidden) setTimeout(showDash, 200);
+}
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+else init();
+
+})();
 </script>
 </body>
 </html>
