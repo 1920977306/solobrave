@@ -156,7 +156,10 @@ def _detect_openclaw_cli():
     return '/opt/homebrew/bin/openclaw'
 
 OPENCLAW_CLI = _detect_openclaw_cli()
-OPENCLAW_TIMEOUT = 60  # ★ fix/optimize-connection: 120s 太长, OpenClaw 卡 1 分钟就 fallback, 减少用户感知等待
+OPENCLAW_TIMEOUT = 90  # ★ fix/p03-real-fix: 诊断报告根因 3 — 实测 30 候选完整 prompt 冷启动 ~49s,
+                          # 简单 ping ~6.5s。原 60s 贴着 49s 冷启动红线, 网关/key 池抖动即 TimeoutExpired,
+                          # 旧实现 TimeoutExpired 直接 return None 不再尝试变体 B (4 人没救)。
+                          # 放宽到 90s 给冷启动留 ~40s 安全边际, 仍是"用户可等待"的上限。
 OPENCLAW_DEFAULT_AGENT = os.environ.get('OPENCLAW_DEFAULT_AGENT', '').strip() or 'main'
 
 # ★ WSS Origin 严格模式：默认 True，非白名单 Origin 直接拒绝（403 close）
@@ -25988,20 +25991,49 @@ def _apply_agent_self_update(agent_id, updates, source='openclaw'):
 
 
 def _extract_text_from_openclaw_output(obj):
-    """从 OpenClaw JSON 输出中尽量提取文本回复；支持新旧多种格式"""
+    """从 OpenClaw JSON 输出中尽量提取文本回复；支持新旧多种格式
+
+    诊断报告 (2026-10-01 p03_diagnosis_20261001.md) 发现的真实 bug：
+    新版 `openclaw agent --json` 实际输出是
+      {"runId":..., "status":"ok", "result": {"payloads":[{"text":"...","mediaUrl":""}], "meta":{...}}}
+    原实现：进入 result dict 后，因其 keys 为 payloads/meta 都不在识别列表里，返回 None。
+    修复：显式处理 `result.payloads[]` 数组（每个 element 含 text 字段），拼接所有 text。
+    """
     if isinstance(obj, str):
         return obj if obj.strip() else None
     if isinstance(obj, list):
+        # ★ fix/p03-real-fix: 特殊处理 payloads 数组 — 拼接所有 text 字段而非只取第一个
+        # 原递归实现遇到 [{text:"A"}, {text:"B"}] 只会返回 "A"
+        texts = []
         for item in obj:
-            text = _extract_text_from_openclaw_output(item)
-            if text:
-                return text
+            if isinstance(item, dict) and 'text' in item and isinstance(item['text'], str) and item['text'].strip():
+                texts.append(item['text'])
+            else:
+                # 兼容: 数组里可能既有 payloads 元素也有别的结构, 递归尝试提取
+                text = _extract_text_from_openclaw_output(item)
+                if text:
+                    texts.append(text)
+        if texts:
+            return '\n'.join(texts)
     if isinstance(obj, dict):
+        # ★ fix/p03-real-fix: 显式处理 result.payloads[] 结构(新 agent CLI 主格式)
+        if 'result' in obj and isinstance(obj['result'], dict):
+            payloads = obj['result'].get('payloads')
+            if isinstance(payloads, list):
+                result_text = _extract_text_from_openclaw_output(payloads)
+                if result_text:
+                    return result_text
+            # 如果 result dict 还有 text/content 字段(更深的兼容)
+            for key in ('text', 'content', 'message'):
+                val = obj['result'].get(key)
+                if isinstance(val, str) and val.strip():
+                    return val
         # 旧 infer 命令常用 outputs[0].text
         if 'outputs' in obj:
             return _extract_text_from_openclaw_output(obj['outputs'])
-        # 常见字段：新 agent 可能用 content/text/message/result
-        for key in ('text', 'content', 'message', 'result', 'output', 'response', 'reply', 'answer'):
+        # 常见字段：content/text/message/output/response/reply/answer
+        # (result 已在上方显式处理, 此处不再匹配 result 以避免双重递归)
+        for key in ('text', 'content', 'message', 'output', 'response', 'reply', 'answer'):
             val = obj.get(key)
             if isinstance(val, str) and val.strip():
                 return val
@@ -26012,6 +26044,9 @@ def _extract_text_from_openclaw_output(obj):
         # 兼容 chat/completions 风格
         if 'choices' in obj:
             return _extract_text_from_openclaw_output(obj['choices'])
+        # ★ fix/p03-real-fix: 兜底处理顶层 payloads(非 result 包裹形态)
+        if 'payloads' in obj and isinstance(obj['payloads'], list):
+            return _extract_text_from_openclaw_output(obj['payloads'])
     return None
 
 
@@ -26077,9 +26112,21 @@ def _call_openclaw_infer(prompt, model=None, system_prompt=None, timeout=OPENCLA
     variants.append(('agent', agent_args))
     # 旧版 CLI 同样显式带 --agent 走代理 provider（4 名员工的 kimi_proxy_* 路由都挂在 agent 上）
     infer_args = [OPENCLAW_CLI, 'infer', 'model', 'run', '--agent', target_agent, '--prompt', full_prompt, '--json']
-    model_ref = _openclaw_model_ref(model, provider)
-    if model_ref:
-        infer_args.extend(['--model', model_ref])
+    # ★ fix/p03-real-fix: 诊断报告根因 2 — 旧 infer 变体被 `_openclaw_model_ref('kimi-for-coding','kimi')`
+    # 强绑到 '--model kimi/k3', 网关全局 kimi key 已过期 → 秒 401。
+    # 4 名员工 agent 在网关配了 kimi_proxy_* 路由, 不传 --model 会按代理 provider 走 k3 (实测 OK)。
+    # 因此: 模型名属于代理 provider 默认 (kimi-for-coding / k3) 或 model 为空时, **不传 --model**,
+    # 仅当调用方显式指定非代理 provider (如 anthropic/openai 等第三方) 时才透传 --model。
+    _AGENT_DEFAULT_MODELS = {'', 'kimi-for-coding', 'k3', 'main'}
+    _should_pass_model = (
+        model
+        and model not in _AGENT_DEFAULT_MODELS
+        and (provider or '').strip() not in ('', 'kimi', 'kimicode', 'moonshot')
+    )
+    if _should_pass_model:
+        model_ref = _openclaw_model_ref(model, provider)
+        if model_ref:
+            infer_args.extend(['--model', model_ref])
     variants.append(('infer', infer_args))
 
     for name, args in variants:
@@ -26113,8 +26160,10 @@ def _call_openclaw_infer(prompt, model=None, system_prompt=None, timeout=OPENCLA
                 return content
             logger.info(f'  [OpenClaw] {name} returned empty/unrecognized content: {stdout[:500]}')
         except subprocess.TimeoutExpired as e:
-            logger.info(f'  [OpenClaw] {name} timed out after {timeout}s (gateway offline?): {e}')
-            return None
+            # ★ fix/p03-real-fix: 诊断报告根因 3 — 旧实现 TimeoutExpired 直接 return None,
+            # 变体 A 超时后变体 B 没机会跑。改为 continue 让两个变体都有机会, 至少一个能出结果。
+            logger.info(f'  [OpenClaw] {name} timed out after {timeout}s, falling back to next variant: {e}')
+            continue
         except Exception as e:
             logger.error(f'  [OpenClaw] {name} _call_openclaw_infer failed: {e}')
             traceback.print_exc()
