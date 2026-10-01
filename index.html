@@ -29760,13 +29760,41 @@ function runProductTalentMatch(productId) {
     body: JSON.stringify({ limit: 10, agentId: getCurrentEmpId() || '' })
   }).then(function(r){ return r.json(); }).then(function(data){
     _currentProductMatchTalents.matches = data.matches || [];
+    _currentProductMatchTalents.degraded = !!data.degraded;  // ★ feat/p03-quality-loop 交付 2
+    _currentProductMatchTalents.degrade_reason = data.degrade_reason || null;
     _renderProductTalentMatches();
+    if (data.degraded) {
+      // ★ feat/p03-quality-loop: 不再吞错 — 降级时显示明确提示, 区分 timeout/empty/parse_error
+      showDegradeToast(data.degrade_reason, 'product');
+    }
     if (btn) { btn.disabled = false; btn.textContent = '重新匹配'; }
   }).catch(function(e){
-    console.error(e);
-    if (body) body.innerHTML = '<div class="products-empty"><div class="products-empty-text">AI 匹配失败，请重试</div></div>';
+    // ★ feat/p03-quality-loop: 不再吞错 — 网络/权限错显式区分
+    console.error('[runProductTalentMatch] network error', e);
+    if (body) body.innerHTML = '<div class="products-empty"><div class="products-empty-text">网络错误或权限不足，请重试 (err: ' + (e && e.message || e) + ')</div></div>';
+    if (typeof showToast === 'function') showToast('⚠️ 网络错误或权限不足: ' + (e && e.message || e), 'error');
     if (btn) { btn.disabled = false; btn.textContent = 'AI 匹配达人'; }
   });
+}
+
+// ★ feat/p03-quality-loop 交付 2: 降级 toast — 不同 reason 给具体提示, 用户能区分问题
+function showDegradeToast(reason, direction) {
+  var dirLabel = direction === 'product' ? '商品匹配达人' : '达人匹配商品';
+  var detail = '';
+  if (reason === 'timeout') {
+    detail = 'AI 分析超时(已超过 ' + (typeof OPENCLAW_TIMEOUT !== 'undefined' ? OPENCLAW_TIMEOUT : 90) + 's), 已展示规则匹配结果';
+  } else if (reason === 'empty_result') {
+    detail = 'AI 接口返回为空(网关或 key 异常), 已展示规则匹配结果';
+  } else if (reason === 'parse_error') {
+    detail = 'AI 输出无法解析为 JSON, 已展示规则匹配结果';
+  } else if (reason === 'no_agent') {
+    detail = '未配置 AI 员工, 已展示规则匹配结果';
+  } else if (reason === 'no_candidates') {
+    detail = '无候选可匹配, 已展示规则匹配结果';
+  } else {
+    detail = 'AI 阶段暂不可用, 已展示规则匹配结果';
+  }
+  if (typeof showToast === 'function') showToast('ℹ️ ' + dirLabel + ': ' + detail, 'info');
 }
 
 function _renderProductTalentMatches() {
@@ -32362,11 +32390,19 @@ function runTalentProductMatch(talentId) {
     body: JSON.stringify({ limit: 10, agentId: getCurrentEmpId() || '' })
   }).then(function(r){ return r.json(); }).then(function(data){
     _currentTalentMatchProducts.matches = data.matches || [];
+    _currentTalentMatchProducts.degraded = !!data.degraded;  // ★ feat/p03-quality-loop 交付 2
+    _currentTalentMatchProducts.degrade_reason = data.degrade_reason || null;
     _renderTalentProductMatches();
+    if (data.degraded) {
+      // ★ feat/p03-quality-loop: 不再吞错 — 降级时显示明确提示, 区分 timeout/empty/parse_error
+      showDegradeToast(data.degrade_reason, 'talent');
+    }
     if (btn) { btn.disabled = false; btn.textContent = '重新匹配'; }
   }).catch(function(e){
-    console.error(e);
-    if (body) body.innerHTML = '<div class="products-empty"><div class="products-empty-text">AI 匹配失败，请重试</div></div>';
+    // ★ feat/p03-quality-loop: 不再吞错 — 网络/权限错显式区分
+    console.error('[runTalentProductMatch] network error', e);
+    if (body) body.innerHTML = '<div class="products-empty"><div class="products-empty-text">网络错误或权限不足，请重试 (err: ' + (e && e.message || e) + ')</div></div>';
+    if (typeof showToast === 'function') showToast('⚠️ 网络错误或权限不足: ' + (e && e.message || e), 'error');
     if (btn) { btn.disabled = false; btn.textContent = 'AI 匹配商品'; }
   });
 }
