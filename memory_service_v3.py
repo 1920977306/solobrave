@@ -1980,6 +1980,11 @@ def inject_memories(emp_id, system_prompt='', user_message='', api_key=None, pro
     cfg = MEMORY_V3_CONFIG
     data = load_memory(emp_id)
 
+    # feat/kb-ms3-patterns-switch: import 必须放在函数顶部 —
+    # 函数内任何位置的 `import knowledge_service as ks` 都会让 ks 成为整函数局部变量,
+    # 导致下方 L4 块执行前 1984 行先引用 → UnboundLocalError, 整个 MS3 注入被吞掉(prod 基线既有 bug)
+    import knowledge_service as ks
+
     # 使用全局 embedding 配置做记忆注入（知识库语义检索）
     emb_cfg = ks.get_embedding_config()
 
@@ -2031,12 +2036,11 @@ def inject_memories(emp_id, system_prompt='', user_message='', api_key=None, pro
     # L4: 知识库 — 语义检索获取与当前对话相关的知识
     kb_lines = []
     try:
-        import knowledge_service as ks
         # 空知识库 graceful handling
+        # feat/kb-ms3-patterns-switch: 切到 kb_entries, global scope（旧语义=全局条目）
         conn = ks._db_conn()
         try:
-            count_row = conn.execute('SELECT COUNT(*) as c FROM knowledge WHERE status="ok" AND (emp_id IS NULL OR emp_id=?)',
-                                     ('',)).fetchone()
+            count_row = conn.execute('SELECT COUNT(*) as c FROM kb_entries WHERE status="ok" AND (scope IS NULL OR scope="global")').fetchone()
             kb_count = count_row['c'] if count_row else 0
         finally:
             conn.close()

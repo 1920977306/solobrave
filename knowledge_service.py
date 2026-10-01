@@ -1645,6 +1645,175 @@ def _rechunk_and_vectorize(kid, emp_id, content, api_key, provider,
 # RAG 检索
 # ═══════════════════════════════════════════════════
 
+def _rag_search_patterns(conn, query, query_emb, embedding_model, api_key, provider, base_url, top_k_docs):
+    """
+    规律库检索共享 helper（feat/kb-ms3-patterns-switch: 从旧 rag_retrieve 原样提取,
+    供 rag_retrieve / rag_retrieve_kb 两处调用, 保持行为逐字一致）。
+
+    在 knowledge_patterns 中按 embedding 相似度检索规律, 返回 pattern docs 列表;
+    对命中项执行 hit_count/evidence_count 累加 + _kp_auto_promote 自动晋升检查等副作用。
+    调用方必须保证 conn 存活（本 helper 不 close）。
+    全函数 try/except 保护, 出错返回空列表, 不影响主流程。
+    """
+    pattern_docs = []
+    try:
+        import struct
+        pattern_models = conn.execute(
+            "SELECT DISTINCT embedding_model FROM knowledge_patterns "
+            "WHERE status = 'confirmed' AND verification_level = 'verified' "
+            "AND confidence >= 0.7 AND embedding IS NOT NULL"
+        ).fetchall()
+        pattern_query_emb = query_emb
+        pattern_query_model = embedding_model
+        pattern_models_list = [r[0] for r in pattern_models if r[0]]
+        # patterns 存的模型 != query 模型 → 重新按 patterns 模型算 query embedding
+        if pattern_models_list and pattern_models_list[0] and pattern_models_list[0] != embedding_model:
+            try:
+                pat_model = pattern_models_list[0]
+                # 用与 patterns 相同的 provider/api_key (假定都走 global config 同一个 key)
+                pattern_query_emb = get_embedding_cached(
+                    query, api_key, provider, pat_model, base_url=base_url
+                )
+                if pattern_query_emb:
+                    pattern_query_model = pat_model
+                    logger.info(
+                        f'  [RAG-Patterns] query 重算 embedding: {embedding_model}→{pat_model} '
+                        f'(因 patterns 存的是 {pat_model}, 跨模型算 cosine 会偏低)'
+                    )
+            except Exception as re_err:
+                logger.warning(
+                    f'  [RAG-Patterns] 用 {pattern_models_list[0]} 重算 query embedding 失败, '
+                    f'继续用 {embedding_model} (sim 可能偏低): {re_err}'
+                )
+        pattern_rows = conn.execute(
+            # ★ fix/rag-include-candidate: 之前只查 verified, hypothesis/candidate 永远 hit=0
+            #    晋升链路 hypothesis→candidate→verified→proven 走不通
+            #    改成查所有 confirmed 状态的 pattern, 让 hit_count 能涨, 触发晋升
+            "SELECT id, pattern_text, category, confidence, hit_count, verification_level, embedding "
+            "FROM knowledge_patterns "
+            "WHERE status = 'confirmed' "
+            "AND verification_level IN ('verified', 'candidate', 'hypothesis') "
+            "AND confidence >= 0.5 AND embedding IS NOT NULL "
+            "AND embedding_model = ?",
+            (pattern_query_model,)
+        ).fetchall()
+        pattern_results = []
+        for p in pattern_rows:
+            try:
+                emb_bytes = p['embedding']
+                if not emb_bytes:
+                    continue
+                pat_emb = list(struct.unpack(f'{len(emb_bytes)//4}f', emb_bytes))
+                sim = cosine_similarity(pattern_query_emb, pat_emb)
+                # ★ fix/rag-pattern-threshold (v2): zhipu embedding-2 cosine 天然集中 0.4~0.6,
+                #   0.6/0.5 阈值都几乎全 miss。改用 confidence 加权 (≥0.40 即入选),
+                #   排序后取固定 top 3 (避免 top_k_docs=3 时只取 1 条太寒酸)。
+                if sim >= 0.40:
+                    pattern_results.append({
+                        'id': p['id'],
+                        'pattern_text': p['pattern_text'],
+                        'category': p['category'],
+                        'confidence': p['confidence'],
+                        'similarity': sim,
+                        'verification_level': p['verification_level']
+                    })
+            except Exception as pe:
+                logger.warning(f'  [RAG-Patterns] 单条 pattern sim 算失败 (continue): {pe}')
+                continue
+        pattern_results.sort(key=lambda x: (x['similarity'] * x['confidence']),
+                             reverse=True)
+        # ★ fix/rag-pattern-threshold v2: 固定 top 3, 避免 top_k_docs=3 时只 1 条
+        top_patterns = pattern_results[:max(1, min(3, top_k_docs))]
+        for pr in top_patterns:
+            # ★ fix/rag-mark-level: 区分 verified/candidate/hypothesis, 前端可视觉区分
+            vl = pr.get('verification_level', 'verified') or 'verified'
+            vl_marker = '📐' if vl == 'verified' else '🔬' if vl == 'candidate' else '🧪'
+            pattern_docs.append({
+                'id': pr['id'],
+                'type': 'pattern',  # 前端用 'pattern' 类型识别
+                'verification_level': vl,  # 前端可分级显示
+                'title': vl_marker + ' 规律[' + vl + ']: ' + (pr['category'] or '通用'),
+                'category': pr['category'],
+                'content': pr['pattern_text'],
+                'relevantChunk': pr['pattern_text'],
+                'similarity': pr['similarity'],
+                'confidence': pr['confidence']
+            })
+        # 自动 +hit_count (RAG 命中的规律被检索就算 hit)
+        if top_patterns:
+            pattern_ids = tuple(p['id'] for p in top_patterns)
+            placeholders = ','.join('?' for _ in pattern_ids)
+            conn.execute(
+                f'UPDATE knowledge_patterns '
+                f'SET hit_count = hit_count + 1, last_used_at = ? '
+                f'WHERE id IN ({placeholders})',
+                (int(time.time() * 1000), *pattern_ids)
+            )
+            # ★ fix/rag-evidence: RAG 命中也要 +evidence_count 才能触发晋升
+            #   _kp_can_promote 阈值看 evidence_count (≥10 candidate→verified, ≥30 verified→proven)
+            #   之前防刷屏逻辑只保留 1 个 'rag_hit:*' → evidence_count 永远 ≤6 不晋升
+            #   改为: 每次 RAG 命中追加一条带精确时间戳的 'rag_hit:{ts}' (每次 ts 不同, 自然累加)
+            try:
+                _rag_ts = int(time.time() * 1000)
+                for pid in pattern_ids:
+                    row = conn.execute(
+                        'SELECT evidence FROM knowledge_patterns WHERE id = ?', (pid,)
+                    ).fetchone()
+                    ev_raw = row['evidence'] if row else None
+                    try:
+                        ev_list = json.loads(ev_raw) if ev_raw else []
+                        if not isinstance(ev_list, list):
+                            ev_list = []
+                    except Exception:
+                        ev_list = []
+                    # 追加新的 (ts 每次都不同 → 自然累加 evidence_count)
+                    # 用 us 精度保证同一秒内多次命中也能区分
+                    ev_list.append(f'rag_hit:{_rag_ts}:{pid[-6:]}')
+                    conn.execute(
+                        'UPDATE knowledge_patterns SET evidence = ?, evidence_count = ? WHERE id = ?',
+                        (json.dumps(ev_list, ensure_ascii=False), len(ev_list), pid)
+                    )
+            except Exception as ev_err:
+                logger.warning(f'  [RAG-Evidence] 累加 evidence_count 失败 (不影响 RAG): {ev_err}')
+            # ★ fix/rag-promote-import: solobrave-server.py 文件名带连字符,
+            #   importlib.import_module('solobrave_server') 永远找不到模块,
+            #   导致 _kp_auto_promote 几个月从未触发晋升。改用 spec_from_file_location
+            try:
+                import importlib.util as _importlib_util
+                _sbs_spec = _importlib_util.spec_from_file_location(
+                    'solobrave_server', os.path.join(os.path.dirname(__file__), 'solobrave-server.py')
+                )
+                if _sbs_spec and _sbs_spec.loader:
+                    _sbs = _importlib_util.module_from_spec(_sbs_spec)
+                    _sbs_spec.loader.exec_module(_sbs)
+                    for pid in pattern_ids:
+                        promote_result = _sbs._kp_auto_promote(pid)
+                        if promote_result:
+                            logger.info(
+                                f'  [RAG-Promote] RAG 命中触发晋升: '
+                                f'{pid} {promote_result["old"]}→{promote_result["new"]}'
+                            )
+            except Exception as promote_err:
+                logger.warning(
+                    f'  [RAG-Promote] 自动晋升检查失败 (不影响 RAG): {promote_err}'
+                )
+            conn.commit()
+            logger.info(
+                f'  [RAG-Patterns] 自动 +hit_count: {len(top_patterns)} 条 '
+                f'pattern_ids={list(pattern_ids)[:3]}{"..." if len(pattern_ids) > 3 else ""}'
+            )
+        else:
+            # ★ fix/rag-pattern-threshold: 即使 0 命中也记录, 方便排查
+            logger.info(
+                f'  [RAG-Patterns] 检索 {len(pattern_rows)} 条 verified 规律, '
+                f'sim >= 0.4 命中 {len(pattern_results)} 条, top_patterns 空 '
+                f'(query="{query[:30]}{"..." if len(query) > 30 else ""}")'
+            )
+    except Exception as pe:
+        logger.warning(f'  [RAG-Patterns] 检索失败, 不影响主流程: {pe}')
+    return pattern_docs
+
+
 def rag_retrieve(query, emp_id, api_key=None, provider='openai', agent_config=None, top_k_docs=3, allowed_categories=None,
                  model=None, base_url=None, requester_id=None, is_admin=False, team_ids=None, group_ids=None, emp_ids=None):
     """
@@ -1777,166 +1946,10 @@ def rag_retrieve(query, emp_id, api_key=None, provider='openai', agent_config=No
                 if len(docs) >= top_k_docs:
                     break
 
-        # 5b. 规律库检索 (dev/feat: 规律库修复 #2+#8)
-        # 读 verified 且 confidence >= 0.7 的规律, 按 pattern embedding 相似度排序,
-        # 加进 docs 列表 (type='pattern' 让 format_rag_context 单独格式化)
-        # ★ fix/rag-pattern-cross-model: query 用 emb_cfg.model 算 embedding (如 siliconflow/bge),
-        #   但 patterns 存的是 zhipu/embedding-2, 跨模型算 cosine 集中 0.4~0.5 全 miss。
-        #   防御式: 按 patterns 实际存的 embedding_model 重新算 query embedding (与 chunks 一致)。
-        try:
-            pattern_models = conn.execute(
-                "SELECT DISTINCT embedding_model FROM knowledge_patterns "
-                "WHERE status = 'confirmed' AND verification_level = 'verified' "
-                "AND confidence >= 0.7 AND embedding IS NOT NULL"
-            ).fetchall()
-            pattern_query_emb = query_emb
-            pattern_query_model = embedding_model
-            pattern_models_list = [r[0] for r in pattern_models if r[0]]
-            # patterns 存的模型 != query 模型 → 重新按 patterns 模型算 query embedding
-            if pattern_models_list and pattern_models_list[0] and pattern_models_list[0] != embedding_model:
-                try:
-                    pat_model = pattern_models_list[0]
-                    # 用与 patterns 相同的 provider/api_key (假定都走 global config 同一个 key)
-                    pattern_query_emb = get_embedding_cached(
-                        query, api_key, provider, pat_model, base_url=base_url
-                    )
-                    if pattern_query_emb:
-                        pattern_query_model = pat_model
-                        logger.info(
-                            f'  [RAG-Patterns] query 重算 embedding: {embedding_model}→{pat_model} '
-                            f'(因 patterns 存的是 {pat_model}, 跨模型算 cosine 会偏低)'
-                        )
-                except Exception as re_err:
-                    logger.warning(
-                        f'  [RAG-Patterns] 用 {pattern_models_list[0]} 重算 query embedding 失败, '
-                        f'继续用 {embedding_model} (sim 可能偏低): {re_err}'
-                    )
-            pattern_rows = conn.execute(
-                # ★ fix/rag-include-candidate: 之前只查 verified, hypothesis/candidate 永远 hit=0
-                #    晋升链路 hypothesis→candidate→verified→proven 走不通
-                #    改成查所有 confirmed 状态的 pattern, 让 hit_count 能涨, 触发晋升
-                "SELECT id, pattern_text, category, confidence, hit_count, verification_level, embedding "
-                "FROM knowledge_patterns "
-                "WHERE status = 'confirmed' "
-                "AND verification_level IN ('verified', 'candidate', 'hypothesis') "
-                "AND confidence >= 0.5 AND embedding IS NOT NULL "
-                "AND embedding_model = ?",
-                (pattern_query_model,)
-            ).fetchall()
-            pattern_results = []
-            for p in pattern_rows:
-                try:
-                    emb_bytes = p['embedding']
-                    if not emb_bytes:
-                        continue
-                    pat_emb = list(struct.unpack(f'{len(emb_bytes)//4}f', emb_bytes))
-                    sim = cosine_similarity(pattern_query_emb, pat_emb)
-                    # ★ fix/rag-pattern-threshold (v2): zhipu embedding-2 cosine 天然集中 0.4~0.6,
-                    #   0.6/0.5 阈值都几乎全 miss。改用 confidence 加权 (≥0.40 即入选),
-                    #   排序后取固定 top 3 (避免 top_k_docs=3 时只取 1 条太寒酸)。
-                    if sim >= 0.40:
-                        pattern_results.append({
-                            'id': p['id'],
-                            'pattern_text': p['pattern_text'],
-                            'category': p['category'],
-                            'confidence': p['confidence'],
-                            'similarity': sim,
-                            'verification_level': p['verification_level']
-                        })
-                except Exception as pe:
-                    logger.warning(f'  [RAG-Patterns] 单条 pattern sim 算失败 (continue): {pe}')
-                    continue
-            pattern_results.sort(key=lambda x: (x['similarity'] * x['confidence']),
-                                  reverse=True)
-            # ★ fix/rag-pattern-threshold v2: 固定 top 3, 避免 top_k_docs=3 时只 1 条
-            top_patterns = pattern_results[:max(1, min(3, top_k_docs))]
-            for pr in top_patterns:
-                # ★ fix/rag-mark-level: 区分 verified/candidate/hypothesis, 前端可视觉区分
-                vl = pr.get('verification_level', 'verified') or 'verified'
-                vl_marker = '📐' if vl == 'verified' else '🔬' if vl == 'candidate' else '🧪'
-                docs.append({
-                    'id': pr['id'],
-                    'type': 'pattern',  # 前端用 'pattern' 类型识别
-                    'verification_level': vl,  # 前端可分级显示
-                    'title': vl_marker + ' 规律[' + vl + ']: ' + (pr['category'] or '通用'),
-                    'category': pr['category'],
-                    'content': pr['pattern_text'],
-                    'relevantChunk': pr['pattern_text'],
-                    'similarity': pr['similarity'],
-                    'confidence': pr['confidence']
-                })
-            # 自动 +hit_count (RAG 命中的规律被检索就算 hit)
-            if top_patterns:
-                pattern_ids = tuple(p['id'] for p in top_patterns)
-                placeholders = ','.join('?' for _ in pattern_ids)
-                conn.execute(
-                    f'UPDATE knowledge_patterns '
-                    f'SET hit_count = hit_count + 1, last_used_at = ? '
-                    f'WHERE id IN ({placeholders})',
-                    (int(time.time() * 1000), *pattern_ids)
-                )
-                # ★ fix/rag-evidence: RAG 命中也要 +evidence_count 才能触发晋升
-                #   _kp_can_promote 阈值看 evidence_count (≥10 candidate→verified, ≥30 verified→proven)
-                #   之前防刷屏逻辑只保留 1 个 'rag_hit:*' → evidence_count 永远 ≤6 不晋升
-                #   改为: 每次 RAG 命中追加一条带精确时间戳的 'rag_hit:{ts}' (每次 ts 不同, 自然累加)
-                try:
-                    _rag_ts = int(time.time() * 1000)
-                    for pid in pattern_ids:
-                        row = conn.execute(
-                            'SELECT evidence FROM knowledge_patterns WHERE id = ?', (pid,)
-                        ).fetchone()
-                        ev_raw = row['evidence'] if row else None
-                        try:
-                            ev_list = json.loads(ev_raw) if ev_raw else []
-                            if not isinstance(ev_list, list):
-                                ev_list = []
-                        except Exception:
-                            ev_list = []
-                        # 追加新的 (ts 每次都不同 → 自然累加 evidence_count)
-                        # 用 us 精度保证同一秒内多次命中也能区分
-                        ev_list.append(f'rag_hit:{_rag_ts}:{pid[-6:]}')
-                        conn.execute(
-                            'UPDATE knowledge_patterns SET evidence = ?, evidence_count = ? WHERE id = ?',
-                            (json.dumps(ev_list, ensure_ascii=False), len(ev_list), pid)
-                        )
-                except Exception as ev_err:
-                    logger.warning(f'  [RAG-Evidence] 累加 evidence_count 失败 (不影响 RAG): {ev_err}')
-                # ★ fix/rag-promote-import: solobrave-server.py 文件名带连字符,
-                #   importlib.import_module('solobrave_server') 永远找不到模块,
-                #   导致 _kp_auto_promote 几个月从未触发晋升。改用 spec_from_file_location
-                try:
-                    import importlib.util as _importlib_util
-                    _sbs_spec = _importlib_util.spec_from_file_location(
-                        'solobrave_server', os.path.join(os.path.dirname(__file__), 'solobrave-server.py')
-                    )
-                    if _sbs_spec and _sbs_spec.loader:
-                        _sbs = _importlib_util.module_from_spec(_sbs_spec)
-                        _sbs_spec.loader.exec_module(_sbs)
-                        for pid in pattern_ids:
-                            promote_result = _sbs._kp_auto_promote(pid)
-                            if promote_result:
-                                logger.info(
-                                    f'  [RAG-Promote] RAG 命中触发晋升: '
-                                    f'{pid} {promote_result["old"]}→{promote_result["new"]}'
-                                )
-                except Exception as promote_err:
-                    logger.warning(
-                        f'  [RAG-Promote] 自动晋升检查失败 (不影响 RAG): {promote_err}'
-                    )
-                conn.commit()
-                logger.info(
-                    f'  [RAG-Patterns] 自动 +hit_count: {len(top_patterns)} 条 '
-                    f'pattern_ids={list(pattern_ids)[:3]}{"..." if len(pattern_ids) > 3 else ""}'
-                )
-            else:
-                # ★ fix/rag-pattern-threshold: 即使 0 命中也记录, 方便排查
-                logger.info(
-                    f'  [RAG-Patterns] 检索 {len(pattern_rows)} 条 verified 规律, '
-                    f'sim >= 0.4 命中 {len(pattern_results)} 条, top_patterns 空 '
-                    f'(query="{query[:30]}{"..." if len(query) > 30 else ""}")'
-                )
-        except Exception as pe:
-            logger.warning(f'  [RAG-Patterns] 检索失败, 不影响主流程: {pe}')
+        # 5b. 规律库检索 — 共享 helper (与 rag_retrieve_kb 同一份实现, 行为逐字一致)
+        docs.extend(_rag_search_patterns(
+            conn, query, query_emb, embedding_model, api_key, provider, base_url, top_k_docs
+        ))
 
         # 6. 格式化上下文
         context = format_rag_context(docs)
@@ -1967,8 +1980,10 @@ def rag_retrieve_kb(query, emp_id, api_key=None, provider='openai', agent_config
     - 四层 scope 隔离：global 全员可读 / personal 仅本人及其 agent（emp_ids）/ team 团队（team_ids）/ group 项目组（group_ids）
     - 审核闸 + 模型隔离：e.status='ok' AND c.embedding_model=<query 模型> AND c.embedding IS NOT NULL
     - 语义缓存（key 含 requester/admin/team/group scope 维度）
+    - 规律库 knowledge_patterns 检索（与旧 rag_retrieve 同一份共享 helper _rag_search_patterns,
+      含 hit_count/evidence 累加与自动晋升副作用）
 
-    差异：仅数据源为 kb_entries/kb_entry_chunks；不夹带 knowledge_patterns 规律块（规律库与旧表生命周期一致，后续单独收口）。
+    差异：知识文档数据源为 kb_entries/kb_entry_chunks（规律库仍读 knowledge_patterns, 表生命周期独立）。
     全函数 try/except 保护，出错降级返回空结果。
     """
     if group_ids is None:
@@ -2071,10 +2086,9 @@ def rag_retrieve_kb(query, emp_id, api_key=None, provider='openai', agent_config
                     logger.warning(f'  [RAG-KB] 单条 chunk sim 算失败 (continue): id={row["id"]} {ce}')
                     continue
         finally:
-            try:
-                conn.close()
-            except Exception:
-                pass
+            # ★ 不能在这里 close(): 下面规律库检索(_rag_search_patterns)还要用 conn,
+            #   统一在规律块之后关闭（与旧 rag_retrieve 相同的生命周期约定）
+            pass
 
         # 5. top 2*k 后按 entry 聚合去重
         results.sort(key=lambda x: x['similarity'], reverse=True)
@@ -2095,6 +2109,16 @@ def rag_retrieve_kb(query, emp_id, api_key=None, provider='openai', agent_config
                 })
                 if len(docs) >= top_k_docs:
                     break
+
+        # 5b. 规律库检索 — 与旧 rag_retrieve 同一份共享 helper（feat/kb-ms3-patterns-switch）
+        #     含 hit_count/evidence_count 累加 + _kp_auto_promote 自动晋升等副作用, 行为逐字一致
+        docs.extend(_rag_search_patterns(
+            conn, query, query_emb, embedding_model, api_key, provider, base_url, top_k_docs
+        ))
+        try:
+            conn.close()
+        except Exception:
+            pass
 
         context = format_rag_context(docs)
         result = {'docs': docs, 'context': context}
@@ -2135,13 +2159,17 @@ def format_rag_context(docs):
 
 
 # ═══════════════════════════════════════════════════
-# Fallback：关键词搜索
+# Fallback：关键词搜索（kb_entries 新表版）
 # ═══════════════════════════════════════════════════
 
-def knowledge_search_fallback(query, emp_id=None, limit=3, requester_id=None, is_admin=False, team_ids=None, group_ids=None, emp_ids=None):
-    """API 失败时的关键词搜索 fallback（LIKE）；带四层隔离"""
+def _kb_search_fallback(query, emp_id=None, limit=3, requester_id=None, is_admin=False, team_ids=None, group_ids=None, emp_ids=None):
+    """语义检索失败时的关键词搜索 fallback（LIKE），读 kb_entries；带四层隔离。
+    feat/kb-ms3-patterns-switch: 从旧 knowledge_search_fallback 平移, 数据源换 kb_entries,
+    返回结构与被替换的旧 fallback 一致（经 _kb_entry_row_to_dict, 前端字段兼容）。"""
     if group_ids is None:
         group_ids = []
+    if team_ids is None:
+        team_ids = []
     if emp_ids is None:
         emp_ids = []
     if requester_id and requester_id not in emp_ids:
@@ -2163,21 +2191,26 @@ def knowledge_search_fallback(query, emp_id=None, limit=3, requester_id=None, is
                 placeholders = ', '.join('?' for _ in emp_ids)
                 readable.append(f"(scope = 'personal' AND emp_id IN ({placeholders}))")
                 params.extend(emp_ids)
+            if team_ids:
+                placeholders = ', '.join('?' for _ in team_ids)
+                readable.append(f"(scope = 'team' AND team_id IN ({placeholders}))")
+                params.extend(team_ids)
             if group_ids:
                 placeholders = ', '.join('?' for _ in group_ids)
                 readable.append(f"(scope = 'group' AND EXISTS (SELECT 1 FROM json_each(group_ids) WHERE value IN ({placeholders})))")
                 params.extend(group_ids)
             where.append('(' + ' OR '.join(readable) + ')')
         sql = '''
-            SELECT id, title, content, category, scope, team_id, emp_id, created_at, updated_at
-            FROM knowledge
+            SELECT id, title, content, category, category_id, project_id, scope, team_id, group_ids,
+                   emp_id, status, chunk_count, created_by, created_at, updated_at
+            FROM kb_entries
             WHERE ''' + ' AND '.join(where) + '''
             ORDER BY updated_at DESC
             LIMIT ?
         '''
         params.append(limit)
         rows = conn.execute(sql, tuple(params)).fetchall()
-        return [_knowledge_row_to_dict(r) for r in rows]
+        return [_kb_entry_row_to_dict(r) for r in rows]
     finally:
         conn.close()
 
@@ -2193,6 +2226,8 @@ def knowledge_search_semantic(query, emp_id, api_key=None, provider='openai', ag
     语义检索，带 fallback；使用全局 embedding 配置，不再依赖传入的 api_key/provider。
     供 MS3 inject_memories 和 API 搜索使用。
     emp_ids 允许传入多个 emp_id（用户自身 id 及其创建的 agent ids）。
+    feat/kb-ms3-patterns-switch: 主检索从旧表 rag_retrieve 切到 rag_retrieve_kb
+    （kb_entries/kb_entry_chunks, 含规律库）; fallback 切到 _kb_search_fallback（kb_entries）。
     """
     if group_ids is None:
         group_ids = []
@@ -2203,14 +2238,14 @@ def knowledge_search_semantic(query, emp_id, api_key=None, provider='openai', ag
     try:
         # 使用全局 embedding 配置
         emb_cfg = get_embedding_config(emp_id or None)
-        result = rag_retrieve(query, emp_id, emb_cfg['apiKey'], emb_cfg['provider'], agent_config,
-                              top_k_docs=limit, allowed_categories=allowed_categories,
-                              model=emb_cfg['model'], base_url=emb_cfg['baseUrl'],
-                              requester_id=requester_id, is_admin=is_admin, team_ids=team_ids, group_ids=group_ids, emp_ids=emp_ids)
+        result = rag_retrieve_kb(query, emp_id, emb_cfg['apiKey'], emb_cfg['provider'], agent_config,
+                                 top_k_docs=limit, allowed_categories=allowed_categories,
+                                 model=emb_cfg['model'], base_url=emb_cfg['baseUrl'],
+                                 requester_id=requester_id, is_admin=is_admin, team_ids=team_ids, group_ids=group_ids, emp_ids=emp_ids)
         return result.get('docs', [])
     except Exception as e:
         print(f'  [KnowledgeSearch] semantic failed, fallback to keyword: {e}', flush=True)
-        return knowledge_search_fallback(query, emp_id, limit, requester_id=requester_id, is_admin=is_admin, team_ids=team_ids, group_ids=group_ids, emp_ids=emp_ids)
+        return _kb_search_fallback(query, emp_id, limit, requester_id=requester_id, is_admin=is_admin, team_ids=team_ids, group_ids=group_ids, emp_ids=emp_ids)
 
 
 # ═══════════════════════════════════════════════════
