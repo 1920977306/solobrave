@@ -19023,10 +19023,14 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         candidates: 候选列表（dict 列表）
         target_type: 'products' 或 'talents'
         agent: 当前 AI 员工配置 dict
-        返回: {candidate_id: {'ai_score': float, 'ai_reason': str}}
+        返回: ({candidate_id: {'ai_score': float, 'ai_reason': str}}, degrade_reason)
+        degrade_reason 取值: None / 'timeout' / 'empty_result' / 'parse_error' / 'no_agent'
+        老调用方忽略 degrade_reason 即可。
         """
-        if not candidates or not agent:
-            return {}
+        if not candidates:
+            return ({}, 'no_candidates')
+        if not agent:
+            return ({}, 'no_agent')
 
         source_label = '达人' if target_type == 'products' else '商品'
         target_label = '商品' if target_type == 'products' else '达人'
@@ -19087,9 +19091,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         )
 
         try:
-            ai_result = _call_ai_for_json(prompt, agent, system_prompt=system_prompt)
+            # ★ feat/p03-quality-loop: 区分 3 类失败, 把 degrade_reason 透传出去
+            ai_result, degrade_reason = _call_ai_for_json(prompt, agent, system_prompt=system_prompt, capture_reason=True)
             if not ai_result or not isinstance(ai_result, list):
-                return {}
+                return ({}, degrade_reason or 'parse_error')
             scores = {}
             for item in ai_result:
                 if isinstance(item, dict) and item.get('id'):
@@ -19097,10 +19102,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                         'ai_score': max(0, min(100, float(item.get('matchScore', 0)))),
                         'ai_reason': str(item.get('reason', '')).strip()[:100]
                     }
-            return scores
+            return (scores, None)
         except Exception as e:
             logger.error(f'  [AI Match] scoring failed: {e}')
-            return {}
+            return ({}, 'empty_result')
 
     def _handle_get_product_talents(self, product_id):
         """GET /api/products/:id/talents — 带该商品的Top达人排名"""
@@ -19422,9 +19427,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
         # 阶段2：AI 语义打分（对前 N 个候选）
         ai_candidates = rule_results[:top_n_for_ai]
-        ai_scores = {}
+        # ★ feat/p03-quality-loop: 接收 tuple (scores, degrade_reason), 区分 timeout/empty/parse_error
+        ai_scores, degrade_reason = {}, None
         if agent and ai_candidates:
-            ai_scores = self._ai_match_candidates(
+            ai_scores, degrade_reason = self._ai_match_candidates(
                 product, [r['talent'] for r in ai_candidates], 'talents', agent, limit=min(limit, 10)
             )
 
@@ -19489,7 +19495,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             'product_id': product_id,
             'matches': results[:limit],
             'total': len(results),
-            'ai_scored': len(ai_scores)
+            'ai_scored': len(ai_scores),
+            # ★ feat/p03-quality-loop: 降级信号 — 前端按此显示「AI 暂不可用, 已展示规则匹配结果」
+            'degraded': bool(degrade_reason),
+            'degrade_reason': degrade_reason,  # None / 'timeout' / 'empty_result' / 'parse_error' / 'no_agent' / 'no_candidates'
         })
 
     def _handle_match_talent_products(self, talent_id):
@@ -19547,9 +19556,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
         # 阶段2：AI 语义打分（对前 N 个候选）
         ai_candidates = rule_results[:top_n_for_ai]
-        ai_scores = {}
+        # ★ feat/p03-quality-loop: 接收 tuple (scores, degrade_reason), 区分 timeout/empty/parse_error
+        ai_scores, degrade_reason = {}, None
         if agent and ai_candidates:
-            ai_scores = self._ai_match_candidates(
+            ai_scores, degrade_reason = self._ai_match_candidates(
                 talent, [r['product'] for r in ai_candidates], 'products', agent, limit=min(limit, 10)
             )
 
@@ -19612,7 +19622,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             'talent_id': talent_id,
             'matches': results[:limit],
             'total': len(results),
-            'ai_scored': len(ai_scores)
+            'ai_scored': len(ai_scores),
+            # ★ feat/p03-quality-loop: 对称降级信号 (反向 talent→product 也有 AI 失败可能)
+            'degraded': bool(degrade_reason),
+            'degrade_reason': degrade_reason,
         })
 
     def _handle_ai_match(self):
@@ -26381,12 +26394,24 @@ def _generate_mock_knowledge_docs(prompt, agent):
     ]
 
 
-def _call_ai_for_json(prompt, agent, system_prompt=None):
-    """调用 AI 并尝试返回 JSON 数组；通过 openclaw CLI 调用"""
+def _call_ai_for_json(prompt, agent, system_prompt=None, capture_reason=False):
+    """调用 AI 并尝试返回 JSON 数组；通过 openclaw CLI 调用
+
+    capture_reason=False (默认): 老调用方行为不变, 返 result (list) 或 None
+    capture_reason=True: 返 (result, reason), reason 取值:
+      - None: 成功 (result 非空 list)
+      - 'timeout': OpenClaw subprocess 超时
+      - 'empty_result': OpenClaw 返回但解析不出文本
+      - 'parse_error': 拿到文本但 JSON 解析失败 / 解析出空数组
+      - 'no_agent': agent 为空 (老行为: 返 None, 这里记 'no_agent')
+    """
     # 模拟模式：知识归纳场景无需真实 API Key，直接返回示例文档
     if _get_knowledge_mock_mode() and system_prompt and '知识库整理助手' in system_prompt:
         logger.info(f'  [Knowledge] mock mode enabled for {agent.get("id", "?")}, returning sample docs')
-        return _generate_mock_knowledge_docs(prompt, agent)
+        result = _generate_mock_knowledge_docs(prompt, agent)
+        if capture_reason:
+            return (result, None)
+        return result
 
     # 优先使用 agent.apiModel；未配置时根据 provider 取默认模型，避免 openclaw 因空模型名 404
     api_provider = agent.get('aiProvider', '') or agent.get('apiProvider', '')
@@ -26410,6 +26435,26 @@ def _call_ai_for_json(prompt, agent, system_prompt=None):
     # 显式传 agent_name（员工 ID）让 OpenClaw gateway 用员工配的 kimi_proxy_* provider，
     # 避免走 main agent 的直连官方账号（kimi/k3，配额已耗尽）。
     agent_id = agent.get('id', '') if isinstance(agent, dict) else ''
+    # ★ feat/p03-quality-loop: 区分 3 类失败 (timeout / empty_result / parse_error)
+    # 旧实现: timeout 和 empty 都返 None, parse_error 返 [], 全静默. 调用方无法区分.
+    if capture_reason:
+        try:
+            content = _call_openclaw_infer(full_prompt, model=api_model, provider=api_provider, agent_name=agent_id)
+        except subprocess.TimeoutExpired:
+            logger.info(f'  [AI Match] OpenClaw subprocess timeout after {OPENCLAW_TIMEOUT}s')
+            return ([], 'timeout')
+        except Exception as e:
+            logger.error(f'  [AI Match] OpenClaw invoke error: {e}')
+            return ([], 'empty_result')
+        if not content:
+            logger.info(f'  [AI Match] OpenClaw returned no text (empty_result)')
+            return ([], 'empty_result')
+        arr = _extract_json_array(content)
+        if not arr:
+            logger.info(f'  [AI Match] parse error or empty array from content (parse_error)')
+            return ([], 'parse_error')
+        return (arr, None)
+    # 老调用方路径 (向后兼容)
     content = _call_openclaw_infer(full_prompt, model=api_model, provider=api_provider, agent_name=agent_id)
     if content is None:
         return None
