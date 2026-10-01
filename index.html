@@ -10153,6 +10153,284 @@ window.doLogin = function () {
 }
 </style>
 
+<style id="sb2-dense-views">
+/* ============================================================
+ * SoloBrave 2.0 密集视图 (feat/sb2-dense-views)
+ * - 达人库 / 知识库高密度表格
+ * - 全部用 --sb2-* token, 不动旧变量, 旧模块零变化
+ * - 字段缺值显示 "-" (老大硬约束 #2), 禁止编造
+ * ============================================================ */
+
+/* 视图切换控件在 header 中, 共用 .segmented-control 样式, 这里只做轻量覆盖 */
+.sb2-view-switch { margin-left: 8px; flex-shrink: 0; }
+
+/* ─── 达人库密集表格 ────────────────────────────────────── */
+.sb2-talents-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--sb2-border);
+  border-radius: var(--sb2-r-md);
+  background: var(--sb2-s1);
+  box-shadow: var(--sb2-sh1);
+}
+.sb2-talents-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  color: var(--sb2-t1);
+}
+.sb2-talents-table thead {
+  background: var(--sb2-s2);
+  border-bottom: 1px solid var(--sb2-border);
+}
+.sb2-talents-table thead th {
+  padding: 10px 12px;
+  text-align: left;
+  font-weight: 600;
+  font-size: 12px;
+  color: var(--sb2-t2);
+  white-space: nowrap;
+  letter-spacing: 0.02em;
+}
+.sb2-talents-table tbody tr {
+  border-bottom: 1px solid var(--sb2-border);
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+.sb2-talents-table tbody tr:last-child { border-bottom: none; }
+.sb2-talents-table tbody tr:hover { background: var(--sb2-s2); }
+.sb2-talents-table tbody tr.active {
+  background: var(--sb2-brand-soft);
+  box-shadow: inset 3px 0 0 var(--sb2-brand);
+}
+.sb2-talents-table tbody td {
+  padding: 10px 12px;
+  vertical-align: middle;
+}
+.sb2-num {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
+  text-align: right;
+  white-space: nowrap;
+}
+.sb2-col-name { min-width: 180px; }
+.sb2-col-platform { width: 90px; }
+.sb2-col-category { width: 160px; }
+.sb2-col-num { width: 100px; }
+.sb2-col-gpm { width: 130px; }
+.sb2-col-rating { width: 72px; text-align: center; }
+.sb2-col-status { width: 92px; }
+
+.sb2-talents-name-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.sb2-talents-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--sb2-s3);
+  color: var(--sb2-t1);
+  font-weight: 600;
+  font-size: 13px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.sb2-talents-name-meta {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+.sb2-talents-name {
+  font-weight: 600;
+  color: var(--sb2-t1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sb2-talents-douyin {
+  font-size: 11px;
+  color: var(--sb2-t3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ─── sb2 tag 通用样式 ──────────────────────────────────── */
+.sb2-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: var(--sb2-r-sm);
+  font-size: 11px;
+  font-weight: 500;
+  background: var(--sb2-s3);
+  color: var(--sb2-t2);
+  white-space: nowrap;
+  margin-right: 4px;
+  margin-bottom: 4px;
+}
+.sb2-tag:last-child { margin-right: 0; }
+.sb2-tag-platform { color: var(--sb2-platform-color, var(--sb2-t1)); }
+.sb2-tag-empty {
+  background: transparent;
+  color: var(--sb2-t3);
+  border: 1px dashed var(--sb2-border);
+  font-style: italic;
+}
+.sb2-tags-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+/* ─── GPM 进度条 ───────────────────────────────────────── */
+.sb2-gpm-bar {
+  position: relative;
+  width: 100%;
+  height: 18px;
+  background: var(--sb2-s3);
+  border-radius: var(--sb2-r-sm);
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding-right: 6px;
+}
+.sb2-gpm-bar-fill {
+  position: absolute;
+  top: 0; left: 0; bottom: 0;
+  background: linear-gradient(90deg, var(--sb2-accent), var(--sb2-accent-soft));
+  transition: width 0.3s ease;
+}
+.sb2-gpm-bar-text {
+  position: relative;
+  z-index: 1;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--sb2-t1);
+  font-variant-numeric: tabular-nums;
+}
+.sb2-gpm-bar-empty .sb2-gpm-bar-text { color: var(--sb2-t3); font-style: italic; }
+
+/* ─── 评级 chip S/A/B/C/D (老大指令) ────────────────────────── */
+.sb2-rating-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 22px;
+  border-radius: var(--sb2-r-sm);
+  font-size: 12px;
+  font-weight: 700;
+  border: 1px solid;
+}
+.sb2-rating-S { color: var(--sb2-gold); border-color: var(--sb2-gold); background: var(--sb2-gold-soft); }
+.sb2-rating-A { color: var(--sb2-success); border-color: var(--sb2-success); background: var(--sb2-success-soft); }
+.sb2-rating-B { color: var(--sb2-accent); border-color: var(--sb2-accent); background: var(--sb2-accent-soft); }
+.sb2-rating-C { color: var(--sb2-warning); border-color: var(--sb2-warning); background: var(--sb2-warning-soft); }
+.sb2-rating-D { color: var(--sb2-t3); border-color: var(--sb2-border-strong); background: var(--sb2-s2); }
+.sb2-rating-empty {
+  color: var(--sb2-t3);
+  border: 1px dashed var(--sb2-border);
+  background: transparent;
+  font-style: italic;
+  font-weight: 400;
+}
+
+/* ─── 状态 tag ─────────────────────────────────────────── */
+.sb2-status-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: var(--sb2-r-full);
+  font-size: 11px;
+  font-weight: 500;
+  background: var(--sb2-s3);
+  color: var(--sb2-t2);
+}
+.sb2-status-tag[data-status="available"] { color: var(--sb2-success); background: var(--sb2-success-soft); }
+.sb2-status-tag[data-status="cooperating"] { color: var(--sb2-accent); background: var(--sb2-accent-soft); }
+.sb2-status-tag[data-status="communicating"] { color: var(--sb2-warning); background: var(--sb2-warning-soft); }
+.sb2-status-tag[data-status="blacklist"] { color: var(--sb2-danger); background: var(--sb2-danger-soft); }
+.sb2-status-tag[data-status="following"] { color: var(--sb2-t2); background: var(--sb2-s3); }
+.sb2-status-tag[data-status="archived"] { color: var(--sb2-t3); }
+
+/* ─── 知识库密集表格 ────────────────────────────────────── */
+.sb2-kb-list-wrap {
+  border: 1px solid var(--sb2-border);
+  border-radius: var(--sb2-r-md);
+  background: var(--sb2-s1);
+  box-shadow: var(--sb2-sh1);
+  overflow: hidden;
+}
+.sb2-kb-list {
+  display: flex;
+  flex-direction: column;
+}
+.sb2-kb-list-item {
+  display: grid;
+  grid-template-columns: 130px 1fr auto auto;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--sb2-border);
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+.sb2-kb-list-item:last-child { border-bottom: none; }
+.sb2-kb-list-item:hover { background: var(--sb2-s2); }
+.sb2-kb-list-item.active {
+  background: var(--sb2-brand-soft);
+  box-shadow: inset 3px 0 0 var(--sb2-brand);
+}
+.sb2-kb-list-id {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  color: var(--sb2-t3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sb2-kb-list-main {
+  min-width: 0;
+}
+.sb2-kb-list-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--sb2-t1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sb2-kb-list-sub {
+  font-size: 11px;
+  color: var(--sb2-t3);
+  margin-top: 2px;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.sb2-kb-list-sub b { color: var(--sb2-t2); font-weight: 500; }
+.sb2-kb-list-tags {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  flex-shrink: 0;
+}
+.sb2-kb-tag-status[data-status="ok"] { color: var(--sb2-success); background: var(--sb2-success-soft); }
+.sb2-kb-tag-status[data-status="pending"] { color: var(--sb2-warning); background: var(--sb2-warning-soft); }
+.sb2-kb-tag-status[data-status="rejected"] { color: var(--sb2-danger); background: var(--sb2-danger-soft); }
+
+/* 兼容旧 knowledge-list-item 类, 让原 list 模式仍能渲染
+   (kb 中间容器接缝保留, 老 _knowledgeViewMode='list' 不受影响) */
+</style>
+
 <div class="app-container">
 
 <!-- Left Navigation (56px) -->
@@ -10286,8 +10564,10 @@ window.doLogin = function () {
     </div>
     <button class="knowledge-mid-new" onclick="createNewKnowledge()">+ 新建文档</button>
     <div class="knowledge-view-toggle">
-      <button class="knowledge-view-btn active" id="knowledgeViewCardBtn" onclick="switchKnowledgeView('card')" title="卡片视图">⊞</button>
-      <button class="knowledge-view-btn" id="knowledgeViewListBtn" onclick="switchKnowledgeView('list')" title="列表视图">☰</button>
+      <!-- ★ feat/sb2-dense-views: 加 sb2 高密度表格按钮 (老大指令默认表格) -->
+      <button class="knowledge-view-btn" id="knowledgeViewSb2Btn" onclick="switchKnowledgeView('sb2')" title="高密度表格视图 (sb2.0)">▦</button>
+      <button class="knowledge-view-btn" id="knowledgeViewListBtn" onclick="switchKnowledgeView('list')" title="经典列表视图">☰</button>
+      <button class="knowledge-view-btn" id="knowledgeViewCardBtn" onclick="switchKnowledgeView('card')" title="经典卡片视图 (可回退)">⊞</button>
     </div>
   </div>
   <div class="knowledge-mid-stats" id="knowledgeMidStats"></div>
@@ -10803,6 +11083,11 @@ window.doLogin = function () {
   <div class="talents-mid-header">
     <div class="talents-mid-title" id="talentsMidTitle">达人库</div>
     <div class="talents-mid-count" id="talentsMidCount">共 0 条</div>
+    <!-- ★ feat/sb2-dense-views: 视图切换 (表格/卡片) — 默认表格 (老大指令) -->
+    <div class="segmented-control sb2-view-switch" id="talentsViewSwitch">
+      <button class="segmented-item active" data-view="table" onclick="setTalentViewMode('table')" title="高密度表格视图 (sb2.0)">表格</button>
+      <button class="segmented-item" data-view="card" onclick="setTalentViewMode('card')" title="经典卡片视图 (可回退)">卡片</button>
+    </div>
     <div class="talents-mid-search talents-mid-search-full">
       <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
       <input type="text" placeholder="搜索达人昵称/关键词..." id="talentsMidSearch" oninput="onTalentSearch(this.value)">
@@ -30592,6 +30877,10 @@ function closeTaskDetail() {
 // ========== 达人库 ==========
 var _talentData = { talents: [], total: 0 };
 var _talentCurrentId = null;
+// ★ feat/sb2-dense-views: 视图切换 ('table' | 'card'), 默认表格 (老大指令), localStorage 持久化
+var _talentViewMode = (function(){
+  try { return localStorage.getItem('sb2_talentViewMode') || 'table'; } catch(e){ return 'table'; }
+})();
 var _talentCooperation = '';
 var _talentCategory = '';
 var _talentSearchKw = '';
@@ -30817,6 +31106,10 @@ function recommendTalentsAI() {
 }
 
 function renderTalentList(talents) {
+  // ★ feat/sb2-dense-views: 视图分发器 — 表格 (默认) / 卡片 (可回退)
+  // 接口签名不变 (输入 talents 数组), 内部按 _talentViewMode 分发到:
+  //   - 'table' → renderTalentListDense (sb2 高密度表格)
+  //   - 'card'  → renderTalentListCard (老卡片逻辑完整保留)
   var el = document.getElementById('talentsMidItems');
   var countEl = document.getElementById('talentsMidCount');
   if (countEl) countEl.textContent = '共 ' + (_talentData.total || 0) + ' 条';
@@ -30825,6 +31118,19 @@ function renderTalentList(talents) {
     el.innerHTML = '<div class="products-empty"><div class="products-empty-icon">🎙️</div><div class="products-empty-text">暂无达人</div><button class="products-empty-btn" onclick="createNewTalent()">录入达人</button></div>';
     return;
   }
+  // 同步 segmented-control 选中态
+  if (typeof _syncTalentViewSwitch === 'function') _syncTalentViewSwitch();
+  if (_talentViewMode === 'table') {
+    renderTalentListDense(talents);
+  } else {
+    renderTalentListCard(talents);
+  }
+}
+
+// ★ feat/sb2-dense-views: 旧卡片渲染 (原 renderTalentList 主体逻辑, 完整保留可回退)
+function renderTalentListCard(talents) {
+  var el = document.getElementById('talentsMidItems');
+  if (!el) return;
   // 平台 chip 颜色映射（设计系统 --platform-* token）
   var PLATFORM_COLOR = {
     '抖音': '#FE2C55',
@@ -30903,6 +31209,149 @@ function renderTalentList(talents) {
     html += '</div>';
     html += '</div>';
   });
+  el.innerHTML = html;
+}
+
+// ★ feat/sb2-dense-views: 视图切换 (表格/卡片), 默认表格 (老大指令)
+function setTalentViewMode(mode) {
+  if (mode !== 'table' && mode !== 'card') return;
+  _talentViewMode = mode;
+  try { localStorage.setItem('sb2_talentViewMode', mode); } catch(e){}
+  // 同步 segmented-control 选中态
+  _syncTalentViewSwitch();
+  // 重渲染当前达人列表 (不重新 fetch, 用现有数据)
+  if (_talentData && _talentData.talents) {
+    renderTalentList(_talentData.talents);
+  }
+}
+
+function _syncTalentViewSwitch() {
+  var btns = document.querySelectorAll('#talentsViewSwitch .segmented-item');
+  btns.forEach(function(b){
+    b.classList.toggle('active', b.dataset.view === _talentViewMode);
+  });
+}
+
+// ★ feat/sb2-dense-views: 达人库 sb2 高密度表格渲染
+// 列: 头像/名字(宽) | 平台 | 类目 | 粉丝(等宽) | 带货GMV(等宽) | GPM 进度条 | 评级 chip | 状态
+// 接口不变: 输入 talents 数组 (后端 GET /api/talents 返回结构)
+// 字段全部真实, 缺值显示 '-' (老大硬约束 #2), 禁止编造
+function renderTalentListDense(talents) {
+  var el = document.getElementById('talentsMidItems');
+  if (!el) return;
+  // 平台颜色 (与卡片视图同源)
+  var PLATFORM_COLOR = {
+    '抖音': '#FE2C55', '快手': '#FF4906', '小红书': '#FF2442',
+    'B站': '#00AEEC', '视频号': '#07C160'
+  };
+  // 状态映射
+  var stMap = { following: '关注', cooperating: '已合作', communicating: '沟通中', available: '可合作', resting: '暂休', blacklist: '黑名单', archived: '已归档' };
+
+  var html = '';
+  html += '<div class="sb2-talents-table-wrap">';
+  html += '<table class="sb2-talents-table">';
+  html += '<thead><tr>';
+  html += '<th class="sb2-col-name">达人</th>';
+  html += '<th class="sb2-col-platform">平台</th>';
+  html += '<th class="sb2-col-category">类目</th>';
+  html += '<th class="sb2-col-num sb2-num">粉丝</th>';
+  html += '<th class="sb2-col-num sb2-num">带货 GMV</th>';
+  html += '<th class="sb2-col-gpm">GPM</th>';
+  html += '<th class="sb2-col-rating">评级</th>';
+  html += '<th class="sb2-col-status">状态</th>';
+  html += '</tr></thead>';
+  html += '<tbody>';
+
+  talents.forEach(function(t){
+    var mock = _getTalentMockData(t);
+    var isActive = _talentCurrentId === t.id;
+
+    // 1. 头像 + 名字
+    var avatarHtml = t.avatar
+      ? '<img class="sb2-talents-avatar" src="' + escapeAttr(t.avatar) + '" alt="">'
+      : '<span class="sb2-talents-avatar sb2-talents-avatar-fallback">' + escapeHtml((t.name || '?').charAt(0)) + '</span>';
+    var nameText = t.name || '-';
+    var douyinText = t.douyin_id ? '<span class="sb2-talents-douyin">' + escapeHtml(t.douyin_id) + '</span>' : '';
+
+    // 2. 平台 chip
+    var platform = t.platform || '';
+    var platformChip;
+    if (platform) {
+      var pColor = PLATFORM_COLOR[platform] || '';
+      platformChip = pColor
+        ? '<span class="sb2-tag sb2-tag-platform" style="--sb2-platform-color:' + pColor + ';">' + escapeHtml(platform) + '</span>'
+        : '<span class="sb2-tag sb2-tag-platform">' + escapeHtml(platform) + '</span>';
+    } else {
+      platformChip = '<span class="sb2-tag sb2-tag-empty">-</span>';
+    }
+
+    // 3. 类目 chips (按 / , 拆, 最多 2 个)
+    var catSource = (typeof t.category === 'string' ? t.category : '') || (typeof t.fan_category === 'string' ? t.fan_category : '') || '';
+    var categories = catSource.split(/[\/，,]/).map(function(s){ return s.trim(); }).filter(Boolean).slice(0, 2);
+    var catChips = categories.length
+      ? categories.map(function(c){ return '<span class="sb2-tag">' + escapeHtml(c) + '</span>'; }).join('')
+      : '<span class="sb2-tag sb2-tag-empty">-</span>';
+
+    // 4. 粉丝 (等宽数字, tabular-nums)
+    var followersVal = t.followers || 0;
+    var followersText = followersVal > 0 ? formatFollowers(followersVal).replace('w', '万') : '-';
+
+    // 5. 带货 GMV (等宽数字, 真实数据, 无值显 '-')
+    var gmvRaw = t.total_gmv || 0;
+    var gmvText = gmvRaw > 0
+      ? (gmvRaw >= 10000 ? (gmvRaw / 10000).toFixed(1).replace(/\.0$/, '') + '万' : formatNumber(gmvRaw))
+      : '-';
+
+    // 6. GPM 内嵌进度条 — 用 video_gpm (短视频 GPM, 0-1000 区间常见), 真实数据
+    //    进度条宽度按 video_gpm / 1000 * 100 算 (0-100% 范围, 超过 100% 按 100% 截断)
+    var videoGpm = Number(t.video_gpm || 0);
+    var liveGpm = Number(t.live_gpm || 0);
+    var gpmMax = Math.max(videoGpm, liveGpm, 1);
+    var gpmPct = Math.min(100, Math.round((videoGpm / 1000) * 100));
+    var gpmBar;
+    if (videoGpm > 0 || liveGpm > 0) {
+      gpmBar = '<div class="sb2-gpm-bar" title="短视频 GPM ' + videoGpm.toFixed(1) + ' / 直播 GPM ' + liveGpm.toFixed(1) + '">'
+        + '<div class="sb2-gpm-bar-fill" style="width:' + gpmPct + '%;"></div>'
+        + '<span class="sb2-gpm-bar-text">' + (videoGpm > 0 ? videoGpm.toFixed(0) : (liveGpm > 0 ? liveGpm.toFixed(0) + '(L)' : '-')) + '</span>'
+        + '</div>';
+    } else {
+      gpmBar = '<div class="sb2-gpm-bar sb2-gpm-bar-empty"><span class="sb2-gpm-bar-text">-</span></div>';
+    }
+
+    // 7. 评级 chip (S/A/B/C/D, 读 ai_rating 真实字段, 缺值显 '-' 或空 D)
+    var rating = String(t.ai_rating || '').trim().charAt(0).toUpperCase();
+    var ratingHtml;
+    if (rating && 'SABCD'.indexOf(rating) >= 0) {
+      ratingHtml = '<span class="sb2-rating-chip sb2-rating-' + rating + '" data-rating="' + rating + '">' + rating + '</span>';
+    } else {
+      ratingHtml = '<span class="sb2-rating-chip sb2-rating-empty">-</span>';
+    }
+
+    // 8. 状态
+    var status = t.cooperation_status || '';
+    var statusLabel = stMap[status] || status || '-';
+    var statusHtml = status
+      ? '<span class="sb2-status-tag" data-status="' + escapeAttr(status) + '">' + escapeHtml(statusLabel) + '</span>'
+      : '<span class="sb2-status-tag sb2-tag-empty">-</span>';
+
+    // 行
+    html += '<tr class="sb2-talents-row' + (isActive ? ' active' : '') + '"'
+      + ' data-id="' + escapeAttr(t.id) + '"'
+      + ' data-rating="' + escapeAttr(rating) + '"'
+      + ' data-status="' + escapeAttr(status) + '"'
+      + ' onclick="selectTalentItem(\'' + escapeAttr(t.id).replace(/'/g,"\\'") + '\')">';
+    html += '<td class="sb2-col-name"><div class="sb2-talents-name-wrap">' + avatarHtml + '<div class="sb2-talents-name-meta"><div class="sb2-talents-name">' + escapeHtml(nameText) + '</div>' + douyinText + '</div></div></td>';
+    html += '<td class="sb2-col-platform">' + platformChip + '</td>';
+    html += '<td class="sb2-col-category"><div class="sb2-tags-wrap">' + catChips + '</div></td>';
+    html += '<td class="sb2-col-num sb2-num">' + escapeHtml(followersText) + '</td>';
+    html += '<td class="sb2-col-num sb2-num">' + escapeHtml(gmvText) + '</td>';
+    html += '<td class="sb2-col-gpm">' + gpmBar + '</td>';
+    html += '<td class="sb2-col-rating">' + ratingHtml + '</td>';
+    html += '<td class="sb2-col-status">' + statusHtml + '</td>';
+    html += '</tr>';
+  });
+
+  html += '</tbody></table></div>';
   el.innerHTML = html;
 }
 
@@ -33843,7 +34292,14 @@ var _knowledgeCurrentId = null;
 var _knowledgeScope = 'all';
 var _knowledgeProjectId = '';
 var _knowledgePreviewMode = false;
-var _knowledgeViewMode = 'card';
+var _knowledgeViewMode = (function(){
+  try {
+    var saved = localStorage.getItem('sb2_knowledgeViewMode');
+    if (saved === 'sb2' || saved === 'list' || saved === 'card') return saved;
+  } catch(e){}
+  // ★ feat/sb2-dense-views: 默认 'sb2' (高密度表格), 老大指令
+  return 'sb2';
+})();
 var _knowledgePage = 1;
 var _knowledgeLastQuery = '';  // ① 当前搜索 query(空 = 列表模式, 非空 = 搜索模式), 用于 renderKnowledgeList 区分空态
 // ② 分类计数缓存: 全量拉取后按 doc.categoryId 聚合, 父分类递归累加
@@ -34355,6 +34811,11 @@ function renderKnowledgeList(docs) {
   var el = document.getElementById('knowledgeMidItems');
   if (!el) return;
   el.classList.toggle('list-view', _knowledgeViewMode === 'list');
+  // ★ feat/sb2-dense-views: 视图分发 (sb2 高密度 / list / card), 老大指令默认 sb2
+  if (_knowledgeViewMode === 'sb2') {
+    renderKnowledgeListDense(docs);
+    return;
+  }
   if (!docs || docs.length === 0) {
     // ① 区分搜索空态 vs 库空态: 搜索时无结果显「无匹配」+ 查看全部 CTA, 库空时显「暂无文档」+ 手动添加
     if (_knowledgeLastQuery) {
@@ -34435,6 +34896,61 @@ function renderKnowledgeList(docs) {
   el.innerHTML = html;
 }
 
+// ★ feat/sb2-dense-views: 知识库 sb2 高密度表格 — 一行一条, ID+标题+chunks+更新时间, 三枚 tag
+// 字段全部真实, 缺值显示 '-'; 行点击走现有 selectKnowledgeItem 逻辑
+// 保留搜索三态 (有结果/无匹配/库空) + 空态
+function renderKnowledgeListDense(docs) {
+  var el = document.getElementById('knowledgeMidItems');
+  if (!el) return;
+  if (!docs || docs.length === 0) {
+    // 复用现有空态逻辑 (搜索 vs 库空)
+    if (_knowledgeLastQuery) {
+      el.innerHTML = '<div class="kb-search-state kb-search-empty">'
+        + '<div class="kb-search-empty-icon">🔍</div>'
+        + '<div class="kb-search-empty-text">无匹配文档 · 试试别的关键词</div>'
+        + '<button class="kb-search-empty-btn" onclick="onKnowledgeSearchClear()">查看全部文档</button>'
+        + '</div>';
+    } else {
+      el.innerHTML = '<div class="knowledge-mid-empty"><div class="knowledge-mid-empty-icon">📖</div><div class="knowledge-mid-empty-text">暂无知识文档</div><button class="knowledge-mid-empty-btn" onclick="createNewKnowledge()">手动添加</button></div>';
+    }
+    return;
+  }
+  // 范围映射 (与原 list/card 同源)
+  var scopeNameMap = { global: '全局', group: '项目组', personal: '个人' };
+  var html = '';
+  html += '<div class="sb2-kb-list-wrap"><div class="sb2-kb-list">';
+  docs.forEach(function(d){
+    var isActive = d.id === _knowledgeCurrentId;
+    var scope = d.scope || 'global';
+    var status = d.status || 'ok';
+    var title = d.title || d.name || '未命名';
+    var titleText = highlightSearch(title, _knowledgeLastQuery);
+    var pendingClass = status === 'pending' ? ' sb2-kb-pending' : '';
+    // ID (前缀 + 短 ID, 缺值显 '-')
+    var shortId = d.id ? d.id.replace(/^kb_/, '').slice(0, 12) : '-';
+    var idText = d.id ? '<span class="sb2-kb-list-id" title="' + escapeAttr(d.id) + '">' + escapeHtml(shortId) + '</span>' : '<span class="sb2-kb-list-id">-</span>';
+    // 副信息: chunks 数 + 更新时间
+    var chunksCount = (typeof d.chunks_count === 'number') ? d.chunks_count : (Array.isArray(d.chunks) ? d.chunks.length : 0);
+    var updated = d.updatedAt ? formatRelativeTime(d.updatedAt) : '-';
+    var subText = '<b>' + (chunksCount > 0 ? chunksCount : '-') + ' chunks</b> · ' + escapeHtml(updated);
+    // 三枚 tag: 分类 / 范围 / 状态
+    var catTag = d.category
+      ? '<span class="sb2-tag">' + escapeHtml(d.category) + '</span>'
+      : '<span class="sb2-tag sb2-tag-empty">-</span>';
+    var scopeTag = '<span class="sb2-tag sb2-tag-scope">' + escapeHtml(scopeNameMap[scope] || '全局') + '</span>';
+    var statusTag = '<span class="sb2-tag sb2-kb-tag-status" data-status="' + escapeAttr(status) + '">' + escapeHtml(status === 'ok' ? '已发布' : status === 'pending' ? '待审核' : status) + '</span>';
+    // 行点击走 selectKnowledgeItem (现有打开逻辑, 老大硬约束)
+    html += '<div class="sb2-kb-list-item' + (isActive ? ' active' : '') + pendingClass + '" data-id="' + escapeAttr(d.id || '') + '" onclick="selectKnowledgeItem(\'' + escapeAttr(d.id || '').replace(/'/g, "\\'") + '\')">';
+    html += idText;
+    html += '<div class="sb2-kb-list-main"><div class="sb2-kb-list-title">' + titleText + '</div><div class="sb2-kb-list-sub">' + subText + '</div></div>';
+    html += '<div class="sb2-kb-list-tags">' + catTag + scopeTag + '</div>';
+    html += '<div class="sb2-kb-list-tags">' + statusTag + '</div>';
+    html += '</div>';
+  });
+  html += '</div></div>';
+  el.innerHTML = html;
+}
+
 // ④ 审核按钮包装: 防双击(loading 0.5s) + 调原 approve/reject 函数
 // 旧 onclick 直接调 approveKnowledgeDoc, 用户连续点两下会触发两次 API
 // 包装后: 第一次点击立即 disabled + 改文案, 0.5s 内重复点击不响应
@@ -34451,9 +34967,15 @@ function reviewKnowledgeDoc(btnEl, action, docId) {
   }
 }
 function switchKnowledgeView(mode) {
-  _knowledgeViewMode = mode === 'list' ? 'list' : 'card';
+  // ★ feat/sb2-dense-views: 加 'sb2' 模式 (高密度表格, 老大指令默认)
+  if (mode === 'sb2' || mode === 'list' || mode === 'card') {
+    _knowledgeViewMode = mode;
+    try { localStorage.setItem('sb2_knowledgeViewMode', mode); } catch(e){}
+  }
+  var sb2Btn = document.getElementById('knowledgeViewSb2Btn');
   var cardBtn = document.getElementById('knowledgeViewCardBtn');
   var listBtn = document.getElementById('knowledgeViewListBtn');
+  if (sb2Btn) sb2Btn.classList.toggle('active', _knowledgeViewMode === 'sb2');
   if (cardBtn) cardBtn.classList.toggle('active', _knowledgeViewMode === 'card');
   if (listBtn) listBtn.classList.toggle('active', _knowledgeViewMode === 'list');
   renderKnowledgeList(_knowledgeData.docs);
