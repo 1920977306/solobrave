@@ -329,6 +329,26 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .module-filter-row select { flex: 1; padding: 6px 8px; border-radius: 6px; border: 0.5px solid var(--separator); background: var(--bg-primary); font-size: 13px; }
 .module-right-header { height: 48px; padding: 0 16px; border-bottom: 0.5px solid var(--separator); display: flex; align-items: center; justify-content: space-between; background: #fff; flex-shrink: 0; }
 .module-right-title { font-size: 15px; font-weight: 600; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* ★ feat/p03-quality-loop 交付 4: V3 商品评级 chip (S/A/B/C/D) — 与现有 rating-chip 风格一致 */
+.v3-rating-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  margin-left: 10px;
+  border: 1px solid;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+  background: var(--surface);
+  cursor: help;
+}
+.v3-rating-chip[data-rating="S"] { color: #34C759; border-color: #34C759; background: rgba(52, 199, 89, 0.08); }
+.v3-rating-chip[data-rating="A"] { color: #1677ff; border-color: #1677ff; background: rgba(22, 119, 255, 0.08); }
+.v3-rating-chip[data-rating="B"] { color: #FF8C42; border-color: #FF8C42; background: rgba(255, 140, 66, 0.08); }
+.v3-rating-chip[data-rating="C"] { color: #FFCC00; border-color: #FFCC00; background: rgba(255, 204, 0, 0.08); }
+.v3-rating-chip[data-rating="D"] { color: #8E8E93; border-color: #8E8E93; background: rgba(142, 142, 147, 0.08); }
+.v3-rating-chip[data-error] { color: #B07800; border-color: #B07800; background: rgba(255, 247, 230, 0.5); }
 .module-right-actions { display: flex; gap: 8px; align-items: center; }
 .module-action-btn { padding: 6px 14px; border-radius: 8px; border: 1px solid var(--accent); font-size: 13px; cursor: pointer; transition: all 0.15s; background: #ffffff; color: var(--accent); }
 .module-action-btn:hover { background: var(--accent-light); }
@@ -10232,6 +10252,7 @@ window.doLogin = function () {
 <div class="module-right products-right" id="productsRight">
   <div class="module-right-header">
     <div class="module-right-title" id="productsRightTitle">商品详情</div>
+    <span class="v3-rating-chip" id="productsV3RatingChip" style="display:none;"></span>
   </div>
   <div class="module-right-content products-right-content" id="productsRightContent">
     <div class="module-welcome" id="productsEmptyState">
@@ -29416,6 +29437,39 @@ function renderProductPagination(total, page, pageSize) {
   el.innerHTML = html;
 }
 
+// ★ feat/p03-quality-loop 交付 4: 异步拉 V3 商品评分, 在商品详情头部显示 S/A/B/C/D chip
+function loadProductV3Rating(productId) {
+  var chipEl = document.getElementById('productsV3RatingChip');
+  if (!chipEl) return;
+  chipEl.style.display = 'none';
+  chipEl.textContent = '';
+  delete chipEl.dataset.rating;
+  delete chipEl.dataset.error;
+  apiFetch('/api/products/' + encodeURIComponent(productId) + '/score')
+    .then(function(r){ return r.json(); })
+    .then(function(data){
+      var grade = data && data['评级'];
+      var score = data && data['综合分'];
+      if (!grade) {
+        chipEl.style.display = 'inline-flex';
+        chipEl.dataset.error = '1';
+        chipEl.textContent = '暂无评级';
+        return;
+      }
+      chipEl.style.display = 'inline-flex';
+      chipEl.dataset.rating = grade;
+      chipEl.textContent = 'V3 评级 ' + grade + ' (' + (score != null ? score : '-') + ')';
+      chipEl.title = 'V3 评分: 选品意愿 ' + (data['选品意愿分'] || '-') + ' · 带货效果 ' + (data['带货效果分'] || '-') + ' · 综合 ' + (score || '-');
+    })
+    .catch(function(e){
+      // ★ feat/p03-quality-loop 交付 4: 静默降级 — 网络错/404 不弹错, 只显提示
+      console.warn('[loadProductV3Rating] failed', e);
+      chipEl.style.display = 'inline-flex';
+      chipEl.dataset.error = '1';
+      chipEl.textContent = 'V3 暂不可用';
+    });
+}
+
 function selectProductItem(id) {
   _productCurrentId = id;
   var p = _productData.products.find(function(x){return x.id === id;});
@@ -29457,6 +29511,8 @@ function renderProductDetail(p) {
   renderProductPanelSales(p);
   renderProductPanelInfluencers(p);
   renderProductPanelAudience(p);
+  // ★ feat/p03-quality-loop 交付 4: 异步拉 V3 评分, 显示 S/A/B/C/D 角标
+  loadProductV3Rating(p.id);
 }
 
 // ★ ui/products-detail-v21-kpi: 4 KPI mini (跟 talent-detail KPI 风格对齐)
