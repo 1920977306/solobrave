@@ -10091,9 +10091,12 @@ window.doLogin = function () {
   border:1px solid transparent; cursor:pointer;
 }
 .sb2-btn-ghost{ border-color:var(--sb2-border-strong); color:var(--sb2-t2); background:var(--sb2-s1); }
-.sb2-btn-ghost:hover{ color:var(--sb2-t1); border-color:var(--sb2-t3); }
+.sb2-btn-ghost:hover:not(:disabled){ color:var(--sb2-t1); border-color:var(--sb2-t3); }
 .sb2-btn-brand{ background:var(--sb2-brand); color:#fff; }
-.sb2-btn-brand:hover{ background:var(--sb2-brand-strong); box-shadow:0 4px 14px rgba(255,90,54,.35); transform:translateY(-1px); }
+.sb2-btn-brand:hover:not(:disabled){ background:var(--sb2-brand-strong); box-shadow:0 4px 14px rgba(255,90,54,.35); transform:translateY(-1px); }
+.sb2-btn-ink{ background:var(--sb2-ink); color:var(--sb2-s1); }
+.sb2-btn-ink:hover:not(:disabled){ background:var(--sb2-ink-hover); box-shadow:var(--sb2-sh2); transform:translateY(-1px); }
+.sb2-btn-ink:disabled{ background:var(--sb2-s3); color:var(--sb2-t3); cursor:not-allowed; transform:none; box-shadow:none; }
 
 .sb2-kpis{ display:grid; grid-template-columns:repeat(4,1fr); gap:14px; }
 .sb2-kpi{
@@ -10485,12 +10488,6 @@ window.doLogin = function () {
   --sb2-chat-topbar-team-dot-size: 8px;
   --sb2-chat-topbar-team-dot-on: var(--sb2-success);
   --sb2-chat-topbar-team-dot-off: var(--sb2-t3);
-  --sb2-chat-topbar-ws-padding: 4px 10px;
-  --sb2-chat-topbar-ws-radius: 10px;
-  --sb2-chat-topbar-ws-fg-on: var(--sb2-success);
-  --sb2-chat-topbar-ws-bg-on: var(--sb2-success-soft);
-  --sb2-chat-topbar-ws-fg-off: var(--sb2-t2);
-  --sb2-chat-topbar-ws-bg-off: var(--sb2-s3);
   /* Topbar 扩展 (布局对齐原型: 头像 + 姓名·角色 + 状态行 + 右侧 ghost 按钮) */
   --sb2-chat-topbar-padding: 14px 20px;
   --sb2-chat-topbar-avatar-size: 28px;
@@ -10511,36 +10508,29 @@ window.doLogin = function () {
   --sb2-chat-messages-gap: 18px;  /* 原型 gap 18px */
   --sb2-chat-messages-empty: var(--sb2-t3);
 
-  /* Input wrap (P0-2 还原旧版: 灰底胶囊 + 圆形品牌发送键) */
+  /* Input wrap (像素级复刻原型: 白底输入囊 + btn-ink 发送 + ghost 附件) */
   --sb2-chat-input-wrap-bg: var(--sb2-s1);
-  --sb2-chat-input-wrap-padding: 10px 14px 12px;
+  --sb2-chat-input-wrap-padding: 14px 20px;  /* 原型 padding 14px 20px */
   --sb2-chat-input-wrap-border-top: 1px solid var(--sb2-border);
-  --sb2-chat-input-capsule-bg: var(--sb2-s3);  /* 灰底胶囊 (旧版柔灰底风格) */
-  --sb2-chat-input-capsule-border: 1.5px solid var(--sb2-border);
-  --sb2-chat-input-capsule-border-focus: var(--sb2-brand);
-  --sb2-chat-input-capsule-radius: 12px;
-  --sb2-chat-input-capsule-padding: 8px 12px;
-  --sb2-chat-input-capsule-gap: 8px;
-  --sb2-chat-input-row-gap: 8px;
-  --sb2-chat-tool-btn-size: 28px;
-  --sb2-chat-tool-btn-fg: var(--sb2-t2);
-  --sb2-chat-tool-btn-fg-hover: var(--sb2-t1);
-  --sb2-chat-tool-btn-bg-hover: transparent;
-  --sb2-chat-input-bg: transparent;  /* 旧版: 透明 (灰底来自胶囊) */
+  --sb2-chat-input-row-gap: 10px;  /* 原型 row gap 10px */
+  --sb2-chat-input-pill-bg: var(--sb2-s1);  /* 白底输入囊 (surface) */
+  --sb2-chat-input-pill-border: 1px solid var(--sb2-border-strong);
+  --sb2-chat-input-pill-border-focus: var(--sb2-ink);
+  --sb2-chat-input-pill-radius: var(--sb2-r-lg);  /* 14px */
+  --sb2-chat-input-pill-padding: 10px 14px;
+  --sb2-chat-attach-btn-padding: 8px;  /* 原型 ghost 8px 方形 */
+  --sb2-chat-input-bg: transparent;  /* pill 已上色, input 透明 */
   --sb2-chat-input-fg: var(--sb2-t1);
   --sb2-chat-input-placeholder: var(--sb2-t3);
-  --sb2-chat-input-radius: 0;  /* 旧版: 无边框圆角 */
-  --sb2-chat-input-padding: 4px 4px;
+  --sb2-chat-input-radius: 0;  /* pill 已带圆角 */
+  --sb2-chat-input-padding: 0;  /* pill 内边距负责 */
   --sb2-chat-input-min-height: 24px;
-  --sb2-chat-input-max-height: 100px;  /* 旧版: 100px */
-  --sb2-chat-input-border: none;  /* 旧版: 无边框 (灰底胶囊已包住) */
+  --sb2-chat-input-max-height: 160px;  /* 多行真实功能, 比原型 input 单行宽松 */
+  --sb2-chat-input-border: none;
   --sb2-chat-input-border-focus: none;
-  --sb2-chat-send-btn-size: 32px;  /* 旧版: 32px */
-  --sb2-chat-send-btn-bg: var(--sb2-brand);
-  --sb2-chat-send-btn-bg-hover: var(--sb2-brand-strong);
-  --sb2-chat-send-btn-bg-disabled: var(--sb2-brand-soft);  /* 不要用蓝, 用品牌软橙 */
-  --sb2-chat-send-btn-fg: var(--sb2-s1);
-  --sb2-chat-send-btn-radius: 50%;  /* 旧版: 圆形 */
+  /* Send btn: btn-ink 标准按钮 (无固定方形, 文字驱动) */
+  --sb2-chat-send-btn-padding: 8px 14px;
+  --sb2-chat-send-btn-radius: var(--sb2-r-md);
 
   /* Attach bar */
   --sb2-chat-attach-bar-gap: 8px;
@@ -10650,6 +10640,17 @@ window.doLogin = function () {
 .sb2-chat-topbar-status.offline .sb2-chat-topbar-status-dot {
   background: var(--sb2-t3);
 }
+/* 状态行内嵌模型名 (原型规格: 可点击换模型, §2 功能保留) */
+.sb2-chat-topbar-pick-model {
+  cursor: pointer;
+  border-radius: var(--sb2-r-sm);
+  padding: 0 4px;
+  transition: background 0.15s, color 0.15s;
+}
+.sb2-chat-topbar-pick-model:hover {
+  background: var(--sb2-s3);
+  color: var(--sb2-t1);
+}
 /* 右侧: model + ws + 2 个 ghost 按钮 */
 .sb2-chat-topbar-right {
   display: flex;
@@ -10670,36 +10671,6 @@ window.doLogin = function () {
 .sb2-chat-topbar-ghost:hover {
   color: var(--sb2-t1);
   border-color: var(--sb2-t3);
-}
-.sb2-chat-topbar-model {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: var(--sb2-chat-topbar-ws-padding);
-  border-radius: var(--sb2-chat-topbar-ws-radius);
-  font-size: 12px;
-  background: var(--sb2-s3);
-  color: var(--sb2-t2);
-  border: 0;
-  cursor: pointer;
-}
-.sb2-chat-topbar-model:hover {
-  background: var(--sb2-s2);
-  color: var(--sb2-t1);
-}
-.sb2-chat-topbar-ws {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: var(--sb2-chat-topbar-ws-padding);
-  border-radius: var(--sb2-chat-topbar-ws-radius);
-  font-size: 12px;
-  background: var(--sb2-chat-topbar-ws-bg-off);
-  color: var(--sb2-chat-topbar-ws-fg-off);
-}
-.sb2-chat-topbar-ws.connected {
-  background: var(--sb2-chat-topbar-ws-bg-on);
-  color: var(--sb2-chat-topbar-ws-fg-on);
 }
 /* 兼容旧 DOM (sb2-chat-topbar-team-dot 保留以防外部 query 引用) */
 .sb2-chat-topbar-team-dot {
@@ -11007,50 +10978,40 @@ window.doLogin = function () {
   padding: 0;
 }
 
-/* Input capsule (灰底 + 1.5px 边框 + 12px 圆角, focus 高亮) */
-.sb2-chat-input-capsule {
+/* Input row (原型 flex row: ghost attach + white pill + btn-ink send) */
+.sb2-chat-input-row {
   display: flex;
   align-items: flex-end;
-  gap: var(--sb2-chat-input-capsule-gap);
-  background: var(--sb2-chat-input-capsule-bg);
-  border: var(--sb2-chat-input-capsule-border);
-  border-radius: var(--sb2-chat-input-capsule-radius);
-  padding: var(--sb2-chat-input-capsule-padding);
-  transition: border-color 0.2s;
-}
-.sb2-chat-input-capsule:focus-within {
-  border-color: var(--sb2-chat-input-capsule-border-focus);
+  gap: var(--sb2-chat-input-row-gap);
 }
 
-/* Tools (left button group) */
-.sb2-chat-input-tools {
+/* Attach btn (原型: btn-ghost 方形 8px padding) */
+.sb2-chat-attach-btn {
+  padding: var(--sb2-chat-attach-btn-padding) !important;
+  flex: 0 0 auto;
+}
+.sb2-chat-attach-btn svg {
+  display: block;
+  color: var(--sb2-t2);
+}
+
+/* Input pill (白底 + 1px border-strong + 14px 圆角 + padding 10px 14px) */
+.sb2-chat-input-pill {
+  flex: 1 1 auto;
   display: flex;
   align-items: center;
-  gap: 4px;
-  flex: 0 0 auto;
+  background: var(--sb2-chat-input-pill-bg);
+  border: var(--sb2-chat-input-pill-border);
+  border-radius: var(--sb2-chat-input-pill-radius);
+  padding: var(--sb2-chat-input-pill-padding);
+  transition: border-color 0.15s;
+  min-width: 0;
 }
-.sb2-chat-tool-btn {
-  width: var(--sb2-chat-tool-btn-size);
-  height: var(--sb2-chat-tool-btn-size);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: transparent;
-  border: none;
-  border-radius: var(--sb2-r-sm);
-  color: var(--sb2-chat-tool-btn-fg);
-  cursor: pointer;
-  transition: color 0.15s;
-  padding: 0;
-  flex: 0 0 auto;
+.sb2-chat-input-pill:focus-within {
+  border-color: var(--sb2-chat-input-pill-border-focus);
 }
-.sb2-chat-tool-btn:hover {
-  background: var(--sb2-chat-tool-btn-bg-hover);
-  color: var(--sb2-chat-tool-btn-fg-hover);
-}
-.sb2-chat-tool-btn:active { transform: scale(0.95); }
 
-/* Textarea (旧版: 透明 + 无边框, 灰底胶囊已包住) */
+/* Textarea (pill 内透明 + 无边框, pill 已包住视觉) */
 .sb2-chat-input {
   flex: 1 1 auto;
   min-height: var(--sb2-chat-input-min-height);
@@ -11066,43 +11027,23 @@ window.doLogin = function () {
   resize: none;
   outline: none;
   transition: none;
+  width: 100%;
 }
 .sb2-chat-input::placeholder { color: var(--sb2-chat-input-placeholder); }
 .sb2-chat-input:focus { outline: none; }
 
-/* Send button (旧版: 32px 圆形实心, 颜色走 brand) */
+/* Send btn (原型: btn-ink 长方形文字按钮) */
 .sb2-chat-send-btn {
-  width: var(--sb2-chat-send-btn-size);
-  height: var(--sb2-chat-send-btn-size);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--sb2-chat-send-btn-bg);
-  color: var(--sb2-chat-send-btn-fg);
-  border: none;
+  padding: var(--sb2-chat-send-btn-padding) !important;
   border-radius: var(--sb2-chat-send-btn-radius);
-  cursor: pointer;
-  transition: background 0.15s, transform 0.1s;
-  padding: 0;
   flex: 0 0 auto;
-}
-.sb2-chat-send-btn:hover:not(:disabled) {
-  background: var(--sb2-chat-send-btn-bg-hover);
-  transform: scale(1.05);
-}
-.sb2-chat-send-btn:active:not(:disabled) { transform: scale(0.95); }
-.sb2-chat-send-btn:disabled {
-  background: var(--sb2-chat-send-btn-bg-disabled);
-  cursor: not-allowed;
-  transform: none;
-}
 }
 
 /* ===== Responsive ===== */
 @media (max-width: 768px) {
   .sb2-chat-bubble { max-width: 85%; }
   .sb2-chat-messages { padding: 12px 14px; }
-  .sb2-chat-input-wrap { padding: 10px 12px 12px; }
+  .sb2-chat-input-wrap { padding: 12px 14px; }
   .sb2-chat-topbar { padding: 0 12px; }
 }
 @media (max-width: 480px) {
@@ -11120,13 +11061,6 @@ window.doLogin = function () {
 <style id="sb2-chat-tasks">
 :root {
   /* Topbar 模型徽章 (新增) */
-  --sb2-chat-topbar-model-padding: 4px 10px;
-  --sb2-chat-topbar-model-radius: 6px;
-  --sb2-chat-topbar-model-fg: var(--sb2-t1);
-  --sb2-chat-topbar-model-bg: var(--sb2-s1);
-  --sb2-chat-topbar-model-border: 1px solid var(--sb2-border);
-  --sb2-chat-topbar-model-bg-hover: var(--sb2-s3);
-
   /* Popup 容器 (slash / @mention / model 共用) */
   --sb2-chat-tasks-popup-min-w: 280px;
   --sb2-chat-tasks-popup-max-w: 360px;
@@ -11159,39 +11093,6 @@ window.doLogin = function () {
 
   /* Empty 状态 */
   --sb2-chat-tasks-empty-fg: var(--sb2-t3);
-}
-
-/* ===== Topbar 模型徽章 ===== */
-.sb2-chat-topbar-model {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: var(--sb2-chat-topbar-model-padding);
-  background: var(--sb2-chat-topbar-model-bg);
-  color: var(--sb2-chat-topbar-model-fg);
-  border: var(--sb2-chat-topbar-model-border);
-  border-radius: var(--sb2-chat-topbar-model-radius);
-  font-size: 12px;
-  cursor: pointer;
-  transition: background 0.15s;
-  flex: 0 0 auto;
-  margin-left: auto;  /* 推 model+ws 一起右对齐 (跟 ws 同行) */
-}
-.sb2-chat-topbar-model:hover {
-  background: var(--sb2-chat-topbar-model-bg-hover);
-}
-.sb2-chat-topbar-model-tag {
-  font-weight: 600;
-  color: var(--sb2-t2);
-  font-size: 10px;
-  letter-spacing: 0.3px;
-}
-.sb2-chat-topbar-model-name {
-  font-weight: 500;
-}
-.sb2-chat-topbar-model-caret {
-  font-size: 10px;
-  color: var(--sb2-t3);
 }
 
 /* ===== Popup 容器 (三功能共用) ===== */
@@ -12102,16 +12003,8 @@ window.doLogin = function () {
       </div>
     </div>
     <div class="sb2-chat-topbar-right">
-      <button class="sb2-chat-topbar-model" type="button" id="sb2ChatTopbarModel" aria-label="切换模型" title="切换模型 (请求级透传)">
-        <span class="sb2-chat-topbar-model-tag">MODEL</span>
-        <span class="sb2-chat-topbar-model-name" id="sb2ChatTopbarModelName">kimi-for-coding</span>
-        <span class="sb2-chat-topbar-model-caret">▾</span>
-      </button>
       <button class="sb2-chat-topbar-ghost" type="button" id="sb2ChatTopbarProfile" title="员工档案" onclick="sb2_toastComingSoon('员工档案')">员工档案</button>
       <button class="sb2-chat-topbar-ghost" type="button" id="sb2ChatTopbarSettings" title="会话设置" onclick="sb2_toastComingSoon('会话设置')">设置</button>
-      <div class="sb2-chat-topbar-ws disconnected" id="sb2ChatTopbarWs">
-        <span id="sb2ChatTopbarWsText">未连接</span>
-      </div>
     </div>
   </header>
 
@@ -12129,22 +12022,20 @@ window.doLogin = function () {
     </div>
   </div>
 
-  <!-- 发送框 (P0-2 还原旧版布局: 灰底胶囊 + 圆形品牌发送键) -->
+  <!-- 发送框 (像素级复刻原型: ghost 附件 + 白底输入囊 + btn-ink 发送) -->
   <div class="sb2-chat-input-wrap">
     <!-- 附件预览条 -->
     <div class="sb2-chat-attach-bar" id="sb2ChatAttachBar"></div>
 
-    <!-- 输入胶囊: 灰底 + 1.5px 边框 + 12px 圆角 (focus 高亮) -->
-    <div class="sb2-chat-input-capsule">
-      <div class="sb2-chat-input-tools">
-        <button class="sb2-chat-tool-btn" type="button" id="sb2ChatAttachBtn" title="图片附件" aria-label="添加图片附件">
-          <svg xmlns="http://www.w0.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
-        </button>
-      </div>
-      <textarea id="sb2ChatInput" class="sb2-chat-input" rows="1" placeholder="输入消息... (Enter 发送 / Shift+Enter 换行)" autocomplete="off"></textarea>
-      <button class="sb2-chat-send-btn" id="sb2ChatSendBtn" type="button" disabled title="发送" aria-label="发送消息">
-        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" x2="11" y1="2" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+    <!-- 输入行: 附件方钮 + 白底输入囊 + 深色发送按钮 (原型 flex row) -->
+    <div class="sb2-chat-input-row">
+      <button class="sb2-btn sb2-btn-ghost sb2-chat-attach-btn" type="button" id="sb2ChatAttachBtn" title="图片附件" aria-label="添加图片附件">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
       </button>
+      <div class="sb2-chat-input-pill">
+        <textarea id="sb2ChatInput" class="sb2-chat-input" rows="1" placeholder="给员工派活… (Enter 发送, Shift+Enter 换行)" autocomplete="off"></textarea>
+      </div>
+      <button class="sb2-btn sb2-btn-ink sb2-chat-send-btn" id="sb2ChatSendBtn" type="button" disabled title="发送" aria-label="发送消息">发送</button>
     </div>
     <input type="file" id="sb2ChatFileInput" accept="image/*" multiple style="display:none;">
 
@@ -39868,17 +39759,16 @@ else init();
     var nameEl = document.getElementById('sb2ChatTopbarName');
     if (nameEl) nameEl.textContent = empName + (empRole ? ' · ' + empRole : '');
 
-    // 状态行: 绿点 + 网关在线 · 模型名 / 未连接
+    // 状态行: 绿点 + 网关在线 · 模型名 / 未连接 (原型规格: 模型名内联, 可点击换模型)
     var statusEl = document.getElementById('sb2ChatTopbarStatus');
     var statusTextEl = document.getElementById('sb2ChatTopbarStatusText');
-    var modelNameEl = document.getElementById('sb2ChatTopbarModelName');
-    var modelName = modelNameEl ? modelNameEl.textContent.trim() : '';
+    var modelName = (_sb2ChatTasks && _sb2ChatTasks.model && _sb2ChatTasks.model.current) || '';
     var online = !!(emp && (emp.online === true || emp.status === 'online'));
     var wsConnected = !!_sb2Chat.wsConnected;
     if (statusEl) statusEl.classList.toggle('offline', !(online && wsConnected));
     if (statusTextEl) {
       if (online && wsConnected) {
-        statusTextEl.textContent = '网关在线 · ' + (modelName || '-');
+        statusTextEl.innerHTML = '网关在线 · <span class="sb2-chat-topbar-pick-model" id="sb2ChatPickModel" title="点击切换模型">' + _sb2EscapeHtml(modelName || '-') + '</span>';
       } else if (wsConnected) {
         statusTextEl.textContent = '网关已连 · 员工离线';
       } else {
@@ -39886,19 +39776,10 @@ else init();
       }
     }
 
-    // 兼容旧 ws badge (右侧 ws 徽章)
-    var wsEl = document.getElementById('sb2ChatTopbarWs');
-    var wsTextEl = document.getElementById('sb2ChatTopbarWsText');
-    if (wsEl && wsTextEl) {
-      if (wsConnected) {
-        wsEl.classList.remove('disconnected');
-        wsEl.classList.add('connected');
-        wsTextEl.textContent = '网关已连';
-      } else {
-        wsEl.classList.remove('connected');
-        wsEl.classList.add('disconnected');
-        wsTextEl.textContent = '未连接';
-      }
+    // 输入框 placeholder 动态拼接员工名 (原型: 给 {员工名} 派活…)
+    var inp = document.getElementById('sb2ChatInput');
+    if (inp) {
+      inp.placeholder = '给 ' + (empName || '员工') + ' 派活… (Enter 发送, Shift+Enter 换行)';
     }
   }
   // 顶栏 ghost 按钮占位 (原型对应"员工档案/设置"待展开, 跟前端规范一致走 toast)
@@ -40374,12 +40255,12 @@ else init();
     if (!found) return;
     _sb2ChatTasks.model.current = name;
     try { localStorage.setItem('sb2_current_model', name); } catch (e) { /* localStorage 可能不可用 */ }
-    var badge = document.getElementById('sb2ChatTopbarModelName');
+    var badge = document.getElementById('sb2ChatPickModel');
     if (badge) badge.textContent = name;
     _sb2HidePopup();
   }
   function sb2_updateModelBadge() {
-    var badge = document.getElementById('sb2ChatTopbarModelName');
+    var badge = document.getElementById('sb2ChatPickModel');
     if (badge) badge.textContent = _sb2ChatTasks.model.current;
   }
   function sb2_initModelFromStorage() {
@@ -40707,11 +40588,11 @@ else init();
       if (!_sb2ChatTasks.active) return;
       var p = document.getElementById('sb2ChatTasksPopup');
       var inp = document.getElementById('sb2ChatInput');
-      var modelBtn = document.getElementById('sb2ChatTopbarModel');
+      var pickModel = document.getElementById('sb2ChatPickModel');
       if (!p) return;
       if (p.contains(e.target)) return;
       if (inp && inp.contains(e.target)) return;  // 输入框内点击由 keyup 触发
-      if (modelBtn && modelBtn.contains(e.target)) return;  // 模型徽章点击单独处理
+      if (pickModel && pickModel.contains(e.target)) return;  // 状态行模型名点击单独处理
       _sb2HidePopup();
     });
   }
@@ -40728,10 +40609,10 @@ else init();
     // 键盘交互 (popup 打开时)
     inp.addEventListener('keydown', sb2_handleTasksKeydown);
 
-    // topbar 模型徽章点击
-    var modelBtn = document.getElementById('sb2ChatTopbarModel');
-    if (modelBtn) {
-      modelBtn.addEventListener('click', function(e) {
+    // 状态行内嵌模型名点击 → 打开模型选择
+    var pickModel = document.getElementById('sb2ChatPickModel');
+    if (pickModel) {
+      pickModel.addEventListener('click', function(e) {
         e.stopPropagation();
         sb2_renderModelMenu();
       });
