@@ -10275,6 +10275,90 @@ window.doLogin = function () {
 }
 </style>
 
+<style id="sb2-knowledge">
+/* ============================================================
+ * sb2-knowledge: 知识库屏 (MVP1 全新套壳 + 数据接通)
+ * 铁律 (老大 2026-10-02 20:24 新方法论):
+ *  - 全新 sb2 DOM (sb2 前缀容器, 一行旧容器 class/style 都不引)
+ *  - dense-views 表格视觉不进新版 (新版按原型卡片式重建)
+ *  - 旧 knowledgeMid 系列容器 CSS 兜底 display:none (不退役仅兜底)
+ *  - --sb2-* token 0 硬编码
+ *  - 接口签名 0 改动 (复用 /api/knowledge/* 现有端点)
+ *  - 原型对稿基准: solobrave-redesign/index.html s-knowledge 屏
+ *  - CSS 块注释内严禁字面结束样式标签 (避免提前关闭样式块)
+ * ============================================================ */
+
+.sb2-knowledge-main{
+  display:none; flex-direction:column; flex:1; height:100%;
+  padding:20px 24px; overflow-y:auto;
+  font:400 13px/1.5 "PingFang SC",-apple-system,sans-serif;
+  color:var(--sb2-t1); background:var(--sb2-bg);
+}
+.sb2-knowledge-main.active{ display:flex; }
+
+.sb2-kb-hero{ display:flex; align-items:center; gap:12px; margin-bottom:16px; }
+.sb2-kb-hero-title{
+  font:600 24px/1.2 "PingFang SC",sans-serif; color:var(--sb2-ink);
+  margin:0; letter-spacing:-0.01em;
+}
+.sb2-kb-hero-sub{
+  font:400 12px/1.3 "PingFang SC",sans-serif; color:var(--sb2-t3); margin-top:4px;
+}
+.sb2-kb-hero-actions{ margin-left:auto; display:flex; gap:8px; }
+
+.sb2-kb-chips{ display:flex; gap:8px; flex-wrap:wrap; margin-bottom:16px; }
+.sb2-kb-chip{
+  padding:6px 12px; border-radius:var(--sb2-r-full); border:1px solid var(--sb2-border);
+  background:var(--sb2-s1); color:var(--sb2-t2);
+  font:500 12px/1 "PingFang SC",sans-serif; cursor:pointer;
+  transition:all .15s;
+}
+.sb2-kb-chip:hover{ background:var(--sb2-s3); color:var(--sb2-t1); }
+.sb2-kb-chip.active{
+  background:var(--sb2-ink); color:var(--sb2-s1); border-color:var(--sb2-ink);
+}
+
+.sb2-kb-list{ display:flex; flex-direction:column; gap:10px; }
+.sb2-kb-empty{
+  padding:80px 24px; text-align:center; color:var(--sb2-t3);
+  font:400 13px/1.5 "PingFang SC",sans-serif;
+}
+.sb2-kb-card{
+  padding:14px 16px; border:1px solid var(--sb2-border); border-radius:var(--sb2-r-md);
+  background:var(--sb2-s1); cursor:pointer; transition:all .15s;
+}
+.sb2-kb-card:hover{
+  border-color:var(--sb2-border-strong);
+  box-shadow:0 1px 3px rgba(0,0,0,0.04);
+}
+.sb2-kb-card-title{
+  margin:0 0 6px; font:600 14px/1.4 "PingFang SC",sans-serif; color:var(--sb2-ink);
+}
+.sb2-kb-card-meta{
+  font:400 11px/1.3 "SF Mono",ui-monospace,monospace; color:var(--sb2-t3); margin-bottom:8px;
+}
+.sb2-kb-card-tags{ display:flex; gap:6px; flex-wrap:wrap; }
+.sb2-tag{
+  padding:2px 8px; border-radius:var(--sb2-r-sm);
+  font:500 11px/1.3 "PingFang SC",sans-serif;
+}
+.sb2-tag-cat{ background:var(--sb2-s3); color:var(--sb2-t2); }
+.sb2-tag-scope{ background:var(--sb2-s2); color:var(--sb2-t3); border:1px solid var(--sb2-border); }
+.sb2-tag-status-ok{ background:var(--sb2-success-soft); color:var(--sb2-success); }
+.sb2-tag-status-pending{ background:var(--sb2-warning-soft); color:var(--sb2-warning); }
+.sb2-tag-status-failed{ background:var(--sb2-danger-soft); color:var(--sb2-danger); }
+
+/* —— 旧 knowledgeMid 系列容器兜底隐藏 (不退役仅兜底, 全勾后才退役) —— */
+#knowledgeMid,
+#knowledgeMidList,
+#knowledgeRight,
+#knowledgeRightOverlay,
+#knowledgeModalOverlay,
+#knowledgeDocModalOverlay,
+#knowledgeVersionModalOverlay,
+#knowledgeCatContextMenu{ display:none !important; }
+</style>
+
 <style id="sb2-dense-views">
 /* ============================================================
  * SoloBrave 2.0 密集视图 (feat/sb2-dense-views)
@@ -11509,6 +11593,24 @@ window.doLogin = function () {
 
 <!-- Main Content -->
 <main class="app-main">
+<!-- ★ sb2-knowledge: 全新知识库屏 (MVP1 套壳, 旧 knowledgeMid 系列 CSS 兜底 display:none) -->
+<div class="sb2-knowledge-main" id="sb2KnowledgeMain">
+  <div class="sb2-kb-hero">
+    <div>
+      <h1 class="sb2-kb-hero-title">知识库</h1>
+      <div class="sb2-kb-hero-sub" id="sb2KbHeroSub">载入中…</div>
+    </div>
+    <div class="sb2-kb-hero-actions">
+      <button class="sb2-btn sb2-btn-ghost" onclick="sb2KbImport()">导入</button>
+      <button class="sb2-btn sb2-btn-ink" onclick="sb2KbNew()">+ 新建知识</button>
+    </div>
+  </div>
+  <div class="sb2-kb-chips" id="sb2KbChips"></div>
+  <div class="sb2-kb-list" id="sb2KbList">
+    <div class="sb2-kb-empty">载入中…</div>
+  </div>
+</div>
+
 <!-- Knowledge Middle List -->
 <div class="knowledge-mid-list" id="knowledgeMidList">
   <div class="knowledge-mid-header">
@@ -37587,6 +37689,117 @@ var currentModule = 'messages';
 var _globalSearchScope = 'all';
 var _globalSearchTimer = null;
 
+/* ============================================================
+ * sb2-knowledge MVP1: 数据接线层
+ * - 调 /api/knowledge/categories + entries + stats (接口签名零改动)
+ * - 渲染 .sb2-knowledge-main (DOM 在 <main class="app-main"> 内注入)
+ * - 旧 knowledgeMid 系列 CSS 兜底 display:none
+ * ============================================================ */
+var _sb2KbCats = null;
+var _sb2KbEntries = [];
+var _sb2KbActiveCat = 'all';
+
+async function sb2KbInit(){
+  try {
+    var sub = document.getElementById('sb2KbHeroSub');
+    if (sub) sub.textContent = '载入中…';
+    var list = document.getElementById('sb2KbList');
+    if (list) list.innerHTML = '<div class="sb2-kb-empty">载入中…</div>';
+
+    var catsP = apiFetch('/api/knowledge/categories').then(function(r){return r.json();}).catch(function(){return {categories:[]};});
+    var entriesP = apiFetch('/api/knowledge/entries?limit=50&offset=0').then(function(r){return r.json();}).catch(function(){return {entries:[]};});
+    var statsP = apiFetch('/api/knowledge/stats').then(function(r){return r.json();}).catch(function(){return {};});
+
+    var [catsData, entriesData, statsData] = await Promise.all([catsP, entriesP, statsP]);
+    _sb2KbCats = (catsData && catsData.categories) || [];
+    _sb2KbEntries = (entriesData && entriesData.entries) || [];
+
+    sb2KbRenderHero(statsData || {}, _sb2KbEntries);
+    sb2KbRenderChips(_sb2KbCats, _sb2KbEntries);
+    sb2KbRenderList(_sb2KbEntries);
+  } catch (e) {
+    console.error('[sb2-kb] init failed:', e);
+    var list2 = document.getElementById('sb2KbList');
+    if (list2) list2.innerHTML = '<div class="sb2-kb-empty">载入失败, 请刷新重试</div>';
+  }
+}
+
+function sb2KbRenderHero(stats, entries){
+  var sub = document.getElementById('sb2KbHeroSub');
+  if (!sub) return;
+  var total = (stats && stats.total_entries) || entries.length || 0;
+  var chunks = (stats && stats.total_chunks) || 0;
+  sub.textContent = total + ' 条 · ' + chunks + ' chunks · 语义检索已切换';
+}
+
+function sb2KbRenderChips(cats, entries){
+  var el = document.getElementById('sb2KbChips');
+  if (!el) return;
+  var total = entries.length;
+  var html = '<button class="sb2-kb-chip active" data-sb2-kb-cat="all">全部 · ' + total + '</button>';
+  cats.forEach(function(c){
+    var cname = (c && (c.name || c.title)) || '未分类';
+    var cnt = (c && (c.entry_count != null ? c.entry_count : c.count)) || 0;
+    html += '<button class="sb2-kb-chip" data-sb2-kb-cat="' + escapeAttr(c.id || cname) + '">' + escapeHtml(cname) + ' · ' + cnt + '</button>';
+  });
+  el.innerHTML = html;
+  if (!el._sb2KbBound) {
+    el.addEventListener('click', function(ev){
+      var btn = ev.target.closest('.sb2-kb-chip');
+      if (!btn) return;
+      var catKey = btn.getAttribute('data-sb2-kb-cat') || 'all';
+      _sb2KbActiveCat = catKey;
+      el.querySelectorAll('.sb2-kb-chip').forEach(function(b){ b.classList.remove('active'); });
+      btn.classList.add('active');
+      sb2KbFilterList(catKey);
+    });
+    el._sb2KbBound = true;
+  }
+}
+
+function sb2KbFilterList(catKey){
+  var filtered = (catKey === 'all') ? _sb2KbEntries : _sb2KbEntries.filter(function(e){
+    return (e.category_id === catKey) || (e.category_name === catKey);
+  });
+  sb2KbRenderList(filtered);
+}
+
+function sb2KbRenderList(entries){
+  var el = document.getElementById('sb2KbList');
+  if (!el) return;
+  if (!entries || entries.length === 0) {
+    el.innerHTML = '<div class="sb2-kb-empty">知识库为空, 点击右上「+ 新建知识」开始录入</div>';
+    return;
+  }
+  el.innerHTML = entries.map(function(e){
+    var title = escapeHtml(e.title || '(无标题)');
+    var id = escapeHtml(e.id || '');
+    var chunks = ((e.chunk_count != null ? e.chunk_count : 0)) + ' chunks';
+    var updated = escapeHtml(e.updated_at || e.updated || '');
+    var cat = escapeHtml(e.category_name || '未分类');
+    var scope = escapeHtml(e.scope || e.scope_name || '全员');
+    var status = e.status || 'ok';
+    var statusClass = 'sb2-tag-status-' + (status === 'pending' ? 'pending' : status === 'failed' ? 'failed' : 'ok');
+    return '<article class="sb2-kb-card" data-kb-id="' + escapeAttr(id) + '">' +
+      '<h3 class="sb2-kb-card-title">' + title + '</h3>' +
+      '<div class="sb2-kb-card-meta">' + id + ' · ' + chunks + ' · ' + updated + '</div>' +
+      '<div class="sb2-kb-card-tags">' +
+        '<span class="sb2-tag sb2-tag-cat">' + cat + '</span>' +
+        '<span class="sb2-tag sb2-tag-scope">' + scope + '</span>' +
+        '<span class="sb2-tag ' + statusClass + '">' + status + '</span>' +
+      '</div>' +
+    '</article>';
+  }).join('');
+}
+
+function sb2KbImport(){
+  showToast('导入 — 后续 MVP 接 /api/knowledge/import (旧 importKnowledgeOverlay 留兜底)', 'info');
+}
+
+function sb2KbNew(){
+  showToast('新建知识 — 后续 MVP 接 knowledgeDocModalOverlay 全家桶', 'info');
+}
+
 function switchModule(module) {
   if (!hasModulePermission(module)) {
     showToast('⛔ 你没有该模块的访问权限', 'warning');
@@ -37690,7 +37903,13 @@ function switchModule(module) {
     if (rightEl) rightEl.classList.add('active');
   }
 
-  if (module === 'knowledge') { loadGroups(); loadKnowledgePage(); }
+  if (module === 'knowledge') {
+    // ★ sb2-knowledge: 显示新屏, 旧 knowledgeMid 系列 CSS 兜底 display:none (旧 DOM 不退役仅兜底)
+    var sb2kb = document.getElementById('sb2KnowledgeMain');
+    if (sb2kb) sb2kb.classList.add('active');
+    loadGroups();
+    if (typeof sb2KbInit === 'function') sb2KbInit();
+  }
   else if (module === 'patterns') loadPatternsPage();
   else if (module === 'products') { loadProductBrands(); loadProducts(); }
   else if (module === 'influencers') switchTalentMidTab(_talentActiveTab);
