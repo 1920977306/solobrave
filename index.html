@@ -42069,6 +42069,12 @@ else init();
     };
     _sb2Chat.messages.push(userMsg);
     sb2_appendBubble(userMsg, true);
+    // ★ P0 fix: 清空 inp.value / _sb2Chat.attached 之前先抓 mentions + imgs
+    // 之前: POST body 在清空后才调 sb2_getMentions() → 读已清空输入框 → mentions 恒 []
+    //       同样 _sb2Chat.attached.slice() 也在清空后 → images 恒 []
+    // 现在: 先存局部变量, body 里直接用
+    var __mentions = (typeof window.sb2_getMentions === 'function') ? window.sb2_getMentions() : undefined;
+    var __imgs = _sb2Chat.attached.slice();
     inp.value = '';
     inp.style.height = 'auto';
     _sb2Chat.attached = [];
@@ -42092,10 +42098,10 @@ else init();
         body: JSON.stringify({
           content: text || '',
           role: 'user',
-          images: _sb2Chat.attached.length > 0 ? _sb2Chat.attached.slice() : [],
+          images: __imgs,
           // §2 透传: model + mentions (后端 chatpost 已支持, 缺值 undefined)
           model: (typeof window.sb2_getCurrentModel === 'function') ? window.sb2_getCurrentModel() : undefined,
-          mentions: (typeof window.sb2_getMentions === 'function') ? window.sb2_getMentions() : undefined
+          mentions: __mentions
         })
       });
       if (!resp) {
