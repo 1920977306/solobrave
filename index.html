@@ -41486,13 +41486,17 @@ window.sb2Go = function(id){
 // ★ P1 fix: 模块主容器互斥 — 各模块 hook 只「显示自己」, 没人 hide 兄弟容器
 // 之前: 切到聊天时 .sb2-knowledge-main.active 不被 remove → 聊天底下压知识库 hero
 // 现在: switchModule wrapper 第一步统一 hide 所有 sb2 main, 各 hook 随后显示自己
-// 容器清单 (5 个, prod 已 4 + 预写 1):
+// 容器清单 (4 个, prod 已 3 + 预写 1):
 //   - #sb2KnowledgeMain  → .active class 控制
 //   - #sb2SettingsMain   → .active class 控制
 //   - #sb2ChatMain       → hidden 属性控制 (chat IIFE 内部 set hidden)
-//   - .sb2-dash-main     → 默认永远可见 (无 display:none), 需内联 display:none
 //   - .sb2-patterns-main → .active class 控制 (prod 还未部署, 预写)
-// 通用策略: .active 走 removeClass, chat 走 hidden 属性, dashboard 走 style.display
+// ★ 撤回: dashboard (.sb2-dash-main) 是覆盖层 #sb2Dash.sb2-dash 的子容器
+//   父级默认 display:none / .on 才 display:flex (line 10057/10061), 完全管控
+//   且 buildDashboard() 早退 (line 41305: if #sb2Dash exists return) → 只建一次
+//   没人重置 .sb2-dash-main 内联 display → 内联 hide 会导致切走再切回永久空白
+//   之前误判「无 display:none 规则 = 永远可见」是错的, 覆盖层子容器不归这里管
+// 通用策略: .active 走 removeClass, chat 走 hidden 属性, dashboard 不动
 function sb2_hideAllModuleMains(){
   // 1. .active class 控制容器 (knowledge/settings/patterns)
   document.querySelectorAll('.sb2-knowledge-main.active, .sb2-settings-main.active, .sb2-patterns-main.active')
@@ -41500,10 +41504,7 @@ function sb2_hideAllModuleMains(){
   // 2. hidden 属性控制容器 (chat)
   var chatEl = document.getElementById('sb2ChatMain');
   if (chatEl) chatEl.setAttribute('hidden', '');
-  // 3. dashboard 内联 display:none (CSS 默认永远可见, 必须内联覆盖)
-  document.querySelectorAll('.sb2-dash-main').forEach(function(el){
-    el.style.display = 'none';
-  });
+  // 3. dashboard 不动 (覆盖层 #sb2Dash 父级管控, 见上面撤回注释)
 }
 
 // switchModule 包装: 旧代码任何入口(壳/旧UI/快捷面板)切模块都同步壳状态
