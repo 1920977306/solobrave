@@ -10427,6 +10427,76 @@ window.doLogin = function () {
   padding:12px 20px; border-top:1px solid var(--sb2-border); flex-shrink:0;
 }
 .sb2-kb-modal-footer .sb2-btn-danger{ margin-right:auto; }
+
+/* —— MVP4: 详情右滑面板 (只读先行) —— */
+.sb2-kb-detail-panel{
+  position:fixed; top:48px; right:0; width:480px; max-width:90vw;
+  height:calc(100vh - 48px); z-index:90;
+  background:var(--sb2-s1); border-left:1px solid var(--sb2-border);
+  box-shadow:-8px 0 24px rgba(0,0,0,.04);
+  display:none; flex-direction:column; overflow:hidden;
+  animation:sb2-kb-slide-in .25s ease;
+}
+.sb2-kb-detail-panel.open{ display:flex; }
+@keyframes sb2-kb-slide-in{
+  from{ transform:translateX(100%); }
+  to{ transform:translateX(0); }
+}
+.sb2-kb-detail-overlay{
+  position:fixed; inset:48px 0 0 0; z-index:89;
+  background:rgba(10,10,14,.3); display:none;
+  animation:sb2-kb-fade-in .2s ease;
+}
+.sb2-kb-detail-overlay.open{ display:block; }
+@keyframes sb2-kb-fade-in{ from{ opacity:0; } to{ opacity:1; } }
+.sb2-kb-detail-header{
+  display:flex; align-items:center; gap:12px;
+  padding:14px 20px; border-bottom:1px solid var(--sb2-border); flex-shrink:0;
+}
+.sb2-kb-detail-title{
+  margin:0; font:600 16px/1.3 "PingFang SC",sans-serif; color:var(--sb2-ink);
+  flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+.sb2-kb-detail-close{
+  width:28px; height:28px; border:none; background:transparent; cursor:pointer;
+  font-size:18px; line-height:1; color:var(--sb2-t3);
+  border-radius:var(--sb2-r-sm); flex-shrink:0;
+}
+.sb2-kb-detail-close:hover{ background:var(--sb2-s3); color:var(--sb2-t1); }
+.sb2-kb-detail-body{
+  padding:20px; overflow-y:auto; flex:1; min-height:0;
+  display:flex; flex-direction:column; gap:18px;
+}
+.sb2-kb-meta-grid{
+  display:grid; grid-template-columns:1fr 1fr; gap:14px;
+}
+.sb2-kb-meta-item{ display:flex; flex-direction:column; gap:4px; min-width:0; }
+.sb2-kb-meta-label{
+  font:500 11px/1 "PingFang SC",sans-serif; color:var(--sb2-t3);
+  letter-spacing:0.05em;
+}
+.sb2-kb-meta-value{
+  font:400 13px/1.4 "PingFang SC",sans-serif; color:var(--sb2-t1);
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+.sb2-kb-meta-value.muted{ color:var(--sb2-t3); font-style:italic; }
+.sb2-kb-detail-content{
+  padding:14px 16px; background:var(--sb2-s2);
+  border-radius:var(--sb2-r-sm); border:1px solid var(--sb2-border);
+  font:400 13px/1.6 "PingFang SC",sans-serif; color:var(--sb2-t1);
+  white-space:pre-wrap; word-break:break-word;
+  max-height:300px; overflow-y:auto;
+}
+.sb2-kb-detail-content.muted{ color:var(--sb2-t3); font-style:italic; }
+.sb2-kb-detail-footer{
+  display:flex; gap:8px; padding:12px 20px;
+  border-top:1px solid var(--sb2-border); flex-shrink:0;
+}
+.sb2-kb-detail-footer .sb2-btn-danger{ margin-right:auto; }
+.sb2-kb-loading{
+  padding:40px 20px; text-align:center; color:var(--sb2-t3);
+  font:400 13px/1.5 "PingFang SC",sans-serif;
+}
 </style>
 
 <style id="sb2-dense-views">
@@ -11717,6 +11787,27 @@ window.doLogin = function () {
       <button class="sb2-btn sb2-btn-ghost" onclick="sb2KbCloseModal()">取消</button>
       <button class="sb2-btn sb2-btn-ink" onclick="sb2KbSubmit()">保存</button>
     </div>
+  </div>
+</div>
+
+<!-- ★ sb2-knowledge MVP4: 详情右滑面板 (只读先行) -->
+<div class="sb2-kb-detail-overlay" id="sb2KbDetailOverlay" onclick="sb2KbCloseDetail()"></div>
+<div class="sb2-kb-detail-panel" id="sb2KbDetailPanel">
+  <div class="sb2-kb-detail-header">
+    <h2 class="sb2-kb-detail-title" id="sb2KbDetailTitle">-</h2>
+    <button class="sb2-kb-detail-close" onclick="sb2KbCloseDetail()" aria-label="关闭详情">×</button>
+  </div>
+  <div class="sb2-kb-detail-body">
+    <div class="sb2-kb-loading" id="sb2KbDetailLoading">载入中…</div>
+    <div class="sb2-kb-meta-grid" id="sb2KbDetailMeta" style="display:none"></div>
+    <div id="sb2KbDetailContentWrap" style="display:none">
+      <div class="sb2-kb-meta-label">内容</div>
+      <div class="sb2-kb-detail-content" id="sb2KbDetailContent">-</div>
+    </div>
+  </div>
+  <div class="sb2-kb-detail-footer">
+    <button class="sb2-btn sb2-btn-ghost sb2-btn-danger" id="sb2KbDetailDeleteBtn" onclick="sb2KbDetailDelete()">删除</button>
+    <button class="sb2-btn sb2-btn-ink" onclick="sb2KbDetailEdit()">编辑</button>
   </div>
 </div>
 
@@ -37919,7 +38010,7 @@ function sb2KbRenderList(entries){
     var scope = escapeHtml(_sb2ScopeLabel(e.scope || e.scope_name || 'global'));
     var status = e.status || 'ok';
     var statusClass = 'sb2-tag-status-' + (status === 'pending' ? 'pending' : status === 'failed' ? 'failed' : 'ok');
-    return '<article class="sb2-kb-card" data-kb-id="' + escapeAttr(id) + '" data-sb2-scope="' + escapeAttr(e.scope || e.scope_name || 'global') + '" onclick="sb2KbOpenEditModal(\'' + escapeAttr(id) + '\')">' +
+    return '<article class="sb2-kb-card" data-kb-id="' + escapeAttr(id) + '" data-sb2-scope="' + escapeAttr(e.scope || e.scope_name || 'global') + '" onclick="sb2KbOpenDetail(\'' + escapeAttr(id) + '\')">' +
       '<h3 class="sb2-kb-card-title">' + title + '</h3>' +
       '<div class="sb2-kb-card-meta">' + id + ' · ' + chunks + ' · ' + updated + '</div>' +
       '<div class="sb2-kb-card-tags">' +
@@ -38036,6 +38127,168 @@ async function sb2KbDeleteEntry(){
     console.error('[sb2-kb] delete failed:', e);
     showToast('删除失败: ' + (e.message || ''), 'error');
   }
+}
+
+/* ============================================================
+ * MVP4: 详情右滑 (只读先行)
+ * - GET /api/knowledge/entries/:id 拉详情
+ * - 渲染: 标题 / 内容 / 分类 / scope / chunks / 状态 / 创建者 / 时间
+ * - 缺值显 - (按 _sb2KbFmt + _sb2KbOrDash 兜底)
+ * - 面板内"编辑"按钮 → 关闭详情 + 打开 MVP3 编辑弹窗
+ * - 面板内"删除"按钮 → DELETE + sb2KbInit 自动刷新
+ * ============================================================ */
+var _sb2KbDetailId = null;
+
+async function sb2KbOpenDetail(entryId){
+  _sb2KbDetailId = entryId;
+  // 显示 loading 状态
+  document.getElementById('sb2KbDetailTitle').textContent = '-';
+  document.getElementById('sb2KbDetailLoading').style.display = 'block';
+  document.getElementById('sb2KbDetailLoading').textContent = '载入中…';
+  document.getElementById('sb2KbDetailMeta').style.display = 'none';
+  document.getElementById('sb2KbDetailContentWrap').style.display = 'none';
+  document.getElementById('sb2KbDetailPanel').classList.add('open');
+  document.getElementById('sb2KbDetailOverlay').classList.add('open');
+
+  try {
+    var resp = await apiFetch('/api/knowledge/entries/' + encodeURIComponent(entryId));
+    if (!resp || !resp.ok) {
+      document.getElementById('sb2KbDetailLoading').textContent = '载入失败';
+      showToast('详情载入失败', 'error');
+      return;
+    }
+    var doc = await resp.json();
+    sb2KbRenderDetail(doc);
+  } catch (e) {
+    console.error('[sb2-kb] detail load failed:', e);
+    document.getElementById('sb2KbDetailLoading').textContent = '载入失败: ' + (e.message || '');
+  }
+}
+
+function sb2KbRenderDetail(doc){
+  try {
+    // 标题
+    document.getElementById('sb2KbDetailTitle').textContent = _sb2KbOrDash(doc.title);
+    console.log('[sb2-kb] render detail start, doc keys:', doc ? Object.keys(doc).join(',') : '(null)');
+
+    // 隐藏 loading
+    document.getElementById('sb2KbDetailLoading').style.display = 'none';
+
+    // meta grid: 分类 / scope / chunks / 状态 / 创建者 / 创建时间 / 更新时间 / id
+    var meta = document.getElementById('sb2KbDetailMeta');
+    var items = [
+      { label: '分类',     value: _sb2KbOrDash(doc.category || doc.category_name) },
+      { label: '范围',     value: _sb2KbScopeLabel(doc.scope || 'global') },
+      { label: 'Chunks',   value: _sb2KbFmtNum(doc.chunkCount) },
+      { label: '状态',     value: _sb2KbOrDash(doc.status) },
+      { label: '创建者',   value: _sb2KbOrDash(doc.createdBy) },
+      { label: '创建时间', value: _sb2KbFmtTs(doc.createdAt) },
+      { label: '更新时间', value: _sb2KbFmtTs(doc.updatedAt) },
+      { label: 'ID',       value: _sb2KbOrDash(doc.id) }
+    ];
+    meta.innerHTML = items.map(function(it){
+      var muted = it.value === '-' ? ' muted' : '';
+      return '<div class="sb2-kb-meta-item">' +
+        '<div class="sb2-kb-meta-label">' + escapeHtml(it.label) + '</div>' +
+        '<div class="sb2-kb-meta-value' + muted + '">' + escapeHtml(it.value) + '</div>' +
+      '</div>';
+    }).join('');
+    meta.style.display = 'grid';
+    console.log('[sb2-kb] meta grid rendered, item count:', items.length);
+
+    // 内容
+    var contentEl = document.getElementById('sb2KbDetailContent');
+    var contentWrap = document.getElementById('sb2KbDetailContentWrap');
+    if (doc.content && doc.content.trim()) {
+      contentEl.textContent = doc.content;
+      contentEl.classList.remove('muted');
+    } else {
+      contentEl.textContent = '-';
+      contentEl.classList.add('muted');
+    }
+    contentWrap.style.display = 'block';
+    console.log('[sb2-kb] detail render OK, content length:', (doc.content || '').length);
+  } catch (e) {
+    // 显式记录 + 回滚面板状态，避免「title 设了下面空白」这种 silent fail
+    console.error('[sb2-kb] render detail failed:', e, 'doc:', doc);
+    var loading = document.getElementById('sb2KbDetailLoading');
+    if (loading) {
+      loading.style.display = 'block';
+      loading.textContent = '渲染失败: ' + (e.message || '');
+    }
+  }
+}
+
+function sb2KbCloseDetail(){
+  document.getElementById('sb2KbDetailPanel').classList.remove('open');
+  document.getElementById('sb2KbDetailOverlay').classList.remove('open');
+  _sb2KbDetailId = null;
+}
+
+function sb2KbDetailEdit(){
+  if (!_sb2KbDetailId) return;
+  var entryId = _sb2KbDetailId;
+  sb2KbCloseDetail();
+  sb2KbOpenEditModal(entryId);
+}
+
+async function sb2KbDetailDelete(){
+  if (!_sb2KbDetailId) return;
+  if (!confirm('确定删除该知识?此操作不可恢复。')) return;
+  try {
+    var resp = await apiFetch('/api/knowledge/entries/' + encodeURIComponent(_sb2KbDetailId), { method: 'DELETE' });
+    if (resp && resp.ok) {
+      showToast('已删除', 'success');
+      sb2KbCloseDetail();
+      sb2KbInit();
+    } else {
+      showToast('删除失败', 'error');
+    }
+  } catch (e) {
+    console.error('[sb2-kb] detail delete failed:', e);
+    showToast('删除失败: ' + (e.message || ''), 'error');
+  }
+}
+
+function _sb2KbOrDash(v){
+  if (v == null) return '-';
+  if (typeof v === 'string' && v.trim() === '') return '-';
+  return String(v);
+}
+
+// scope 字符串 → 中文标签（list / detail / 任何面板复用）
+// 与 MVP2 list 现场聚合保持同一份映射，避免幽灵 scope
+var _SB2_SCOPE_LABEL = {
+  global:   '全员',
+  team:     '团队',
+  group:    '分组',
+  personal: '个人'
+};
+function _sb2KbScopeLabel(s){
+  return _SB2_SCOPE_LABEL[s] || s || '-';
+}
+
+function _sb2KbFmtNum(n){
+  if (n == null) return '-';
+  return String(n);
+}
+
+function _sb2KbFmtTs(ts){
+  if (ts == null || ts === 0) return '-';
+  // 兼容 ms (int) 和 iso (str) 两种格式
+  var d;
+  try {
+    if (typeof ts === 'number') d = new Date(ts);
+    else if (typeof ts === 'string') d = new Date(ts);
+    else return '-';
+    if (isNaN(d.getTime())) return '-';
+    var Y = d.getFullYear();
+    var M = ('0' + (d.getMonth()+1)).slice(-2);
+    var D = ('0' + d.getDate()).slice(-2);
+    var h = ('0' + d.getHours()).slice(-2);
+    var m = ('0' + d.getMinutes()).slice(-2);
+    return Y + '-' + M + '-' + D + ' ' + h + ':' + m;
+  } catch (e) { return '-'; }
 }
 
 function switchModule(module) {
