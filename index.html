@@ -10431,6 +10431,464 @@ window.doLogin = function () {
    (kb 中间容器接缝保留, 老 _knowledgeViewMode='list' 不受影响) */
 </style>
 
+<!-- ★ feat/sb2-chat: SoloBrave 2.0 聊天模块 CSS (气泡/输入框/topbar/cursor/empty/progress) -->
+<style id="sb2-chat">
+/* ===== Design Tokens (全部 --sb2-* 命名空间, 不动老 var) ===== */
+:root {
+  /* 气泡 (核心) */
+  --sb2-chat-bubble-user-bg: linear-gradient(135deg, #4F6BFF, #3D55E8);
+  --sb2-chat-bubble-user-fg: #FFFFFF;
+  --sb2-chat-bubble-assistant-bg: var(--bg-card, #FFFFFF);
+  --sb2-chat-bubble-assistant-fg: var(--text-primary, #1F2937);
+  --sb2-chat-bubble-system-bg: rgba(245, 158, 11, 0.12);
+  --sb2-chat-bubble-system-fg: #B45309;
+  --sb2-chat-bubble-radius: 14px;
+  --sb2-chat-bubble-radius-self: 4px;
+  --sb2-chat-bubble-shadow-user: 0 1px 2px rgba(79, 107, 255, 0.15);
+  --sb2-chat-bubble-shadow-assistant: 0 1px 2px rgba(15, 23, 42, 0.06);
+  --sb2-chat-bubble-max: 75%;
+  --sb2-chat-bubble-text: var(--text-primary, #1F2937);
+  --sb2-chat-bubble-time: var(--text-tertiary, #94A3B8);
+  --sb2-chat-bubble-time-fg: rgba(255, 255, 255, 0.7);
+  --sb2-chat-bubble-images-gap: 8px;
+  --sb2-chat-bubble-image-radius: 8px;
+  --sb2-chat-bubble-image-max: 220px;
+  --sb2-chat-bubble-cursor: #94A3B8;
+  --sb2-chat-bubble-error-bg: rgba(239, 68, 68, 0.1);
+  --sb2-chat-bubble-error-fg: #B91C1C;
+
+  /* Topbar (顶栏) */
+  --sb2-chat-topbar-bg: var(--bg-card, #FFFFFF);
+  --sb2-chat-topbar-fg: var(--text-primary, #1F2937);
+  --sb2-chat-topbar-height: 48px;
+  --sb2-chat-topbar-padding: 0 16px;
+  --sb2-chat-topbar-border-bottom: 1px solid var(--border-color, #E5E7EB);
+  --sb2-chat-topbar-team-gap: 8px;
+  --sb2-chat-topbar-team-dot-size: 8px;
+  --sb2-chat-topbar-team-dot-on: #10B981;
+  --sb2-chat-topbar-team-dot-off: #94A3B8;
+  --sb2-chat-topbar-ws-padding: 4px 10px;
+  --sb2-chat-topbar-ws-radius: 10px;
+  --sb2-chat-topbar-ws-fg-on: #047857;
+  --sb2-chat-topbar-ws-bg-on: rgba(16, 185, 129, 0.12);
+  --sb2-chat-topbar-ws-fg-off: #6B7280;
+  --sb2-chat-topbar-ws-bg-off: rgba(148, 163, 184, 0.12);
+
+  /* Messages container */
+  --sb2-chat-messages-bg: var(--bg-app, #F8FAFC);
+  --sb2-chat-messages-padding: 16px 20px;
+  --sb2-chat-messages-gap: 12px;
+  --sb2-chat-messages-empty: var(--text-tertiary, #94A3B8);
+
+  /* Input wrap */
+  --sb2-chat-input-wrap-bg: var(--bg-card, #FFFFFF);
+  --sb2-chat-input-wrap-padding: 12px 16px 14px;
+  --sb2-chat-input-wrap-border-top: 1px solid var(--border-color, #E5E7EB);
+  --sb2-chat-input-row-gap: 8px;
+  --sb2-chat-tool-btn-size: 32px;
+  --sb2-chat-tool-btn-fg: var(--text-secondary, #6B7280);
+  --sb2-chat-tool-btn-fg-hover: var(--text-primary, #1F2937);
+  --sb2-chat-tool-btn-bg-hover: rgba(15, 23, 42, 0.05);
+  --sb2-chat-input-bg: var(--bg-app, #F8FAFC);
+  --sb2-chat-input-fg: var(--text-primary, #1F2937);
+  --sb2-chat-input-placeholder: var(--text-tertiary, #94A3B8);
+  --sb2-chat-input-radius: 12px;
+  --sb2-chat-input-padding: 8px 12px;
+  --sb2-chat-input-min-height: 36px;
+  --sb2-chat-input-max-height: 160px;
+  --sb2-chat-input-border: 1px solid var(--border-color, #E5E7EB);
+  --sb2-chat-input-border-focus: #4F6BFF;
+  --sb2-chat-send-btn-size: 36px;
+  --sb2-chat-send-btn-bg: #4F6BFF;
+  --sb2-chat-send-btn-bg-hover: #3D55E8;
+  --sb2-chat-send-btn-bg-disabled: rgba(79, 107, 255, 0.35);
+  --sb2-chat-send-btn-fg: #FFFFFF;
+  --sb2-chat-send-btn-radius: 10px;
+
+  /* Attach bar */
+  --sb2-chat-attach-bar-gap: 8px;
+  --sb2-chat-attach-bar-margin: 0 0 8px;
+  --sb2-chat-attach-thumb-size: 64px;
+  --sb2-chat-attach-thumb-radius: 8px;
+  --sb2-chat-attach-thumb-x-size: 18px;
+  --sb2-chat-attach-thumb-x-bg: rgba(15, 23, 42, 0.7);
+  --sb2-chat-attach-thumb-x-fg: #FFFFFF;
+
+  /* Progress (streaming bar) */
+  --sb2-chat-progress-height: 2px;
+  --sb2-chat-progress-bg: rgba(79, 107, 255, 0.12);
+  --sb2-chat-progress-fill-bg: linear-gradient(90deg, #4F6BFF, #8B5CF6, #4F6BFF);
+  --sb2-chat-progress-fill-size: 30% 100%;
+
+  /* Empty state */
+  --sb2-chat-empty-icon-size: 56px;
+  --sb2-chat-empty-icon-fg: var(--text-tertiary, #94A3B8);
+  --sb2-chat-empty-tip: var(--text-tertiary, #94A3B8);
+}
+
+/* ===== Shell ===== */
+.sb2-chat-shell {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  background: var(--sb2-chat-messages-bg);
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-size: 14px;
+  color: var(--sb2-chat-bubble-text);
+  overflow: hidden;
+}
+.sb2-chat-shell[hidden],
+.sb2-chat-shell.hidden { display: none !important; }
+
+/* ===== Topbar ===== */
+.sb2-chat-topbar {
+  flex: 0 0 auto;
+  height: var(--sb2-chat-topbar-height);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--sb2-chat-topbar-padding);
+  background: var(--sb2-chat-topbar-bg);
+  color: var(--sb2-chat-topbar-fg);
+  border-bottom: var(--sb2-chat-topbar-border-bottom);
+}
+.sb2-chat-topbar-team {
+  display: flex;
+  align-items: center;
+  gap: var(--sb2-chat-topbar-team-gap);
+  font-weight: 600;
+  font-size: 14px;
+}
+.sb2-chat-topbar-team-dot {
+  width: var(--sb2-chat-topbar-team-dot-size);
+  height: var(--sb2-chat-topbar-team-dot-size);
+  border-radius: 50%;
+  background: var(--sb2-chat-topbar-team-dot-off);
+  flex: 0 0 auto;
+}
+.sb2-chat-topbar-team-dot.online { background: var(--sb2-chat-topbar-team-dot-on); }
+.sb2-chat-topbar-ws {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: var(--sb2-chat-topbar-ws-padding);
+  border-radius: var(--sb2-chat-topbar-ws-radius);
+  font-size: 12px;
+  background: var(--sb2-chat-topbar-ws-bg-off);
+  color: var(--sb2-chat-topbar-ws-fg-off);
+}
+.sb2-chat-topbar-ws.connected {
+  background: var(--sb2-chat-topbar-ws-bg-on);
+  color: var(--sb2-chat-topbar-ws-fg-on);
+}
+
+/* ===== Progress bar (streaming) ===== */
+.sb2-chat-progress {
+  flex: 0 0 auto;
+  height: var(--sb2-chat-progress-height);
+  background: var(--sb2-chat-progress-bg);
+  position: relative;
+  overflow: hidden;
+}
+.sb2-chat-progress[hidden],
+.sb2-chat-progress.hidden { display: none !important; }
+.sb2-chat-progress-fill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: var(--sb2-chat-progress-fill-size);
+  height: 100%;
+  background: var(--sb2-chat-progress-fill-bg);
+  background-size: 200% 100%;
+  animation: sb2ChatProgressMove 1.4s linear infinite;
+}
+@keyframes sb2ChatProgressMove {
+  0% { left: -30%; }
+  100% { left: 100%; }
+}
+
+/* ===== Messages container ===== */
+.sb2-chat-messages {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: var(--sb2-chat-messages-padding);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sb2-chat-messages-gap);
+  background: var(--sb2-chat-messages-bg);
+  scroll-behavior: smooth;
+}
+.sb2-chat-messages::-webkit-scrollbar { width: 8px; }
+.sb2-chat-messages::-webkit-scrollbar-thumb {
+  background: rgba(15, 23, 42, 0.15);
+  border-radius: 4px;
+}
+.sb2-chat-messages::-webkit-scrollbar-thumb:hover {
+  background: rgba(15, 23, 42, 0.25);
+}
+
+/* ===== Bubble (核心) ===== */
+.sb2-chat-bubble {
+  display: flex;
+  flex-direction: column;
+  max-width: var(--sb2-chat-bubble-max);
+  padding: 10px 14px;
+  border-radius: var(--sb2-chat-bubble-radius);
+  word-break: break-word;
+  white-space: pre-wrap;
+  position: relative;
+  line-height: 1.55;
+}
+.sb2-chat-bubble[data-role="user"] {
+  align-self: flex-end;
+  background: var(--sb2-chat-bubble-user-bg);
+  color: var(--sb2-chat-bubble-user-fg);
+  border-bottom-right-radius: var(--sb2-chat-bubble-radius-self);
+  box-shadow: var(--sb2-chat-bubble-shadow-user);
+}
+.sb2-chat-bubble[data-role="assistant"] {
+  align-self: flex-start;
+  background: var(--sb2-chat-bubble-assistant-bg);
+  color: var(--sb2-chat-bubble-assistant-fg);
+  border-bottom-left-radius: var(--sb2-chat-bubble-radius-self);
+  box-shadow: var(--sb2-chat-bubble-shadow-assistant);
+}
+.sb2-chat-bubble[data-role="system"] {
+  align-self: center;
+  background: var(--sb2-chat-bubble-system-bg);
+  color: var(--sb2-chat-bubble-system-fg);
+  font-size: 12px;
+  padding: 6px 12px;
+  max-width: 90%;
+}
+.sb2-chat-bubble-error {
+  background: var(--sb2-chat-bubble-error-bg) !important;
+  color: var(--sb2-chat-bubble-error-fg) !important;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+.sb2-chat-bubble-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.sb2-chat-bubble-text:last-child { margin-bottom: 0; }
+.sb2-chat-bubble-body {
+  margin: 0;
+  padding: 0;
+}
+.sb2-chat-bubble-body p { margin: 0 0 6px; }
+.sb2-chat-bubble-body p:last-child { margin-bottom: 0; }
+.sb2-chat-bubble-body code {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  background: rgba(15, 23, 42, 0.08);
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-size: 12.5px;
+}
+.sb2-chat-bubble[data-role="user"] .sb2-chat-bubble-body code {
+  background: rgba(255, 255, 255, 0.18);
+  color: #FFFFFF;
+}
+.sb2-chat-bubble-body pre {
+  margin: 6px 0;
+  padding: 8px 10px;
+  background: rgba(15, 23, 42, 0.06);
+  border-radius: 6px;
+  overflow-x: auto;
+  font-size: 12.5px;
+}
+.sb2-chat-bubble-time {
+  display: block;
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--sb2-chat-bubble-time);
+  align-self: flex-end;
+}
+.sb2-chat-bubble[data-role="user"] .sb2-chat-bubble-time {
+  color: var(--sb2-chat-bubble-time-fg);
+}
+.sb2-chat-bubble-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sb2-chat-bubble-images-gap);
+  margin-top: 6px;
+}
+.sb2-chat-bubble-image {
+  max-width: var(--sb2-chat-bubble-image-max);
+  max-height: 160px;
+  border-radius: var(--sb2-chat-bubble-image-radius);
+  object-fit: cover;
+  cursor: pointer;
+}
+.sb2-chat-bubble-cursor::after {
+  content: "▍";
+  display: inline-block;
+  color: var(--sb2-chat-bubble-cursor);
+  animation: sb2ChatBlink 1s step-end infinite;
+  margin-left: 2px;
+}
+@keyframes sb2ChatBlink {
+  50% { opacity: 0; }
+}
+
+/* ===== Empty state ===== */
+.sb2-chat-empty {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: var(--sb2-chat-messages-empty);
+  padding: 40px 20px;
+}
+.sb2-chat-empty-icon {
+  font-size: var(--sb2-chat-empty-icon-size);
+  color: var(--sb2-chat-empty-icon-fg);
+  line-height: 1;
+}
+.sb2-chat-empty-tip {
+  font-size: 12px;
+  color: var(--sb2-chat-empty-tip);
+}
+
+/* ===== Input wrap ===== */
+.sb2-chat-input-wrap {
+  flex: 0 0 auto;
+  padding: var(--sb2-chat-input-wrap-padding);
+  background: var(--sb2-chat-input-wrap-bg);
+  border-top: var(--sb2-chat-input-wrap-border-top);
+}
+
+/* Attach bar (附件预览) */
+.sb2-chat-attach-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sb2-chat-attach-bar-gap);
+  margin: var(--sb2-chat-attach-bar-margin);
+}
+.sb2-chat-attach-bar:empty { display: none; }
+.sb2-chat-attach-thumb {
+  position: relative;
+  width: var(--sb2-chat-attach-thumb-size);
+  height: var(--sb2-chat-attach-thumb-size);
+  border-radius: var(--sb2-chat-attach-thumb-radius);
+  overflow: hidden;
+  background: var(--sb2-chat-input-bg);
+  border: 1px solid var(--border-color, #E5E7EB);
+}
+.sb2-chat-attach-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.sb2-chat-attach-thumb-x {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: var(--sb2-chat-attach-thumb-x-size);
+  height: var(--sb2-chat-attach-thumb-x-size);
+  border-radius: 50%;
+  background: var(--sb2-chat-attach-thumb-x-bg);
+  color: var(--sb2-chat-attach-thumb-x-fg);
+  border: none;
+  cursor: pointer;
+  font-size: 11px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+/* Input row (工具 + 输入框 + 发送按钮) */
+.sb2-chat-input-row {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--sb2-chat-input-row-gap);
+}
+.sb2-chat-input-tools {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.sb2-chat-tool-btn {
+  width: var(--sb2-chat-tool-btn-size);
+  height: var(--sb2-chat-tool-btn-size);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  color: var(--sb2-chat-tool-btn-fg);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  padding: 0;
+  flex: 0 0 auto;
+}
+.sb2-chat-tool-btn:hover {
+  background: var(--sb2-chat-tool-btn-bg-hover);
+  color: var(--sb2-chat-tool-btn-fg-hover);
+}
+.sb2-chat-tool-btn:active { transform: scale(0.95); }
+.sb2-chat-input {
+  flex: 1 1 auto;
+  min-height: var(--sb2-chat-input-min-height);
+  max-height: var(--sb2-chat-input-max-height);
+  padding: var(--sb2-chat-input-padding);
+  background: var(--sb2-chat-input-bg);
+  color: var(--sb2-chat-input-fg);
+  border: var(--sb2-chat-input-border);
+  border-radius: var(--sb2-chat-input-radius);
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1.5;
+  resize: none;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.sb2-chat-input::placeholder { color: var(--sb2-chat-input-placeholder); }
+.sb2-chat-input:focus { border-color: var(--sb2-chat-input-border-focus); }
+.sb2-chat-send-btn {
+  width: var(--sb2-chat-send-btn-size);
+  height: var(--sb2-chat-send-btn-size);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--sb2-chat-send-btn-bg);
+  color: var(--sb2-chat-send-btn-fg);
+  border: none;
+  border-radius: var(--sb2-chat-send-btn-radius);
+  cursor: pointer;
+  transition: background 0.15s, transform 0.1s;
+  padding: 0;
+  flex: 0 0 auto;
+}
+.sb2-chat-send-btn:hover:not(:disabled) {
+  background: var(--sb2-chat-send-btn-bg-hover);
+}
+.sb2-chat-send-btn:active:not(:disabled) { transform: scale(0.95); }
+.sb2-chat-send-btn:disabled {
+  background: var(--sb2-chat-send-btn-bg-disabled);
+  cursor: not-allowed;
+}
+
+/* ===== Responsive ===== */
+@media (max-width: 768px) {
+  .sb2-chat-bubble { max-width: 85%; }
+  .sb2-chat-messages { padding: 12px 14px; }
+  .sb2-chat-input-wrap { padding: 10px 12px 12px; }
+  .sb2-chat-topbar { padding: 0 12px; }
+}
+@media (max-width: 480px) {
+  .sb2-chat-bubble { max-width: 92%; }
+  .sb2-chat-bubble-image { max-width: 160px; max-height: 120px; }
+}
+</style>
+
 <div class="app-container">
 
 <!-- Left Navigation (56px) -->
@@ -11173,8 +11631,56 @@ window.doLogin = function () {
   <div class="tasks-mid-items" id="tasksListItems"></div>
 </div>
 
-<!-- Chat Area -->
-<div class="chat-area" id="chatArea">
+<!-- ★ feat/sb2-chat: 新 sb2 聊天主区 (核心链: 消息流 + 发送框), 作为兄弟节点在 chatArea 之外 -->
+<main id="sb2ChatMain" class="sb2-chat-shell" hidden>
+  <!-- 顶栏 (AI 团队 + WS 网关状态) -->
+  <header class="sb2-chat-topbar">
+    <div class="sb2-chat-topbar-team">
+      <span class="sb2-chat-topbar-team-dot" id="sb2ChatTeamDot"></span>
+      <span id="sb2ChatTeamName">AI 团队</span>
+    </div>
+    <div class="sb2-chat-topbar-ws disconnected" id="sb2ChatTopbarWs">
+      <span id="sb2ChatTopbarWsText">未连接</span>
+    </div>
+  </header>
+
+  <!-- 流式进度条 (顶部, 仅在 AI 生成时显示) -->
+  <div class="sb2-chat-progress" id="sb2ChatProgress" hidden>
+    <div class="sb2-chat-progress-fill"></div>
+  </div>
+
+  <!-- 消息流容器 (核心) -->
+  <div class="sb2-chat-messages" id="sb2ChatMessages">
+    <div class="sb2-chat-empty">
+      <div class="sb2-chat-empty-icon">💬</div>
+      <div id="sb2ChatEmptyText">选择一个 AI 员工开始对话</div>
+      <div class="sb2-chat-empty-tip">Enter 发送 / Shift+Enter 换行 / 📎 附件</div>
+    </div>
+  </div>
+
+  <!-- 发送框 (核心) -->
+  <div class="sb2-chat-input-wrap">
+    <!-- 附件预览条 -->
+    <div class="sb2-chat-attach-bar" id="sb2ChatAttachBar"></div>
+
+    <!-- 输入行: 工具 + textarea + 发送按钮 -->
+    <div class="sb2-chat-input-row">
+      <div class="sb2-chat-input-tools">
+        <button class="sb2-chat-tool-btn" type="button" id="sb2ChatAttachBtn" title="图片附件" aria-label="添加图片附件">
+          <svg xmlns="http://www.w0.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+        </button>
+      </div>
+      <textarea id="sb2ChatInput" class="sb2-chat-input" rows="1" placeholder="输入消息... (Enter 发送 / Shift+Enter 换行)" autocomplete="off"></textarea>
+      <button class="sb2-chat-send-btn" id="sb2ChatSendBtn" type="button" disabled title="发送" aria-label="发送消息">
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" x2="11" y1="2" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+      </button>
+    </div>
+    <input type="file" id="sb2ChatFileInput" accept="image/*" multiple style="display:none;">
+  </div>
+</main>
+
+<!-- Chat Area (feat/sb2-chat: 老 DOM 隐藏兜底, 由 #sb2ChatMain 替代, JS 函数 100% 不动) -->
+<div class="chat-area hidden" id="chatArea">
 <!-- 顶部状态条 (ui/chat-main-v21-polish: 5 段布局第 1 段 - 团队门面叙事) -->
 <div class="chat-topbar" id="chatTopbar">
   <div class="chat-topbar-section chat-topbar-team" id="chatTopbarTeam">
@@ -38816,6 +39322,421 @@ function init(){
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
 else init();
 
+})();
+</script>
+
+<!-- ★ feat/sb2-chat: SoloBrave 2.0 聊天模块 JS (核心链: 消息流 + 发送框)
+     - 复用老 /api/chat/:agentId 接口契约, 零后端改动
+     - 旧 chatArea + 老 JS 函数 100% 不动, 新 sb2 完全独立
+     - _sb2Chat state + renderChatMain dispatcher
+-->
+<script>
+(function () {
+  'use strict';
+
+  // ===== State =====
+  var _sb2Chat = {
+    agentId: null,            // 当前员工 ID (从 localStorage sb_current_emp 或兜底 Ray)
+    messages: [],             // 历史消息列表 (从后端 /api/chat/:agentId 读)
+    attached: [],             // 附件 (dataURL 数组, base64)
+    sending: false,           // 发送中 flag
+    wsConnected: false,       // OpenClaw 网关连接状态 (顶部状态)
+    watchedUntil: 0,          // sb2_watchModule 最多轮询 5 秒
+  };
+  var _sb2ChatInited = false;
+  var _sb2OrigSwitch = (typeof switchModule === 'function') ? switchModule : null;
+  var _SB2_FALLBACK_EMP = 'emp_1779430403964';  // Ray 兜底 (prod 实际员工)
+
+  // ===== Utility =====
+  function _sb2EscapeHtml(s) {
+    if (s === null || s === undefined) return '';
+    return String(s).replace(/[&<>"']/g, function (c) {
+      return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c];
+    });
+  }
+  function _sb2FmtTime(t) {
+    if (!t) return '-';
+    var d = new Date(t);
+    if (isNaN(d.getTime())) return '-';
+    var pad = function (n) { return n < 10 ? '0' + n : '' + n; };
+    return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate())
+      + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+  }
+  function _sb2GetCurrentEmpId() {
+    try {
+      var id = localStorage.getItem('sb_current_emp');
+      if (id) return id;
+    } catch (e) { /* localStorage may be unavailable */ }
+    return _SB2_FALLBACK_EMP;
+  }
+  function _sb2GetEmpById(id) {
+    if (!id) return null;
+    if (typeof window.emps !== 'undefined' && Array.isArray(window.emps)) {
+      for (var i = 0; i < window.emps.length; i++) {
+        if (window.emps[i] && window.emps[i].id === id) return window.emps[i];
+      }
+    }
+    return null;
+  }
+
+  // ===== Topbar =====
+  function sb2_updateTopbar() {
+    var nameEl = document.getElementById('sb2ChatTeamName');
+    var dotEl = document.getElementById('sb2ChatTeamDot');
+    var wsEl = document.getElementById('sb2ChatTopbarWs');
+    var wsTextEl = document.getElementById('sb2ChatTopbarWsText');
+    if (nameEl) {
+      var emp = _sb2GetEmpById(_sb2Chat.agentId);
+      nameEl.textContent = (emp && emp.name) ? emp.name : '-';
+    }
+    if (dotEl) {
+      var empOnline = _sb2GetEmpById(_sb2Chat.agentId);
+      var online = empOnline && (empOnline.online === true || empOnline.status === 'online');
+      if (online) dotEl.classList.add('online'); else dotEl.classList.remove('online');
+    }
+    if (wsEl && wsTextEl) {
+      if (_sb2Chat.wsConnected) {
+        wsEl.classList.remove('disconnected');
+        wsEl.classList.add('connected');
+        wsTextEl.textContent = '网关已连';
+      } else {
+        wsEl.classList.remove('connected');
+        wsEl.classList.add('disconnected');
+        wsTextEl.textContent = '未连接';
+      }
+    }
+  }
+
+  // ===== Messages =====
+  function sb2_renderMessages() {
+    var container = document.getElementById('sb2ChatMessages');
+    if (!container) return;
+    if (!_sb2Chat.messages || _sb2Chat.messages.length === 0) {
+      container.innerHTML = ''
+        + '<div class="sb2-chat-empty">'
+        + '  <div class="sb2-chat-empty-icon">💬</div>'
+        + '  <div>暂无消息,说点什么吧</div>'
+        + '  <div class="sb2-chat-empty-tip">Enter 发送 / Shift+Enter 换行 / 📎 附件</div>'
+        + '</div>';
+      return;
+    }
+    var html = '';
+    for (var i = 0; i < _sb2Chat.messages.length; i++) {
+      html += sb2_renderBubble(_sb2Chat.messages[i]);
+    }
+    container.innerHTML = html;
+    container.scrollTop = container.scrollHeight;
+  }
+
+  function sb2_renderBubble(msg) {
+    var role = (msg && msg.role) ? msg.role : 'assistant';
+    var content = (msg && msg.content !== undefined && msg.content !== null) ? msg.content : '-';
+    var time = _sb2FmtTime(msg && (msg.timestamp || msg.created_at));
+    var images = (msg && Array.isArray(msg.images)) ? msg.images : [];
+    var isErr = msg && msg.error === true;
+
+    var safeContent = _sb2EscapeHtml(content);
+    var bodyHtml = safeContent;
+
+    var imgHtml = '';
+    if (images.length > 0) {
+      imgHtml = '<div class="sb2-chat-bubble-images">';
+      for (var j = 0; j < images.length; j++) {
+        var src = _sb2EscapeHtml(images[j]);
+        imgHtml += '<img class="sb2-chat-bubble-image" src="' + src + '" alt="attachment-' + j + '" />';
+      }
+      imgHtml += '</div>';
+    }
+
+    return ''
+      + '<div class="sb2-chat-bubble' + (isErr ? ' sb2-chat-bubble-error' : '') + '" data-role="' + _sb2EscapeHtml(role) + '">'
+      + '  <div class="sb2-chat-bubble-body">' + bodyHtml + imgHtml + '</div>'
+      + '  <span class="sb2-chat-bubble-time">' + _sb2EscapeHtml(time) + '</span>'
+      + '</div>';
+  }
+
+  function sb2_appendBubble(msg, scrollToEnd) {
+    var container = document.getElementById('sb2ChatMessages');
+    if (!container) return;
+    var empty = container.querySelector('.sb2-chat-empty');
+    if (empty) empty.parentNode.removeChild(empty);
+    var wrap = document.createElement('div');
+    wrap.innerHTML = sb2_renderBubble(msg);
+    var bubble = wrap.firstChild;
+    if (bubble) container.appendChild(bubble);
+    if (scrollToEnd !== false) container.scrollTop = container.scrollHeight;
+  }
+
+  // ===== History =====
+  async function sb2_loadHistory() {
+    if (!_sb2Chat.agentId) {
+      _sb2Chat.messages = [];
+      sb2_renderMessages();
+      return;
+    }
+    try {
+      var resp = await apiFetch('/api/chat/' + encodeURIComponent(_sb2Chat.agentId) + '?type=personal&limit=100');
+      if (!resp) { _sb2Chat.messages = []; sb2_renderMessages(); return; }
+      var data = await resp.json();
+      if (Array.isArray(data)) _sb2Chat.messages = data;
+      else if (data && Array.isArray(data.messages)) _sb2Chat.messages = data.messages;
+      else _sb2Chat.messages = [];
+    } catch (e) {
+      console.error('[sb2_loadHistory]', e);
+      _sb2Chat.messages = [];
+    }
+    sb2_renderMessages();
+    // 二次刷新 topbar (loadEmployees 可能异步完成)
+    sb2_updateTopbar();
+  }
+
+  // ===== Send =====
+  function sb2_renderAttachBar() {
+    var bar = document.getElementById('sb2ChatAttachBar');
+    if (!bar) return;
+    bar.innerHTML = '';
+    for (var i = 0; i < _sb2Chat.attached.length; i++) {
+      var thumb = document.createElement('div');
+      thumb.className = 'sb2-chat-attach-thumb';
+      thumb.innerHTML = '<img src="' + _sb2EscapeHtml(_sb2Chat.attached[i]) + '" alt="thumb-' + i + '" />'
+        + '<button type="button" class="sb2-chat-attach-thumb-x" data-idx="' + i + '" aria-label="移除附件">×</button>';
+      bar.appendChild(thumb);
+    }
+  }
+  function sb2_removeAttach(idx) {
+    if (idx < 0 || idx >= _sb2Chat.attached.length) return;
+    _sb2Chat.attached.splice(idx, 1);
+    sb2_renderAttachBar();
+  }
+  function sb2_bindInput() {
+    var inp = document.getElementById('sb2ChatInput');
+    var sendBtn = document.getElementById('sb2ChatSendBtn');
+    if (!inp || !sendBtn) return;
+    inp.addEventListener('input', function () {
+      sendBtn.disabled = inp.value.trim().length === 0;
+      // Auto-resize
+      inp.style.height = 'auto';
+      var maxH = 160;
+      var next = Math.min(inp.scrollHeight, maxH);
+      inp.style.height = next + 'px';
+    });
+    inp.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+        e.preventDefault();
+        if (!_sb2Chat.sending) sb2_doSend();
+      }
+      // Shift+Enter: 默认行为(换行)
+    });
+    sendBtn.addEventListener('click', function () {
+      if (!_sb2Chat.sending) sb2_doSend();
+    });
+    // 粘贴图片
+    inp.addEventListener('paste', function (e) {
+      var items = e.clipboardData && e.clipboardData.items;
+      if (!items) return;
+      var added = 0;
+      for (var i = 0; i < items.length; i++) {
+        if (items[i].kind === 'file' && items[i].type.indexOf('image/') === 0) {
+          var file = items[i].getAsFile();
+          if (!file) continue;
+          (function (f) {
+            var reader = new FileReader();
+            reader.onload = function (ev) {
+              _sb2Chat.attached.push(ev.target.result);
+              sb2_renderAttachBar();
+            };
+            reader.readAsDataURL(f);
+          })(file);
+          added++;
+        }
+      }
+      if (added > 0) e.preventDefault();
+    });
+    // 附件按钮
+    var attachBtn = document.getElementById('sb2ChatAttachBtn');
+    var fileInput = document.getElementById('sb2ChatFileInput');
+    if (attachBtn && fileInput) {
+      attachBtn.addEventListener('click', function () { fileInput.click(); });
+      fileInput.addEventListener('change', function () {
+        var files = fileInput.files;
+        if (!files || files.length === 0) return;
+        for (var i = 0; i < files.length; i++) {
+          (function (f) {
+            var reader = new FileReader();
+            reader.onload = function (ev) {
+              _sb2Chat.attached.push(ev.target.result);
+              sb2_renderAttachBar();
+            };
+            reader.readAsDataURL(f);
+          })(files[i]);
+        }
+        fileInput.value = '';
+      });
+    }
+    // 附件移除 (事件委托)
+    var bar = document.getElementById('sb2ChatAttachBar');
+    if (bar) {
+      bar.addEventListener('click', function (e) {
+        var btn = e.target.closest('.sb2-chat-attach-thumb-x');
+        if (!btn) return;
+        var idx = parseInt(btn.getAttribute('data-idx'), 10);
+        sb2_removeAttach(idx);
+      });
+    }
+  }
+  async function sb2_doSend() {
+    if (_sb2Chat.sending) return;
+    var inp = document.getElementById('sb2ChatInput');
+    var sendBtn = document.getElementById('sb2ChatSendBtn');
+    if (!inp) return;
+    var text = inp.value.trim();
+    if (!text && _sb2Chat.attached.length === 0) return;
+    if (!_sb2Chat.agentId) {
+      console.warn('[sb2_doSend] no agentId, skip');
+      return;
+    }
+    _sb2Chat.sending = true;
+    sendBtn.disabled = true;
+
+    // 1. 先 append user 气泡
+    var userMsg = {
+      role: 'user',
+      content: text || '(附件)',
+      images: _sb2Chat.attached.slice(),
+      timestamp: new Date().toISOString()
+    };
+    _sb2Chat.messages.push(userMsg);
+    sb2_appendBubble(userMsg, true);
+    inp.value = '';
+    inp.style.height = 'auto';
+    _sb2Chat.attached = [];
+    sb2_renderAttachBar();
+
+    // 2. 占位 assistant 气泡 + 进度条
+    var progress = document.getElementById('sb2ChatProgress');
+    if (progress) progress.hidden = false;
+    var placeholderMsg = {
+      role: 'assistant',
+      content: '',
+      timestamp: new Date().toISOString()
+    };
+    sb2_appendBubble(placeholderMsg, true);
+    var placeholderEl = document.querySelector('#sb2ChatMessages .sb2-chat-bubble[data-role="assistant"]:last-child .sb2-chat-bubble-body');
+
+    // 3. POST
+    try {
+      var resp = await apiFetch('/api/chat/' + encodeURIComponent(_sb2Chat.agentId) + '?type=personal', {
+        method: 'POST',
+        body: JSON.stringify({
+          content: text || '',
+          role: 'user',
+          images: _sb2Chat.attached.length > 0 ? _sb2Chat.attached.slice() : []
+        })
+      });
+      if (!resp) {
+        if (placeholderEl) placeholderEl.textContent = '-';
+        return;
+      }
+      var reply = await resp.json();
+      // server 返 {userMessage, aiMessage:{id, role, content, ...}, archived, ...}
+      // 缺值: content/message/aiMessage.content 全空 → '-'
+      var replyText = '-';
+      if (reply) {
+        if (reply.aiMessage && (reply.aiMessage.content !== undefined && reply.aiMessage.content !== null)) {
+          replyText = reply.aiMessage.content;
+        } else if (reply.content !== undefined && reply.content !== null) {
+          replyText = reply.content;
+        } else if (reply.message !== undefined && reply.message !== null) {
+          replyText = reply.message;
+        }
+      }
+      if (placeholderEl) {
+        placeholderEl.textContent = replyText;
+        placeholderEl.classList.remove('sb2-chat-bubble-cursor');
+      }
+      _sb2Chat.messages.push({
+        role: 'assistant',
+        content: replyText,
+        timestamp: new Date().toISOString()
+      });
+    } catch (e) {
+      console.error('[sb2_doSend]', e);
+      if (placeholderEl) placeholderEl.textContent = '-';
+    } finally {
+      _sb2Chat.sending = false;
+      if (progress) progress.hidden = true;
+      sendBtn.disabled = inp.value.trim().length === 0;
+    }
+  }
+
+  // ===== Dispatcher =====
+  function renderChatMain() {
+    var shell = document.getElementById('sb2ChatMain');
+    if (!shell) return;
+    // 1. 显隐切换
+    if (typeof currentModule !== 'undefined' && currentModule === 'messages') {
+      shell.hidden = false;
+    } else {
+      shell.hidden = true;
+      return;
+    }
+    // 2. 同步当前员工
+    _sb2Chat.agentId = _sb2GetCurrentEmpId();
+    sb2_updateTopbar();
+    // 3. 加载历史
+    sb2_loadHistory();
+    // 4. 绑定输入 (一次性, 二调不会重复)
+    if (!_sb2ChatInited) {
+      _sb2ChatInited = true;
+      sb2_bindInput();
+    }
+  }
+
+  // ===== Watchdog: 5 秒内兜底 module 激活 =====
+  function sb2_watchModule() {
+    var startTime = Date.now();
+    var timer = setInterval(function () {
+      if (Date.now() - startTime > 5000) {
+        clearInterval(timer);
+        return;
+      }
+      if (typeof currentModule !== 'undefined' && currentModule === 'messages') {
+        clearInterval(timer);
+        renderChatMain();
+      }
+    }, 200);
+  }
+
+  // ===== Init =====
+  function tryInit() {
+    // wrap 老的 switchModule, 在 messages 切换时触发 sb2 渲染
+    if (_sb2OrigSwitch && typeof window.switchModule === 'function') {
+      // 已在外部加载完成, 重新包装
+    }
+    // 重新定义全局 switchModule (一次性包装, 老函数先调, 再调 sb2)
+    window.switchModule = function (mod) {
+      if (_sb2OrigSwitch) {
+        try { _sb2OrigSwitch(mod); } catch (e) { console.error('[sb2 wrap switchModule]', e); }
+      }
+      if (mod === 'messages') {
+        // 等 _sb2OrigSwitch 走完后 currentModule 已更新, 再触发渲染
+        setTimeout(renderChatMain, 0);
+      }
+    };
+    // 启动兜底监听 (防 wrap 之前用户已点过 nav 触发 currentModule=messages)
+    sb2_watchModule();
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', tryInit);
+  } else {
+    tryInit();
+  }
+
+  // 暴露关键函数到 window (供 F12 调试 + 老 openMessages 兜底调用)
+  window.renderChatMain = renderChatMain;
+  window.sb2_loadHistory = sb2_loadHistory;
+  window.sb2_doSend = sb2_doSend;
 })();
 </script>
 </body>
