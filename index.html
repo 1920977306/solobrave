@@ -10362,6 +10362,71 @@ window.doLogin = function () {
 #knowledgeDocModalOverlay,
 #knowledgeVersionModalOverlay,
 #knowledgeCatContextMenu{ display:none !important; }
+
+/* —— MVP3: 新建/编辑弹窗 —— */
+.sb2-kb-modal{
+  display:none; position:fixed; inset:0; z-index:100;
+  align-items:center; justify-content:center;
+}
+.sb2-kb-modal.open{ display:flex; }
+.sb2-kb-modal-overlay{
+  position:absolute; inset:0;
+  background:rgba(10,10,14,.45); backdrop-filter:blur(3px);
+}
+.sb2-kb-modal-content{
+  position:relative; width:560px; max-width:90vw; max-height:90vh;
+  background:var(--sb2-s1); border:1px solid var(--sb2-border);
+  border-radius:var(--sb2-r-lg); box-shadow:0 8px 32px rgba(0,0,0,.12);
+  display:flex; flex-direction:column; overflow:hidden;
+  animation:sb2-kb-rise .18s ease;
+}
+@keyframes sb2-kb-rise{
+  from{ transform:translateY(8px); opacity:0; }
+  to{ transform:translateY(0); opacity:1; }
+}
+.sb2-kb-modal-header{
+  display:flex; align-items:center; justify-content:space-between;
+  padding:14px 20px; border-bottom:1px solid var(--sb2-border); flex-shrink:0;
+}
+.sb2-kb-modal-header h2{
+  margin:0; font:600 16px/1.2 "PingFang SC",sans-serif; color:var(--sb2-ink);
+}
+.sb2-kb-modal-close{
+  width:28px; height:28px; border:none; background:transparent; cursor:pointer;
+  font-size:18px; line-height:1; color:var(--sb2-t3);
+  border-radius:var(--sb2-r-sm);
+}
+.sb2-kb-modal-close:hover{ background:var(--sb2-s3); color:var(--sb2-t1); }
+.sb2-kb-modal-body{
+  padding:16px 20px; overflow-y:auto; flex:1; min-height:0;
+  display:flex; flex-direction:column; gap:12px;
+}
+.sb2-kb-field{ display:flex; flex-direction:column; gap:4px; }
+.sb2-kb-field-label{
+  font:500 12px/1 "PingFang SC",sans-serif; color:var(--sb2-t2);
+}
+.sb2-kb-input, .sb2-kb-select{
+  padding:8px 12px; border:1px solid var(--sb2-border);
+  border-radius:var(--sb2-r-sm);
+  background:var(--sb2-s1); color:var(--sb2-t1);
+  font:400 13px/1.4 "PingFang SC",sans-serif;
+  outline:none; transition:border-color .15s;
+}
+.sb2-kb-textarea{
+  padding:8px 12px; border:1px solid var(--sb2-border);
+  border-radius:var(--sb2-r-sm);
+  background:var(--sb2-s1); color:var(--sb2-t1);
+  font:400 13px/1.5 "PingFang SC",sans-serif;
+  outline:none; resize:vertical; min-height:120px;
+}
+.sb2-kb-input:focus, .sb2-kb-select:focus, .sb2-kb-textarea:focus{
+  border-color:var(--sb2-ink);
+}
+.sb2-kb-modal-footer{
+  display:flex; gap:8px; justify-content:flex-end; align-items:center;
+  padding:12px 20px; border-top:1px solid var(--sb2-border); flex-shrink:0;
+}
+.sb2-kb-modal-footer .sb2-btn-danger{ margin-right:auto; }
 </style>
 
 <style id="sb2-dense-views">
@@ -11613,6 +11678,45 @@ window.doLogin = function () {
   <div class="sb2-kb-chips" id="sb2KbChips"></div>
   <div class="sb2-kb-list" id="sb2KbList">
     <div class="sb2-kb-empty">载入中…</div>
+  </div>
+</div>
+
+<!-- ★ sb2-knowledge MVP3: 新建/编辑弹窗 (轻量录入四层: 标题/内容/分类/scope) -->
+<div class="sb2-kb-modal" id="sb2KbModal">
+  <div class="sb2-kb-modal-overlay" onclick="sb2KbCloseModal()"></div>
+  <div class="sb2-kb-modal-content">
+    <div class="sb2-kb-modal-header">
+      <h2 id="sb2KbModalTitle">新建知识</h2>
+      <button class="sb2-kb-modal-close" onclick="sb2KbCloseModal()" aria-label="关闭">×</button>
+    </div>
+    <div class="sb2-kb-modal-body">
+      <div class="sb2-kb-field">
+        <label class="sb2-kb-field-label" for="sb2KbInputTitle">标题</label>
+        <input class="sb2-kb-input" id="sb2KbInputTitle" type="text" placeholder="知识标题">
+      </div>
+      <div class="sb2-kb-field">
+        <label class="sb2-kb-field-label" for="sb2KbInputContent">内容</label>
+        <textarea class="sb2-kb-textarea" id="sb2KbInputContent" rows="6" placeholder="知识内容"></textarea>
+      </div>
+      <div class="sb2-kb-field">
+        <label class="sb2-kb-field-label" for="sb2KbInputCategory">分类</label>
+        <input class="sb2-kb-input" id="sb2KbInputCategory" type="text" placeholder="如: 公共知识 / 达人库 / 商品知识 / 工作流">
+      </div>
+      <div class="sb2-kb-field">
+        <label class="sb2-kb-field-label" for="sb2KbInputScope">范围</label>
+        <select class="sb2-kb-select" id="sb2KbInputScope">
+          <option value="global">全员</option>
+          <option value="team">团队</option>
+          <option value="group">项目组</option>
+          <option value="personal">个人</option>
+        </select>
+      </div>
+    </div>
+    <div class="sb2-kb-modal-footer">
+      <button class="sb2-btn sb2-btn-ghost sb2-btn-danger" id="sb2KbDeleteBtn" onclick="sb2KbDeleteEntry()" style="display:none">删除</button>
+      <button class="sb2-btn sb2-btn-ghost" onclick="sb2KbCloseModal()">取消</button>
+      <button class="sb2-btn sb2-btn-ink" onclick="sb2KbSubmit()">保存</button>
+    </div>
   </div>
 </div>
 
@@ -37712,15 +37816,15 @@ async function sb2KbInit(){
     var list = document.getElementById('sb2KbList');
     if (list) list.innerHTML = '<div class="sb2-kb-empty">载入中…</div>';
 
-    // ★ MVP2: /api/knowledge/* 走 X-Agent-Id=knowledge_admin (admin user Bearer token 走不通, agent 身份返 8 条)
-    var agentHeaders = { 'X-Agent-Id': 'knowledge_admin' };
-    var catsP = fetch('/api/knowledge/categories', { headers: agentHeaders }).then(function(r){return r.json();}).catch(function(){return {categories:[]};});
-    var entriesP = fetch('/api/knowledge/entries?limit=50&offset=0', { headers: agentHeaders }).then(function(r){return r.json();}).catch(function(){return {entries:[]};});
-    var statsP = fetch('/api/knowledge/stats', { headers: agentHeaders }).then(function(r){return r.json();}).catch(function(){return {};});
+    // ★ MVP3 撤硬编码: 走 apiFetch 纯 Bearer (admin token 在 prod 已验证返 migrated kbmig_* 全量数据)
+    //   之前 X-Agent-Id: knowledge_admin 是工作库 DB 快照较旧导致的临时绕路, 硬编码 agent 身份换环境会埋雷
+    var catsP = apiFetch('/api/knowledge/categories').then(function(r){return r.json();}).catch(function(){return {categories:[]};});
+    var entriesP = apiFetch('/api/knowledge/entries?limit=50&offset=0').then(function(r){return r.json();}).catch(function(){return {docs:[]};});
+    var statsP = apiFetch('/api/knowledge/stats').then(function(r){return r.json();}).catch(function(){return {};});
 
     var [catsData, entriesData, statsData] = await Promise.all([catsP, entriesP, statsP]);
     _sb2KbCats = (catsData && catsData.categories) || [];
-    _sb2KbEntries = (entriesData && entriesData.docs) || (entriesData && entriesData.entries) || [];
+    _sb2KbEntries = (entriesData && (entriesData.docs || entriesData.entries)) || [];
 
     sb2KbRenderHero(statsData || {}, _sb2KbEntries);
     sb2KbRenderChips(_sb2KbCats, _sb2KbEntries);
@@ -37803,7 +37907,7 @@ function sb2KbRenderList(entries){
   var el = document.getElementById('sb2KbList');
   if (!el) return;
   if (!entries || entries.length === 0) {
-    el.innerHTML = '<div class="sb2-kb-empty">知识库当前为空</div>';
+    el.innerHTML = '<div class="sb2-kb-empty">知识库当前为空, 点击右上「+ 新建知识」开始录入</div>';
     return;
   }
   el.innerHTML = entries.map(function(e){
@@ -37815,7 +37919,7 @@ function sb2KbRenderList(entries){
     var scope = escapeHtml(_sb2ScopeLabel(e.scope || e.scope_name || 'global'));
     var status = e.status || 'ok';
     var statusClass = 'sb2-tag-status-' + (status === 'pending' ? 'pending' : status === 'failed' ? 'failed' : 'ok');
-    return '<article class="sb2-kb-card" data-kb-id="' + escapeAttr(id) + '" data-sb2-scope="' + escapeAttr(e.scope || e.scope_name || 'global') + '">' +
+    return '<article class="sb2-kb-card" data-kb-id="' + escapeAttr(id) + '" data-sb2-scope="' + escapeAttr(e.scope || e.scope_name || 'global') + '" onclick="sb2KbOpenEditModal(\'' + escapeAttr(id) + '\')">' +
       '<h3 class="sb2-kb-card-title">' + title + '</h3>' +
       '<div class="sb2-kb-card-meta">' + id + ' · ' + chunks + ' · ' + updated + '</div>' +
       '<div class="sb2-kb-card-tags">' +
@@ -37836,7 +37940,102 @@ function sb2KbImport(){
 }
 
 function sb2KbNew(){
-  showToast('新建知识 — 后续 MVP 接 knowledgeDocModalOverlay 全家桶', 'info');
+  sb2KbOpenNewModal();
+}
+
+/* ============================================================
+ * MVP3: 新建/编辑弹窗 (轻量录入四层: 标题/内容/分类/scope)
+ * - POST /api/knowledge/entries 新建
+ * - PUT  /api/knowledge/entries/:id 编辑
+ * - DELETE /api/knowledge/entries/:id 删除
+ * - 提交成功后 sb2KbInit() 重拉数据 (保持现场聚合原则)
+ * ============================================================ */
+var _sb2KbEditingId = null;
+
+function sb2KbOpenNewModal(){
+  _sb2KbEditingId = null;
+  document.getElementById('sb2KbModalTitle').textContent = '新建知识';
+  document.getElementById('sb2KbInputTitle').value = '';
+  document.getElementById('sb2KbInputContent').value = '';
+  document.getElementById('sb2KbInputCategory').value = '';
+  document.getElementById('sb2KbInputScope').value = 'global';
+  var delBtn = document.getElementById('sb2KbDeleteBtn');
+  if (delBtn) delBtn.style.display = 'none';
+  document.getElementById('sb2KbModal').classList.add('open');
+  setTimeout(function(){
+    var t = document.getElementById('sb2KbInputTitle');
+    if (t) t.focus();
+  }, 50);
+}
+
+function sb2KbOpenEditModal(entryId){
+  var entry = null;
+  for (var i = 0; i < _sb2KbEntries.length; i++){
+    if (_sb2KbEntries[i].id === entryId) { entry = _sb2KbEntries[i]; break; }
+  }
+  if (!entry) { showToast('未找到该条目', 'warning'); return; }
+  _sb2KbEditingId = entryId;
+  document.getElementById('sb2KbModalTitle').textContent = '编辑知识';
+  document.getElementById('sb2KbInputTitle').value = entry.title || '';
+  document.getElementById('sb2KbInputContent').value = entry.content || '';
+  document.getElementById('sb2KbInputCategory').value = entry.category || entry.category_name || '';
+  document.getElementById('sb2KbInputScope').value = entry.scope || 'global';
+  var delBtn = document.getElementById('sb2KbDeleteBtn');
+  if (delBtn) delBtn.style.display = '';
+  document.getElementById('sb2KbModal').classList.add('open');
+}
+
+function sb2KbCloseModal(){
+  var m = document.getElementById('sb2KbModal');
+  if (m) m.classList.remove('open');
+  _sb2KbEditingId = null;
+}
+
+async function sb2KbSubmit(){
+  var title = (document.getElementById('sb2KbInputTitle').value || '').trim();
+  var content = (document.getElementById('sb2KbInputContent').value || '').trim();
+  var category = (document.getElementById('sb2KbInputCategory').value || '').trim();
+  var scope = document.getElementById('sb2KbInputScope').value || 'global';
+  if (!title) { showToast('请输入标题', 'warning'); return; }
+  if (!content) { showToast('请输入内容', 'warning'); return; }
+
+  var body = JSON.stringify({ title: title, content: content, category: category, scope: scope });
+  try {
+    var resp;
+    if (_sb2KbEditingId) {
+      resp = await apiFetch('/api/knowledge/entries/' + encodeURIComponent(_sb2KbEditingId), { method: 'PUT', body: body });
+    } else {
+      resp = await apiFetch('/api/knowledge/entries', { method: 'POST', body: body });
+    }
+    if (resp && resp.ok) {
+      showToast(_sb2KbEditingId ? '已保存' : '已录入', 'success');
+      sb2KbCloseModal();
+      sb2KbInit(); // 重新拉数据, chips 现场聚合
+    } else {
+      showToast((_sb2KbEditingId ? '保存' : '录入') + '失败', 'error');
+    }
+  } catch (e) {
+    console.error('[sb2-kb] submit failed:', e);
+    showToast('提交失败: ' + (e.message || '未知错误'), 'error');
+  }
+}
+
+async function sb2KbDeleteEntry(){
+  if (!_sb2KbEditingId) return;
+  if (!confirm('确定删除该知识?此操作不可恢复。')) return;
+  try {
+    var resp = await apiFetch('/api/knowledge/entries/' + encodeURIComponent(_sb2KbEditingId), { method: 'DELETE' });
+    if (resp && resp.ok) {
+      showToast('已删除', 'success');
+      sb2KbCloseModal();
+      sb2KbInit();
+    } else {
+      showToast('删除失败', 'error');
+    }
+  } catch (e) {
+    console.error('[sb2-kb] delete failed:', e);
+    showToast('删除失败: ' + (e.message || ''), 'error');
+  }
 }
 
 function switchModule(module) {
