@@ -10433,97 +10433,105 @@ window.doLogin = function () {
 
 <!-- ★ feat/sb2-chat: SoloBrave 2.0 聊天模块 CSS (气泡/输入框/topbar/cursor/empty/progress) -->
 <style id="sb2-chat">
-/* ===== Design Tokens (全部 --sb2-* 命名空间, 不动老 var) ===== */
+/* ===== Design Tokens (全部 --sb2-* 命名空间, 内部 token 全走 global --sb2-* 单一来源) =====
+ * 色板硬约束 (见 docs/SB2-视觉规格.md):
+ *  - 用户气泡/品牌 = --sb2-brand (橙), 蓝只给数据/链接 = --sb2-accent
+ *  - 背景/表面 走 --sb2-bg/s1/s2/s3, 文本 --sb2-t1/t2/t3, 边框 --sb2-border/border-strong
+ *  - 语义色 走 --sb2-success/warning/danger (-soft 底), 白底 --sb2-s1
+ *  - 阴影 走 --sb2-sh1/sh2/sh3, 圆角 --sb2-r-sm/md/lg/full
+ *  - 自查命令: 提取本块后用 regex r'#[0-9A-Fa-f]{6}' 扫, 必须返回空 list []
+ *  - 重要: 本注释内严禁出现字面 结束样式标签 字符串, 否则会提前关闭样式块
+ */
 :root {
   /* 气泡 (核心) */
-  --sb2-chat-bubble-user-bg: linear-gradient(135deg, #4F6BFF, #3D55E8);
-  --sb2-chat-bubble-user-fg: #FFFFFF;
-  --sb2-chat-bubble-assistant-bg: var(--bg-card, #FFFFFF);
-  --sb2-chat-bubble-assistant-fg: var(--text-primary, #1F2937);
-  --sb2-chat-bubble-system-bg: rgba(245, 158, 11, 0.12);
-  --sb2-chat-bubble-system-fg: #B45309;
-  --sb2-chat-bubble-radius: 14px;
+  --sb2-chat-bubble-user-bg: var(--sb2-brand);
+  --sb2-chat-bubble-user-fg: var(--sb2-s1);
+  --sb2-chat-bubble-assistant-bg: var(--sb2-s1);
+  --sb2-chat-bubble-assistant-fg: var(--sb2-t1);
+  --sb2-chat-bubble-system-bg: var(--sb2-warning-soft);
+  --sb2-chat-bubble-system-fg: var(--sb2-warning);
+  --sb2-chat-bubble-radius: var(--sb2-r-lg);
   --sb2-chat-bubble-radius-self: 4px;
-  --sb2-chat-bubble-shadow-user: 0 1px 2px rgba(79, 107, 255, 0.15);
-  --sb2-chat-bubble-shadow-assistant: 0 1px 2px rgba(15, 23, 42, 0.06);
+  --sb2-chat-bubble-shadow-user: var(--sb2-sh1);
+  --sb2-chat-bubble-shadow-assistant: var(--sb2-sh1);
   --sb2-chat-bubble-max: 75%;
-  --sb2-chat-bubble-text: var(--text-primary, #1F2937);
-  --sb2-chat-bubble-time: var(--text-tertiary, #94A3B8);
-  --sb2-chat-bubble-time-fg: rgba(255, 255, 255, 0.7);
+  --sb2-chat-bubble-text: var(--sb2-t1);
+  --sb2-chat-bubble-time: var(--sb2-t3);
+  --sb2-chat-bubble-time-fg: rgba(255, 255, 255, 0.7);  /* 不可改: 用户气泡上的 fg alpha */
   --sb2-chat-bubble-images-gap: 8px;
   --sb2-chat-bubble-image-radius: 8px;
   --sb2-chat-bubble-image-max: 220px;
-  --sb2-chat-bubble-cursor: #94A3B8;
-  --sb2-chat-bubble-error-bg: rgba(239, 68, 68, 0.1);
-  --sb2-chat-bubble-error-fg: #B91C1C;
+  --sb2-chat-bubble-cursor: var(--sb2-t3);
+  --sb2-chat-bubble-error-bg: var(--sb2-danger-soft);
+  --sb2-chat-bubble-error-fg: var(--sb2-danger);
 
   /* Topbar (顶栏) */
-  --sb2-chat-topbar-bg: var(--bg-card, #FFFFFF);
-  --sb2-chat-topbar-fg: var(--text-primary, #1F2937);
+  --sb2-chat-topbar-bg: var(--sb2-s1);
+  --sb2-chat-topbar-fg: var(--sb2-t1);
   --sb2-chat-topbar-height: 48px;
   --sb2-chat-topbar-padding: 0 16px;
-  --sb2-chat-topbar-border-bottom: 1px solid var(--border-color, #E5E7EB);
+  --sb2-chat-topbar-border-bottom: 1px solid var(--sb2-border);
   --sb2-chat-topbar-team-gap: 8px;
   --sb2-chat-topbar-team-dot-size: 8px;
-  --sb2-chat-topbar-team-dot-on: #10B981;
-  --sb2-chat-topbar-team-dot-off: #94A3B8;
+  --sb2-chat-topbar-team-dot-on: var(--sb2-success);
+  --sb2-chat-topbar-team-dot-off: var(--sb2-t3);
   --sb2-chat-topbar-ws-padding: 4px 10px;
   --sb2-chat-topbar-ws-radius: 10px;
-  --sb2-chat-topbar-ws-fg-on: #047857;
-  --sb2-chat-topbar-ws-bg-on: rgba(16, 185, 129, 0.12);
-  --sb2-chat-topbar-ws-fg-off: #6B7280;
-  --sb2-chat-topbar-ws-bg-off: rgba(148, 163, 184, 0.12);
+  --sb2-chat-topbar-ws-fg-on: var(--sb2-success);
+  --sb2-chat-topbar-ws-bg-on: var(--sb2-success-soft);
+  --sb2-chat-topbar-ws-fg-off: var(--sb2-t2);
+  --sb2-chat-topbar-ws-bg-off: var(--sb2-s3);
 
   /* Messages container */
-  --sb2-chat-messages-bg: var(--bg-app, #F8FAFC);
+  --sb2-chat-messages-bg: var(--sb2-bg);
   --sb2-chat-messages-padding: 16px 20px;
   --sb2-chat-messages-gap: 12px;
-  --sb2-chat-messages-empty: var(--text-tertiary, #94A3B8);
+  --sb2-chat-messages-empty: var(--sb2-t3);
 
   /* Input wrap */
-  --sb2-chat-input-wrap-bg: var(--bg-card, #FFFFFF);
+  --sb2-chat-input-wrap-bg: var(--sb2-s1);
   --sb2-chat-input-wrap-padding: 12px 16px 14px;
-  --sb2-chat-input-wrap-border-top: 1px solid var(--border-color, #E5E7EB);
+  --sb2-chat-input-wrap-border-top: 1px solid var(--sb2-border);
   --sb2-chat-input-row-gap: 8px;
   --sb2-chat-tool-btn-size: 32px;
-  --sb2-chat-tool-btn-fg: var(--text-secondary, #6B7280);
-  --sb2-chat-tool-btn-fg-hover: var(--text-primary, #1F2937);
-  --sb2-chat-tool-btn-bg-hover: rgba(15, 23, 42, 0.05);
-  --sb2-chat-input-bg: var(--bg-app, #F8FAFC);
-  --sb2-chat-input-fg: var(--text-primary, #1F2937);
-  --sb2-chat-input-placeholder: var(--text-tertiary, #94A3B8);
-  --sb2-chat-input-radius: 12px;
+  --sb2-chat-tool-btn-fg: var(--sb2-t2);
+  --sb2-chat-tool-btn-fg-hover: var(--sb2-t1);
+  --sb2-chat-tool-btn-bg-hover: var(--sb2-s3);
+  --sb2-chat-input-bg: var(--sb2-s2);
+  --sb2-chat-input-fg: var(--sb2-t1);
+  --sb2-chat-input-placeholder: var(--sb2-t3);
+  --sb2-chat-input-radius: var(--sb2-r-md);
   --sb2-chat-input-padding: 8px 12px;
   --sb2-chat-input-min-height: 36px;
   --sb2-chat-input-max-height: 160px;
-  --sb2-chat-input-border: 1px solid var(--border-color, #E5E7EB);
-  --sb2-chat-input-border-focus: #4F6BFF;
+  --sb2-chat-input-border: 1px solid var(--sb2-border);
+  --sb2-chat-input-border-focus: var(--sb2-brand);
   --sb2-chat-send-btn-size: 36px;
-  --sb2-chat-send-btn-bg: #4F6BFF;
-  --sb2-chat-send-btn-bg-hover: #3D55E8;
-  --sb2-chat-send-btn-bg-disabled: rgba(79, 107, 255, 0.35);
-  --sb2-chat-send-btn-fg: #FFFFFF;
-  --sb2-chat-send-btn-radius: 10px;
+  --sb2-chat-send-btn-bg: var(--sb2-brand);
+  --sb2-chat-send-btn-bg-hover: var(--sb2-brand-strong);
+  --sb2-chat-send-btn-bg-disabled: var(--sb2-brand-soft);
+  --sb2-chat-send-btn-fg: var(--sb2-s1);
+  --sb2-chat-send-btn-radius: var(--sb2-r-md);
 
   /* Attach bar */
   --sb2-chat-attach-bar-gap: 8px;
   --sb2-chat-attach-bar-margin: 0 0 8px;
   --sb2-chat-attach-thumb-size: 64px;
-  --sb2-chat-attach-thumb-radius: 8px;
+  --sb2-chat-attach-thumb-radius: var(--sb2-r-sm);
   --sb2-chat-attach-thumb-x-size: 18px;
-  --sb2-chat-attach-thumb-x-bg: rgba(15, 23, 42, 0.7);
-  --sb2-chat-attach-thumb-x-fg: #FFFFFF;
+  --sb2-chat-attach-thumb-x-bg: rgba(15, 23, 42, 0.7);  /* 不可改: 浮层关闭按钮黑底 */
+  --sb2-chat-attach-thumb-x-fg: var(--sb2-s1);
 
   /* Progress (streaming bar) */
   --sb2-chat-progress-height: 2px;
-  --sb2-chat-progress-bg: rgba(79, 107, 255, 0.12);
-  --sb2-chat-progress-fill-bg: linear-gradient(90deg, #4F6BFF, #8B5CF6, #4F6BFF);
+  --sb2-chat-progress-bg: var(--sb2-brand-soft);
+  --sb2-chat-progress-fill-bg: linear-gradient(90deg, var(--sb2-brand), var(--sb2-accent), var(--sb2-brand));
   --sb2-chat-progress-fill-size: 30% 100%;
 
   /* Empty state */
   --sb2-chat-empty-icon-size: 56px;
-  --sb2-chat-empty-icon-fg: var(--text-tertiary, #94A3B8);
-  --sb2-chat-empty-tip: var(--text-tertiary, #94A3B8);
+  --sb2-chat-empty-icon-fg: var(--sb2-t3);
+  --sb2-chat-empty-tip: var(--sb2-t3);
 }
 
 /* ===== Shell ===== */
@@ -10622,11 +10630,11 @@ window.doLogin = function () {
 }
 .sb2-chat-messages::-webkit-scrollbar { width: 8px; }
 .sb2-chat-messages::-webkit-scrollbar-thumb {
-  background: rgba(15, 23, 42, 0.15);
+  background: var(--sb2-s3);
   border-radius: 4px;
 }
 .sb2-chat-messages::-webkit-scrollbar-thumb:hover {
-  background: rgba(15, 23, 42, 0.25);
+  background: var(--sb2-border-strong);
 }
 
 /* ===== Bubble (核心) ===== */
@@ -10666,7 +10674,7 @@ window.doLogin = function () {
 .sb2-chat-bubble-error {
   background: var(--sb2-chat-bubble-error-bg) !important;
   color: var(--sb2-chat-bubble-error-fg) !important;
-  border: 1px solid rgba(239, 68, 68, 0.3);
+  border: 1px solid var(--sb2-danger-soft);
 }
 .sb2-chat-bubble-text {
   white-space: pre-wrap;
@@ -10681,19 +10689,19 @@ window.doLogin = function () {
 .sb2-chat-bubble-body p:last-child { margin-bottom: 0; }
 .sb2-chat-bubble-body code {
   font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
-  background: rgba(15, 23, 42, 0.08);
+  background: var(--sb2-s3);
   padding: 1px 4px;
   border-radius: 3px;
   font-size: 12.5px;
 }
 .sb2-chat-bubble[data-role="user"] .sb2-chat-bubble-body code {
-  background: rgba(255, 255, 255, 0.18);
-  color: #FFFFFF;
+  background: rgba(255, 255, 255, 0.18);  /* 不可改: 用户气泡上的 code alpha 蒙层 */
+  color: var(--sb2-s1);
 }
 .sb2-chat-bubble-body pre {
   margin: 6px 0;
   padding: 8px 10px;
-  background: rgba(15, 23, 42, 0.06);
+  background: var(--sb2-s2);
   border-radius: 6px;
   overflow-x: auto;
   font-size: 12.5px;
@@ -10776,7 +10784,7 @@ window.doLogin = function () {
   border-radius: var(--sb2-chat-attach-thumb-radius);
   overflow: hidden;
   background: var(--sb2-chat-input-bg);
-  border: 1px solid var(--border-color, #E5E7EB);
+  border: 1px solid var(--sb2-border);
 }
 .sb2-chat-attach-thumb img {
   width: 100%;
@@ -10822,7 +10830,7 @@ window.doLogin = function () {
   justify-content: center;
   background: transparent;
   border: none;
-  border-radius: 8px;
+  border-radius: var(--sb2-r-sm);
   color: var(--sb2-chat-tool-btn-fg);
   cursor: pointer;
   transition: background 0.15s, color 0.15s;
