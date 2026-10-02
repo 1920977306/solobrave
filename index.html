@@ -9986,7 +9986,7 @@ window.doLogin = function () {
   --sb2-t1:#18181B; --sb2-t2:#5A5A66; --sb2-t3:#9C9CA8;
   --sb2-brand:#FF5A36; --sb2-brand-strong:#E8441F; --sb2-brand-soft:rgba(255,90,54,.09);
   --sb2-ink:#18181B; --sb2-ink-hover:#34343A;
-  --sb2-accent:#3B5BFD; --sb2-accent-soft:rgba(59,91,253,.09);
+  --sb2-accent:#3B5BFD; --sb2-accent-strong:#2E48E8; --sb2-accent-soft:rgba(59,91,253,.09);
   --sb2-success:#17A34A; --sb2-success-soft:rgba(23,163,74,.10);
   --sb2-warning:#D97706; --sb2-warning-soft:rgba(217,119,6,.10);
   --sb2-danger:#DC2626; --sb2-danger-soft:rgba(220,38,38,.09);
@@ -10003,7 +10003,7 @@ window.doLogin = function () {
   --sb2-t1:#F4F4F5; --sb2-t2:#A7A7B3; --sb2-t3:#63636E;
   --sb2-brand:#FF6B4A; --sb2-brand-soft:rgba(255,107,74,.13);
   --sb2-ink:#F4F4F5; --sb2-ink-hover:#D9D9DE;
-  --sb2-accent:#6B84FF; --sb2-accent-soft:rgba(107,132,255,.14);
+  --sb2-accent:#6B84FF; --sb2-accent-strong:#88A1FF; --sb2-accent-soft:rgba(107,132,255,.14);
   --sb2-success:#34C06A; --sb2-success-soft:rgba(52,192,106,.14);
   --sb2-warning:#F0A22E; --sb2-warning-soft:rgba(240,162,46,.14);
   --sb2-danger:#EF5757; --sb2-danger-soft:rgba(239,87,87,.13);
@@ -10447,17 +10447,18 @@ window.doLogin = function () {
   /* 气泡 (核心) */
   --sb2-chat-bubble-user-bg: var(--sb2-brand);
   --sb2-chat-bubble-user-fg: var(--sb2-s1);
-  --sb2-chat-bubble-assistant-bg: var(--sb2-s1);
+  --sb2-chat-bubble-assistant-bg: var(--sb2-s2);  /* 风格对齐原型 surface-2 柔灰底 */
   --sb2-chat-bubble-assistant-fg: var(--sb2-t1);
   --sb2-chat-bubble-system-bg: var(--sb2-warning-soft);
   --sb2-chat-bubble-system-fg: var(--sb2-warning);
   --sb2-chat-bubble-radius: var(--sb2-r-lg);
   --sb2-chat-bubble-radius-self: 4px;
-  --sb2-chat-bubble-shadow-user: var(--sb2-sh1);
-  --sb2-chat-bubble-shadow-assistant: var(--sb2-sh1);
-  --sb2-chat-bubble-max: 75%;
+  --sb2-chat-bubble-shadow-user: none;  /* 原型: 无 box-shadow */
+  --sb2-chat-bubble-shadow-assistant: none;  /* 原型: 无 box-shadow */
+  --sb2-chat-bubble-max: 78%;
   --sb2-chat-bubble-text: var(--sb2-t1);
-  --sb2-chat-bubble-time: var(--sb2-t3);
+  --sb2-chat-bubble-time: var(--sb2-t3);  /* 原型 text-3 弱色 */
+  --sb2-chat-bubble-time-size: 11px;  /* 原型 fs-micro 11px/1.4 */
   --sb2-chat-bubble-time-fg: rgba(255, 255, 255, 0.7);  /* 不可改: 用户气泡上的 fg alpha */
   --sb2-chat-bubble-images-gap: 8px;
   --sb2-chat-bubble-image-radius: 8px;
@@ -10465,6 +10466,14 @@ window.doLogin = function () {
   --sb2-chat-bubble-cursor: var(--sb2-t3);
   --sb2-chat-bubble-error-bg: var(--sb2-danger-soft);
   --sb2-chat-bubble-error-fg: var(--sb2-danger);
+  /* 气泡行容器: 头像 + 内容柱, 间距 10px (原型) */
+  --sb2-chat-msg-row-gap: 10px;
+  --sb2-chat-msg-avatar-size: 28px;
+  --sb2-chat-msg-avatar-font-size: 11px;
+  /* 注入标签 chips (原型特征元素) */
+  --sb2-chat-injection-gap: 6px;
+  --sb2-chat-injection-margin-bottom: 6px;
+  --sb2-chat-injection-font-size: 11px;
 
   /* Topbar (顶栏) */
   --sb2-chat-topbar-bg: var(--sb2-s1);
@@ -10482,11 +10491,24 @@ window.doLogin = function () {
   --sb2-chat-topbar-ws-bg-on: var(--sb2-success-soft);
   --sb2-chat-topbar-ws-fg-off: var(--sb2-t2);
   --sb2-chat-topbar-ws-bg-off: var(--sb2-s3);
+  /* Topbar 扩展 (布局对齐原型: 头像 + 姓名·角色 + 状态行 + 右侧 ghost 按钮) */
+  --sb2-chat-topbar-padding: 14px 20px;
+  --sb2-chat-topbar-avatar-size: 28px;
+  --sb2-chat-topbar-avatar-font-size: 12px;
+  --sb2-chat-topbar-avatar-font-weight: 800;
+  --sb2-chat-topbar-info-gap: 12px;
+  --sb2-chat-topbar-name-font-size: 14px;
+  --sb2-chat-topbar-status-font-size: 11px;
+  --sb2-chat-topbar-status-dot-size: 6px;
+  --sb2-chat-topbar-right-gap: 8px;
+  --sb2-chat-topbar-ghost-padding: 6px 12px;
+  --sb2-chat-topbar-ghost-font-size: 12px;
+  --sb2-chat-topbar-ghost-radius: var(--sb2-r-md);
 
   /* Messages container */
   --sb2-chat-messages-bg: var(--sb2-bg);
-  --sb2-chat-messages-padding: 16px 20px;
-  --sb2-chat-messages-gap: 12px;
+  --sb2-chat-messages-padding: 24px 32px;  /* 原型 padding 24px 32px */
+  --sb2-chat-messages-gap: 18px;  /* 原型 gap 18px */
   --sb2-chat-messages-empty: var(--sb2-t3);
 
   /* Input wrap (P0-2 还原旧版: 灰底胶囊 + 圆形品牌发送键) */
@@ -10557,10 +10579,10 @@ window.doLogin = function () {
 .sb2-chat-shell[hidden],
 .sb2-chat-shell.hidden { display: none !important; }
 
-/* ===== Topbar ===== */
+/* ===== Topbar (布局对齐原型: 头像 + 姓名·角色 + 状态行 + 右侧 ghost 按钮) ===== */
 .sb2-chat-topbar {
   flex: 0 0 auto;
-  height: var(--sb2-chat-topbar-height);
+  min-height: var(--sb2-chat-topbar-height);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -10568,22 +10590,103 @@ window.doLogin = function () {
   background: var(--sb2-chat-topbar-bg);
   color: var(--sb2-chat-topbar-fg);
   border-bottom: var(--sb2-chat-topbar-border-bottom);
+  gap: 12px;
 }
-.sb2-chat-topbar-team {
+/* 左侧: 头像 + 信息 (姓名·角色 + 状态行) */
+.sb2-chat-topbar-info {
   display: flex;
   align-items: center;
-  gap: var(--sb2-chat-topbar-team-gap);
-  font-weight: 600;
-  font-size: 14px;
+  gap: var(--sb2-chat-topbar-info-gap);
+  min-width: 0;
 }
-.sb2-chat-topbar-team-dot {
-  width: var(--sb2-chat-topbar-team-dot-size);
-  height: var(--sb2-chat-topbar-team-dot-size);
+.sb2-chat-topbar-avatar {
+  width: var(--sb2-chat-topbar-avatar-size);
+  height: var(--sb2-chat-topbar-avatar-size);
   border-radius: 50%;
-  background: var(--sb2-chat-topbar-team-dot-off);
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(135deg, var(--sb2-accent), var(--sb2-accent-strong));
+  color: #fff;
+  font: var(--sb2-chat-topbar-avatar-font-weight) var(--sb2-chat-topbar-avatar-font-size)/1 "PingFang SC", sans-serif;
+  user-select: none;
+}
+.sb2-chat-topbar-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.sb2-chat-topbar-name {
+  font-weight: 600;
+  font-size: var(--sb2-chat-topbar-name-font-size);
+  color: var(--sb2-t1);
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sb2-chat-topbar-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--sb2-chat-topbar-status-font-size);
+  color: var(--sb2-success);
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sb2-chat-topbar-status-dot {
+  width: var(--sb2-chat-topbar-status-dot-size);
+  height: var(--sb2-chat-topbar-status-dot-size);
+  border-radius: 99px;
+  background: var(--sb2-success);
   flex: 0 0 auto;
 }
-.sb2-chat-topbar-team-dot.online { background: var(--sb2-chat-topbar-team-dot-on); }
+.sb2-chat-topbar-status.offline {
+  color: var(--sb2-t3);
+}
+.sb2-chat-topbar-status.offline .sb2-chat-topbar-status-dot {
+  background: var(--sb2-t3);
+}
+/* 右侧: model + ws + 2 个 ghost 按钮 */
+.sb2-chat-topbar-right {
+  display: flex;
+  align-items: center;
+  gap: var(--sb2-chat-topbar-right-gap);
+  flex: 0 0 auto;
+}
+.sb2-chat-topbar-ghost {
+  padding: var(--sb2-chat-topbar-ghost-padding);
+  border-radius: var(--sb2-chat-topbar-ghost-radius);
+  border: 1px solid var(--sb2-border-strong);
+  background: var(--sb2-s1);
+  color: var(--sb2-t2);
+  font-size: var(--sb2-chat-topbar-ghost-font-size);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.sb2-chat-topbar-ghost:hover {
+  color: var(--sb2-t1);
+  border-color: var(--sb2-t3);
+}
+.sb2-chat-topbar-model {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: var(--sb2-chat-topbar-ws-padding);
+  border-radius: var(--sb2-chat-topbar-ws-radius);
+  font-size: 12px;
+  background: var(--sb2-s3);
+  color: var(--sb2-t2);
+  border: 0;
+  cursor: pointer;
+}
+.sb2-chat-topbar-model:hover {
+  background: var(--sb2-s2);
+  color: var(--sb2-t1);
+}
 .sb2-chat-topbar-ws {
   display: inline-flex;
   align-items: center;
@@ -10598,6 +10701,15 @@ window.doLogin = function () {
   background: var(--sb2-chat-topbar-ws-bg-on);
   color: var(--sb2-chat-topbar-ws-fg-on);
 }
+/* 兼容旧 DOM (sb2-chat-topbar-team-dot 保留以防外部 query 引用) */
+.sb2-chat-topbar-team-dot {
+  width: var(--sb2-chat-topbar-team-dot-size);
+  height: var(--sb2-chat-topbar-team-dot-size);
+  border-radius: 50%;
+  background: var(--sb2-chat-topbar-team-dot-off);
+  flex: 0 0 auto;
+}
+.sb2-chat-topbar-team-dot.online { background: var(--sb2-chat-topbar-team-dot-on); }
 
 /* ===== Progress bar (streaming) ===== */
 .sb2-chat-progress {
@@ -10646,10 +10758,82 @@ window.doLogin = function () {
 }
 
 /* ===== Bubble (核心) ===== */
+/* 消息行容器 (布局对齐原型: 头像 + 内容柱, gap 10px, max-width 78%) */
+.sb2-chat-msg-row {
+  display: flex;
+  gap: var(--sb2-chat-msg-row-gap);
+  max-width: var(--sb2-chat-bubble-max);
+  align-items: flex-start;
+  min-width: 0;
+}
+.sb2-chat-msg-row[data-role="user"] {
+  align-self: flex-end;
+  flex-direction: row-reverse;
+}
+.sb2-chat-msg-row[data-role="assistant"] {
+  align-self: flex-start;
+}
+.sb2-chat-msg-row[data-role="system"] {
+  align-self: center;
+  max-width: 90%;
+}
+/* 头像圆 (助手蓝渐变 + 首字 / 用户 --sb2-t1 深色 + 用户首字) */
+.sb2-chat-msg-avatar {
+  width: var(--sb2-chat-msg-avatar-size);
+  height: var(--sb2-chat-msg-avatar-size);
+  border-radius: 50%;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  font: var(--sb2-chat-topbar-avatar-font-weight) var(--sb2-chat-msg-avatar-font-size)/1 "PingFang SC", sans-serif;
+  color: #fff;
+  user-select: none;
+}
+.sb2-chat-msg-avatar.assistant {
+  background: linear-gradient(135deg, var(--sb2-accent), var(--sb2-accent-strong));
+}
+.sb2-chat-msg-avatar.user {
+  background: var(--sb2-t1);
+}
+/* 内容柱 (chips + bubble + time) */
+.sb2-chat-msg-col {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  max-width: 100%;
+}
+/* 注入标签 chips (原型特征元素, 数据驱动) */
+.sb2-chat-injection-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sb2-chat-injection-gap);
+  margin-bottom: var(--sb2-chat-injection-margin-bottom);
+}
+.sb2-chat-injection-chip {
+  display: inline-flex;
+  align-items: center;
+  font: 500 var(--sb2-chat-injection-font-size)/1.4 "PingFang SC", sans-serif;
+  padding: 3px 8px;
+  border-radius: var(--sb2-r-sm);
+  white-space: nowrap;
+}
+.sb2-chat-injection-chip.accent {
+  background: var(--sb2-accent-soft);
+  color: var(--sb2-accent);
+}
+.sb2-chat-injection-chip.brand {
+  background: var(--sb2-brand-soft);
+  color: var(--sb2-brand);
+}
+.sb2-chat-injection-chip.gold {
+  background: var(--sb2-gold-soft);
+  color: var(--sb2-gold);
+}
+/* Bubble 本身 (在 col 内, max-width 由 row 控制, 此处不重复) */
 .sb2-chat-bubble {
   display: flex;
   flex-direction: column;
-  max-width: var(--sb2-chat-bubble-max);
   padding: 10px 14px;
   border-radius: var(--sb2-chat-bubble-radius);
   word-break: break-word;
@@ -10658,18 +10842,20 @@ window.doLogin = function () {
   line-height: 1.55;
 }
 .sb2-chat-bubble[data-role="user"] {
-  align-self: flex-end;
   background: var(--sb2-chat-bubble-user-bg);
   color: var(--sb2-chat-bubble-user-fg);
   border-bottom-right-radius: var(--sb2-chat-bubble-radius-self);
   box-shadow: var(--sb2-chat-bubble-shadow-user);
+  align-self: flex-end;  /* 用户气泡在 col 内右对齐 */
+  max-width: 100%;
 }
 .sb2-chat-bubble[data-role="assistant"] {
-  align-self: flex-start;
   background: var(--sb2-chat-bubble-assistant-bg);
   color: var(--sb2-chat-bubble-assistant-fg);
   border-bottom-left-radius: var(--sb2-chat-bubble-radius-self);
   box-shadow: var(--sb2-chat-bubble-shadow-assistant);
+  align-self: flex-start;
+  max-width: 100%;
 }
 .sb2-chat-bubble[data-role="system"] {
   align-self: center;
@@ -10716,10 +10902,11 @@ window.doLogin = function () {
 }
 .sb2-chat-bubble-time {
   display: block;
-  margin-top: 6px;
-  font-size: 11px;
+  margin-top: 4px;
+  font-size: var(--sb2-chat-bubble-time-size);
   color: var(--sb2-chat-bubble-time);
   align-self: flex-end;
+  font-family: "PingFang SC", -apple-system, sans-serif;
 }
 .sb2-chat-bubble[data-role="user"] .sb2-chat-bubble-time {
   color: var(--sb2-chat-bubble-time-fg);
@@ -11902,19 +12089,29 @@ window.doLogin = function () {
 
 <!-- ★ feat/sb2-chat: 新 sb2 聊天主区 (核心链: 消息流 + 发送框), 作为兄弟节点在 chatArea 之外 -->
 <main id="sb2ChatMain" class="sb2-chat-shell" hidden>
-  <!-- 顶栏 (AI 团队 + 模型徽章 + WS 网关状态) -->
+  <!-- 顶栏 (布局对齐原型: 头像 + 姓名·角色 + 状态行 + 右侧 ghost 按钮) -->
   <header class="sb2-chat-topbar">
-    <div class="sb2-chat-topbar-team">
-      <span class="sb2-chat-topbar-team-dot" id="sb2ChatTeamDot"></span>
-      <span id="sb2ChatTeamName">AI 团队</span>
+    <div class="sb2-chat-topbar-info">
+      <span class="sb2-chat-topbar-avatar" id="sb2ChatTopbarAvatar">R</span>
+      <div class="sb2-chat-topbar-meta">
+        <div class="sb2-chat-topbar-name" id="sb2ChatTopbarName">-</div>
+        <div class="sb2-chat-topbar-status offline" id="sb2ChatTopbarStatus">
+          <span class="sb2-chat-topbar-status-dot"></span>
+          <span id="sb2ChatTopbarStatusText">未连接</span>
+        </div>
+      </div>
     </div>
-    <button class="sb2-chat-topbar-model" type="button" id="sb2ChatTopbarModel" aria-label="切换模型" title="切换模型 (请求级透传)">
-      <span class="sb2-chat-topbar-model-tag">MODEL</span>
-      <span class="sb2-chat-topbar-model-name" id="sb2ChatTopbarModelName">kimi-for-coding</span>
-      <span class="sb2-chat-topbar-model-caret">▾</span>
-    </button>
-    <div class="sb2-chat-topbar-ws disconnected" id="sb2ChatTopbarWs">
-      <span id="sb2ChatTopbarWsText">未连接</span>
+    <div class="sb2-chat-topbar-right">
+      <button class="sb2-chat-topbar-model" type="button" id="sb2ChatTopbarModel" aria-label="切换模型" title="切换模型 (请求级透传)">
+        <span class="sb2-chat-topbar-model-tag">MODEL</span>
+        <span class="sb2-chat-topbar-model-name" id="sb2ChatTopbarModelName">kimi-for-coding</span>
+        <span class="sb2-chat-topbar-model-caret">▾</span>
+      </button>
+      <button class="sb2-chat-topbar-ghost" type="button" id="sb2ChatTopbarProfile" title="员工档案" onclick="sb2_toastComingSoon('员工档案')">员工档案</button>
+      <button class="sb2-chat-topbar-ghost" type="button" id="sb2ChatTopbarSettings" title="会话设置" onclick="sb2_toastComingSoon('会话设置')">设置</button>
+      <div class="sb2-chat-topbar-ws disconnected" id="sb2ChatTopbarWs">
+        <span id="sb2ChatTopbarWsText">未连接</span>
+      </div>
     </div>
   </header>
 
@@ -39658,21 +39855,42 @@ else init();
 
   // ===== Topbar =====
   function sb2_updateTopbar() {
-    var nameEl = document.getElementById('sb2ChatTeamName');
-    var dotEl = document.getElementById('sb2ChatTeamDot');
+    var emp = _sb2GetEmpById(_sb2Chat.agentId);
+    var empRole = (emp && emp.role) ? emp.role : '';
+    var empName = (emp && emp.name) ? emp.name : '-';
+    var empFirst = empName ? empName.charAt(0) : '-';
+
+    // 头像首字 (Ray/Helen/...)
+    var avatarEl = document.getElementById('sb2ChatTopbarAvatar');
+    if (avatarEl) avatarEl.textContent = empFirst;
+
+    // 姓名·角色 (缺值显 -, 与原 query 行为对齐)
+    var nameEl = document.getElementById('sb2ChatTopbarName');
+    if (nameEl) nameEl.textContent = empName + (empRole ? ' · ' + empRole : '');
+
+    // 状态行: 绿点 + 网关在线 · 模型名 / 未连接
+    var statusEl = document.getElementById('sb2ChatTopbarStatus');
+    var statusTextEl = document.getElementById('sb2ChatTopbarStatusText');
+    var modelNameEl = document.getElementById('sb2ChatTopbarModelName');
+    var modelName = modelNameEl ? modelNameEl.textContent.trim() : '';
+    var online = !!(emp && (emp.online === true || emp.status === 'online'));
+    var wsConnected = !!_sb2Chat.wsConnected;
+    if (statusEl) statusEl.classList.toggle('offline', !(online && wsConnected));
+    if (statusTextEl) {
+      if (online && wsConnected) {
+        statusTextEl.textContent = '网关在线 · ' + (modelName || '-');
+      } else if (wsConnected) {
+        statusTextEl.textContent = '网关已连 · 员工离线';
+      } else {
+        statusTextEl.textContent = '未连接';
+      }
+    }
+
+    // 兼容旧 ws badge (右侧 ws 徽章)
     var wsEl = document.getElementById('sb2ChatTopbarWs');
     var wsTextEl = document.getElementById('sb2ChatTopbarWsText');
-    if (nameEl) {
-      var emp = _sb2GetEmpById(_sb2Chat.agentId);
-      nameEl.textContent = (emp && emp.name) ? emp.name : '-';
-    }
-    if (dotEl) {
-      var empOnline = _sb2GetEmpById(_sb2Chat.agentId);
-      var online = empOnline && (empOnline.online === true || empOnline.status === 'online');
-      if (online) dotEl.classList.add('online'); else dotEl.classList.remove('online');
-    }
     if (wsEl && wsTextEl) {
-      if (_sb2Chat.wsConnected) {
+      if (wsConnected) {
         wsEl.classList.remove('disconnected');
         wsEl.classList.add('connected');
         wsTextEl.textContent = '网关已连';
@@ -39681,6 +39899,14 @@ else init();
         wsEl.classList.add('disconnected');
         wsTextEl.textContent = '未连接';
       }
+    }
+  }
+  // 顶栏 ghost 按钮占位 (原型对应"员工档案/设置"待展开, 跟前端规范一致走 toast)
+  function sb2_toastComingSoon(label) {
+    if (typeof showToast === 'function') {
+      showToast(label + ' — 原型未展开');
+    } else {
+      console.log('[sb2]', label, 'coming soon');
     }
   }
 
@@ -39711,6 +39937,8 @@ else init();
     var time = _sb2FmtTime(msg && (msg.timestamp || msg.created_at));
     var images = (msg && Array.isArray(msg.images)) ? msg.images : [];
     var isErr = msg && msg.error === true;
+    var isUser = role === 'user';
+    var isSystem = role === 'system';
 
     var safeContent = _sb2EscapeHtml(content);
     // §2 mention token 高亮: @Name → <span class="sb2-chat-mention">@Name</span>
@@ -39726,10 +39954,41 @@ else init();
       imgHtml += '</div>';
     }
 
+    // 注入标签 chips (数据驱动, 禁止写死数字)
+    // 唯一真实字段: msg.citations (RAG 召回知识数组, 长度取自 sources)
+    // 记忆/规律字段后端未透传, 不渲染以免编造
+    var chipsHtml = '';
+    if (!isUser && msg && Array.isArray(msg.citations) && msg.citations.length > 0) {
+      chipsHtml = '<div class="sb2-chat-injection-chips">'
+        + '<span class="sb2-chat-injection-chip brand">📄 召回 ' + msg.citations.length + ' 条知识</span>'
+        + '</div>';
+    }
+
+    // 头像首字: 助手取当前 agent 员工姓名, 用户取"我" (前端规范: 缺值显 -)
+    var avatarChar = '-';
+    var avatarRoleCls = 'assistant';
+    if (isUser) {
+      avatarChar = '我';
+      avatarRoleCls = 'user';
+    } else if (isSystem) {
+      avatarChar = '·';
+      avatarRoleCls = 'system';
+    } else {
+      var emp = _sb2GetEmpById(_sb2Chat.agentId);
+      var empName = (emp && emp.name) ? emp.name : '';
+      avatarChar = empName ? empName.charAt(0) : '-';
+    }
+
     return ''
-      + '<div class="sb2-chat-bubble' + (isErr ? ' sb2-chat-bubble-error' : '') + '" data-role="' + _sb2EscapeHtml(role) + '">'
-      + '  <div class="sb2-chat-bubble-body">' + bodyHtml + imgHtml + '</div>'
-      + '  <span class="sb2-chat-bubble-time">' + _sb2EscapeHtml(time) + '</span>'
+      + '<div class="sb2-chat-msg-row" data-role="' + _sb2EscapeHtml(role) + '">'
+      + '  <span class="sb2-chat-msg-avatar ' + avatarRoleCls + '">' + _sb2EscapeHtml(avatarChar) + '</span>'
+      + '  <div class="sb2-chat-msg-col">'
+      +    chipsHtml
+      + '    <div class="sb2-chat-bubble' + (isErr ? ' sb2-chat-bubble-error' : '') + '" data-role="' + _sb2EscapeHtml(role) + '">'
+      + '      <div class="sb2-chat-bubble-body">' + bodyHtml + imgHtml + '</div>'
+      + '      <span class="sb2-chat-bubble-time">' + _sb2EscapeHtml(time) + '</span>'
+      + '    </div>'
+      + '  </div>'
       + '</div>';
   }
 
