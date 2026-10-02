@@ -10657,6 +10657,105 @@ window.doLogin = function () {
 }
 
 /* —— MVP5: 详情面板 footer 三按钮（继承现有 .sb2-kb-detail-footer, 这里只做 viewport 适配） —— */
+
+/* ============================================================
+ * MVP6: 设置屏 — 功能入口卡片列表 (语义搜索 / 大脑知识 / RAG)
+ * - 简洁, 不发明大设计, 卡片式: 名称 + 状态 + 操作按钮
+ * - 跟原型 s-knowledge 区块的 hero+list 同种克制风格
+ * - 复用 --sb2-* token, 0 硬编码颜色
+ * ============================================================ */
+.sb2-settings-main{
+  display:none; flex-direction:column;
+  padding:32px 40px; max-width:960px; margin:0 auto;
+  font:400 13px/1.5 "PingFang SC",sans-serif; color:var(--sb2-t1);
+}
+.sb2-settings-main.active{ display:flex; }
+.sb2-settings-hero{ margin-bottom:24px; }
+.sb2-settings-hero h1{
+  margin:0 0 4px 0;
+  font:600 22px/1.3 "PingFang SC",sans-serif; color:var(--sb2-ink);
+}
+.sb2-settings-hero p{
+  margin:0;
+  font:400 13px/1.5 "PingFang SC",sans-serif; color:var(--sb2-t3);
+}
+.sb2-settings-grid{
+  display:grid; grid-template-columns:1fr 1fr 1fr; gap:16px;
+}
+@media (max-width: 1100px){
+  .sb2-settings-grid{ grid-template-columns:1fr 1fr; }
+}
+@media (max-width: 700px){
+  .sb2-settings-grid{ grid-template-columns:1fr; }
+}
+.sb2-settings-feature-card{
+  background:var(--sb2-s1); border:1px solid var(--sb2-border);
+  border-radius:var(--sb2-r-lg); padding:18px 20px;
+  display:flex; flex-direction:column; gap:10px;
+  transition:border-color .15s ease, box-shadow .15s ease;
+}
+.sb2-settings-feature-card:hover{
+  border-color:var(--sb2-brand); box-shadow:0 0 0 3px var(--sb2-brand-soft);
+}
+.sb2-settings-feature-card-head{
+  display:flex; align-items:center; gap:8px;
+}
+.sb2-settings-feature-card-icon{
+  width:32px; height:32px; border-radius:var(--sb2-r-md);
+  background:var(--sb2-brand-soft); color:var(--sb2-brand);
+  display:flex; align-items:center; justify-content:center;
+  font-size:16px; flex-shrink:0;
+}
+.sb2-settings-feature-card-title{
+  font:600 15px/1.3 "PingFang SC",sans-serif; color:var(--sb2-ink);
+  margin:0;
+}
+.sb2-settings-feature-card-desc{
+  font:400 12px/1.5 "PingFang SC",sans-serif; color:var(--sb2-t3);
+  margin:0;
+}
+.sb2-settings-feature-card-status{
+  display:flex; align-items:center; justify-content:space-between;
+  padding:8px 12px; background:var(--sb2-s2);
+  border-radius:var(--sb2-r-md);
+  font:400 12px/1.4 "PingFang SC",sans-serif; color:var(--sb2-t2);
+  min-height:18px;
+}
+.sb2-settings-feature-card-status .status-value{
+  color:var(--sb2-t1); font-weight:500;
+}
+.sb2-settings-feature-card-actions{
+  display:flex; gap:8px; flex-wrap:wrap;
+}
+.sb2-settings-feature-card-result{
+  font:400 11px/1.5 "PingFang SC",sans-serif; color:var(--sb2-t3);
+  padding:6px 10px; background:var(--sb2-s2);
+  border-radius:var(--sb2-r-sm);
+  white-space:pre-wrap; word-break:break-word;
+  max-height:120px; overflow-y:auto;
+  display:none;
+}
+.sb2-settings-feature-card-result.active{ display:block; }
+.sb2-settings-feature-card-result.ok{ background:var(--sb2-success-soft); color:var(--sb2-success); }
+.sb2-settings-feature-card-result.err{ background:var(--sb2-danger-soft); color:var(--sb2-danger); }
+
+/* MVP6 内嵌 search input (语义搜索用) */
+.sb2-settings-search-input-row{
+  display:flex; gap:6px; align-items:center;
+}
+.sb2-settings-search-input-row input{
+  flex:1; min-width:0; padding:7px 10px;
+  border:1px solid var(--sb2-border); border-radius:var(--sb2-r-sm);
+  font:400 12px/1.4 "PingFang SC",sans-serif;
+  background:var(--sb2-s1); color:var(--sb2-t1);
+}
+.sb2-settings-search-input-row input:focus{
+  outline:none; border-color:var(--sb2-brand);
+  box-shadow:0 0 0 2px var(--sb2-brand-soft);
+}
+.sb2-settings-search-input-row button{
+  padding:7px 12px;
+}
 </style>
 
 <style id="sb2-dense-views">
@@ -12064,6 +12163,64 @@ window.doLogin = function () {
       <button class="sb2-kb-edit-modal-close" onclick="sb2KbCloseVersionView()" aria-label="关闭">×</button>
     </div>
     <div class="sb2-kb-version-view-body" id="sb2KbVersionViewBody">-</div>
+  </div>
+</div>
+
+<!-- ★ MVP6: 设置屏 — 功能入口卡片列表 (语义搜索 / 大脑知识 / RAG) -->
+<div class="sb2-settings-main" id="sb2SettingsMain">
+  <div class="sb2-settings-hero">
+    <h1>设置</h1>
+    <p>后台功能入口。MVP6 接入语义搜索 / 大脑知识 / RAG 三个关键词入口, 不含前后端。</p>
+  </div>
+  <div class="sb2-settings-grid">
+    <!-- 卡 1: 语义搜索 -->
+    <div class="sb2-settings-feature-card" id="sb2FeatCardSearch">
+      <div class="sb2-settings-feature-card-head">
+        <div class="sb2-settings-feature-card-icon">🔍</div>
+        <h3 class="sb2-settings-feature-card-title">语义搜索</h3>
+      </div>
+      <p class="sb2-settings-feature-card-desc">POST /api/knowledge/search — 按语义向量召回 kb_entries, 走新版 embedding 索引。</p>
+      <div class="sb2-settings-feature-card-status">
+        <span>状态</span><span class="status-value" id="sb2FeatSearchStatus">-</span>
+      </div>
+      <div class="sb2-settings-search-input-row">
+        <input type="text" id="sb2FeatSearchInput" placeholder="输入 query, 回车搜索">
+        <button class="sb2-btn sb2-btn-ink" id="sb2FeatSearchBtn" onclick="sb2SettingsRunSearch()">搜索</button>
+      </div>
+      <div class="sb2-settings-feature-card-result" id="sb2FeatSearchResult"></div>
+    </div>
+    <!-- 卡 2: 大脑知识 -->
+    <div class="sb2-settings-feature-card" id="sb2FeatCardBrain">
+      <div class="sb2-settings-feature-card-head">
+        <div class="sb2-settings-feature-card-icon">🧠</div>
+        <h3 class="sb2-settings-feature-card-title">大脑知识</h3>
+      </div>
+      <p class="sb2-settings-feature-card-desc">GET /api/brain/status · POST /api/brain/trigger-manual — 大脑调度器统计 + 手动触发全量处理。</p>
+      <div class="sb2-settings-feature-card-status">
+        <span>状态</span><span class="status-value" id="sb2FeatBrainStatus">-</span>
+      </div>
+      <div class="sb2-settings-feature-card-actions">
+        <button class="sb2-btn sb2-btn-ghost" onclick="sb2SettingsBrainFetchStatus()">查看状态</button>
+        <button class="sb2-btn sb2-btn-ink" onclick="sb2SettingsBrainTrigger()">手动触发</button>
+      </div>
+      <div class="sb2-settings-feature-card-result" id="sb2FeatBrainResult"></div>
+    </div>
+    <!-- 卡 3: RAG -->
+    <div class="sb2-settings-feature-card" id="sb2FeatCardRag">
+      <div class="sb2-settings-feature-card-head">
+        <div class="sb2-settings-feature-card-icon">🧬</div>
+        <h3 class="sb2-settings-feature-card-title">RAG 索引重建</h3>
+      </div>
+      <p class="sb2-settings-feature-card-desc">POST /api/rag/build · /api/rag/retrieve — 批量重建 embedding 索引 / 向量检索 (知识库 + 产品库)。</p>
+      <div class="sb2-settings-feature-card-status">
+        <span>状态</span><span class="status-value" id="sb2FeatRagStatus">-</span>
+      </div>
+      <div class="sb2-settings-feature-card-actions">
+        <button class="sb2-btn sb2-btn-ghost" onclick="sb2SettingsRagRetrieve()">测试检索</button>
+        <button class="sb2-btn sb2-btn-ink" onclick="sb2SettingsRagBuild()">重建索引</button>
+      </div>
+      <div class="sb2-settings-feature-card-result" id="sb2FeatRagResult"></div>
+    </div>
   </div>
 </div>
 
@@ -38794,6 +38951,203 @@ function _sb2KbFmtTs(ts){
   } catch (e) { return '-'; }
 }
 
+/* ============================================================
+ * MVP6: 设置屏功能入口卡片 (语义搜索 / 大脑知识 / RAG)
+ * - 端点契约 (与后端 _handle_*_ 一一对应):
+ *     POST /api/knowledge/search          {query, limit?, scope?, categoryId?, projectId?}
+ *     GET  /api/brain/status              → {success, ...stats}
+ *     POST /api/brain/trigger-manual      → {success, enqueuedClean, enqueuedClassify, enqueuedInduct}
+ *     POST /api/rag/retrieve              {query, empId?, topK?}
+ *     POST /api/rag/build                 {empId?}
+ * - 卡片: 名称 + 状态 + 操作按钮 + 结果面板 (本屏克制, 不发明大设计)
+ * - 跟 sb2-settings 系列钩子联动: switchModule('settings') → sb2SettingsShow()
+ * ============================================================ */
+function _sb2SettingsSetStatus(card, statusId, val){
+  var el = document.getElementById(statusId);
+  if (el) el.textContent = val || '-';
+}
+function _sb2SettingsSetResult(resultId, text, ok){
+  var el = document.getElementById(resultId);
+  if (!el) return;
+  el.classList.remove('ok', 'err');
+  if (ok === true) el.classList.add('ok');
+  else if (ok === false) el.classList.add('err');
+  el.textContent = text || '';
+  el.classList.add('active');
+}
+function _sb2SettingsHideResult(resultId){
+  var el = document.getElementById(resultId);
+  if (el) el.classList.remove('active', 'ok', 'err');
+}
+
+// 入口: switchModule('settings') 时调, 自动隐藏所有结果面板 (重置到默认)
+function sb2SettingsShow(){
+  _sb2SettingsHideResult('sb2FeatSearchResult');
+  _sb2SettingsHideResult('sb2FeatBrainResult');
+  _sb2SettingsHideResult('sb2FeatRagResult');
+  // 状态字段恢复 -
+  _sb2SettingsSetStatus(null, 'sb2FeatSearchStatus', '-');
+  _sb2SettingsSetStatus(null, 'sb2FeatBrainStatus', '-');
+  _sb2SettingsSetStatus(null, 'sb2FeatRagStatus', '-');
+  var input = document.getElementById('sb2FeatSearchInput');
+  if (input) input.value = '';
+}
+
+// 卡 1: 语义搜索
+async function sb2SettingsRunSearch(){
+  var inp = document.getElementById('sb2FeatSearchInput');
+  var query = (inp && inp.value || '').trim();
+  if (!query) {
+    _sb2SettingsSetResult('sb2FeatSearchResult', '请输入 query 再搜索', false);
+    return;
+  }
+  var btn = document.getElementById('sb2FeatSearchBtn');
+  if (btn) btn.disabled = true;
+  _sb2SettingsSetResult('sb2FeatSearchResult', '搜索中…', null);
+  try {
+    var resp = await apiFetch('/api/knowledge/search', {
+      method: 'POST', body: JSON.stringify({ query: query, limit: 10 })
+    });
+    if (!resp || !resp.ok) {
+      _sb2SettingsSetResult('sb2FeatSearchResult', '搜索失败: HTTP ' + (resp ? resp.status : 'no response'), false);
+      console.warn('[sb2-settings] search failed:', resp ? resp.status : 'no response');
+      return;
+    }
+    var data = await resp.json();
+    var count = (data && data.count) || (data && data.docs && data.docs.length) || 0;
+    _sb2SettingsSetStatus(null, 'sb2FeatSearchStatus', '召回 ' + count + ' 条');
+    var titles = (data.docs || []).slice(0, 5).map(function(d, i){
+      return (i+1) + '. ' + (d.title || d.id || '-');
+    }).join('\n');
+    var extra = (count > 5) ? '\n... 还有 ' + (count - 5) + ' 条' : '';
+    _sb2SettingsSetResult('sb2FeatSearchResult', '命中 ' + count + ' 条\n' + titles + extra, true);
+    console.log('[sb2-settings] search OK, count:', count);
+  } catch (e) {
+    console.error('[sb2-settings] search error:', e);
+    _sb2SettingsSetResult('sb2FeatSearchResult', '搜索失败: ' + (e.message || ''), false);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+// 卡 2: 大脑知识 — 查看状态
+async function sb2SettingsBrainFetchStatus(){
+  var btn = event && event.currentTarget;
+  if (btn) btn.disabled = true;
+  _sb2SettingsSetResult('sb2FeatBrainResult', '载入中…', null);
+  try {
+    var resp = await apiFetch('/api/brain/status');
+    if (!resp || !resp.ok) {
+      _sb2SettingsSetResult('sb2FeatBrainResult', '获取状态失败: HTTP ' + (resp ? resp.status : 'no response'), false);
+      console.warn('[sb2-settings] brain status failed:', resp ? resp.status : 'no response');
+      return;
+    }
+    var data = await resp.json();
+    var statsText = JSON.stringify(data, null, 2);
+    if (statsText.length > 600) statsText = statsText.slice(0, 600) + '\n...';
+    _sb2SettingsSetStatus(null, 'sb2FeatBrainStatus', data.success ? '已连接' : '异常');
+    _sb2SettingsSetResult('sb2FeatBrainResult', statsText, data.success === true);
+    console.log('[sb2-settings] brain status OK, keys:', Object.keys(data).join(','));
+  } catch (e) {
+    console.error('[sb2-settings] brain status error:', e);
+    _sb2SettingsSetResult('sb2FeatBrainResult', '获取失败: ' + (e.message || ''), false);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+// 卡 2: 大脑知识 — 手动触发
+async function sb2SettingsBrainTrigger(){
+  var btn = event && event.currentTarget;
+  if (!confirm('确认触发大脑全量处理? (clean / classify / induct 三类任务入队)')) return;
+  if (btn) btn.disabled = true;
+  _sb2SettingsSetResult('sb2FeatBrainResult', '入队中…', null);
+  try {
+    var resp = await apiFetch('/api/brain/trigger-manual', { method: 'POST', body: '{}' });
+    if (!resp || !resp.ok) {
+      _sb2SettingsSetResult('sb2FeatBrainResult', '触发失败: HTTP ' + (resp ? resp.status : 'no response'), false);
+      console.warn('[sb2-settings] brain trigger failed:', resp ? resp.status : 'no response');
+      return;
+    }
+    var data = await resp.json();
+    _sb2SettingsSetStatus(null, 'sb2FeatBrainStatus', '已触发');
+    _sb2SettingsSetResult('sb2FeatBrainResult',
+      'clean: ' + data.enqueuedClean + ' 条\nclassify: ' + data.enqueuedClassify + ' 条\ninduct: ' + data.enqueuedInduct + ' 条',
+      data.success === true);
+    showToast('大脑处理已入队', 'success');
+    console.log('[sb2-settings] brain trigger OK:', data);
+  } catch (e) {
+    console.error('[sb2-settings] brain trigger error:', e);
+    _sb2SettingsSetResult('sb2FeatBrainResult', '触发失败: ' + (e.message || ''), false);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+// 卡 3: RAG — 测试检索
+async function sb2SettingsRagRetrieve(){
+  var btn = event && event.currentTarget;
+  var query = prompt('输入测试 query (RAG 检索):', '推荐女装的纯视频型达人');
+  if (query == null || !query.trim()) return;
+  if (btn) btn.disabled = true;
+  _sb2SettingsSetResult('sb2FeatRagResult', '检索中…', null);
+  try {
+    var resp = await apiFetch('/api/rag/retrieve', {
+      method: 'POST', body: JSON.stringify({ query: query.trim(), topK: 3 })
+    });
+    if (!resp || !resp.ok) {
+      _sb2SettingsSetResult('sb2FeatRagResult', '检索失败: HTTP ' + (resp ? resp.status : 'no response'), false);
+      console.warn('[sb2-settings] rag retrieve failed:', resp ? resp.status : 'no response');
+      return;
+    }
+    var data = await resp.json();
+    var docTitles = (data.docs || []).slice(0, 3).map(function(d, i){
+      return (i+1) + '. ' + (d.title || d.id || '-');
+    }).join('\n');
+    var prodTitles = (data.products || []).slice(0, 3).map(function(p, i){
+      return (i+1) + '. ' + (p.name || p.id || '-');
+    }).join('\n');
+    _sb2SettingsSetStatus(null, 'sb2FeatRagStatus', '召回 doc:' + (data.docs || []).length + ' prod:' + (data.products || []).length);
+    _sb2SettingsSetResult('sb2FeatRagResult',
+      '知识: ' + (data.docs || []).length + ' 条\n' + docTitles +
+      '\n产品: ' + (data.products || []).length + ' 条\n' + prodTitles, true);
+    console.log('[sb2-settings] rag retrieve OK, docs:', (data.docs || []).length, 'products:', (data.products || []).length);
+  } catch (e) {
+    console.error('[sb2-settings] rag retrieve error:', e);
+    _sb2SettingsSetResult('sb2FeatRagResult', '检索失败: ' + (e.message || ''), false);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+// 卡 3: RAG — 重建索引
+async function sb2SettingsRagBuild(){
+  var btn = event && event.currentTarget;
+  if (!confirm('确认重建 RAG 索引? (全量知识库 embedding 重建, 可能耗时)')) return;
+  if (btn) btn.disabled = true;
+  _sb2SettingsSetResult('sb2FeatRagResult', '提交任务中…', null);
+  try {
+    var resp = await apiFetch('/api/rag/build', { method: 'POST', body: '{}' });
+    if (!resp || !resp.ok) {
+      _sb2SettingsSetResult('sb2FeatRagResult', '重建任务提交失败: HTTP ' + (resp ? resp.status : 'no response'), false);
+      console.warn('[sb2-settings] rag build failed:', resp ? resp.status : 'no response');
+      return;
+    }
+    var data = await resp.json();
+    _sb2SettingsSetStatus(null, 'sb2FeatRagStatus', '任务已提交');
+    var summary = JSON.stringify(data, null, 2);
+    if (summary.length > 400) summary = summary.slice(0, 400) + '\n...';
+    _sb2SettingsSetResult('sb2FeatRagResult', '✅ 重建任务已提交\n' + summary, true);
+    showToast('RAG 重建任务已提交', 'success');
+    console.log('[sb2-settings] rag build OK:', data);
+  } catch (e) {
+    console.error('[sb2-settings] rag build error:', e);
+    _sb2SettingsSetResult('sb2FeatRagResult', '重建失败: ' + (e.message || ''), false);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
 function switchModule(module) {
   if (!hasModulePermission(module)) {
     showToast('⛔ 你没有该模块的访问权限', 'warning');
@@ -38908,7 +39262,16 @@ function switchModule(module) {
   else if (module === 'products') { loadProductBrands(); loadProducts(); }
   else if (module === 'influencers') switchTalentMidTab(_talentActiveTab);
   else if (module === 'tasks') loadTasks();
-  else if (module === 'settings') renderSettingsMid();
+  else if (module === 'settings') {
+    // 旧 renderSettingsMid 仍在 (CSP/系统设置兜底) — 保留, 但 MVP6 新屏优先显示
+    if (typeof renderSettingsMid === 'function') renderSettingsMid();
+    // ★ MVP6: 显示新功能入口卡片列表
+    var sb2set = document.getElementById('sb2SettingsMain');
+    if (sb2set) {
+      sb2set.classList.add('active');
+      if (typeof sb2SettingsShow === 'function') sb2SettingsShow();
+    }
+  }
   applySidebarWidth(getSidebarWidth());
   // fix/responsive-shell-collapse-r3: 模块切换也重排(防止 inline style 被覆盖/不同
   // 模块里 .app-main 子节点的 layout 改变影响 .left-nav 视觉)
