@@ -38668,10 +38668,6 @@ function sb2KbRenderVersions(docId, data){
       '<div class="sb2-kb-version-empty">' +
         '<div class="sb2-kb-version-empty-icon">⏱</div>' +
         '<div class="sb2-kb-version-empty-title">暂无历史版本</div>' +
-        '<div class="sb2-kb-version-empty-sub">' +
-          '每次保存都会写入新版本。当前接口契约已就位, 但 kb_entries 表与 knowledge_versions 表是断裂的' +
-          '（生产编辑不会自动写入旧版版本表）。需要后端补 kb_entry_versions 表或迁移脚本才能看到真实历史。' +
-        '</div>' +
       '</div>';
     return;
   }
