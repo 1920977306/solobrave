@@ -10577,6 +10577,79 @@ window.doLogin = function () {
   border-top:1px solid var(--sb2-border); flex-shrink:0; justify-content:flex-end;
 }
 .sb2-ptn-confirm-modal-content{ width:420px; }
+
+/* ============================================================
+ * sb2-patterns MVP4: 投票按钮 + 归纳结果列表
+ * - 老大提醒: chips 过滤 verification_level (hypothesis/candidate/verified)
+ *   vs 详情面板 status (draft/confirmed/rejected/deprecated) 两套维度
+ *   → 详情 header 加双大标签: 分级 (verification_level) + 状态 (lifecycle)
+ * - 投票: POST /<id>/feedback up/down, 仅 confirmed 状态允许 (旧逻辑一致)
+ * - 反馈后 promotion 字段可能返 {old: hypothesis, new: candidate}
+ *   → toast 提示晋升链路
+ * - 归纳结果: 后端 /induce 返 patterns: [{id, category, pattern_text,
+ *   evidence_count, confidence_score, verification_level, created_at}]
+ *   → sb2PtnInduceModal result 区 列出, 每条「查看详情」按钮
+ * ============================================================ */
+/* 详情 header 双大标签: 分级 + 状态 (两套维度并排) */
+.sb2-ptn-detail-tags{
+  display:flex; gap:6px; margin-left:auto; flex-shrink:0; padding-right:8px;
+}
+.sb2-ptn-tag{
+  display:inline-flex; align-items:center; gap:4px;
+  padding:3px 9px; border-radius:var(--sb2-r-full); border:1px solid var(--sb2-border);
+  font:500 11px/1.3 "PingFang SC",sans-serif;
+  white-space:nowrap;
+}
+.sb2-ptn-tag-verified{ background:var(--sb2-success-soft); color:var(--sb2-success); border-color:var(--sb2-success); }
+.sb2-ptn-tag-candidate{ background:var(--sb2-s3); color:var(--sb2-t2); }
+.sb2-ptn-tag-hypothesis{ background:var(--sb2-warning-soft); color:var(--sb2-warning); border-color:var(--sb2-warning); }
+.sb2-ptn-tag-status-draft{ background:var(--sb2-s3); color:var(--sb2-t3); }
+.sb2-ptn-tag-status-confirmed{ background:var(--sb2-s1); color:var(--sb2-success); border-color:var(--sb2-success); }
+.sb2-ptn-tag-status-rejected{ background:var(--sb2-warning-soft); color:var(--sb2-warning); }
+.sb2-ptn-tag-status-deprecated{ background:var(--sb2-s3); color:var(--sb2-t3); }
+
+/* 投票按钮 */
+.sb2-ptn-fb-btn{
+  display:inline-flex; align-items:center; gap:4px;
+  padding:6px 12px; border:1px solid var(--sb2-border);
+  background:var(--sb2-s1); color:var(--sb2-t2);
+  border-radius:var(--sb2-r-sm); cursor:pointer;
+  font:500 12px/1 "PingFang SC",sans-serif; transition:all .15s;
+}
+.sb2-ptn-fb-btn:hover:not(:disabled){
+  border-color:var(--sb2-border-strong); color:var(--sb2-t1);
+}
+.sb2-ptn-fb-btn:disabled{ opacity:.5; cursor:not-allowed; }
+.sb2-ptn-fb-btn.up:hover{ background:var(--sb2-success-soft); color:var(--sb2-success); border-color:var(--sb2-success); }
+.sb2-ptn-fb-btn.down:hover{ background:var(--sb2-warning-soft); color:var(--sb2-warning); border-color:var(--sb2-warning); }
+.sb2-ptn-fb-count{
+  font:500 11px/1 "SF Mono",ui-monospace,monospace; color:var(--sb2-t3);
+}
+
+/* 归纳结果列表 */
+.sb2-ptn-induce-list{
+  display:flex; flex-direction:column; gap:8px; margin-top:8px;
+}
+.sb2-ptn-induce-item{
+  padding:10px 12px; background:var(--sb2-s1);
+  border:1px solid var(--sb2-border); border-radius:var(--sb2-r-sm);
+  display:flex; flex-direction:column; gap:4px;
+}
+.sb2-ptn-induce-item-top{
+  display:flex; gap:6px; align-items:center; flex-wrap:wrap;
+}
+.sb2-ptn-induce-item-text{
+  font:400 12px/1.55 "PingFang SC",sans-serif; color:var(--sb2-t1);
+  display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden;
+}
+.sb2-ptn-induce-item-meta{
+  font:400 11px/1.3 "SF Mono",ui-monospace,monospace; color:var(--sb2-t3);
+  display:flex; gap:10px; flex-wrap:wrap; margin-top:2px;
+}
+.sb2-ptn-induce-item-actions{
+  display:flex; gap:6px; margin-top:6px; justify-content:flex-end;
+}
+.sb2-ptn-induce-item-actions .sb2-btn{ padding:4px 10px; font-size:11px; }
 </style>
 
 <style id="sb2-knowledge">
@@ -12615,6 +12688,8 @@ window.doLogin = function () {
 <div class="sb2-ptn-detail-panel" id="sb2PtnDetailPanel">
   <div class="sb2-ptn-detail-header">
     <h2 class="sb2-ptn-detail-title" id="sb2PtnDetailTitle">-</h2>
+    <!-- MVP4: 双大标签 — 分级 (verification_level) + 状态 (lifecycle), 两套维度并列 -->
+    <div class="sb2-ptn-detail-tags" id="sb2PtnDetailTags"></div>
     <button class="sb2-ptn-detail-close" onclick="sb2PtnCloseDetail()" aria-label="关闭详情">×</button>
   </div>
   <div class="sb2-ptn-detail-body">
@@ -12661,6 +12736,8 @@ window.doLogin = function () {
         </select>
       </div>
       <div class="sb2-ptn-modal-result muted" id="sb2PtnInduceResult">选择实体类型与类目后, 点击「触发归纳」开始 LLM 归纳。</div>
+      <!-- MVP4: 归纳成功后, 列出 induced patterns (id / category / pattern_text / verification_level) -->
+      <div class="sb2-ptn-induce-list" id="sb2PtnInduceList" style="display:none"></div>
     </div>
     <div class="sb2-ptn-modal-footer">
       <button class="sb2-btn sb2-btn-ghost" onclick="sb2PtnCloseInduceModal()">取消</button>
@@ -39901,6 +39978,8 @@ function _sb2PtnDetailRender(p){
       evBody.innerHTML = '<div class="sb2-ptn-text-body">' + escapeHtml(fallback) + '</div>';
     }
   }
+  // MVP4: 渲染 header 双标签 (分级 verification_level + 状态 lifecycle) — 老大提醒两套维度
+  _sb2PtnRenderDetailTags(p);
   // MVP3: 渲染 footer 按钮组 (按 p.status 决定)
   _sb2PtnRenderDetailFooter(p);
 }
@@ -39921,10 +40000,17 @@ function _sb2PtnRenderDetailFooter(p){
   var pid = escapeAttr(p.id);
   var status = p.status || 'draft';
   var statusLabel = { draft: '待确认', confirmed: '已确认', rejected: '已拒绝', deprecated: '已废弃' };
+  var hits = p.hit_count || 0;
+  var misses = p.miss_count || 0;
   var html = '';
   // 1. 删除按钮 (左侧)
   html += '<button class="sb2-btn sb2-btn-ghost sb2-btn-danger" onclick="sb2PtnDelete(\'' + pid.replace(/'/g, "\\'") + '\')">🗑 删除</button>';
-  // 2. 状态流转按钮 (中间, 按当前 status 决定)
+  // 2. MVP4: 投票按钮 (仅 confirmed 状态, 旧逻辑一致)
+  if (status === 'confirmed') {
+    html += '<button class="sb2-ptn-fb-btn up" id="sb2PtnFbUpBtn" onclick="sb2PtnFeedback(\'' + pid.replace(/'/g, "\\'") + '\', \'up\')">👍 <span class="sb2-ptn-fb-count" id="sb2PtnFbUpCount">' + hits + '</span></button>';
+    html += '<button class="sb2-ptn-fb-btn down" id="sb2PtnFbDownBtn" onclick="sb2PtnFeedback(\'' + pid.replace(/'/g, "\\'") + '\', \'down\')">👎 <span class="sb2-ptn-fb-count" id="sb2PtnFbDownCount">' + misses + '</span></button>';
+  }
+  // 3. 状态流转按钮 (按当前 status 决定)
   if (status === 'draft') {
     html += '<button class="sb2-btn sb2-btn-ghost" style="color:var(--sb2-success); border-color:var(--sb2-success);" onclick="sb2PtnSetStatus(\'' + pid.replace(/'/g, "\\'") + '\', \'confirmed\')">✓ 确认</button>';
     html += '<button class="sb2-btn sb2-btn-ghost" style="color:var(--sb2-warning); border-color:var(--sb2-warning);" onclick="sb2PtnSetStatus(\'' + pid.replace(/'/g, "\\'") + '\', \'rejected\')">✗ 拒绝</button>';
@@ -39933,9 +40019,80 @@ function _sb2PtnRenderDetailFooter(p){
   } else if (status === 'deprecated') {
     html += '<span class="sb2-btn sb2-btn-ghost sb2-btn-muted" style="cursor:default;">已废弃</span>';
   }
-  // 3. 关闭按钮 (右侧)
+  // 4. 关闭按钮 (右侧)
   html += '<button class="sb2-btn sb2-btn-ghost" onclick="sb2PtnCloseDetail()">关闭</button>';
   footer.innerHTML = html;
+}
+
+/* MVP4: 详情 header 双大标签 — 分级 (verification_level) + 状态 (lifecycle)
+ * 老大 2026-10-03 01:08 提醒: 两套维度, 别让老大看混
+ * 分级: verified/candidate/hypothesis (晋升维度)
+ * 状态: draft/confirmed/rejected/deprecated (生命周期维度)
+ */
+function _sb2PtnRenderDetailTags(p){
+  var tagsEl = document.getElementById('sb2PtnDetailTags');
+  if (!tagsEl) return;
+  var lv = p.verification_level || 'hypothesis';
+  var lvIcon = lv === 'verified' ? '📐' : (lv === 'candidate' ? '🔬' : '🧪');
+  var lvLabel = lv === 'verified' ? 'verified' : (lv === 'candidate' ? 'candidate' : 'hypothesis');
+  var status = p.status || 'draft';
+  var statusLabel = { draft: '待确认', confirmed: '已确认', rejected: '已拒绝', deprecated: '已废弃' };
+  var html = '';
+  // 分级 (verification_level) — 晋升维度
+  html += '<span class="sb2-ptn-tag sb2-ptn-tag-' + escapeAttr(lv) + '" title="分级 (verification_level)">' + lvIcon + ' ' + lvLabel + '</span>';
+  // 状态 (lifecycle) — 生命周期维度
+  html += '<span class="sb2-ptn-tag sb2-ptn-tag-status-' + escapeAttr(status) + '" title="状态 (lifecycle)">' + escapeHtml(statusLabel[status] || status) + '</span>';
+  tagsEl.innerHTML = html;
+}
+
+async function sb2PtnFeedback(pid, fb){
+  if (fb !== 'up' && fb !== 'down') return;
+  var upBtn = document.getElementById('sb2PtnFbUpBtn');
+  var downBtn = document.getElementById('sb2PtnFbDownBtn');
+  // 双点击保护
+  if (upBtn) upBtn.disabled = true;
+  if (downBtn) downBtn.disabled = true;
+  try {
+    var resp = await apiFetch('/api/knowledge-patterns/' + encodeURIComponent(pid) + '/feedback', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ feedback: fb })
+    });
+    if (!resp || !resp.ok) {
+      var errMsg = 'HTTP ' + (resp ? resp.status : 'no response');
+      try { var ej = await resp.json(); if (ej && ej.error) errMsg = ej.error; } catch (_) {}
+      showToast('❌ 反馈失败: ' + errMsg, 'error');
+      if (upBtn) upBtn.disabled = false;
+      if (downBtn) downBtn.disabled = false;
+      return;
+    }
+    var data = await resp.json();
+    // 更新 hit/miss 计数显示 (旧 feedbackPattern 行为, 但用 sb2PtnFbUpCount / sb2PtnFbDownCount)
+    var upCountEl = document.getElementById('sb2PtnFbUpCount');
+    var downCountEl = document.getElementById('sb2PtnFbDownCount');
+    if (upCountEl && data.new_count != null && fb === 'up') upCountEl.textContent = String(data.new_count);
+    if (downCountEl && data.new_count != null && fb === 'down') downCountEl.textContent = String(data.new_count);
+    // 反馈提示
+    var fbMsg = data.message || (fb === 'up' ? '👍 反馈已记录' : '👎 反馈已记录');
+    // MVP4: 自动晋升检查 (后端 _kp_auto_promote 触发)
+    if (data.promotion && data.promotion.old && data.promotion.new) {
+      fbMsg += '\n🎉 自动晋升: ' + data.promotion.old + ' → ' + data.promotion.new;
+      showToast(fbMsg, 'success', 5000);
+      // 重新打开详情面板 (刷新 tags)
+      sb2PtnCloseDetail();
+      sb2PtnOpenDetail(pid);
+    } else {
+      showToast(fbMsg, 'success');
+    }
+    // 列表命中数也要刷新
+    sb2PatternsInit();
+    console.log('[sb2-patterns] feedback OK:', data);
+  } catch (e) {
+    console.error('[sb2-patterns] feedback error:', e);
+    showToast('❌ 反馈失败: ' + (e.message || ''), 'error');
+    if (upBtn) upBtn.disabled = false;
+    if (downBtn) downBtn.disabled = false;
+  }
 }
 
 async function sb2PtnSetStatus(pid, newStatus){
@@ -40023,6 +40180,12 @@ async function sb2PtnOpenInduceModal(){
     resultEl.textContent = '选择实体类型与类目后, 点击「触发归纳」开始 LLM 归纳。';
     resultEl.className = 'sb2-ptn-modal-result muted';
   }
+  // MVP4: 重置 induced patterns 列表 (避免上次结果残留)
+  var induceListEl = document.getElementById('sb2PtnInduceList');
+  if (induceListEl) {
+    induceListEl.innerHTML = '';
+    induceListEl.style.display = 'none';
+  }
   // 加载类目下拉
   var catSelect = document.getElementById('sb2PtnInduceCategory');
   if (catSelect && !catSelect.dataset.loaded) {
@@ -40104,6 +40267,45 @@ async function sb2PtnConfirmInduce(){
     if (resultEl) {
       resultEl.textContent = lines.join('\n');
       resultEl.className = 'sb2-ptn-modal-result ' + (data.ok ? 'ok' : 'err');
+    }
+    // MVP4: 列出 induced patterns (id / category / pattern_text / verification_level)
+    var induceListEl = document.getElementById('sb2PtnInduceList');
+    if (induceListEl) {
+      var patterns = (data.patterns && Array.isArray(data.patterns)) ? data.patterns : [];
+      if (data.ok && patterns.length > 0) {
+        var listHtml = '';
+        patterns.forEach(function(p){
+          var ptext = p.pattern_text || '(无文本)';
+          var pcat = p.category || '-';
+          var plv = p.verification_level || 'hypothesis';
+          var plvIcon = plv === 'verified' ? '📐' : (plv === 'candidate' ? '🔬' : '🧪');
+          var pscore = p.confidence_score != null ? Math.round(p.confidence_score) : '-';
+          var pevCount = p.evidence_count != null ? p.evidence_count : '-';
+          var pidSafe = escapeAttr(p.id || '').replace(/'/g, "\\'");
+          listHtml += '<div class="sb2-ptn-induce-item">';
+          listHtml += '<div class="sb2-ptn-induce-item-top">';
+          listHtml += '<span class="sb2-ptn-card-cat">' + escapeHtml(pcat) + '</span>';
+          listHtml += '<span class="sb2-ptn-level ' + escapeAttr(plv) + '">' + plvIcon + ' ' + plv + '</span>';
+          listHtml += '</div>';
+          listHtml += '<div class="sb2-ptn-induce-item-text">' + escapeHtml(ptext) + '</div>';
+          listHtml += '<div class="sb2-ptn-induce-item-meta">';
+          listHtml += '<span>置信度 ' + pscore + '</span>';
+          listHtml += '<span>证据 ' + pevCount + '</span>';
+          listHtml += '<span style="margin-left:auto;">ID ' + escapeHtml(p.id || '-') + '</span>';
+          listHtml += '</div>';
+          listHtml += '<div class="sb2-ptn-induce-item-actions">';
+          if (p.id) {
+            listHtml += '<button class="sb2-btn sb2-btn-ghost" onclick="sb2PtnCloseInduceModal(); sb2PtnOpenDetail(\'' + pidSafe + '\');">查看详情 →</button>';
+          }
+          listHtml += '</div>';
+          listHtml += '</div>';
+        });
+        induceListEl.innerHTML = listHtml;
+        induceListEl.style.display = '';
+      } else {
+        induceListEl.style.display = 'none';
+        induceListEl.innerHTML = '';
+      }
     }
     showToast(data.ok ? '✓ 归纳完成, 新增 ' + (data.induced != null ? data.induced : '?') + ' 条草稿' : '⚠ 归纳未成功', data.ok ? 'success' : 'warning');
     // 刷新列表 (新归纳的 draft 规律会进 chips 计数)
