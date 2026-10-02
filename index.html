@@ -10155,6 +10155,124 @@ window.doLogin = function () {
   .sb2-focus{ grid-template-columns:1fr; }
   .sb2-dash-main{ padding:16px; }
 }
+
+/* ============================================================
+ * feat/sb2-global-shell: 新顶栏 + #side 上下文侧栏 (替代旧顶栏 + 旧左导航 + 旧 app-sidebar)
+ * - 旧 DOM 保留 display:none 作回归兜底
+ * - 全部 --sb2-* token, 0 硬编码 hex
+ * ============================================================ */
+
+/* 旧 chrome 整体隐藏 (移动端会重新显示 .left-nav 见上面媒体查询) */
+.top-banner{ display:none !important; }
+.app-sidebar{ display:none !important; }
+
+/* 内容区让位: 顶栏 48px + 轨 60px + #side 236px */
+.app-container{ margin-top:48px; margin-left:296px; }
+
+/* 工作台屏: 内部 .sb2-dash-side 隐藏 (新 #side 承担), 让位 */
+.sb2-dash-side{ display:none; }
+
+/* —— 新顶栏 48px (固定于顶部) —— */
+.sb2-topbar{
+  position:fixed; left:60px; top:0; right:0; height:48px; z-index:95;
+  background:var(--sb2-s1); border-bottom:1px solid var(--sb2-border);
+  display:flex; align-items:center; padding:0 18px; gap:14px;
+}
+.sb2-topbar-crumb{
+  display:flex; align-items:center; gap:6px;
+  font:500 13px/1 "PingFang SC",sans-serif; color:var(--sb2-t3);
+}
+.sb2-topbar-crumb b{ font:600 14px/1 "PingFang SC",sans-serif; color:var(--sb2-t1); font-weight:600; }
+.sb2-topbar-crumb .sep{ color:var(--sb2-t3); }
+.sb2-topbar-search{
+  flex:1; max-width:380px; display:flex; align-items:center; gap:8px;
+  padding:7px 12px; border:1px solid var(--sb2-border); border-radius:var(--sb2-r-md);
+  background:var(--sb2-s2); color:var(--sb2-t3);
+  font:400 12px/1 "PingFang SC",sans-serif; cursor:pointer; transition:all .15s;
+}
+.sb2-topbar-search:hover{ border-color:var(--sb2-border-strong); background:var(--sb2-s1); }
+.sb2-topbar-search .kbd{
+  margin-left:auto; font:500 10px/1 ui-monospace,monospace; padding:2px 6px; border-radius:4px;
+  background:var(--sb2-s1); border:1px solid var(--sb2-border); color:var(--sb2-t2);
+}
+.sb2-topbar-actions{ margin-left:auto; display:flex; gap:6px; align-items:center; }
+.sb2-bell-btn{
+  width:36px; height:36px; border-radius:var(--sb2-r-md);
+  display:grid; place-items:center; position:relative; cursor:pointer;
+  color:var(--sb2-t2); transition:all .15s;
+}
+.sb2-bell-btn:hover{ background:var(--sb2-s3); color:var(--sb2-t1); }
+.sb2-bell-btn .badge{
+  position:absolute; top:4px; right:4px; min-width:16px; height:16px; padding:0 4px;
+  background:var(--sb2-brand); color:var(--sb2-s1); border-radius:var(--sb2-r-full);
+  font:700 9px/16px ui-monospace,monospace; text-align:center;
+}
+.sb2-topbar-create{
+  display:inline-flex; align-items:center; gap:6px;
+  padding:7px 14px; border-radius:var(--sb2-r-md);
+  background:var(--sb2-ink); color:var(--sb2-s1); border:0;
+  font:500 13px/1 "PingFang SC",sans-serif; cursor:pointer; transition:all .15s;
+}
+.sb2-topbar-create:hover{ background:var(--sb2-ink-hover); box-shadow:var(--sb2-sh2); }
+
+/* —— 新 #side 上下文侧栏 236px —— */
+.sb2-side{
+  position:fixed; top:48px; left:60px; bottom:0; width:236px; z-index:80;
+  background:var(--sb2-s2); border-right:1px solid var(--sb2-border);
+  display:flex; flex-direction:column; overflow:hidden;
+}
+.sb2-side-head{
+  padding:18px 16px 10px; border-bottom:1px solid var(--sb2-border);
+}
+.sb2-side-title{ font:600 14px/1.4 "PingFang SC",sans-serif; color:var(--sb2-t1); }
+.sb2-side-sub{ font:400 11px/1.4 "PingFang SC",sans-serif; color:var(--sb2-t3); margin-top:3px; }
+.sb2-side-search{
+  margin:10px 12px 6px; padding:7px 10px;
+  background:var(--sb2-s1); border:1px solid var(--sb2-border); border-radius:var(--sb2-r-md);
+  font:400 12px/1.2 "PingFang SC",sans-serif; color:var(--sb2-t3);
+  display:flex; align-items:center; gap:8px; cursor:pointer;
+}
+.sb2-side-search:hover{ border-color:var(--sb2-border-strong); color:var(--sb2-t2); }
+.sb2-side-search .kbd{
+  margin-left:auto; font:500 10px/1 ui-monospace,monospace; padding:2px 6px; border-radius:4px;
+  background:var(--sb2-s2); border:1px solid var(--sb2-border); color:var(--sb2-t2);
+}
+.sb2-side-scroll{ flex:1; overflow-y:auto; padding:6px 8px 24px; }
+.sb2-side-label{
+  font:500 10px/1.4 "PingFang SC",sans-serif; color:var(--sb2-t3);
+  padding:12px 10px 4px; letter-spacing:.06em; text-transform:uppercase;
+}
+.sb2-side-item{
+  display:flex; align-items:center; gap:9px;
+  padding:7px 10px; border-radius:var(--sb2-r-sm); margin:1px 0;
+  font:400 13px/1.3 "PingFang SC",sans-serif; color:var(--sb2-t2); cursor:pointer;
+  transition:all .12s;
+}
+.sb2-side-item:hover{ background:var(--sb2-s3); color:var(--sb2-t1); }
+.sb2-side-item.active{ background:var(--sb2-brand-soft); color:var(--sb2-brand); font-weight:500; }
+.sb2-side-item .dot{
+  width:7px; height:7px; border-radius:var(--sb2-r-full);
+  background:var(--sb2-success); flex-shrink:0;
+}
+.sb2-side-item .dot.offline{ background:var(--sb2-t3); }
+.sb2-side-item .badge{
+  margin-left:auto; font:500 10px/1 ui-monospace,monospace; padding:2px 6px; border-radius:var(--sb2-r-full);
+  background:var(--sb2-s3); color:var(--sb2-t2);
+}
+.sb2-side-item.active .badge{ background:var(--sb2-brand); color:var(--sb2-s1); }
+.sb2-side-item .name{ flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.sb2-side-foot{ padding:10px 14px; border-top:1px solid var(--sb2-border); display:flex; align-items:center; gap:8px; font:400 11px/1.4 "PingFang SC",sans-serif; color:var(--sb2-t3); }
+.sb2-side-foot .dot{ width:6px; height:6px; border-radius:var(--sb2-r-full); background:var(--sb2-success); }
+
+/* —— 聊天壳让位: 顶栏 48px + 轨 60px —— */
+#sb2ChatMain{ top:48px !important; left:60px !important; }
+
+/* —— 窄屏回退: 新顶栏 / #side 隐藏 —— */
+@media (max-width:768px){
+  .sb2-topbar{ display:none; }
+  .sb2-side{ display:none; }
+  .app-container{ margin-top:0; margin-left:0; }
+}
 </style>
 
 <style id="sb2-dense-views">
@@ -11245,6 +11363,29 @@ window.doLogin = function () {
   }
 }
 </style>
+
+<!-- ★ feat/sb2-global-shell: 新顶栏 (固定 48px) — body 直接子元素, 避免被 app-container 的 overflow:hidden/display:flex 影响 -->
+<header class="sb2-topbar" id="sb2Topbar" aria-label="全局顶栏">
+  <div class="sb2-topbar-crumb" id="sb2TopbarCrumb"><b id="sb2CrumbMain">工作台</b></div>
+  <button class="sb2-topbar-search" id="sb2TopbarSearch" type="button" onclick="sb2_openPalette()" aria-label="搜索">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+    <span id="sb2TopbarSearchHint">搜索达人 / 知识 / 规律 / 员工…</span>
+    <span class="kbd">⌘K</span>
+  </button>
+  <div class="sb2-topbar-actions">
+    <button class="sb2-bell-btn" type="button" onclick="toggleNotificationPanel()" aria-label="通知" id="sb2TopbarBell">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+      <span class="badge" id="sb2TopbarBellBadge" style="display:none;">0</span>
+    </button>
+    <button class="sb2-topbar-create" type="button" onclick="sb2_openCreate()" aria-label="新建">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+      新建
+    </button>
+  </div>
+</header>
+
+<!-- ★ feat/sb2-global-shell: 新 #side 上下文侧栏 (固定 236px) — body 直接子元素 -->
+<aside class="sb2-side" id="sb2Side" aria-label="上下文侧栏"></aside>
 
 <div class="app-container">
 
@@ -39460,20 +39601,28 @@ function buildRail(){
   app.parentNode.insertBefore(rail, app);
 }
 
-/* 通知数桥接: 旧代码更新 #navNotifications badge 时同步到轨上 */
+/* 通知数桥接: 旧代码更新 #navNotifications badge 时同步到轨上 + 新顶栏徽章 */
 function hookBellBadge(){
   var navBell = document.getElementById('navNotifications');
   if (!navBell) return;
   var target = navBell.querySelector('[data-count]') || navBell;
-  var obs = new MutationObserver(function(){
+  var apply = function(){
     var n = target.getAttribute('data-count') || '0';
-    var el = document.getElementById('sb2RailBell');
-    if (!el) return;
     var v = parseInt(n, 10) || 0;
-    el.style.display = v > 0 ? '' : 'none';
-    el.textContent = v > 99 ? '99+' : String(v);
-  });
+    var railEl = document.getElementById('sb2RailBell');
+    if (railEl) {
+      railEl.style.display = v > 0 ? '' : 'none';
+      railEl.textContent = v > 99 ? '99+' : String(v);
+    }
+    var topEl = document.getElementById('sb2TopbarBellBadge');
+    if (topEl) {
+      topEl.style.display = v > 0 ? '' : 'none';
+      topEl.textContent = v > 99 ? '99+' : String(v);
+    }
+  };
+  var obs = new MutationObserver(apply);
   obs.observe(target, { attributes:true, childList:true, subtree:true, characterData:true });
+  apply();
 }
 
 /* ---------- 工作台屏 ---------- */
@@ -39627,6 +39776,8 @@ function showDash(){
   var app = document.querySelector('.app-container');
   if (app) app.style.visibility = 'hidden';
   setActive('dashboard');
+  SB2_CURRENT_MODULE = 'dashboard';
+  updateCrumb();
   loadKpis();
 }
 function hideDash(){
@@ -39645,8 +39796,10 @@ function setActive(id){
 
 /* ---------- 全局导出入口 ---------- */
 window.sb2Go = function(id){
-  if (id === 'dashboard') { showDash(); return; }
+  if (id === 'dashboard') { showDash(); renderSideFor('dashboard'); updateCrumb(); return; }
   hideDash();
+  renderSideFor(id);
+  updateCrumb();
   var m = null;
   MODULES.forEach(function(x){ if (x.id === id) m = x; });
   if (m && m.fn && typeof window[m.fn] === 'function') { setActive(id); window[m.fn](); return; }
@@ -39661,7 +39814,10 @@ if (typeof _sb2OrigSwitch === 'function') {
   window.switchModule = function(module){
     var r = _sb2OrigSwitch.apply(this, arguments);
     hideDash();
-    setActive(typeof currentModule !== 'undefined' ? currentModule : module);
+    var cur = typeof currentModule !== 'undefined' ? currentModule : module;
+    setActive(cur);
+    renderSideFor(cur);
+    updateCrumb();
     return r;
   };
 }
@@ -39670,19 +39826,229 @@ var _sb2OrigShowMain = window.showMainApp;
 if (typeof _sb2OrigShowMain === 'function') {
   window.showMainApp = function(){
     var r = _sb2OrigShowMain.apply(this, arguments);
-    setTimeout(showDash, 120);
+    setTimeout(function(){
+      // currentUser 此时已加载, 重建 rail 把所有模块亮出来
+      var oldRail = document.getElementById('sb2Rail');
+      if (oldRail) oldRail.remove();
+      buildRail();
+      showDash();
+      renderSideFor('dashboard');
+      updateCrumb();
+    }, 200);
     return r;
   };
+}
+
+/* ---------- 顶栏 (新全局) — 通知徽章同步旧 #notificationBadge ---------- */
+function sb2BellSync(){
+  var old = document.getElementById('notificationBadge');
+  var el = document.getElementById('sb2TopbarBellBadge');
+  if (!el) return;
+  var n = 0;
+  if (old) {
+    var dc = old.getAttribute('data-count');
+    if (dc) n = parseInt(dc, 10) || 0;
+    else n = parseInt((old.textContent || '0').trim(), 10) || 0;
+  }
+  el.style.display = n > 0 ? '' : 'none';
+  el.textContent = n > 99 ? '99+' : String(n);
+}
+
+/* ---------- #side 上下文侧栏 (新全局) — 按模块动态渲染 ---------- */
+var SB2_SIDE_RENDERERS = {
+  dashboard: function(){
+    return {
+      title:'工作台', sub:'每天先看这里',
+      head:null,
+      items:[
+        { label:'快捷入口', items:[
+          { name:'💬 即时通讯',    onClick:"sb2Go('messages')" },
+          { name:'🦞 龙虾办公室',  onClick:"sb2Go('lobster')" },
+          { name:'📖 知识库',      onClick:"sb2Go('knowledge')" },
+          { name:'📐 规律库',      onClick:"sb2Go('patterns')" },
+          { name:'👥 达人库',      onClick:"sb2Go('influencers')" },
+          { name:'✅ 任务',        onClick:"sb2Go('tasks')" }
+        ]}
+      ]
+    };
+  },
+  messages: function(){
+    var list = (typeof window.emps !== 'undefined' && Array.isArray(window.emps)) ? window.emps : [];
+    var groups = [];
+    try { groups = (typeof window.projects !== 'undefined' && Array.isArray(window.projects)) ? window.projects : []; } catch(e){}
+    var onlineCount = 0;
+    list.forEach(function(e){ if (e && e.status === 'online') onlineCount++; });
+    var items = [
+      { label:'AI 员工 ('+list.length+' · '+onlineCount+' 在线)', items:list.slice(0, 20).map(function(e){
+        var isOnline = e.status === 'online';
+        var initials = (e.display_name || e.name || '?').slice(0,1);
+        return { name: (e.display_name || e.name || '-'), dot:isOnline, onClick:"startNewChat && startNewChat('"+e.id+"')" };
+      })}
+    ];
+    if (groups.length) {
+      items.push({ label:'项目组群聊 ('+groups.length+')', items:groups.slice(0, 10).map(function(g){
+        return { name: (g.name || g.display_name || '-'), onClick:"openGroup && openGroup('"+g.id+"')" };
+      })});
+    }
+    return { title:'即时通讯', sub: list.length+' 员工 · '+onlineCount+' 在线', items:items };
+  },
+  knowledge: function(){
+    var cats = (typeof window.knowledgeCategories !== 'undefined' && Array.isArray(window.knowledgeCategories)) ? window.knowledgeCategories : [];
+    var sub = cats.length + ' 分类 · 全局可见';
+    return {
+      title:'知识库', sub:sub,
+      items:[
+        { label:'分类', items: (cats.length ? cats : [{name:'加载中…'}]).slice(0, 30).map(function(c){
+          return { name:(c.name || c.display_name || '-'), onClick:"openKnowledgeCategory && openKnowledgeCategory('"+(c.id || c.name)+"')" };
+        })},
+        { label:'范围', items:[
+          { name:'全局',     onClick:"switchKnowledgeScope && switchKnowledgeScope('global')" },
+          { name:'我的项目', onClick:"switchKnowledgeScope && switchKnowledgeScope('project')" }
+        ]}
+      ]
+    };
+  },
+  patterns: function(){
+    var cats = (typeof window.patternCategories !== 'undefined' && Array.isArray(window.patternCategories)) ? window.patternCategories : [];
+    return {
+      title:'规律库', sub:cats.length + ' 类目 · 跨域共性',
+      items:[
+        { label:'类目', items: (cats.length ? cats : [{name:'加载中…'}]).slice(0, 30).map(function(c){
+          return { name:(c.name || c.display_name || '-'), onClick:"switchPatternsCategory && switchPatternsCategory('"+(c.id || c.name)+"')" };
+        })},
+        { label:'状态', items:[
+          { name:'全部',     onClick:"switchPatternsTab && switchPatternsTab('')" },
+          { name:'待确认',   onClick:"switchPatternsTab && switchPatternsTab('draft')" },
+          { name:'已确认',   onClick:"switchPatternsTab && switchPatternsTab('confirmed')" },
+          { name:'已废弃',   onClick:"switchPatternsTab && switchPatternsTab('deprecated')" }
+        ]}
+      ]
+    };
+  },
+  influencers: function(){
+    return {
+      title:'达人库', sub:'筛选 · 标签 · 跟进',
+      items:[
+        { label:'筛选', items:[
+          { name:'全部达人',     onClick:"filterInfluencerSkills && filterInfluencerSkills('')" },
+          { name:'高 GMV',       onClick:"filterInfluencerSkills && filterInfluencerSkills('high_gmv')" },
+          { name:'未跟进',       onClick:"filterInfluencerSkills && filterInfluencerSkills('unfollowed')" },
+          { name:'紧急',         onClick:"filterInfluencerSkills && filterInfluencerSkills('urgent')" }
+        ]},
+        { label:'视图', items:[
+          { name:'密集表格 (默认)', onClick:"switchTalentView && switchTalentView('sb2')" },
+          { name:'经典卡片',         onClick:"switchTalentView && switchTalentView('card')" }
+        ]}
+      ]
+    };
+  },
+  products: function(){
+    var cats = (typeof window.productCategories !== 'undefined' && Array.isArray(window.productCategories)) ? window.productCategories : [];
+    return {
+      title:'商品库', sub:cats.length + ' 类目',
+      items:[
+        { label:'类目', items: (cats.length ? cats : [{name:'加载中…'}]).slice(0, 30).map(function(c){
+          return { name:(c.name || c.display_name || '-'), onClick:"switchProductsCategory && switchProductsCategory('"+(c.id || c.name)+"')" };
+        })}
+      ]
+    };
+  },
+  tasks: function(){
+    return { title:'任务', sub:'原型未展开 · 只套新壳', items:[] };
+  },
+  settings: function(){
+    return { title:'设置', sub:'原型未展开 · 只套新壳', items:[] };
+  }
+};
+
+var SB2_CURRENT_MODULE = 'messages';
+
+function renderSideFor(moduleId){
+  var side = document.getElementById('sb2Side');
+  if (!side) return;
+  // dashboard 隐藏 #side, 让位 .sb2-dash 内置布局
+  if (moduleId === 'dashboard' || moduleId === 'lobster') {
+    side.style.display = 'none';
+    return;
+  }
+  side.style.display = '';
+  var fn = SB2_SIDE_RENDERERS[moduleId];
+  var data = fn ? fn() : { title: moduleId, sub:'-', items:[] };
+  var html = '';
+  html += '<div class="sb2-side-head"><div class="sb2-side-title">'+escHtml(data.title)+'</div>';
+  if (data.sub) html += '<div class="sb2-side-sub">'+escHtml(data.sub)+'</div></div>';
+  html += '<div class="sb2-side-search" onclick="sb2_openPalette()"><span>搜索…</span><span class="kbd">⌘K</span></div>';
+  html += '<div class="sb2-side-scroll">';
+  (data.items || []).forEach(function(group){
+    if (group.label) html += '<div class="sb2-side-label">'+escHtml(group.label)+'</div>';
+    (group.items || []).forEach(function(it){
+      var dot = it.dot === true ? '<span class="dot"></span>' : (it.dot === false ? '<span class="dot offline"></span>' : '');
+      var badge = it.badge ? '<span class="badge">'+escHtml(it.badge)+'</span>' : '';
+      html += '<div class="sb2-side-item" onclick="'+escAttr(it.onClick || '')+'">'
+              + '<span class="name">'+dot+escHtml(it.name || '-')+'</span>'+badge+'</div>';
+    });
+  });
+  html += '</div>';
+  html += '<div class="sb2-side-foot"><span class="dot"></span><span id="sb2SideFootStatus">已连接</span></div>';
+  side.innerHTML = html;
+  SB2_CURRENT_MODULE = moduleId;
+}
+
+function escHtml(s){ return String(s==null?'':s).replace(/[&<>\"']/g, function(c){ return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]; }); }
+function escAttr(s){ return String(s==null?'':s).replace(/[&<>\"']/g, function(c){ return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]; }); }
+
+/* 顶栏搜索/新建: UI 占位接 toast, ⌘K 快捷键后置 */
+window.sb2_openPalette = function(){
+  if (typeof openGlobalSearch === 'function') openGlobalSearch();
+  else if (typeof showToast === 'function') showToast('搜索面板 — 原型待展开');
+};
+window.sb2_openCreate = function(){
+  // 按模块给最常用的一个动作 (零编造数据, 只调现成 API)
+  var m = SB2_CURRENT_MODULE;
+  if (m === 'knowledge' && typeof createNewKnowledge === 'function') createNewKnowledge();
+  else if (m === 'patterns' && typeof triggerPatternInduce === 'function') triggerPatternInduce();
+  else if (m === 'influencers' && typeof openInfluencerLibrary === 'function') openInfluencerLibrary();
+  else if (m === 'products' && typeof openProductLibrary === 'function') openProductLibrary();
+  else if (m === 'tasks' && typeof createNewTask === 'function') createNewTask();
+  else if (m === 'messages' && typeof startNewChat === 'function') startNewChat();
+  else if (typeof showToast === 'function') showToast('新建 — 快捷入口待加强');
+};
+
+/* 顶栏 crumb 同步 */
+function updateCrumb(){
+  var main = document.getElementById('sb2CrumbMain');
+  if (!main) return;
+  var m = SB2_CURRENT_MODULE;
+  var map = {
+    dashboard:'工作台', messages:'即时通讯', lobster:'龙虾办公室',
+    knowledge:'知识库', patterns:'规律库', influencers:'达人库',
+    products:'商品库', tasks:'任务', settings:'设置'
+  };
+  main.textContent = map[m] || m;
 }
 
 /* ---------- 启动 ---------- */
 function init(){
   buildRail();
   hookBellBadge();
+  sb2BellSync();
+  // 启动时默认落 messages 屏
+  if (document.getElementById('sb2Side')) renderSideFor('messages');
+  updateCrumb();
   // 已登录刷新场景: showMainApp 可能已跑过, 主动落工作台
   var tok = localStorage.getItem('sb_auth_token') || '';
   var overlay = document.getElementById('loginOverlay');
-  if (tok && overlay && overlay.hidden) setTimeout(showDash, 200);
+  if (tok && overlay && overlay.hidden) {
+    setTimeout(function(){
+      // 登录态但 showMainApp 已跑过, currentUser 已就绪 → 重建 rail 让所有模块亮出来
+      var oldRail = document.getElementById('sb2Rail');
+      if (oldRail) oldRail.remove();
+      buildRail();
+      showDash();
+      renderSideFor('dashboard');
+      updateCrumb();
+    }, 200);
+  }
 }
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
 else init();
