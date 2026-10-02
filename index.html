@@ -10670,6 +10670,12 @@ window.doLogin = function () {
   font:400 13px/1.5 "PingFang SC",sans-serif; color:var(--sb2-t1);
 }
 .sb2-settings-main.active{ display:flex; }
+/* MVP6.5 UX 修: 设置屏让新屏占满主区, 旧 #settingsRight 兑底 hidden
+ * (renderSettingsRight 函数保留, DOM hidden; 旧 #settingsMid 在 .app-sidebar 内不在此规则下)
+ * - 之前: settings 屏 .app-main.settings-active flex-row 下, #settingsRight + .sb2-settings-main 并排挤压
+ * - 现在: settings 屏 active 时, .sb2-settings-main 100% 占主区, #settingsRight 兑底 hidden */
+.app-main.settings-active > #settingsRight{ display:none; }
+.app-main.settings-active > .sb2-settings-main{ flex:1; width:100%; max-width:100%; }
 .sb2-settings-hero{ margin-bottom:24px; }
 .sb2-settings-hero h1{
   margin:0 0 4px 0;
@@ -12220,6 +12226,23 @@ window.doLogin = function () {
         <button class="sb2-btn sb2-btn-ink" onclick="sb2SettingsRagBuild()">重建索引</button>
       </div>
       <div class="sb2-settings-feature-card-result" id="sb2FeatRagResult"></div>
+    </div>
+    <!-- 卡 4: 知识事件 -->
+    <div class="sb2-settings-feature-card" id="sb2FeatCardEvents">
+      <div class="sb2-settings-feature-card-head">
+        <div class="sb2-settings-feature-card-icon">🔖</div>
+        <h3 class="sb2-settings-feature-card-title">知识事件</h3>
+      </div>
+      <p class="sb2-settings-feature-card-desc">GET /api/knowledge-events · /stats — 实体级 (entity_type / entity_id) 事件列表 + 总数统计, 来自 knowledge_events 表。</p>
+      <div class="sb2-settings-feature-card-status">
+        <span>状态</span><span class="status-value" id="sb2FeatEventsStatus">-</span>
+      </div>
+      <div class="sb2-settings-search-input-row">
+        <input type="text" id="sb2FeatEventsEntityInput" placeholder="entity_id (留空查全部)">
+        <button class="sb2-btn sb2-btn-ink" onclick="sb2SettingsEventsQuery()">查询事件</button>
+        <button class="sb2-btn sb2-btn-ghost" onclick="sb2SettingsEventsStats()">统计</button>
+      </div>
+      <div class="sb2-settings-feature-card-result" id="sb2FeatEventsResult"></div>
     </div>
   </div>
 </div>
@@ -38985,12 +39008,16 @@ function sb2SettingsShow(){
   _sb2SettingsHideResult('sb2FeatSearchResult');
   _sb2SettingsHideResult('sb2FeatBrainResult');
   _sb2SettingsHideResult('sb2FeatRagResult');
+  _sb2SettingsHideResult('sb2FeatEventsResult');
   // 状态字段恢复 -
   _sb2SettingsSetStatus(null, 'sb2FeatSearchStatus', '-');
   _sb2SettingsSetStatus(null, 'sb2FeatBrainStatus', '-');
   _sb2SettingsSetStatus(null, 'sb2FeatRagStatus', '-');
+  _sb2SettingsSetStatus(null, 'sb2FeatEventsStatus', '-');
   var input = document.getElementById('sb2FeatSearchInput');
   if (input) input.value = '';
+  var eventsInput = document.getElementById('sb2FeatEventsEntityInput');
+  if (eventsInput) eventsInput.value = '';
 }
 
 // 卡 1: 语义搜索
@@ -39145,6 +39172,81 @@ async function sb2SettingsRagBuild(){
     _sb2SettingsSetResult('sb2FeatRagResult', '重建失败: ' + (e.message || ''), false);
   } finally {
     if (btn) btn.disabled = false;
+  }
+}
+
+/* ============================================================
+ * MVP6.5: 知识事件卡 (设置屏 4 号卡)
+ * - 端点契约 (与后端 14856 / 15008 / 14918 一一对应):
+ *     GET /api/knowledge-events?entity_type=&entity_id=&limit=
+ *         → { events: [{id, entity_type, entity_id, agent_id, event_type, title, content_summary, conclusions, user_query, created_at}], total }
+ *     GET /api/knowledge-events/stats
+ *         → { total, byEntityType, recent7d }
+ *     POST /api/knowledge-events  (创建, 本卡不暴露 UI 入口 — 写由后台跑)
+ *     GET /api/knowledge-events/<id> /search (本卡不暴露 — 留作 7 步收口期补 backlog)
+ * ============================================================ */
+async function sb2SettingsEventsQuery(){
+  var inp = document.getElementById('sb2FeatEventsEntityInput');
+  var entityId = (inp && inp.value || '').trim();
+  var url = '/api/knowledge-events?limit=20';
+  if (entityId) url += '&entity_id=' + encodeURIComponent(entityId);
+  _sb2SettingsSetResult('sb2FeatEventsResult', '查询中…', null);
+  try {
+    var resp = await apiFetch(url);
+    if (!resp || !resp.ok) {
+      _sb2SettingsSetResult('sb2FeatEventsResult', '查询失败: HTTP ' + (resp ? resp.status : 'no response'), false);
+      console.warn('[sb2-settings] events query failed:', resp ? resp.status : 'no response');
+      return;
+    }
+    var data = await resp.json();
+    var events = data.events || [];
+    _sb2SettingsSetStatus(null, 'sb2FeatEventsStatus', '命中 ' + events.length + ' 条');
+    if (events.length === 0) {
+      _sb2SettingsSetResult('sb2FeatEventsResult', '该条件下暂无事件', true);
+      console.log('[sb2-settings] events query OK, 0 events');
+      return;
+    }
+    var lines = events.slice(0, 10).map(function(ev, idx){
+      var ent = (ev.entity_type || '-') + '·' + (ev.entity_id || '-');
+      var t = ev.created_at ? formatRelativeTime(ev.created_at) : '-';
+      var title = ev.title || ev.content_summary || '(无标题)';
+      return (idx+1) + '. [' + (ev.event_type || '-') + '] ' + ent + ' · ' + t + '\n    ' + title;
+    });
+    var extra = events.length > 10 ? '\n... 还有 ' + (events.length - 10) + ' 条' : '';
+    _sb2SettingsSetResult('sb2FeatEventsResult', '命中 ' + events.length + ' 条\n' + lines.join('\n') + extra, true);
+    console.log('[sb2-settings] events query OK, count:', events.length);
+  } catch (e) {
+    console.error('[sb2-settings] events query error:', e);
+    _sb2SettingsSetResult('sb2FeatEventsResult', '查询失败: ' + (e.message || ''), false);
+  }
+}
+
+async function sb2SettingsEventsStats(){
+  _sb2SettingsSetResult('sb2FeatEventsResult', '载入中…', null);
+  try {
+    var resp = await apiFetch('/api/knowledge-events/stats');
+    if (!resp || !resp.ok) {
+      _sb2SettingsSetResult('sb2FeatEventsResult', '统计失败: HTTP ' + (resp ? resp.status : 'no response'), false);
+      console.warn('[sb2-settings] events stats failed:', resp ? resp.status : 'no response');
+      return;
+    }
+    var data = await resp.json();
+    var lines = [
+      '总数: ' + (data.total != null ? data.total : '-') + ' 条',
+      '近 7 天新增: ' + (data.recent7d != null ? data.recent7d : '-') + ' 条'
+    ];
+    if (data.byEntityType && Object.keys(data.byEntityType).length) {
+      lines.push('按类型:');
+      Object.keys(data.byEntityType).forEach(function(k){
+        lines.push('  · ' + k + ': ' + data.byEntityType[k] + ' 条');
+      });
+    }
+    _sb2SettingsSetStatus(null, 'sb2FeatEventsStatus', '总数 ' + (data.total != null ? data.total : '-') + ' / 近 7 天 ' + (data.recent7d != null ? data.recent7d : '-'));
+    _sb2SettingsSetResult('sb2FeatEventsResult', lines.join('\n'), true);
+    console.log('[sb2-settings] events stats OK, total:', data.total, 'recent7d:', data.recent7d);
+  } catch (e) {
+    console.error('[sb2-settings] events stats error:', e);
+    _sb2SettingsSetResult('sb2FeatEventsResult', '统计失败: ' + (e.message || ''), false);
   }
 }
 
