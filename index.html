@@ -10497,6 +10497,166 @@ window.doLogin = function () {
   padding:40px 20px; text-align:center; color:var(--sb2-t3);
   font:400 13px/1.5 "PingFang SC",sans-serif;
 }
+
+/* —— MVP5: 完整编辑器 (8 字段全展, center modal) —— */
+.sb2-kb-edit-modal{
+  position:fixed; inset:0; z-index:95;
+  background:rgba(10,10,14,.45); backdrop-filter:blur(2px);
+  display:none; align-items:center; justify-content:center;
+  animation:sb2-kb-fade-in .18s ease;
+}
+.sb2-kb-edit-modal.open{ display:flex; }
+.sb2-kb-edit-modal-panel{
+  width:720px; max-width:92vw; max-height:88vh;
+  background:var(--sb2-s1); border:1px solid var(--sb2-border);
+  border-radius:var(--sb2-r-lg); box-shadow:var(--sb2-sh-3);
+  display:flex; flex-direction:column; overflow:hidden;
+}
+.sb2-kb-edit-modal-header{
+  padding:16px 24px; border-bottom:1px solid var(--sb2-border);
+  display:flex; align-items:center; gap:10px; flex-shrink:0;
+}
+.sb2-kb-edit-modal-header h2{
+  margin:0; font:600 17px/1.3 "PingFang SC",sans-serif; color:var(--sb2-ink);
+}
+.sb2-kb-edit-modal-close{
+  margin-left:auto; background:transparent; border:none;
+  font-size:22px; line-height:1; color:var(--sb2-t2);
+  cursor:pointer; padding:4px 10px; border-radius:var(--sb2-r-sm);
+}
+.sb2-kb-edit-modal-close:hover{ background:var(--sb2-s3); color:var(--sb2-t1); }
+.sb2-kb-edit-modal-body{
+  padding:20px 24px; flex:1; overflow-y:auto;
+  font:400 13px/1.5 "PingFang SC",sans-serif; color:var(--sb2-t1);
+}
+.sb2-kb-edit-field{ margin-bottom:14px; }
+.sb2-kb-edit-field-label{
+  display:block; font-size:12px; font-weight:500;
+  color:var(--sb2-t2); margin-bottom:6px;
+}
+.sb2-kb-edit-field-label .req{ color:var(--sb2-danger); margin-left:2px; }
+.sb2-kb-edit-field input[type="text"],
+.sb2-kb-edit-field textarea,
+.sb2-kb-edit-field select{
+  width:100%; padding:9px 11px;
+  border:1px solid var(--sb2-border); border-radius:var(--sb2-r-md);
+  font:400 13px/1.5 "PingFang SC",sans-serif;
+  background:var(--sb2-s1); color:var(--sb2-t1);
+  transition:border-color .15s ease, box-shadow .15s ease;
+}
+.sb2-kb-edit-field input[type="text"]:focus,
+.sb2-kb-edit-field textarea:focus,
+.sb2-kb-edit-field select:focus{
+  outline:none; border-color:var(--sb2-brand);
+  box-shadow:0 0 0 3px var(--sb2-brand-soft);
+}
+.sb2-kb-edit-field textarea{ min-height:200px; resize:vertical; line-height:1.65; }
+.sb2-kb-edit-field-row{ display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+.sb2-kb-edit-field-row-3{ display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px; }
+.sb2-kb-edit-status{
+  font-size:12px; color:var(--sb2-t3); margin-top:8px;
+  min-height:16px;
+}
+.sb2-kb-edit-status.ok{ color:var(--sb2-success); }
+.sb2-kb-edit-status.err{ color:var(--sb2-danger); }
+.sb2-kb-edit-modal-footer{
+  padding:14px 24px; border-top:1px solid var(--sb2-border);
+  display:flex; gap:10px; justify-content:flex-end; align-items:center;
+  flex-shrink:0;
+}
+
+/* —— MVP5: 版本历史 (center modal 560px) —— */
+.sb2-kb-version-modal{
+  position:fixed; inset:0; z-index:96;
+  background:rgba(10,10,14,.45); backdrop-filter:blur(2px);
+  display:none; align-items:center; justify-content:center;
+  animation:sb2-kb-fade-in .18s ease;
+}
+.sb2-kb-version-modal.open{ display:flex; }
+.sb2-kb-version-modal-panel{
+  width:560px; max-width:92vw; max-height:80vh;
+  background:var(--sb2-s1); border:1px solid var(--sb2-border);
+  border-radius:var(--sb2-r-lg); box-shadow:var(--sb2-sh-3);
+  display:flex; flex-direction:column; overflow:hidden;
+}
+.sb2-kb-version-modal-header{
+  padding:14px 20px; border-bottom:1px solid var(--sb2-border);
+  display:flex; align-items:center; gap:10px; flex-shrink:0;
+}
+.sb2-kb-version-modal-header h2{
+  margin:0; font:600 15px/1.3 "PingFang SC",sans-serif; color:var(--sb2-ink);
+  flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+.sb2-kb-version-modal-body{
+  padding:14px; flex:1; overflow-y:auto;
+  font:400 13px/1.5 "PingFang SC",sans-serif; color:var(--sb2-t1);
+}
+.sb2-kb-version-list-item{
+  padding:12px 14px; background:var(--sb2-s2);
+  border-radius:var(--sb2-r-md); margin-bottom:8px;
+  border:1px solid transparent; transition:border-color .12s ease;
+}
+.sb2-kb-version-list-item:hover{ border-color:var(--sb2-border); }
+.sb2-kb-version-list-item-head{
+  display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;
+}
+.sb2-kb-version-list-item-no{
+  font-size:13px; font-weight:600; color:var(--sb2-ink);
+}
+.sb2-kb-version-list-item-time{
+  font-size:11px; color:var(--sb2-t3);
+}
+.sb2-kb-version-list-item-meta{
+  font-size:11px; color:var(--sb2-t2); margin-bottom:6px;
+}
+.sb2-kb-version-list-item-preview{
+  font-size:13px; line-height:1.55; color:var(--sb2-t1);
+  white-space:pre-wrap; word-break:break-word;
+  max-height:60px; overflow:hidden; display:-webkit-box;
+  -webkit-line-clamp:3; -webkit-box-orient:vertical;
+}
+.sb2-kb-version-list-item-actions{
+  display:flex; gap:8px; justify-content:flex-end; margin-top:8px;
+}
+.sb2-kb-version-empty{
+  padding:48px 20px; text-align:center; color:var(--sb2-t3);
+}
+.sb2-kb-version-empty-icon{
+  font-size:32px; margin-bottom:8px; opacity:.6;
+}
+.sb2-kb-version-empty-title{
+  font:500 14px/1.4 "PingFang SC",sans-serif; color:var(--sb2-t2);
+  margin-bottom:4px;
+}
+.sb2-kb-version-empty-sub{
+  font:400 12px/1.5 "PingFang SC",sans-serif; color:var(--sb2-t3);
+  max-width:380px; margin:0 auto;
+}
+
+/* —— MVP5: 单版本查看小弹窗 —— */
+.sb2-kb-version-view-modal{
+  position:fixed; inset:0; z-index:97;
+  background:rgba(10,10,14,.45); backdrop-filter:blur(2px);
+  display:none; align-items:center; justify-content:center;
+}
+.sb2-kb-version-view-modal.open{ display:flex; }
+.sb2-kb-version-view-panel{
+  width:520px; max-width:92vw; max-height:78vh;
+  background:var(--sb2-s1); border:1px solid var(--sb2-border);
+  border-radius:var(--sb2-r-lg); box-shadow:var(--sb2-sh-3);
+  display:flex; flex-direction:column; overflow:hidden;
+}
+.sb2-kb-version-view-body{
+  padding:18px 20px; flex:1; overflow-y:auto;
+  font:400 13px/1.65 "PingFang SC",sans-serif; color:var(--sb2-t1);
+  white-space:pre-wrap; word-break:break-word;
+}
+.sb2-kb-version-view-meta{
+  font-size:11px; color:var(--sb2-t3); margin-bottom:10px;
+  padding-bottom:10px; border-bottom:1px solid var(--sb2-border);
+}
+
+/* —— MVP5: 详情面板 footer 三按钮（继承现有 .sb2-kb-detail-footer, 这里只做 viewport 适配） —— */
 </style>
 
 <style id="sb2-dense-views">
@@ -11807,7 +11967,103 @@ window.doLogin = function () {
   </div>
   <div class="sb2-kb-detail-footer">
     <button class="sb2-btn sb2-btn-ghost sb2-btn-danger" id="sb2KbDetailDeleteBtn" onclick="sb2KbDetailDelete()">删除</button>
+    <button class="sb2-btn sb2-btn-ghost" onclick="sb2KbOpenVersions()">版本历史</button>
     <button class="sb2-btn sb2-btn-ink" onclick="sb2KbDetailEdit()">编辑</button>
+  </div>
+</div>
+
+<!-- ★ sb2-knowledge MVP5: 完整编辑器 (8 字段 center modal) -->
+<div class="sb2-kb-edit-modal" id="sb2KbEditModal">
+  <div class="sb2-kb-edit-modal-panel" onclick="event.stopPropagation()">
+    <div class="sb2-kb-edit-modal-header">
+      <h2 id="sb2KbEditTitle">编辑知识</h2>
+      <button class="sb2-kb-edit-modal-close" onclick="sb2KbCloseEditor()" aria-label="关闭编辑器">×</button>
+    </div>
+    <div class="sb2-kb-edit-modal-body">
+      <div class="sb2-kb-edit-field">
+        <label class="sb2-kb-edit-field-label">标题<span class="req">*</span></label>
+        <input type="text" id="sb2KbEditFieldTitle" placeholder="一句话说清这条知识">
+      </div>
+      <div class="sb2-kb-edit-field">
+        <label class="sb2-kb-edit-field-label">内容<span class="req">*</span></label>
+        <textarea id="sb2KbEditFieldContent" placeholder="完整内容"></textarea>
+      </div>
+      <div class="sb2-kb-edit-field-row">
+        <div class="sb2-kb-edit-field">
+          <label class="sb2-kb-edit-field-label">分类<span class="req">*</span></label>
+          <input type="text" id="sb2KbEditFieldCategory" placeholder="如: 公共知识 / 达人库 / 商品知识 / 工作流">
+        </div>
+        <div class="sb2-kb-edit-field">
+          <label class="sb2-kb-edit-field-label">分类 ID（数字，可选）</label>
+          <input type="text" id="sb2KbEditFieldCategoryId" placeholder="如: 1">
+        </div>
+      </div>
+      <div class="sb2-kb-edit-field">
+        <label class="sb2-kb-edit-field-label">所属项目（projectId，可选）</label>
+        <input type="text" id="sb2KbEditFieldProjectId" placeholder="项目 ID，留空表示无项目">
+      </div>
+      <div class="sb2-kb-edit-field-row">
+        <div class="sb2-kb-edit-field">
+          <label class="sb2-kb-edit-field-label">范围<span class="req">*</span></label>
+          <select id="sb2KbEditFieldScope">
+            <option value="global">全员 (global)</option>
+            <option value="team">团队 (team)</option>
+            <option value="group">分组 (group)</option>
+            <option value="personal">个人 (personal)</option>
+          </select>
+        </div>
+        <div class="sb2-kb-edit-field">
+          <label class="sb2-kb-edit-field-label">状态</label>
+          <select id="sb2KbEditFieldStatus">
+            <option value="ok">已确认 (ok)</option>
+            <option value="pending">待审核 (pending)</option>
+          </select>
+        </div>
+      </div>
+      <div class="sb2-kb-edit-field">
+        <label class="sb2-kb-edit-field-label">团队 ID（scope=team 时填）</label>
+        <input type="text" id="sb2KbEditFieldTeamId" placeholder="team ID, 留空表示无">
+      </div>
+      <div class="sb2-kb-edit-field">
+        <label class="sb2-kb-edit-field-label">项目组 ID 列表（scope=group 时填, 逗号分隔）</label>
+        <input type="text" id="sb2KbEditFieldGroupIds" placeholder="如: grp_001,grp_002, 留空表示无">
+      </div>
+      <div class="sb2-kb-edit-status" id="sb2KbEditStatus"></div>
+    </div>
+    <div class="sb2-kb-edit-modal-footer">
+      <button class="sb2-btn sb2-btn-ghost" onclick="sb2KbCloseEditor()">取消</button>
+      <button class="sb2-btn sb2-btn-ink" id="sb2KbEditSubmitBtn" onclick="sb2KbEditorSubmit()">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- ★ sb2-knowledge MVP5: 版本历史 (center modal 560px) -->
+<div class="sb2-kb-version-modal" id="sb2KbVersionModal" onclick="sb2KbCloseVersions()">
+  <div class="sb2-kb-version-modal-panel" onclick="event.stopPropagation()">
+    <div class="sb2-kb-version-modal-header">
+      <h2 id="sb2KbVersionTitle">版本历史</h2>
+      <button class="sb2-kb-edit-modal-close" onclick="sb2KbCloseVersions()" aria-label="关闭">×</button>
+    </div>
+    <div class="sb2-kb-version-modal-body" id="sb2KbVersionBody">
+      <div class="sb2-kb-version-empty" id="sb2KbVersionEmpty">
+        <div class="sb2-kb-version-empty-icon">⏱</div>
+        <div class="sb2-kb-version-empty-title">暂无历史版本</div>
+        <div class="sb2-kb-version-empty-sub">
+          每次保存都会写入新版本。目前接口契约已就位，但 kb_entries 表的 ID 在生产环境下产生版本历史需后端补 kb_entry_versions 配套表或迁移脚本
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ★ sb2-knowledge MVP5: 单版本查看小弹窗 -->
+<div class="sb2-kb-version-view-modal" id="sb2KbVersionViewModal" onclick="sb2KbCloseVersionView()">
+  <div class="sb2-kb-version-view-panel" onclick="event.stopPropagation()">
+    <div class="sb2-kb-edit-modal-header">
+      <h2 id="sb2KbVersionViewTitle">版本详情</h2>
+      <button class="sb2-kb-edit-modal-close" onclick="sb2KbCloseVersionView()" aria-label="关闭">×</button>
+    </div>
+    <div class="sb2-kb-version-view-body" id="sb2KbVersionViewBody">-</div>
   </div>
 </div>
 
@@ -38229,7 +38485,8 @@ function sb2KbDetailEdit(){
   if (!_sb2KbDetailId) return;
   var entryId = _sb2KbDetailId;
   sb2KbCloseDetail();
-  sb2KbOpenEditModal(entryId);
+  // MVP5: 编辑器走 sb2KbOpenEditor (8 字段完整编辑器), 不再走 MVP3 轻量弹窗 sb2KbOpenEditModal
+  sb2KbOpenEditor(entryId);
 }
 
 async function sb2KbDetailDelete(){
@@ -38247,6 +38504,256 @@ async function sb2KbDetailDelete(){
   } catch (e) {
     console.error('[sb2-kb] detail delete failed:', e);
     showToast('删除失败: ' + (e.message || ''), 'error');
+  }
+}
+
+/* ============================================================
+ * MVP5: 完整编辑器 (8 字段 center modal)
+ * - 字段: title / content / category / categoryId / projectId / scope / teamId / groupIds / status
+ * - 端点: GET /api/knowledge/entries/:id (拉一次) + PUT /api/knowledge/entries/:id (保存)
+ * - 卡片「编辑」按钮 (来自详情面板 sb2KbDetailEdit) → 关闭详情 + 打开本编辑器
+ * ============================================================ */
+var _sb2KbEditingFullId = null;
+
+async function sb2KbOpenEditor(entryId){
+  _sb2KbEditingFullId = entryId;
+  // 重置表单
+  document.getElementById('sb2KbEditFieldTitle').value = '';
+  document.getElementById('sb2KbEditFieldContent').value = '';
+  document.getElementById('sb2KbEditFieldCategory').value = '';
+  document.getElementById('sb2KbEditFieldCategoryId').value = '';
+  document.getElementById('sb2KbEditFieldProjectId').value = '';
+  document.getElementById('sb2KbEditFieldScope').value = 'global';
+  document.getElementById('sb2KbEditFieldTeamId').value = '';
+  document.getElementById('sb2KbEditFieldGroupIds').value = '';
+  document.getElementById('sb2KbEditFieldStatus').value = 'ok';
+  var status = document.getElementById('sb2KbEditStatus');
+  status.textContent = '载入中…';
+  status.className = 'sb2-kb-edit-status';
+  document.getElementById('sb2KbEditTitle').textContent = '编辑知识';
+  document.getElementById('sb2KbEditModal').classList.add('open');
+
+  try {
+    var resp = await apiFetch('/api/knowledge/entries/' + encodeURIComponent(entryId));
+    if (!resp || !resp.ok) {
+      status.textContent = '载入失败: ' + ((resp && resp.status) || '网络错误');
+      status.className = 'sb2-kb-edit-status err';
+      return;
+    }
+    var doc = await resp.json();
+    sb2KbRenderEditor(doc);
+    console.log('[sb2-kb] editor loaded, doc keys:', Object.keys(doc).join(','));
+  } catch (e) {
+    console.error('[sb2-kb] editor load failed:', e);
+    status.textContent = '载入失败: ' + (e.message || '');
+    status.className = 'sb2-kb-edit-status err';
+  }
+}
+
+function sb2KbRenderEditor(doc){
+  // 回填表单
+  document.getElementById('sb2KbEditFieldTitle').value = doc.title || '';
+  document.getElementById('sb2KbEditFieldContent').value = doc.content || '';
+  document.getElementById('sb2KbEditFieldCategory').value = doc.category || '';
+  document.getElementById('sb2KbEditFieldCategoryId').value = (doc.categoryId != null && doc.categoryId !== '') ? String(doc.categoryId) : '';
+  document.getElementById('sb2KbEditFieldProjectId').value = doc.projectId || '';
+  document.getElementById('sb2KbEditFieldScope').value = doc.scope || 'global';
+  document.getElementById('sb2KbEditFieldTeamId').value = doc.teamId || '';
+  // groupIds 可能是数组或 JSON 字符串
+  var gid = doc.groupIds;
+  if (Array.isArray(gid)) gid = gid.join(',');
+  document.getElementById('sb2KbEditFieldGroupIds').value = gid || '';
+  document.getElementById('sb2KbEditFieldStatus').value = doc.status || 'ok';
+  var status = document.getElementById('sb2KbEditStatus');
+  status.textContent = '已载入, 可编辑保存';
+  status.className = 'sb2-kb-edit-status ok';
+}
+
+function sb2KbCloseEditor(){
+  document.getElementById('sb2KbEditModal').classList.remove('open');
+  _sb2KbEditingFullId = null;
+}
+
+async function sb2KbEditorSubmit(){
+  if (!_sb2KbEditingFullId) return;
+  var statusEl = document.getElementById('sb2KbEditStatus');
+  var submitBtn = document.getElementById('sb2KbEditSubmitBtn');
+  var title = document.getElementById('sb2KbEditFieldTitle').value.trim();
+  var content = document.getElementById('sb2KbEditFieldContent').value.trim();
+  if (!title || !content) {
+    statusEl.textContent = '请填写标题和内容';
+    statusEl.className = 'sb2-kb-edit-status err';
+    return;
+  }
+  var categoryIdRaw = document.getElementById('sb2KbEditFieldCategoryId').value.trim();
+  var groupIdsRaw = document.getElementById('sb2KbEditFieldGroupIds').value.trim();
+  var body = {
+    title: title,
+    content: content,
+    category: document.getElementById('sb2KbEditFieldCategory').value.trim(),
+    categoryId: categoryIdRaw ? parseInt(categoryIdRaw, 10) : null,
+    projectId: document.getElementById('sb2KbEditFieldProjectId').value.trim() || null,
+    scope: document.getElementById('sb2KbEditFieldScope').value,
+    teamId: document.getElementById('sb2KbEditFieldTeamId').value.trim() || null,
+    groupIds: groupIdsRaw ? groupIdsRaw.split(',').map(function(s){return s.trim();}).filter(Boolean) : null,
+    status: document.getElementById('sb2KbEditFieldStatus').value
+  };
+  submitBtn.disabled = true;
+  statusEl.textContent = '保存中…';
+  statusEl.className = 'sb2-kb-edit-status';
+  try {
+    var resp = await apiFetch('/api/knowledge/entries/' + encodeURIComponent(_sb2KbEditingFullId), {
+      method: 'PUT', body: JSON.stringify(body)
+    });
+    if (!resp || !resp.ok) {
+      statusEl.textContent = '保存失败: HTTP ' + (resp ? resp.status : 'no response');
+      statusEl.className = 'sb2-kb-edit-status err';
+      submitBtn.disabled = false;
+      return;
+    }
+    console.log('[sb2-kb] editor save OK');
+    showToast('已保存', 'success');
+    sb2KbCloseEditor();
+    // 关闭详情面板 + 重新初始化列表/chips
+    sb2KbCloseDetail();
+    sb2KbInit();
+  } catch (e) {
+    console.error('[sb2-kb] editor save failed:', e);
+    statusEl.textContent = '保存失败: ' + (e.message || '');
+    statusEl.className = 'sb2-kb-edit-status err';
+    submitBtn.disabled = false;
+  }
+}
+
+/* ============================================================
+ * MVP5: 版本历史 (旧端点 /api/knowledge/<id>/versions)
+ * - 端点契约:
+ *     GET /api/knowledge/<kb_id>/versions → { versions: [{version, content, createdAt, createdBy}], total, offset, limit }
+ *     GET /api/knowledge/<kb_id>/versions/<v> → { version, content, createdAt, createdBy }
+ *     POST /api/knowledge/<kb_id>/rollback { version } → { success, knowledge }
+ * - 已知接口契约断裂: kb_entries 表的 ID (kb_xxx) 完全不在 knowledge_versions 表里
+ *   → MVP5 端点已就位, 但实际数据 = 0 (知识库全部条目的历史版本暂空)
+ *   → UI 展示空态文案, 不编造数据
+ * ============================================================ */
+var _sb2KbVersionDocId = null;
+
+async function sb2KbOpenVersions(){
+  if (!_sb2KbDetailId) return;
+  var docId = _sb2KbDetailId;
+  _sb2KbVersionDocId = docId;
+  document.getElementById('sb2KbVersionTitle').textContent = '版本历史';
+  document.getElementById('sb2KbVersionBody').innerHTML = '<div class="sb2-kb-loading">载入中…</div>';
+  document.getElementById('sb2KbVersionModal').classList.add('open');
+  try {
+    var resp = await apiFetch('/api/knowledge/' + encodeURIComponent(docId) + '/versions');
+    if (!resp || !resp.ok) {
+      console.warn('[sb2-kb] versions fetch failed:', resp ? resp.status : 'no response');
+      sb2KbRenderVersions(docId, { versions: [], total: 0 });
+      return;
+    }
+    var data = await resp.json();
+    console.log('[sb2-kb] versions loaded, count:', (data.versions || []).length, 'total:', data.total);
+    sb2KbRenderVersions(docId, data);
+  } catch (e) {
+    console.error('[sb2-kb] versions load failed:', e);
+    sb2KbRenderVersions(docId, { versions: [], total: 0 });
+  }
+}
+
+function sb2KbRenderVersions(docId, data){
+  var body = document.getElementById('sb2KbVersionBody');
+  var versions = (data && data.versions) || [];
+  if (versions.length === 0) {
+    body.innerHTML =
+      '<div class="sb2-kb-version-empty">' +
+        '<div class="sb2-kb-version-empty-icon">⏱</div>' +
+        '<div class="sb2-kb-version-empty-title">暂无历史版本</div>' +
+        '<div class="sb2-kb-version-empty-sub">' +
+          '每次保存都会写入新版本。当前接口契约已就位, 但 kb_entries 表与 knowledge_versions 表是断裂的' +
+          '（生产编辑不会自动写入旧版版本表）。需要后端补 kb_entry_versions 表或迁移脚本才能看到真实历史。' +
+        '</div>' +
+      '</div>';
+    return;
+  }
+  var html = '';
+  versions.forEach(function(v){
+    var content = v.content || '';
+    var preview = content.length > 120 ? content.slice(0, 120) + '…' : content;
+    var timeStr = v.createdAt ? _sb2KbFmtTs(v.createdAt) : '-';
+    var ver = v.version;
+    html += '<div class="sb2-kb-version-list-item">' +
+      '<div class="sb2-kb-version-list-item-head">' +
+        '<span class="sb2-kb-version-list-item-no">版本 ' + escapeHtml(String(ver != null ? ver : '-')) + '</span>' +
+        '<span class="sb2-kb-version-list-item-time">' + escapeHtml(timeStr) + '</span>' +
+      '</div>' +
+      '<div class="sb2-kb-version-list-item-meta">操作者: ' + escapeHtml(v.createdBy || '-') + '</div>' +
+      '<div class="sb2-kb-version-list-item-preview">' + escapeHtml(preview) + '</div>' +
+      '<div class="sb2-kb-version-list-item-actions">' +
+        '<button class="sb2-btn sb2-btn-ghost" onclick="sb2KbViewVersion(\'' + escapeAttr(docId) + '\', ' + Number(ver) + ')">查看</button>' +
+        '<button class="sb2-btn sb2-btn-ink" onclick="sb2KbRollbackVersion(\'' + escapeAttr(docId) + '\', ' + Number(ver) + ')">回滚到此版本</button>' +
+      '</div>' +
+    '</div>';
+  });
+  body.innerHTML = html;
+}
+
+function sb2KbCloseVersions(){
+  document.getElementById('sb2KbVersionModal').classList.remove('open');
+  _sb2KbVersionDocId = null;
+}
+
+async function sb2KbViewVersion(docId, version){
+  document.getElementById('sb2KbVersionViewTitle').textContent = '版本 ' + version + ' 详情';
+  document.getElementById('sb2KbVersionViewBody').textContent = '载入中…';
+  document.getElementById('sb2KbVersionViewModal').classList.add('open');
+  try {
+    var resp = await apiFetch('/api/knowledge/' + encodeURIComponent(docId) + '/versions/' + encodeURIComponent(version));
+    if (!resp || !resp.ok) {
+      document.getElementById('sb2KbVersionViewBody').textContent = '载入失败: HTTP ' + (resp ? resp.status : 'no response');
+      return;
+    }
+    var data = await resp.json();
+    var v = data.version || data;
+    var meta = '操作者: ' + escapeHtml(v.createdBy || '-') + ' · 时间: ' + escapeHtml(v.createdAt ? _sb2KbFmtTs(v.createdAt) : '-');
+    var body = document.getElementById('sb2KbVersionViewBody');
+    body.innerHTML =
+      '<div class="sb2-kb-version-view-meta">' + meta + '</div>' +
+      '<div>' + escapeHtml(v.content || '-') + '</div>';
+    console.log('[sb2-kb] version detail loaded, version:', v.version, 'content length:', (v.content || '').length);
+  } catch (e) {
+    console.error('[sb2-kb] version detail load failed:', e);
+    document.getElementById('sb2KbVersionViewBody').textContent = '载入失败: ' + (e.message || '');
+  }
+}
+
+function sb2KbCloseVersionView(){
+  document.getElementById('sb2KbVersionViewModal').classList.remove('open');
+}
+
+async function sb2KbRollbackVersion(docId, version){
+  if (!confirm('确定回滚到版本 ' + version + '? 当前内容将被覆盖, 此操作会写入一条新版本（基于当前内容）。')) return;
+  try {
+    var resp = await apiFetch('/api/knowledge/' + encodeURIComponent(docId) + '/rollback', {
+      method: 'POST', body: JSON.stringify({ version: parseInt(version, 10) })
+    });
+    if (!resp || !resp.ok) {
+      showToast('回滚失败: HTTP ' + (resp ? resp.status : 'no response'), 'error');
+      console.warn('[sb2-kb] rollback failed:', resp ? resp.status : 'no response');
+      return;
+    }
+    console.log('[sb2-kb] rollback OK, version:', version);
+    showToast('已回滚到版本 ' + version, 'success');
+    // 关版本历史模态, 重新加载版本
+    if (_sb2KbVersionDocId === docId) {
+      sb2KbOpenVersions();
+    } else {
+      sb2KbCloseVersions();
+      sb2KbCloseDetail();
+      sb2KbInit();
+    }
+  } catch (e) {
+    console.error('[sb2-kb] rollback failed:', e);
+    showToast('回滚失败: ' + (e.message || ''), 'error');
   }
 }
 
