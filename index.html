@@ -10489,30 +10489,36 @@ window.doLogin = function () {
   --sb2-chat-messages-gap: 12px;
   --sb2-chat-messages-empty: var(--sb2-t3);
 
-  /* Input wrap */
+  /* Input wrap (P0-2 还原旧版: 灰底胶囊 + 圆形品牌发送键) */
   --sb2-chat-input-wrap-bg: var(--sb2-s1);
-  --sb2-chat-input-wrap-padding: 12px 16px 14px;
+  --sb2-chat-input-wrap-padding: 10px 14px 12px;
   --sb2-chat-input-wrap-border-top: 1px solid var(--sb2-border);
+  --sb2-chat-input-capsule-bg: var(--sb2-s3);  /* 灰底胶囊 (旧版柔灰底风格) */
+  --sb2-chat-input-capsule-border: 1.5px solid var(--sb2-border);
+  --sb2-chat-input-capsule-border-focus: var(--sb2-brand);
+  --sb2-chat-input-capsule-radius: 12px;
+  --sb2-chat-input-capsule-padding: 8px 12px;
+  --sb2-chat-input-capsule-gap: 8px;
   --sb2-chat-input-row-gap: 8px;
-  --sb2-chat-tool-btn-size: 32px;
+  --sb2-chat-tool-btn-size: 28px;
   --sb2-chat-tool-btn-fg: var(--sb2-t2);
   --sb2-chat-tool-btn-fg-hover: var(--sb2-t1);
-  --sb2-chat-tool-btn-bg-hover: var(--sb2-s3);
-  --sb2-chat-input-bg: var(--sb2-s2);
+  --sb2-chat-tool-btn-bg-hover: transparent;
+  --sb2-chat-input-bg: transparent;  /* 旧版: 透明 (灰底来自胶囊) */
   --sb2-chat-input-fg: var(--sb2-t1);
   --sb2-chat-input-placeholder: var(--sb2-t3);
-  --sb2-chat-input-radius: var(--sb2-r-md);
-  --sb2-chat-input-padding: 8px 12px;
-  --sb2-chat-input-min-height: 36px;
-  --sb2-chat-input-max-height: 160px;
-  --sb2-chat-input-border: 1px solid var(--sb2-border);
-  --sb2-chat-input-border-focus: var(--sb2-brand);
-  --sb2-chat-send-btn-size: 36px;
+  --sb2-chat-input-radius: 0;  /* 旧版: 无边框圆角 */
+  --sb2-chat-input-padding: 4px 4px;
+  --sb2-chat-input-min-height: 24px;
+  --sb2-chat-input-max-height: 100px;  /* 旧版: 100px */
+  --sb2-chat-input-border: none;  /* 旧版: 无边框 (灰底胶囊已包住) */
+  --sb2-chat-input-border-focus: none;
+  --sb2-chat-send-btn-size: 32px;  /* 旧版: 32px */
   --sb2-chat-send-btn-bg: var(--sb2-brand);
   --sb2-chat-send-btn-bg-hover: var(--sb2-brand-strong);
-  --sb2-chat-send-btn-bg-disabled: var(--sb2-brand-soft);
+  --sb2-chat-send-btn-bg-disabled: var(--sb2-brand-soft);  /* 不要用蓝, 用品牌软橙 */
   --sb2-chat-send-btn-fg: var(--sb2-s1);
-  --sb2-chat-send-btn-radius: var(--sb2-r-md);
+  --sb2-chat-send-btn-radius: 50%;  /* 旧版: 圆形 */
 
   /* Attach bar */
   --sb2-chat-attach-bar-gap: 8px;
@@ -10763,7 +10769,7 @@ window.doLogin = function () {
   color: var(--sb2-chat-empty-tip);
 }
 
-/* ===== Input wrap ===== */
+/* ===== Input wrap (P0-2 还原旧版: 灰底胶囊 + 圆形品牌发送键) ===== */
 .sb2-chat-input-wrap {
   flex: 0 0 auto;
   padding: var(--sb2-chat-input-wrap-padding);
@@ -10814,16 +10820,27 @@ window.doLogin = function () {
   padding: 0;
 }
 
-/* Input row (工具 + 输入框 + 发送按钮) */
-.sb2-chat-input-row {
+/* Input capsule (灰底 + 1.5px 边框 + 12px 圆角, focus 高亮) */
+.sb2-chat-input-capsule {
   display: flex;
   align-items: flex-end;
-  gap: var(--sb2-chat-input-row-gap);
+  gap: var(--sb2-chat-input-capsule-gap);
+  background: var(--sb2-chat-input-capsule-bg);
+  border: var(--sb2-chat-input-capsule-border);
+  border-radius: var(--sb2-chat-input-capsule-radius);
+  padding: var(--sb2-chat-input-capsule-padding);
+  transition: border-color 0.2s;
 }
+.sb2-chat-input-capsule:focus-within {
+  border-color: var(--sb2-chat-input-capsule-border-focus);
+}
+
+/* Tools (left button group) */
 .sb2-chat-input-tools {
   display: flex;
   align-items: center;
   gap: 4px;
+  flex: 0 0 auto;
 }
 .sb2-chat-tool-btn {
   width: var(--sb2-chat-tool-btn-size);
@@ -10836,7 +10853,7 @@ window.doLogin = function () {
   border-radius: var(--sb2-r-sm);
   color: var(--sb2-chat-tool-btn-fg);
   cursor: pointer;
-  transition: background 0.15s, color 0.15s;
+  transition: color 0.15s;
   padding: 0;
   flex: 0 0 auto;
 }
@@ -10845,6 +10862,8 @@ window.doLogin = function () {
   color: var(--sb2-chat-tool-btn-fg-hover);
 }
 .sb2-chat-tool-btn:active { transform: scale(0.95); }
+
+/* Textarea (旧版: 透明 + 无边框, 灰底胶囊已包住) */
 .sb2-chat-input {
   flex: 1 1 auto;
   min-height: var(--sb2-chat-input-min-height);
@@ -10856,13 +10875,15 @@ window.doLogin = function () {
   border-radius: var(--sb2-chat-input-radius);
   font-family: inherit;
   font-size: 14px;
-  line-height: 1.5;
+  line-height: 1.4;
   resize: none;
   outline: none;
-  transition: border-color 0.15s;
+  transition: none;
 }
 .sb2-chat-input::placeholder { color: var(--sb2-chat-input-placeholder); }
-.sb2-chat-input:focus { border-color: var(--sb2-chat-input-border-focus); }
+.sb2-chat-input:focus { outline: none; }
+
+/* Send button (旧版: 32px 圆形实心, 颜色走 brand) */
 .sb2-chat-send-btn {
   width: var(--sb2-chat-send-btn-size);
   height: var(--sb2-chat-send-btn-size);
@@ -10880,11 +10901,14 @@ window.doLogin = function () {
 }
 .sb2-chat-send-btn:hover:not(:disabled) {
   background: var(--sb2-chat-send-btn-bg-hover);
+  transform: scale(1.05);
 }
 .sb2-chat-send-btn:active:not(:disabled) { transform: scale(0.95); }
 .sb2-chat-send-btn:disabled {
   background: var(--sb2-chat-send-btn-bg-disabled);
   cursor: not-allowed;
+  transform: none;
+}
 }
 
 /* ===== Responsive ===== */
@@ -11908,13 +11932,13 @@ window.doLogin = function () {
     </div>
   </div>
 
-  <!-- 发送框 (核心) -->
+  <!-- 发送框 (P0-2 还原旧版布局: 灰底胶囊 + 圆形品牌发送键) -->
   <div class="sb2-chat-input-wrap">
     <!-- 附件预览条 -->
     <div class="sb2-chat-attach-bar" id="sb2ChatAttachBar"></div>
 
-    <!-- 输入行: 工具 + textarea + 发送按钮 -->
-    <div class="sb2-chat-input-row">
+    <!-- 输入胶囊: 灰底 + 1.5px 边框 + 12px 圆角 (focus 高亮) -->
+    <div class="sb2-chat-input-capsule">
       <div class="sb2-chat-input-tools">
         <button class="sb2-chat-tool-btn" type="button" id="sb2ChatAttachBtn" title="图片附件" aria-label="添加图片附件">
           <svg xmlns="http://www.w0.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
@@ -11922,7 +11946,7 @@ window.doLogin = function () {
       </div>
       <textarea id="sb2ChatInput" class="sb2-chat-input" rows="1" placeholder="输入消息... (Enter 发送 / Shift+Enter 换行)" autocomplete="off"></textarea>
       <button class="sb2-chat-send-btn" id="sb2ChatSendBtn" type="button" disabled title="发送" aria-label="发送消息">
-        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" x2="11" y1="2" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" x2="11" y1="2" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
       </button>
     </div>
     <input type="file" id="sb2ChatFileInput" accept="image/*" multiple style="display:none;">
@@ -39966,19 +39990,20 @@ else init();
 
   // ===== Init =====
   function tryInit() {
-    // wrap 老的 switchModule, 在 messages 切换时触发 sb2 渲染
+    // wrap 老的 switchModule, 任意切换都触发 renderChatMain
+    // (P0 fix: 离开 messages 时也要触发, 让 renderChatMain 内部根据 currentModule 隐藏 sb2ChatMain)
     if (_sb2OrigSwitch && typeof window.switchModule === 'function') {
       // 已在外部加载完成, 重新包装
     }
-    // 重新定义全局 switchModule (一次性包装, 老函数先调, 再调 sb2)
+    // 重新定义全局 switchModule (一次性包装, 老函数先调, 再触发 sb2 显隐判断)
     window.switchModule = function (mod) {
       if (_sb2OrigSwitch) {
         try { _sb2OrigSwitch(mod); } catch (e) { console.error('[sb2 wrap switchModule]', e); }
       }
-      if (mod === 'messages') {
-        // 等 _sb2OrigSwitch 走完后 currentModule 已更新, 再触发渲染
-        setTimeout(renderChatMain, 0);
-      }
+      // 无条件触发 renderChatMain, 内部判断 currentModule==='messages' 决定显隐
+      // (P0 fix: 离开 messages 时也要触发, 否则 sb2ChatMain.hidden=false 没人改回来,
+      //  导致切到达人/知识/规律/任务时聊天界面仍显示)
+      setTimeout(renderChatMain, 0);
     };
     // 启动兜底监听 (防 wrap 之前用户已点过 nav 触发 currentModule=messages)
     sb2_watchModule();
