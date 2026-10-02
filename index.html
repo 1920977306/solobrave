@@ -10275,6 +10275,115 @@ window.doLogin = function () {
 }
 </style>
 
+<style id="sb2-patterns">
+/* ============================================================
+ * sb2-patterns MVP1: 规律库屏 (全新套壳 + 列表真实数据)
+ * 铁律 (沿用知识库 2026-10-02 20:24 新方法论):
+ *  - 全新 sb2 DOM (sb2-ptn-* 前缀, 一行旧容器 class/style 都不引)
+ *  - 旧 patternsMid / patternsCats / patternInduceModalOverlay / inductResultModalOverlay
+ *    CSS 兜底 display:none (不退役仅兜底, 全勾后才退役)
+ *  - --sb2-* token 0 硬编码
+ *  - 数据契约 (后端 solobrave-server.py:15591 _kp_row_to_dict):
+ *      id / category / entity_type / pattern_text / confidence (0-1)
+ *      status (draft/confirmed/rejected/deprecated)
+ *      confidence_score (0-100) / verification_level (hypothesis/candidate/verified)
+ *      evidence_count / hit_count / miss_count / source_event_ids / source_knowledge_ids
+ *      created_by / created_at / updated_at / last_used_at
+ *      evidence (JSON array, 仅 detail 返 — MVP2)
+ *  - 端点: GET /api/knowledge-patterns?status=&category=&limit=
+ *    → { patterns: [{...}], total }
+ *  - 字段读取 (snake_case, MVP6.5 created_at 教训):
+ *      p.category / p.pattern_text / p.confidence_score (0-100)
+ *      p.verification_level / p.hit_count / p.evidence_count / p.status
+ * ============================================================ */
+.sb2-patterns-main{
+  display:none; flex-direction:column; flex:1; height:100%;
+  padding:20px 24px; overflow-y:auto;
+  font:400 13px/1.5 "PingFang SC",-apple-system,sans-serif;
+  color:var(--sb2-t1); background:var(--sb2-bg);
+}
+.sb2-patterns-main.active{ display:flex; }
+
+.sb2-ptn-hero{ display:flex; align-items:center; gap:12px; margin-bottom:16px; }
+.sb2-ptn-hero-title{
+  font:600 24px/1.2 "PingFang SC",sans-serif; color:var(--sb2-ink);
+  margin:0; letter-spacing:-0.01em;
+}
+.sb2-ptn-hero-sub{
+  font:400 12px/1.3 "PingFang SC",sans-serif; color:var(--sb2-t3); margin-top:4px;
+}
+.sb2-ptn-hero-actions{ margin-left:auto; display:flex; gap:8px; }
+
+.sb2-ptn-chips{ display:flex; gap:8px; margin-bottom:16px; flex-wrap:wrap; }
+.sb2-ptn-chip{
+  padding:6px 12px; border-radius:var(--sb2-r-full); border:1px solid var(--sb2-border);
+  background:var(--sb2-s1); color:var(--sb2-t2);
+  font:500 12px/1 "PingFang SC",sans-serif; cursor:pointer; transition:all .15s;
+}
+.sb2-ptn-chip:hover{ background:var(--sb2-s3); color:var(--sb2-t1); }
+.sb2-ptn-chip.active{
+  background:var(--sb2-ink); color:var(--sb2-s1); border-color:var(--sb2-ink);
+}
+.sb2-ptn-chip-icon{ display:inline-block; margin-right:4px; }
+
+.sb2-ptn-list{ display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+@media (max-width: 900px){
+  .sb2-ptn-list{ grid-template-columns:1fr; }
+}
+.sb2-ptn-empty{
+  grid-column:1 / -1; padding:80px 24px; text-align:center; color:var(--sb2-t3);
+  font:400 13px/1.5 "PingFang SC",sans-serif;
+}
+.sb2-ptn-card{
+  padding:14px 16px; border:1px solid var(--sb2-border); border-radius:var(--sb2-r-md);
+  background:var(--sb2-s1); transition:all .15s; cursor:pointer;
+  display:flex; flex-direction:column; gap:8px;
+}
+.sb2-ptn-card:hover{
+  border-color:var(--sb2-border-strong);
+  box-shadow:0 1px 3px rgba(0,0,0,0.04);
+}
+.sb2-ptn-card-top{ display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+.sb2-ptn-card-cat{
+  padding:2px 8px; border-radius:var(--sb2-r-sm);
+  background:var(--sb2-s3); color:var(--sb2-t2);
+  font:500 11px/1.3 "PingFang SC",sans-serif;
+}
+.sb2-ptn-level{
+  display:inline-flex; align-items:center; gap:4px;
+  padding:2px 8px; border-radius:var(--sb2-r-sm);
+  font:500 11px/1.3 "PingFang SC",sans-serif;
+}
+.sb2-ptn-level.hypothesis{ background:var(--sb2-warning-soft); color:var(--sb2-warning); }
+.sb2-ptn-level.candidate{ background:var(--sb2-s3); color:var(--sb2-t2); }
+.sb2-ptn-level.verified{ background:var(--sb2-success-soft); color:var(--sb2-success); }
+.sb2-ptn-card-text{
+  font:400 13px/1.55 "PingFang SC",sans-serif; color:var(--sb2-t1);
+  display:-webkit-box; -webkit-line-clamp:4; -webkit-box-orient:vertical; overflow:hidden;
+}
+.sb2-ptn-card-meta{
+  display:flex; gap:14px; align-items:center; font:400 11px/1.3 "SF Mono",ui-monospace,monospace;
+  color:var(--sb2-t3); flex-wrap:wrap;
+}
+.sb2-ptn-conf{ display:inline-flex; align-items:center; gap:6px; }
+.sb2-ptn-conf-bar{
+  width:60px; height:4px; background:var(--sb2-s3); border-radius:var(--sb2-r-sm);
+  overflow:hidden;
+}
+.sb2-ptn-conf-fill{
+  height:100%; background:var(--sb2-success); transition:width .2s ease;
+}
+.sb2-ptn-conf-fill.low{ background:var(--sb2-warning); }
+.sb2-ptn-conf-fill.mid{ background:var(--sb2-t2); }
+.sb2-ptn-card-time{ margin-left:auto; }
+
+/* —— 旧 patternsMid / 旧规律归纳弹窗兜底隐藏 (MVP1 后即兑底) —— */
+#patternsMid,
+#patternsCats,
+#patternInduceModalOverlay,
+#inductResultModalOverlay{ display:none !important; }
+</style>
+
 <style id="sb2-knowledge">
 /* ============================================================
  * sb2-knowledge: 知识库屏 (MVP1 全新套壳 + 数据接通)
@@ -12285,6 +12394,24 @@ window.doLogin = function () {
       <button class="patterns-tab" data-status="deprecated" onclick="switchPatternsTab('deprecated')">已废弃</button>
     </div>
     <div class="patterns-list" id="patternsList"></div>
+  </div>
+</div>
+
+<!-- ★ sb2-patterns MVP1: 全新规律库屏 (列表真实数据 + 状态过滤, 旧 patternsMid 兜底) -->
+<div class="sb2-patterns-main" id="sb2PatternsMain">
+  <div class="sb2-ptn-hero">
+    <div>
+      <h1 class="sb2-ptn-hero-title">规律库</h1>
+      <div class="sb2-ptn-hero-sub" id="sb2PtnHeroSub">载入中…</div>
+    </div>
+    <div class="sb2-ptn-hero-actions">
+      <button class="sb2-btn sb2-btn-ghost" onclick="sb2PtnPromotionExplain()" title="晋升链: hypothesis → candidate → verified (evidence ≥ 30 且置信度 ≥ 80 自动触发)">晋升链路说明</button>
+      <!-- MVP4 接触发归纳弹窗 — MVP1 暂留占位 -->
+    </div>
+  </div>
+  <div class="sb2-ptn-chips" id="sb2PtnChips"></div>
+  <div class="sb2-ptn-list" id="sb2PtnList">
+    <div class="sb2-ptn-empty">载入中…</div>
   </div>
 </div>
 
@@ -39250,6 +39377,143 @@ async function sb2SettingsEventsStats(){
   }
 }
 
+/* ============================================================
+ * sb2-patterns MVP1: 规律库屏数据接线层
+ * - 调 /api/knowledge-patterns?limit=100 (接口签名零改动)
+ * - 渲染 .sb2-patterns-main (DOM 在 <main class="app-main"> 内注入)
+ * - 旧 patternsMid 系列 CSS 兜底 display:none (旧 DOM 不退役仅兜底)
+ * - MVP1 范围: 骨架 + 列表真实数据 + verification_level 状态过滤
+ *   不含 (后续 MVP2-5):
+ *     MVP2: 详情右滑 (含 evidence) — 接 GET /api/knowledge-patterns/<id>
+ *     MVP3: CRUD — POST/PUT/DELETE
+ *     MVP4: 投票 + 手动归纳弹窗 — POST /feedback + /induce
+ *     MVP5: 晋升链可视化 + deal 合作记录
+ * - 字段读取 (snake_case, MVP6.5 created_at 教训):
+ *     p.id / p.category / p.pattern_text / p.confidence_score (0-100)
+ *     p.verification_level (hypothesis/candidate/verified)
+ *     p.hit_count / p.evidence_count / p.status / p.created_at (int 秒)
+ * ============================================================ */
+var _sb2PtnPatterns = [];
+var _sb2PtnLevel = ''; // '', 'hypothesis', 'candidate', 'verified'
+
+async function sb2PatternsInit(){
+  var heroSub = document.getElementById('sb2PtnHeroSub');
+  var listEl = document.getElementById('sb2PtnList');
+  try {
+    var resp = await apiFetch('/api/knowledge-patterns?limit=100');
+    if (!resp || !resp.ok) {
+      if (heroSub) heroSub.textContent = '载入失败 (HTTP ' + (resp ? resp.status : 'no response') + ')';
+      if (listEl) listEl.innerHTML = '<div class="sb2-ptn-empty">载入失败, 请稍后重试</div>';
+      return;
+    }
+    var data = await resp.json();
+    _sb2PtnPatterns = data.patterns || [];
+    sb2PtnRender();
+    console.log('[sb2-patterns] init OK, count:', _sb2PtnPatterns.length);
+  } catch (e) {
+    console.error('[sb2-patterns] init error:', e);
+    if (heroSub) heroSub.textContent = '载入失败';
+    if (listEl) listEl.innerHTML = '<div class="sb2-ptn-empty">载入失败, 请稍后重试</div>';
+  }
+}
+
+function sb2PtnFilter(level){
+  _sb2PtnLevel = level || '';
+  document.querySelectorAll('.sb2-ptn-chip').forEach(function(c){
+    c.classList.toggle('active', c.dataset.level === _sb2PtnLevel);
+  });
+  sb2PtnRender();
+}
+
+function sb2PtnPromotionExplain(){
+  // MVP1 占位: 解释晋升链 — MVP5 做完整可视化
+  showToast('晋升链: hypothesis → candidate → verified\n- evidence ≥ 30 且置信度 ≥ 80 自动晋升\n- MVP5 完整可视化排期', 'info');
+}
+
+function sb2PtnRender(){
+  var heroSub = document.getElementById('sb2PtnHeroSub');
+  var listEl = document.getElementById('sb2PtnList');
+  if (!listEl) return;
+  var total = _sb2PtnPatterns.length;
+  var lvCount = { hypothesis: 0, candidate: 0, verified: 0 };
+  _sb2PtnPatterns.forEach(function(p){
+    var lv = p.verification_level || 'hypothesis';
+    if (lvCount[lv] == null) lvCount[lv] = 0;
+    lvCount[lv]++;
+  });
+  if (heroSub) heroSub.textContent = total + ' 条规律 · 📐 verified ' + lvCount.verified + ' · 🔬 candidate ' + lvCount.candidate + ' · 🧪 hypothesis ' + lvCount.hypothesis;
+  // chips 渲染 (一次性, 后续只更新计数)
+  var chipsEl = document.getElementById('sb2PtnChips');
+  var chipsData = [
+    { level: '', label: '全部', icon: '', count: total },
+    { level: 'verified', label: 'verified', icon: '📐', count: lvCount.verified },
+    { level: 'candidate', label: 'candidate', icon: '🔬', count: lvCount.candidate },
+    { level: 'hypothesis', label: 'hypothesis', icon: '🧪', count: lvCount.hypothesis }
+  ];
+  if (chipsEl) {
+    if (!chipsEl.dataset.rendered) {
+      chipsEl.dataset.rendered = '1';
+      var chipHtml = '';
+      chipsData.forEach(function(c){
+        var lvlAttr = c.level || '';
+        chipHtml += '<button class="sb2-ptn-chip' + (_sb2PtnLevel === c.level ? ' active' : '') + '" data-level="' + lvlAttr + '" onclick="sb2PtnFilter(\'' + lvlAttr + '\')">';
+        if (c.icon) chipHtml += '<span class="sb2-ptn-chip-icon">' + c.icon + '</span>';
+        chipHtml += c.label + ' ' + c.count + '</button>';
+      });
+      chipsEl.innerHTML = chipHtml;
+    } else {
+      // 更新现有 chip 计数 (保留 active class)
+      chipsData.forEach(function(c){
+        var btn = chipsEl.querySelector('[data-level="' + (c.level || '') + '"]');
+        if (!btn) return;
+        var iconSpan = btn.querySelector('.sb2-ptn-chip-icon');
+        btn.textContent = '';
+        if (iconSpan) btn.appendChild(iconSpan);
+        btn.appendChild(document.createTextNode(c.label + ' ' + c.count));
+      });
+    }
+  }
+  // 过滤
+  var filtered = _sb2PtnLevel
+    ? _sb2PtnPatterns.filter(function(p){ return (p.verification_level || 'hypothesis') === _sb2PtnLevel; })
+    : _sb2PtnPatterns;
+  if (filtered.length === 0) {
+    listEl.innerHTML = '<div class="sb2-ptn-empty">' + (_sb2PtnLevel ? '该验证等级下暂无规律' : '暂无规律记录') + '</div>';
+    return;
+  }
+  // render cards
+  var html = '';
+  filtered.forEach(function(p){
+    var lv = p.verification_level || 'hypothesis';
+    var confScore = p.confidence_score != null ? p.confidence_score : (p.confidence != null ? Math.round(p.confidence * 100) : 0);
+    var confCls = confScore >= 80 ? '' : (confScore >= 50 ? 'mid' : 'low');
+    var hits = p.hit_count || 0;
+    var evCount = p.evidence_count || 0;
+    var time = p.created_at ? formatRelativeTime(p.created_at * 1000) : '-';
+    var lvIcon = lv === 'verified' ? '📐' : (lv === 'candidate' ? '🔬' : '🧪');
+    var lvLabel = lv === 'verified' ? 'verified' : (lv === 'candidate' ? 'candidate' : 'hypothesis');
+    html += '<div class="sb2-ptn-card" data-pid="' + escapeAttr(p.id) + '" onclick="sb2PtnOpenDetail(\'' + escapeAttr(p.id).replace(/'/g, "\\'") + '\')">';
+    html += '<div class="sb2-ptn-card-top">';
+    html += '<span class="sb2-ptn-card-cat">' + escapeHtml(p.category || '未分类') + '</span>';
+    html += '<span class="sb2-ptn-level ' + escapeAttr(lv) + '">' + lvIcon + ' ' + lvLabel + '</span>';
+    html += '</div>';
+    html += '<div class="sb2-ptn-card-text">' + escapeHtml(p.pattern_text || '') + '</div>';
+    html += '<div class="sb2-ptn-card-meta">';
+    html += '<span class="sb2-ptn-conf">置信度 <span class="sb2-ptn-conf-bar"><span class="sb2-ptn-conf-fill ' + confCls + '" style="width:' + confScore + '%"></span></span>' + confScore + '%</span>';
+    html += '<span>命中 ' + hits + '</span>';
+    html += '<span>证据 ' + evCount + '</span>';
+    html += '<span class="sb2-ptn-card-time">' + escapeHtml(time) + '</span>';
+    html += '</div>';
+    html += '</div>';
+  });
+  listEl.innerHTML = html;
+}
+
+function sb2PtnOpenDetail(pid){
+  // MVP1 占位: MVP2 接 GET /api/knowledge-patterns/<id> + 详情右滑
+  showToast('详情面板: MVP2 接 GET /api/knowledge-patterns/' + pid + ' — 排期中', 'info');
+}
+
 function switchModule(module) {
   if (!hasModulePermission(module)) {
     showToast('⛔ 你没有该模块的访问权限', 'warning');
@@ -39360,7 +39624,14 @@ function switchModule(module) {
     loadGroups();
     if (typeof sb2KbInit === 'function') sb2KbInit();
   }
-  else if (module === 'patterns') loadPatternsPage();
+  else if (module === 'patterns') {
+    // ★ sb2-patterns: 显示新屏, 旧 patternsMid 系列 CSS 兜底 display:none (旧 DOM 不退役仅兜底)
+    var sb2ptn = document.getElementById('sb2PatternsMain');
+    if (sb2ptn) {
+      sb2ptn.classList.add('active');
+      if (typeof sb2PatternsInit === 'function') sb2PatternsInit();
+    }
+  }
   else if (module === 'products') { loadProductBrands(); loadProducts(); }
   else if (module === 'influencers') switchTalentMidTab(_talentActiveTab);
   else if (module === 'tasks') loadTasks();
