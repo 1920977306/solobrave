@@ -11486,47 +11486,32 @@ window.doLogin = function () {
 .sb2-talents-main.active{ display:flex; }
 
 .sb2-talents-layout{
-  display:flex; flex:1; min-height:0;
+  display:flex; flex:1; min-height:0; flex-direction:column;
 }
-.sb2-talents-side{
-  width:236px; flex-shrink:0; border-right:1px solid var(--sb2-border);
-  background:var(--sb2-s1); padding:16px 0; overflow-y:auto;
+/* ★ fix/sb2-proto-align (commit 1): 砍常驻侧栏, 三维筛选收进页头「筛选 ▾」下拉面板
+   保留 sb2-talents-side-item* 系列样式 (三维下拉复用), 只砍 .sb2-talents-side 容器 */
+.sb2-talents-filter-pop{
+  position:absolute; right:20px; top:54px; z-index:30;
+  width:320px; max-height:480px; overflow-y:auto;
+  background:var(--sb2-s1); border:1px solid var(--sb2-border);
+  border-radius:var(--sb2-r); padding:8px 0;
+  box-shadow:0 8px 24px rgba(0,0,0,.12);
+  display:none;
 }
-.sb2-talents-side-search{
-  position:relative; padding:0 14px 12px;
+.sb2-talents-filter-pop.on{ display:block; }
+.sb2-talents-filter-pop .sb2-talents-side-group-label{
+  padding:8px 16px 4px;
 }
-.sb2-talents-side-search input{
-  width:100%; height:30px; padding:0 10px 0 30px;
-  border:1px solid var(--sb2-border); border-radius:var(--sb2-r-sm);
-  background:var(--sb2-s2); color:var(--sb2-t1); font:400 12px/1 "PingFang SC",sans-serif;
-  outline:none; transition:border-color .15s;
+.sb2-talents-filter-pop .sb2-talents-side-item{
+  padding:6px 16px;
 }
-.sb2-talents-side-search input:focus{ border-color:var(--sb2-accent); background:var(--sb2-s1); }
-.sb2-talents-side-search svg{
-  position:absolute; left:24px; top:9px; width:14px; height:14px;
-  color:var(--sb2-t3);
-}
-
-.sb2-talents-side-group{ padding:8px 0; }
-.sb2-talents-side-group-label{
-  padding:6px 16px; font:600 11px/1.3 "PingFang SC",sans-serif;
-  color:var(--sb2-t3); letter-spacing:.04em; text-transform:uppercase;
-}
-.sb2-talents-side-item{
-  display:flex; align-items:center; justify-content:space-between;
-  padding:6px 16px; cursor:pointer; font:400 13px/1.4 "PingFang SC",sans-serif;
-  color:var(--sb2-t2); transition:background .12s, color .12s;
-}
-.sb2-talents-side-item:hover{ background:var(--sb2-s2); color:var(--sb2-t1); }
-.sb2-talents-side-item.active{
+.sb2-talents-filter-pop .sb2-talents-side-item.active{
   background:var(--sb2-brand-soft); color:var(--sb2-brand);
   font-weight:500;
 }
-.sb2-talents-side-count{
-  font:400 11px/1 "PingFang SC",sans-serif; color:var(--sb2-t3);
-  flex-shrink:0; margin-left:8px;
-}
-.sb2-talents-side-item.active .sb2-talents-side-count{ color:var(--sb2-brand); }
+.sb2-talents-filter-pop .sb2-talents-side-item.active .sb2-talents-side-count{ color:var(--sb2-brand); }
+
+.sb2-talents-hero{ position:relative; }
 
 .sb2-talents-main-pane{
   flex:1; min-width:0; display:flex; flex-direction:column;
@@ -13727,26 +13712,9 @@ window.doLogin = function () {
 </div>
 
 <!-- ★ sb2-talents MVP1: 全新达人库屏 (骨架 + 列表 + 侧栏三维筛选现场聚合 + 搜索 + 分页, 旧 #influencersMid 兜底) -->
+<!-- ★ fix/sb2-proto-align (commit 1): 砍左侧常驻筛选栏, 三维筛选收进页头「筛选 ▾」下拉面板 -->
 <div class="sb2-talents-main" id="sb2TalentsMain">
   <div class="sb2-talents-layout">
-    <aside class="sb2-talents-side">
-      <div class="sb2-talents-side-search">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
-        <input type="text" placeholder="搜索达人..." id="sb2TalentsSideSearch" oninput="sb2TalentsOnSearch(this.value)">
-      </div>
-      <div class="sb2-talents-side-group">
-        <div class="sb2-talents-side-group-label">评级</div>
-        <div class="sb2-talents-side-list" id="sb2TalentsSideRating"></div>
-      </div>
-      <div class="sb2-talents-side-group">
-        <div class="sb2-talents-side-group-label">类目</div>
-        <div class="sb2-talents-side-list" id="sb2TalentsSideCategory"></div>
-      </div>
-      <div class="sb2-talents-side-group">
-        <div class="sb2-talents-side-group-label">状态</div>
-        <div class="sb2-talents-side-list" id="sb2TalentsSideStatus"></div>
-      </div>
-    </aside>
     <div class="sb2-talents-main-pane">
       <div class="sb2-talents-hero">
         <div>
@@ -13758,9 +13726,24 @@ window.doLogin = function () {
           <input type="text" placeholder="搜索达人 / 知识 / 规律 / 员工…" id="sb2TalentsHeroSearch" oninput="sb2TalentsOnSearch(this.value)">
         </div>
         <div class="sb2-talents-hero-acts">
-          <button class="sb2-talents-btn" onclick="sb2TalentsToast('筛选功能在 MVP5')">筛选</button>
+          <button class="sb2-talents-btn" id="sb2TalentsFilterBtn" onclick="sb2TalentsToggleFilter()">筛选 ▾</button>
           <button class="sb2-talents-btn" onclick="sb2TalentsToast('导出功能在 MVP5')">导出</button>
           <button class="sb2-talents-btn sb2-talents-btn-primary" onclick="sb2TalentsToast('录入功能在 MVP3')">+ 录入达人</button>
+        </div>
+        <!-- 三维筛选下拉面板 (复用 sb2TalentsSideRating/Category/Status ID, 容器挪进 hero 下拉) -->
+        <div class="sb2-talents-filter-pop" id="sb2TalentsFilterPop">
+          <div class="sb2-talents-side-group">
+            <div class="sb2-talents-side-group-label">评级</div>
+            <div class="sb2-talents-side-list" id="sb2TalentsSideRating"></div>
+          </div>
+          <div class="sb2-talents-side-group">
+            <div class="sb2-talents-side-group-label">类目</div>
+            <div class="sb2-talents-side-list" id="sb2TalentsSideCategory"></div>
+          </div>
+          <div class="sb2-talents-side-group">
+            <div class="sb2-talents-side-group-label">状态</div>
+            <div class="sb2-talents-side-list" id="sb2TalentsSideStatus"></div>
+          </div>
         </div>
       </div>
       <div class="sb2-talents-table-wrap">
@@ -13786,7 +13769,7 @@ window.doLogin = function () {
         </table>
       </div>
       <div class="sb2-talents-footer">
-        <div class="sb2-talents-footer-left" id="sb2TalentsFooterLeft">已选 0 条</div>
+        <div class="sb2-talents-footer-left" id="sb2TalentsFooterLeft">共 0 条</div>
         <div class="sb2-talents-footer-spacer"></div>
         <div class="sb2-talents-pager" id="sb2TalentsPager"></div>
       </div>
@@ -41057,6 +41040,7 @@ var _sb2TalentsLimit = 50;
 var _sb2TalentsFilterRating = '';   // '' / 'A' / 'B' / 'C' / 'D'
 var _sb2TalentsFilterCategory = ''; // '' / 类目字符串
 var _sb2TalentsFilterStatus = '';   // '' / 7 枚举之一
+var _sb2TalentsSelectedRowId = '';  // ★ fix/sb2-proto-align (commit 1): 行点击高亮单选 (原型首行默认选中)
 var _sb2TalentsSearchTimer = null;
 var _sb2TalentsSearchQ = '';
 var _sb2TalentsSelectedIds = {};    // {id: true}
@@ -41155,8 +41139,13 @@ function sb2TalentsRowHtml(t, pageMaxGpm, pageMaxGmv){
     : initial;
   var checked = _sb2TalentsSelectedIds[id] ? 'checked' : '';
   /* ★ fix/talents-hotfix: 黑名单行整行沉底置灰 (CSS .sb2-talents-row-blacklist) */
-  var rowClass = (statusKey === 'blacklist') ? ' class="sb2-talents-row-blacklist"' : '';
-  return '<tr data-tid="' + id + '"' + rowClass + '>'
+  /* ★ fix/sb2-proto-align (commit 1): 行点击高亮 (CSS .sb2-talents-table tbody tr.selected)
+     黑名单行 + 选中行 class 合并 (黑名单优先级低, 选中优先) */
+  var classes = [];
+  if (statusKey === 'blacklist') classes.push('sb2-talents-row-blacklist');
+  if (_sb2TalentsSelectedRowId === id) classes.push('selected');
+  var rowClassAttr = classes.length > 0 ? ' class="' + classes.join(' ') + '"' : '';
+  return '<tr data-tid="' + id + '"' + rowClassAttr + ' onclick="sb2TalentsToggleRow(\'' + id.replace(/'/g, "\\'") + '\')">'
     + '<td onclick="event.stopPropagation()"><input type="checkbox" class="sb2-talents-checkbox sb2-talents-row-check" data-tid="' + id + '" ' + checked + ' onchange="sb2TalentsToggleOne(\'' + id + '\', this.checked)"></td>'
     + '<td><div class="sb2-talents-talent"><div class="sb2-talents-avatar">' + avatarHtml + '</div>'
     +   '<div><div class="sb2-talents-name">' + name + '</div>'
@@ -41192,11 +41181,24 @@ function sb2TalentsRenderTable(){
     var m = Number(list[i].total_gmv) || 0;
     if (m > pageMaxGmv) pageMaxGmv = m;
   }
+  /* ★ fix/sb2-proto-align (commit 1): 首行默认选中 (原型 line 408 tbody first tr selected) */
+  if (!_sb2TalentsSelectedRowId && list.length > 0 && list[0].id) {
+    _sb2TalentsSelectedRowId = list[0].id;
+  }
   var html = '';
   for (var j = 0; j < list.length; j++){
     html += sb2TalentsRowHtml(list[j], pageMaxGpm, pageMaxGmv);
   }
   tbody.innerHTML = html;
+}
+
+/* ★ fix/sb2-proto-align (commit 1): 行点击高亮单选
+   重复点击同一行取消选中, 切到别行重置 (跟原型互斥单选行为一致)
+   注意 checkbox onclick 用 event.stopPropagation() 避免冒泡触发行点击 */
+function sb2TalentsToggleRow(id){
+  if (!id) return;
+  _sb2TalentsSelectedRowId = (_sb2TalentsSelectedRowId === id) ? '' : id;
+  sb2TalentsRenderTable();
 }
 
 /* ★ MVP1: 三维筛选现场聚合 — 拿到本页列表后, 客户端聚合, 跟知识库 chips 同一招
@@ -41286,14 +41288,14 @@ function sb2TalentsRenderPager(){
   pager.innerHTML = html;
 }
 
-/* ★ MVP1: 选中状态同步到 footer 计数 */
+/* ★ MVP1: 选中状态同步到 footer 计数 + 批量提示文案 (原型: 选中行可批量: 加入任务 / 导出 / 指派员工) */
 function sb2TalentsUpdateFooter(){
   var el = document.getElementById('sb2TalentsFooterLeft');
   if (!el) return;
   var keys = Object.keys(_sb2TalentsSelectedIds || {});
   var n = keys.length;
-  if (n === 0) el.textContent = '共 ' + _sb2TalentsTotal + ' 条';
-  else el.textContent = '已选 ' + n + ' 条 · 共 ' + _sb2TalentsTotal + ' 条';
+  if (n === 0) el.textContent = '共 ' + _sb2TalentsTotal + ' 位达人';
+  else el.textContent = '已选 ' + n + ' 行可批量: 加入任务 / 导出 / 指派员工';
   var checkAll = document.getElementById('sb2TalentsCheckAll');
   if (checkAll){
     var listLen = (_sb2TalentsList || []).length;
@@ -41302,12 +41304,40 @@ function sb2TalentsUpdateFooter(){
   }
 }
 
-/* ★ MVP1: 切换侧栏维度 — 三维 AND 联动, 切任一维触发重载 */
+/* ★ fix/sb2-proto-align (commit 1): 筛选下拉面板 toggle + 按钮文字显示已选数量
+   选中状态 3 维 (rating/category/status) 任一非空, 按钮显示「筛选 (N)」
+   全部清空回退「筛选 ▾」 */
+function sb2TalentsToggleFilter(){
+  var pop = document.getElementById('sb2TalentsFilterPop');
+  if (!pop) return;
+  pop.classList.toggle('on');
+  /* 关闭面板后失焦, 避免与 ESC 键冲突 */
+  var btn = document.getElementById('sb2TalentsFilterBtn');
+  if (btn && pop.classList.contains('on') && document.activeElement) {
+    document.activeElement.blur();
+  }
+}
+/* ★ fix/sb2-proto-align (commit 1): 更新筛选按钮文字 (已选数量回显) */
+function sb2TalentsUpdateFilterBtn(){
+  var btn = document.getElementById('sb2TalentsFilterBtn');
+  if (!btn) return;
+  var selectedCount = 0;
+  if (_sb2TalentsFilterRating) selectedCount++;
+  if (_sb2TalentsFilterCategory) selectedCount++;
+  if (_sb2TalentsFilterStatus) selectedCount++;
+  btn.textContent = selectedCount > 0 ? ('筛选 (' + selectedCount + ') ▾') : '筛选 ▾';
+}
+
+/* ★ MVP1: 切换侧栏维度 — 三维 AND 联动, 切任一维触发重载
+   ★ fix/sb2-proto-align (commit 1): 选完关下拉 + 更新按钮文字 (老大要求选中后按钮显示已选数量) */
 function sb2TalentsOnSideClick(dim, val){
   if (dim === 'rating') _sb2TalentsFilterRating = val;
   else if (dim === 'category') _sb2TalentsFilterCategory = val;
   else if (dim === 'status') _sb2TalentsFilterStatus = val;
   _sb2TalentsPage = 1;
+  var pop = document.getElementById('sb2TalentsFilterPop');
+  if (pop) pop.classList.remove('on');
+  sb2TalentsUpdateFilterBtn();
   sb2TalentsLoad();
 }
 
@@ -41396,7 +41426,8 @@ async function sb2TalentsLoad(){
     var pageIds = {};
     list.forEach(function(t){ if (t.id) pageIds[t.id] = true; });
     Object.keys(_sb2TalentsSelectedIds).forEach(function(k){ if (!pageIds[k]) delete _sb2TalentsSelectedIds[k]; });
-    if (heroSub) heroSub.textContent = '共 ' + _sb2TalentsTotal + ' 位达人 · 按等级与类目分组';
+    if (heroSub) heroSub.textContent = _sb2TalentsTotal + ' 位在库 · 按评级与类目分层';
+    sb2TalentsUpdateFilterBtn();
     sb2TalentsRenderSide();
     sb2TalentsRenderTable();
     sb2TalentsRenderPager();
@@ -41420,6 +41451,10 @@ window.sb2TalentsOnSideClick = sb2TalentsOnSideClick;
 window.sb2TalentsGoPage = sb2TalentsGoPage;
 window.sb2TalentsToggleAll = sb2TalentsToggleAll;
 window.sb2TalentsToggleOne = sb2TalentsToggleOne;
+/* ★ fix/sb2-proto-align (commit 1): 跨块挂 window 防止 SEV1 (script 块内 inline 调用必走 window) */
+window.sb2TalentsToggleFilter = sb2TalentsToggleFilter;
+window.sb2TalentsToggleRow = sb2TalentsToggleRow;
+window.sb2TalentsUpdateFilterBtn = sb2TalentsUpdateFilterBtn;
 window.sb2TalentsToast = sb2TalentsToast;
 
 /* ============================================================
