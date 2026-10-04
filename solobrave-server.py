@@ -7429,6 +7429,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if path == '/api/stats/compute':
             self._handle_get_stats_compute()
             return
+        # MVP1 工作台追平: 4 KPI 聚合 (避免前端 N 次请求, 一次拿齐)
+        if path == '/api/stats/dashboard-kpi':
+            self._handle_get_stats_dashboard_kpi()
+            return
         if path == '/api/token-usage':
             self._handle_get_token_usage()
             return
@@ -16004,6 +16008,87 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             logger.error(f'  [TokenUsageSync] failed: {e}')
             import traceback; traceback.print_exc()
             self._send_json_error(500, 'Sync failed')
+
+    def _handle_get_stats_dashboard_kpi(self):
+        """GET /api/stats/dashboard-kpi — 工作台 4 KPI 聚合 (MVP1)
+
+        返 4 张 KPI 卡的真实数据, 避免前端 N 次请求 (老大红线: 优先 /api/stats/* aggregate):
+          kpi1_inject: {value: int, sparkline: [7 ints], delta_pct: float|null}
+            - 近 7 天 knowledge_events 总数 (本周), sparkline 7 个按天计数,
+              delta_pct = (本周 - 上周) / 上周 * 100 (无数据时 null)
+              替代原型「近7天带货 GMV」(GMV 是区间文本无时序, 老大已批换真指标)
+          kpi2_talents: {value: int, week_new: int}  — talents 总数 + 本周一以来新增
+          kpi3_kb: {value: int, pending: int}         — kb_entries 总数 + status='pending' 数
+          kpi4_agents: {online: int, total: int, gateway_offline: int}
+            — agents 在线数 / 总数 + 网关离线数 (openclaw_status 单 gateway, offline 计 1)
+        """
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'dashboard'): return
+        now = int(time.time())
+        week_start = now - 7 * 86400
+        prev_week_start = now - 14 * 86400
+        conn = _db_conn()
+        try:
+            # 卡 1: knowledge_events 近 7 天按天聚合 (MVP1 sparkline 真实数据源)
+            sparkline = []
+            for i in range(7):
+                day_start = week_start + i * 86400
+                day_end = day_start + 86400
+                cnt = conn.execute(
+                    'SELECT COUNT(*) AS c FROM knowledge_events WHERE created_at >= ? AND created_at < ?',
+                    (day_start, day_end)
+                ).fetchone()['c']
+                sparkline.append(cnt or 0)
+            week_total = sum(sparkline)
+            prev_week_total = conn.execute(
+                'SELECT COUNT(*) AS c FROM knowledge_events WHERE created_at >= ? AND created_at < ?',
+                (prev_week_start, week_start)
+            ).fetchone()['c']
+            delta_pct = None
+            if prev_week_total and prev_week_total > 0:
+                delta_pct = round((week_total - prev_week_total) / prev_week_total * 100, 1)
+            elif week_total > 0:
+                # 上周 0, 本周 N: 算 100%+ (前端展示 +100%↑ 或 +∞)
+                delta_pct = 100.0
+
+            # 卡 2: talents (总数 + 本周新增)
+            talents_total = conn.execute('SELECT COUNT(*) AS c FROM talents').fetchone()['c'] or 0
+            week_new_talents = conn.execute(
+                'SELECT COUNT(*) AS c FROM talents WHERE created_at >= ?',
+                (week_start,)
+            ).fetchone()['c'] or 0
+
+            # 卡 3: kb_entries (总数 + status='pending' 待审核)
+            kb_total = conn.execute('SELECT COUNT(*) AS c FROM kb_entries').fetchone()['c'] or 0
+            kb_pending = conn.execute(
+                "SELECT COUNT(*) AS c FROM kb_entries WHERE status='pending'"
+            ).fetchone()['c'] or 0
+        finally:
+            conn.close()
+
+        # 卡 4: agents (走 _load_agents, 含 archived 排除) + openclaw 网关
+        try:
+            all_agents = _load_agents(include_archived=False)
+            online_count = sum(1 for a in all_agents if (a.get('status') or '').lower() == 'online')
+            total_count = len(all_agents)
+        except Exception:
+            online_count = 0
+            total_count = 0
+        try:
+            oc = _openclaw_status()
+            gateway_offline = 1 if (not oc.get('available') or oc.get('gateway') == 'offline') else 0
+        except Exception:
+            gateway_offline = 0
+
+        self._send_json(200, {
+            'kpi1_inject': {'value': week_total, 'sparkline': sparkline, 'delta_pct': delta_pct},
+            'kpi2_talents': {'value': talents_total, 'week_new': week_new_talents},
+            'kpi3_kb': {'value': kb_total, 'pending': kb_pending},
+            'kpi4_agents': {'online': online_count, 'total': total_count, 'gateway_offline': gateway_offline},
+        })
 
     def _handle_get_token_usage(self):
         """GET /api/token-usage — 按 agent/day 聚合 token 用量"""
