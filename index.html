@@ -45263,7 +45263,12 @@ function sb2_renderFocus(events, patterns, pendingKb){
   var catMap = {};
   (pendingKb || []).forEach(function(d){
     var status = d.status || '';
-    var created = Number(d.created_at) || 0;
+    /* ★ 老大 23:21 复验打回 (一行契约 bug): server 知识服务.py _kb_entry_row_to_dict:2626
+       返 camelCase createdAt 不是 snake_case created_at. 之前读 d.created_at 拿 undefined
+       → Number()||0 = 0 → 全 < cutoff7d → 空态. 修法: 兼容两种字段名 (snake 优先, camel 兜底)。
+       MVP1 我已踩过 snake_case/camelCase 教训 (apply when 里有), 这次又踩同坑,
+       凡接后端契约必先 curl 真打一条看真实字段名再写代码, 禁凭「应该返什么」假设 */
+    var created = Number(d.created_at != null ? d.created_at : d.createdAt) || 0;
     if (BAD_STATUSES.indexOf(status) !== -1) return;
     if (created < cutoff7d) return;
     var catLabel = _sb2ReviewCatLabel(d.category);
