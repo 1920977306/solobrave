@@ -11542,21 +11542,11 @@ window.doLogin = function () {
 .sb2-talents-hero-sub{
   font:400 12px/1.3 "PingFang SC",sans-serif; color:var(--sb2-t3); margin-top:4px;
 }
-.sb2-talents-hero-search{
-  margin-left:auto; position:relative; width:300px;
-}
-.sb2-talents-hero-search input{
-  width:100%; height:32px; padding:0 10px 0 32px;
-  border:1px solid var(--sb2-border); border-radius:var(--sb2-r-sm);
-  background:var(--sb2-s2); color:var(--sb2-t1); font:400 13px/1 "PingFang SC",sans-serif;
-  outline:none; transition:border-color .15s;
-}
-.sb2-talents-hero-search input:focus{ border-color:var(--sb2-accent); background:var(--sb2-s1); }
-.sb2-talents-hero-search svg{
-  position:absolute; left:10px; top:9px; width:14px; height:14px;
-  color:var(--sb2-t3);
-}
-.sb2-talents-hero-acts{ display:flex; gap:8px; margin-left:12px; }
+.sb2-talents-hero-acts{ display:flex; gap:8px; margin-left:auto; }
+/* ★ fix/sb2-talents-full-restore (commit 1): 删 .sb2-talents-hero-search 整块 CSS
+   原型达人库无搜索栏 (line 569), 搜索走 ⌘K 命令面板
+   之前: hero-search svg + input 整块, 老大原话「搜索栏太多了」
+   现在: CSS 全删, HTML 也删 (双删彻底, 避免回归) */
 .sb2-talents-btn{
   height:32px; padding:0 14px; border-radius:var(--sb2-r-sm);
   border:1px solid var(--sb2-border); background:var(--sb2-s1);
@@ -13758,14 +13748,14 @@ window.doLogin = function () {
           <h1 class="sb2-talents-hero-title">达人库</h1>
           <div class="sb2-talents-hero-sub" id="sb2TalentsHeroSub">载入中…</div>
         </div>
-        <div class="sb2-talents-hero-search">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
-          <input type="text" placeholder="搜索达人 / 知识 / 规律 / 员工…" id="sb2TalentsHeroSearch" oninput="sb2TalentsOnSearch(this.value)">
-        </div>
         <div class="sb2-talents-hero-acts">
           <button class="sb2-talents-btn" id="sb2TalentsFilterBtn" onclick="sb2TalentsToggleFilter()">筛选 ▾</button>
           <button class="sb2-talents-btn" onclick="sb2TalentsToast('导出功能在 MVP5')">导出</button>
-          <button class="sb2-talents-btn sb2-talents-btn-primary" onclick="sb2TalentsToast('录入功能在 MVP3')">+ 录入达人</button>
+          <!-- ★ fix/sb2-talents-full-restore (commit 1): 「+ 录入达人」改全角「＋ 录入达人」(原型 btn-brand line 580)
+                之前: 半角 + (ASCII), 跟原型 btn-brand 的全角＋ (U+FF0B) 不一致
+                现在: 全角＋ 对齐原型
+                apply when: 任何「按钮文案含 + 号」必须先看原型是全角/半角, 不要默认 ASCII -->
+          <button class="sb2-talents-btn sb2-talents-btn-primary" onclick="sb2TalentsToast('录入功能在 MVP3')">＋ 录入达人</button>
         </div>
         <!-- 三维筛选下拉面板 (复用 sb2TalentsSideRating/Category/Status ID, 容器挪进 hero 下拉) -->
         <div class="sb2-talents-filter-pop" id="sb2TalentsFilterPop">
@@ -41305,7 +41295,13 @@ function sb2TalentsRenderSide(){
   }
 }
 
-/* ★ MVP1: 分页 < 1 2 3 … 37 > (offset/limit 真分页) */
+/* ★ MVP1: 分页 < 1 2 3 … 37 > (offset/limit 真分页)
+   ★ fix/sb2-talents-full-restore (commit 1): 分页符号 ← → 改 ‹ › (原型 line 600)
+        之前: ASCII 半角左右箭头
+        现在: 全角左右单引号 ‹ › (跟原型 ‹ 1 2 3 … 37 › 一致)
+        末尾总页数 N=总页数 totalPages (不是总条数 total, 原型 line 600 的 37 是总页数)
+        移动端 820px 宽度退化: 只显 ‹ 1 … N › (省略中间页码, 避免溢出)
+        删末尾「共 N 条」(原型底栏无, 只显 ‹ 1 2 3 … N ›) */
 function sb2TalentsRenderPager(){
   var pager = document.getElementById('sb2TalentsPager');
   if (!pager) return;
@@ -41314,13 +41310,20 @@ function sb2TalentsRenderPager(){
   var limit = _sb2TalentsLimit;
   var totalPages = Math.max(1, Math.ceil(total / limit));
   if (totalPages <= 1){
-    pager.innerHTML = '<span style="color:var(--sb2-t3)">共 ' + total + ' 条</span>';
+    /* 单页: 只显 ‹ › 禁用 + 总页数 1 (无页码序列) */
+    pager.innerHTML = '<button disabled>‹</button><button disabled>›</button>';
     return;
   }
   var html = '';
-  html += '<button ' + (page <= 1 ? 'disabled' : '') + ' onclick="sb2TalentsGoPage(' + (page - 1) + ')">←</button>';
+  html += '<button ' + (page <= 1 ? 'disabled' : '') + ' onclick="sb2TalentsGoPage(' + (page - 1) + ')">‹</button>';
   var pages = [];
-  if (totalPages <= 7){
+  /* 移动端 820px 退化: 只显 1 + … + N (省略中间所有页码) */
+  var isNarrow = (typeof window !== 'undefined' && window.innerWidth && window.innerWidth < 1100);
+  if (isNarrow && totalPages > 5){
+    pages.push(1);
+    pages.push('…');
+    pages.push(totalPages);
+  } else if (totalPages <= 7){
     for (var p = 1; p <= totalPages; p++) pages.push(p);
   } else {
     pages.push(1);
@@ -41335,22 +41338,26 @@ function sb2TalentsRenderPager(){
     if (x === '…') html += '<span class="ellipsis">…</span>';
     else html += '<button class="' + (x === page ? 'active' : '') + '" onclick="sb2TalentsGoPage(' + x + ')">' + x + '</button>';
   });
-  html += '<button ' + (page >= totalPages ? 'disabled' : '') + ' onclick="sb2TalentsGoPage(' + (page + 1) + ')">→</button>';
-  html += '<span style="color:var(--sb2-t3);margin-left:8px">共 ' + total + ' 条</span>';
+  html += '<button ' + (page >= totalPages ? 'disabled' : '') + ' onclick="sb2TalentsGoPage(' + (page + 1) + ')">›</button>';
   pager.innerHTML = html;
 }
 
-/* ★ MVP1: 选中状态同步到 footer 计数 + 批量提示文案 (原型: 选中行可批量: 加入任务 / 导出 / 指派员工)
-   ★ fix/sb2-proto-align (commit 3 修): footer 保留总条数文案, 批量操作条独立渲染 (commit 1 footer 一行字不显眼, 老大打回) */
+/* ★ MVP1: 选中状态同步到 footer 计数 + 批量提示文案 (原型 line 596-598: 选中行可批量: 加入任务 / 导出 / 指派员工)
+   ★ fix/sb2-proto-align (commit 3 修): footer 保留总条数文案, 批量操作条独立渲染 (commit 1 footer 一行字不显眼, 老大打回)
+   ★ fix/sb2-talents-full-restore (commit 1): 删「共 N 位达人」(原型底栏无), 改常驻批量提示文案
+        之前: n=0 「共 N 位达人」 + n>0 「已选 N 行 · 下方操作条批量处理」
+        现在: n=0 跟 n>0 同一文案「选中行可批量: 加入任务 / 导出 / 指派员工」(常驻)
+        删「共 N 位达人」避免跟页头副标题重复 (页头已有 N 位在库文案)
+        批量条 (commit 3 slide-in) 仍保留 (选中才出现, 常态视觉等于原型, 功能有用) */
 function sb2TalentsUpdateFooter(){
   var el = document.getElementById('sb2TalentsFooterLeft');
   if (!el) return;
-  var keys = Object.keys(_sb2TalentsSelectedIds || {});
-  var n = keys.length;
-  if (n === 0) el.textContent = '共 ' + _sb2TalentsTotal + ' 位达人';
-  else el.textContent = '已选 ' + n + ' 行 · 下方操作条批量处理';
+  /* 常驻批量提示文案 (不依赖选中数, 跟原型 line 596 一致) */
+  el.textContent = '选中行可批量: 加入任务 / 导出 / 指派员工';
   var checkAll = document.getElementById('sb2TalentsCheckAll');
   if (checkAll){
+    var keys = Object.keys(_sb2TalentsSelectedIds || {});
+    var n = keys.length;
     var listLen = (_sb2TalentsList || []).length;
     checkAll.checked = listLen > 0 && n === listLen;
     checkAll.indeterminate = n > 0 && n < listLen;
@@ -41420,12 +41427,16 @@ function sb2TalentsOnSideClick(dim, val){
   sb2TalentsLoad();
 }
 
-/* ★ MVP1: 搜索 (debounce 300ms, 接 q 参数, name/douyin_id/bio LIKE) */
+/* ★ MVP1: 搜索 (debounce 300ms, 接 q 参数, name/douyin_id/bio LIKE)
+   ★ fix/sb2-talents-full-restore (commit 1): 删 hero-search + side-search DOM 元素后,
+        getElementById 拿不到 null 会报错。sb2TalentsOnSearch 仍保留 (搜索走 ⌘K 命令面板后还会回来),
+        但 DOM 同步引用必须 if (!el) return 兜底, 防「元素没了 console 报错」
+        状态变量 _sb2TalentsSearchQ 保留不删 (防后续加回时重写) */
 function sb2TalentsOnSearch(v){
   clearTimeout(_sb2TalentsSearchTimer);
   _sb2TalentsSearchTimer = setTimeout(function(){
     _sb2TalentsSearchQ = (v || '').trim().toLowerCase();
-    // 同步两个 input
+    // 同步两个 input (元素可能已删, getElementById 兜底)
     var sideInput = document.getElementById('sb2TalentsSideSearch');
     var heroInput = document.getElementById('sb2TalentsHeroSearch');
     if (sideInput && sideInput.value !== v) sideInput.value = v;
