@@ -45180,7 +45180,15 @@ function sb2_loadDashboardFeeds(){
   /* MVP2 P1 修: 去掉 ?status=active (patterns 表 status 取值是 draft/confirmed/rejected/deprecated, 无 active), 后端过滤会返 0 条.
      改前端过滤 status !== 'rejected' && status !== 'deprecated', 再按 hit_count DESC */
   var patternsP = fetch('/api/knowledge-patterns?limit=50', { headers: headers }).then(function(r){ return r.json(); }).then(function(d){ return (d && Array.isArray(d.patterns)) ? d.patterns : []; }).catch(function(){ return []; });
-  var kbP = fetch('/api/knowledge/entries?status=pending&limit=50', { headers: headers }).then(function(r){ return r.json(); }).then(function(d){ return (d && Array.isArray(d.docs)) ? d.docs : []; }).catch(function(){ return []; });
+  /* ★ fix/kb-created-after (老大 23:30 后端小改动): review 卡专属 7 天时间窗下推到 SQL
+     之前架构 bug: limit=50 截断后客户端再过滤 created_at (top50 按 updated_at DESC 排序),
+     updated_at 被批量 touch 的旧条目 (created 9-30) 永远进不了前 50 → 漏 5 条
+     现在: 客户端传 createdAfter=<now-7d>毫秒 + limit=100, 服务端 SQL 加 AND created_at >= ?
+     过滤集 = 全量集 (架构性 bug 修复)
+     其他卡 (talent/done/promote/agent) 24h 不动, 仍用 knowledge_events 等端点
+     apply when: 任何「分页 limit 截断后客户端再过滤」必须后端 SQL 接收过滤条件 */
+  var reviewCutoff7d = Date.now() - 7 * 86400 * 1000;
+  var kbP = fetch('/api/knowledge/entries?createdAfter=' + reviewCutoff7d + '&limit=100', { headers: headers }).then(function(r){ return r.json(); }).then(function(d){ return (d && Array.isArray(d.docs)) ? d.docs : []; }).catch(function(){ return []; });
   var agentsP = fetch('/api/agents', { headers: headers }).then(function(r){ return r.json(); }).then(function(d){ return Array.isArray(d) ? d : ((d && (d.agents || d.data)) || []); }).catch(function(){ return []; });
 
   Promise.all([eventsP, patternsP, kbP, agentsP]).then(function(arr){
@@ -45238,14 +45246,14 @@ function sb2_renderFocus(events, patterns, pendingKb){
     });
   }
 
-  /* 3) 知识新入库 (老大 23:17 拍板改名): kb_entries 近 7 天新入库计数 + category 拆分
-        端点契约: GET /api/knowledge/entries?limit=50 (不认 status 参数, server.py:14392-14405 解析只有 offset/limit/category/...)
-        真语义: 客户端按 created_at >= now-7d 过滤 + 排除 deleted/superseded (kb_entries 真实 status: ok/deleted/superseded)
-        category 人话映射: legacy_migration → 历史迁移 (前端 0 后端改动)
-        无数据不渲染 (老大红线: 不渲染占位假数据)
-        适用: 24h 时间窗的 talent/done/promote/agent 卡片不动, 仅 review 卡按 7 天 */
-  var now7d = Date.now();
-  var cutoff7d = now7d - 7 * 86400 * 1000;
+  /* 3) 知识新入库 (老大 23:17 拍板改名 + 23:30 架构性 bug 修复):
+        端点契约: GET /api/knowledge/entries?createdAfter=<now-7d 毫秒>&limit=100
+        服务端 SQL 加 AND created_at >= ? 下推时间窗 (后端 fix/kb-created-after 修复)
+        客户端只过滤 status (排除 deleted/superseded 兜底, kb_entry_build_where 已默认 status IN ('ok','pending'))
+        + category 人话映射
+        删本地 created_at 时间过滤 (后端已过滤, 再过滤是重复且会被 limit 截断 bug)
+        老大红线: 任何「分页 limit 截断后客户端再过滤」都是架构性 bug,
+        现在后端 SQL 接收过滤条件 → 过滤集 = 全量集 */
   /* ★ 老大红线: 不硬编码 status 取值, 从真实数据反查 (kb_entries status ∈ {ok, deleted, superseded}) */
   var BAD_STATUSES = ['deleted', 'superseded'];
   /* category 人话映射表 — 后端契约没翻译, 前端兜底 */
@@ -45263,14 +45271,10 @@ function sb2_renderFocus(events, patterns, pendingKb){
   var catMap = {};
   (pendingKb || []).forEach(function(d){
     var status = d.status || '';
-    /* ★ 老大 23:21 复验打回 (一行契约 bug): server 知识服务.py _kb_entry_row_to_dict:2626
-       返 camelCase createdAt 不是 snake_case created_at. 之前读 d.created_at 拿 undefined
-       → Number()||0 = 0 → 全 < cutoff7d → 空态. 修法: 兼容两种字段名 (snake 优先, camel 兜底)。
-       MVP1 我已踩过 snake_case/camelCase 教训 (apply when 里有), 这次又踩同坑,
-       凡接后端契约必先 curl 真打一条看真实字段名再写代码, 禁凭「应该返什么」假设 */
-    var created = Number(d.created_at != null ? d.created_at : d.createdAt) || 0;
+    /* 不再做本地 created_at 时间过滤 — 后端 createdAfter SQL 已下推
+       (老大 23:30 拍板架构性 bug: limit 截断后客户端过滤会漏数据, 必须后端 SQL 接收过滤条件)
+       ★ apply when: 任何「分页 limit 截断后客户端再过滤」必须后端 SQL 接收过滤条件 */
     if (BAD_STATUSES.indexOf(status) !== -1) return;
-    if (created < cutoff7d) return;
     var catLabel = _sb2ReviewCatLabel(d.category);
     catMap[catLabel] = (catMap[catLabel] || 0) + 1;
   });
