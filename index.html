@@ -46177,6 +46177,14 @@ else init();
   window.renderChatMain = renderChatMain;
   window.sb2_loadHistory = sb2_loadHistory;
   window.sb2_doSend = sb2_doSend;
+  // ★ P1b B2 fix: bubble 渲染函数也挂 window (跨脚本块调用, SEV1 红线)
+  //   之前: sb2PropAppendSystemBubble (在另一 script 块 line 46925) typeof sb2_appendBubble 永远 'undefined', 系统气泡静默不渲染
+  //   现在: 三函数全挂 window, 跨块调用稳妥
+  window.sb2_renderBubble = sb2_renderBubble;
+  window.sb2_renderMessages = sb2_renderMessages;
+  window.sb2_appendBubble = sb2_appendBubble;
+  // 同步 _sb2Chat 引用挂 window (同根因: P1b prop 块需 push 消息)
+  window._sb2Chat = _sb2Chat;
 })();
 </script>
 
@@ -46789,6 +46797,10 @@ function sb2PropRenderState(el, prop){
   if (['pending','approved','rejected','expired','executed','failed'].indexOf(status) === -1) {
     status = 'pending';
   }
+  // ★ P1b B2 fix: 切态前先清掉 6 状态 class, 否则残留 (e.g. sb2-prop-card pending executed 错位)
+  //   之前: 只 add 不 remove → 老大走查实证「sb2-prop-card pending executed」className 错位
+  //   现在: 6 状态全 remove 再 add, 切态干净
+  el.classList.remove('pending','approved','rejected','expired','executed','failed');
   el.classList.add(status);
 
   var title = sb2PropEsc(prop.title || '(无标题)');
@@ -46965,11 +46977,17 @@ function sb2PropAppendSystemBubble(agentName, summary){
     content: text,
     timestamp: new Date().toISOString()
   };
-  if (Array.isArray(window._sb2Chat && _sb2Chat.messages)) _sb2Chat.messages.push(sysMsg);
-  if (typeof sb2_appendBubble === 'function') {
-    sb2_appendBubble(sysMsg, true);
+  // ★ P1b B2 fix: 改读 window._sb2Chat (IIFE 内部 scope 跨块不可见, 必须读挂出去的引用)
+  //   之前: Array.isArray(window._sb2Chat && _sb2Chat.messages) — && 永远返回 messages (数组), 但 _sb2Chat 自身在 IIFE 内不可见 → ReferenceError 静默 swallow
+  //   现在: 明确 window._sb2Chat && Array.isArray(window._sb2Chat.messages)
+  if (window._sb2Chat && Array.isArray(window._sb2Chat.messages)) window._sb2Chat.messages.push(sysMsg);
+  // ★ P1b B2 fix: 走 window.sb2_appendBubble (跨块 typeof 永远是 undefined 必须挂 window)
+  if (typeof window.sb2_appendBubble === 'function') {
+    window.sb2_appendBubble(sysMsg, true);
   }
 }
+// ★ P1b B2 fix: 自身也挂 window (防 SEV1 跨块)
+window.sb2PropAppendSystemBubble = sb2PropAppendSystemBubble;
 </script>
 </body>
 </html>
