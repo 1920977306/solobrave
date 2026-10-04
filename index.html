@@ -43945,6 +43945,12 @@ function escapeHtml(s){
 
 /* ---------- 显隐控制 ---------- */
 function showDash(){
+  // ★ P1 fix: showDash 走独立分支 (不经过 switchModule wrapper), 不调 sb2_hideAllModuleMains
+  // → 兄弟容器 .sb2-knowledge-main / .sb2-settings-main / .sb2-patterns-main / .sb2-talents-main 的 .active 残留
+  // 现在被覆盖层视觉盖住无感, 但违反「任意时刻恰好 1 个 main 可见」红线,
+  // 覆盖层一旦意外熄灭 (SEV2 那类 bug 再来一次) 残留屏会露出来.
+  // 亮工作台前先清兄弟容器, 跟 switchModule wrapper 第一步调 sb2_hideAllModuleMains 同模式.
+  if (typeof sb2_hideAllModuleMains === 'function') sb2_hideAllModuleMains();
   buildDashboard();
   SB2.dashVisible = true;
   document.getElementById('sb2Dash').classList.add('on');
