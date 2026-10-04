@@ -42852,6 +42852,11 @@ if (typeof _sb2OrigShowMain === 'function') {
       var oldRail = document.getElementById('sb2Rail');
       if (oldRail) oldRail.remove();
       buildRail();
+      // ★ SEV2 守卫: showMainApp 会被多次重入(WS 重连/token 刷新等),
+      //   无条件 showDash 会把工作台覆盖层盖回用户当前模块 (2026-10-04 老大实测:
+      //   切到聊天后覆盖层重新点亮, currentModule=messages 却看到工作台)
+      if (window._sb2Booted) return;
+      window._sb2Booted = true;
       showDash();
       renderSideFor('dashboard');
       updateCrumb();
