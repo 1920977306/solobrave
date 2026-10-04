@@ -11095,6 +11095,14 @@ window.doLogin = function () {
   display:grid; grid-template-columns:repeat(3,1fr);
   gap:14px; align-items:start;
 }
+
+/* ★ MVP1 P1 fix: 视图互斥 — 看板/列表 wrap 默认 CSS 管控, 不依赖 inline style
+   之前: #sb2TasksListWrap 只在 DOM 写了 inline style="display:none", 首屏缓存
+   没硬刷或 toggle 后 inline 残留可能两边同显. 现在 CSS 默认 list 隐藏 +
+   toggle 函数显式互斥设 display, 兜底双保险.
+   apply when: 任何「视图切换 toggle」类 UI, 默认态必用 CSS 类/id 选择器兜底 */
+#sb2TasksBoardWrap{ display:block; }
+#sb2TasksListWrap{ display:none; }
 .sb2-tasks-col{
   background:var(--sb2-s2); border:1px solid var(--sb2-border);
   border-radius:var(--sb2-r-lg); padding:12px; min-height:200px;
@@ -41581,13 +41589,14 @@ function sb2TasksOnSideClick(group, key){
   sb2TasksRender();
 }
 
-// ★ 视图切换
+// ★ 视图切换 (MVP1 P1 fix: 显式互斥 display, 配合 CSS 默认态兜底)
 function sb2TasksSwitchView(view){
   _sb2TasksView = view;
   var boardWrap = document.getElementById('sb2TasksBoardWrap');
   var listWrap = document.getElementById('sb2TasksListWrap');
-  if (boardWrap) boardWrap.style.display = (view === 'board') ? '' : 'none';
-  if (listWrap) listWrap.style.display = (view === 'list') ? '' : 'none';
+  // P1 fix: 显式设 display 字符串, 不用 '' (避免 reset 到 CSS 默认值时两个 wrap 都用同一个类)
+  if (boardWrap) boardWrap.style.display = (view === 'board') ? 'block' : 'none';
+  if (listWrap) listWrap.style.display = (view === 'list') ? 'block' : 'none';
   var btns = document.querySelectorAll('.sb2-tasks-seg button');
   btns.forEach(function(b){
     if (b.getAttribute('data-view') === view) b.classList.add('on');
@@ -42001,6 +42010,8 @@ async function sb2TasksLoad(){
 function sb2TasksInit(){
   if (!_sb2TasksLoaded) sb2TasksLoad();
   else sb2TasksRender();
+  // MVP1 P1 fix: 初始化时显式同步 wrap display, 兜底 toggle 残留 inline style
+  sb2TasksSwitchView(_sb2TasksView || 'board');
 }
 
 // ★ SEV1 教训: 跨脚本块调用挂 window (渲染函数被 sb2_hideAllModuleMains / switchModule 跨块调用)
