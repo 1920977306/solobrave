@@ -16027,16 +16027,16 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_auth_error(auth.error, auth.status)
             return
         if not self._require_module_permission(auth, 'dashboard'): return
-        now = int(time.time())
-        week_start = now - 7 * 86400
-        prev_week_start = now - 14 * 86400
+        now = int(time.time() * 1000)  # 毫秒 (talents / knowledge_events.created_at 都是毫秒, 不是秒)
+        week_start = now - 7 * 86400 * 1000
+        prev_week_start = now - 14 * 86400 * 1000
         conn = _db_conn()
         try:
             # 卡 1: knowledge_events 近 7 天按天聚合 (MVP1 sparkline 真实数据源)
             sparkline = []
             for i in range(7):
-                day_start = week_start + i * 86400
-                day_end = day_start + 86400
+                day_start = week_start + i * 86400 * 1000
+                day_end = day_start + 86400 * 1000
                 cnt = conn.execute(
                     'SELECT COUNT(*) AS c FROM knowledge_events WHERE created_at >= ? AND created_at < ?',
                     (day_start, day_end)
