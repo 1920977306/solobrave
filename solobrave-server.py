@@ -7384,6 +7384,12 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             if sub and '/' not in sub:
                 self._handle_get_knowledge_pattern_detail(sub)
                 return
+            # MVP5: 规律晋升进度 (调已存在的 _kp_promotion_progress 函数, 不重复造逻辑)
+            if sub and '/' in sub:
+                pid, action = sub.split('/', 1)
+                if action == 'progress' and self.command == 'GET':
+                    self._handle_get_knowledge_pattern_progress(pid)
+                    return
         # 合作单 API
         if path == '/api/deals':
             self._handle_get_deals()
@@ -15194,6 +15200,26 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         except Exception as e:
             logger.error(f'  [KnowledgePatterns] detail failed: {e}')
             self._send_json_error(500, 'Detail failed')
+
+    def _handle_get_knowledge_pattern_progress(self, pattern_id):
+        """GET /api/knowledge-patterns/<id>/progress — 规律晋升进度 (hypothesis→candidate→verified→proven)
+
+        调已有 _kp_promotion_progress(pattern_id) 函数 (server:25541),
+        返回 {current_level, next_level, hit_required, hits_remaining,
+              confidence_required, confidence_shortfall, status}。
+
+        MVP5 前端可视化直接读这个接口, 不重复造晋升阈值常量。
+        """
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'knowledge'): return
+        progress = _kp_promotion_progress(pattern_id)
+        if progress is None:
+            self._send_json_error(404, 'Pattern not found')
+            return
+        self._send_json(200, progress)
 
     def _handle_put_knowledge_pattern(self, pattern_id):
         """PUT /api/knowledge-patterns/<id> — 状态流转：draft→confirmed/rejected→deprecated"""
