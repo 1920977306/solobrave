@@ -18241,7 +18241,15 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         """GET /api/talents — 获取达人列表
         include_demo: 是否包含 status='demo' 的演示种子数据
           - 0（默认）: 主库 Tab 不显示演示数据；显式 status='demo' 仍可查（管理用）
-          - 1: 把演示数据也纳入（按 status='active' 过滤时同时 OR status='demo'）"""
+          - 1: 把演示数据也纳入（按 status='active' 过滤时同时 OR status='demo'）
+
+        ★ fix/talents-sort-facets: 默认排序改「状态权重 + 近30天GMV DESC + 粉丝 DESC」
+          之前: ORDER BY followers DESC → 黑名单/低质账号靠粉丝量霸首屏
+          现在: 已合作 > 试投中 > 待联系 > 休息 > 黑名单 (沉底)
+        ★ 新增 facets: 响应带 rating/category/status 全量维度计数
+          之前: 前端 sb2TalentsRenderSide 用 _sb2TalentsList (当前页 50 条) 算聚合 → 全部 50
+          现在: 服务端 GROUP BY 全量聚合 (权限过滤 + status 过滤后), 跟 total 一致 → 全部 1847/240 等
+        """
         auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
@@ -18292,7 +18300,21 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             if q:
                 sql += " AND (LOWER(name) LIKE ? OR LOWER(douyin_id) LIKE ? OR LOWER(bio) LIKE ?)"
                 params.extend([f'%{q}%', f'%{q}%', f'%{q}%'])
-            sql += " ORDER BY followers DESC"
+            # ★ fix/talents-sort: 状态权重排序
+            #   已合作 > 试投中 > 待联系 > 休息 > 黑名单 (沉底)
+            #   二级按 total_gmv DESC (兜底近30天 GMV), 三级 followers DESC
+            sql += (" ORDER BY "
+                    "CASE COALESCE(cooperation_status, 'available') "
+                    "  WHEN 'cooperating' THEN 0 "
+                    "  WHEN 'communicating' THEN 1 "
+                    "  WHEN 'available' THEN 2 "
+                    "  WHEN 'resting' THEN 3 "
+                    "  WHEN 'blacklist' THEN 4 "
+                    "  ELSE 5 "
+                    "END, "
+                    "COALESCE(total_gmv, 0) DESC, "
+                    "COALESCE(followers, 0) DESC, "
+                    "id ASC")
             rows = conn.execute(sql, params).fetchall()
             talents = [_talent_row_to_dict(r) for r in rows]
         finally:
@@ -18304,8 +18326,42 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             visible_ids = {uid} | set(_get_user_emp_ids(uid))
             talents = [t for t in talents if (t.get('created_by') or '') in visible_ids]
         total = len(talents)
+        # ★ fix/talents-sort-facets: 全量维度聚合 (跟 total 同口径, 权限+status 过滤后)
+        #   rating 维: UPPER(SUBSTR(level,1,1)) GROUP BY, (空) 桶独立
+        #   category 维: category GROUP BY (空) 桶独立
+        #   cooperation_status 维: 5 枚举固定桶 (跟前端 _SB2_TALENT_STATUS_LABELS 对齐)
+        #   服务端一次 SQL 全算完, 前端不再从当前页算
+        facets_rating = {'A': 0, 'B': 0, 'C': 0, 'D': 0, '(空)': 0}
+        facets_category = {}
+        facets_cooperation = {'cooperating': 0, 'communicating': 0, 'available': 0, 'resting': 0, 'blacklist': 0, '(空)': 0}
+        for t in talents:
+            lv = (t.get('level') or '').strip()
+            if lv:
+                b = lv[0].upper()
+                if b in ('A', 'B', 'C', 'D'):
+                    facets_rating[b] += 1
+                else:
+                    # 演示数据 L3/L4/L5 等不归 A/B/C/D 桶 → 归 (空) 桶 (老大指示: 等级空显 -)
+                    facets_rating['(空)'] += 1
+            else:
+                facets_rating['(空)'] += 1
+            cat = (t.get('category') or '').strip() or '(空)'
+            facets_category[cat] = facets_category.get(cat, 0) + 1
+            cs = (t.get('cooperation_status') or '').strip() or '(空)'
+            if cs in facets_cooperation:
+                facets_cooperation[cs] += 1
         talents = talents[offset:offset + limit]
-        self._send_json(200, {'talents': talents, 'total': total, 'offset': offset, 'limit': limit})
+        self._send_json(200, {
+            'talents': talents,
+            'total': total,
+            'offset': offset,
+            'limit': limit,
+            'facets': {
+                'rating': facets_rating,
+                'category': facets_category,
+                'cooperation': facets_cooperation
+            }
+        })
 
     def _handle_get_talent_categories(self):
         """GET /api/talents/categories — 返回 active 达人的去重类目列表（供规律归纳弹窗下拉）"""
