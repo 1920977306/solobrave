@@ -3826,8 +3826,12 @@ def _kb_category_descendant_ids(category_id):
         conn.close()
 
 
-def _kb_entry_build_where(scope=None, team_id=None, user_id=None, is_admin=False, user_team_ids=None, user_group_ids=None, emp_ids=None, created_by=None, category=None, category_id=None, project_id=None, keyword=None, allowed_categories=None, prefix=''):
-    """构建 kb_entries 查询 WHERE 子句与参数"""
+def _kb_entry_build_where(scope=None, team_id=None, user_id=None, is_admin=False, user_team_ids=None, user_group_ids=None, emp_ids=None, created_by=None, category=None, category_id=None, project_id=None, keyword=None, allowed_categories=None, created_after=None, prefix=''):
+    """构建 kb_entries 查询 WHERE 子句与参数
+    created_after: 可选, 毫秒时间戳。None/0 不加条件;有值则 SQL 加 AND created_at >= ?
+    老大 23:30 拍板: 任何「客户端在 limit 截断后做过滤」是架构性 bug,
+    把时间窗条件下推到 SQL 让过滤集 = 全量集。
+    apply when: 任何「分页 limit 截断后客户端再过滤」必须后端 SQL 接收过滤条件"""
     if user_group_ids is None:
         user_group_ids = []
     if emp_ids is None:
@@ -3910,19 +3914,24 @@ def _kb_entry_build_where(scope=None, team_id=None, user_id=None, is_admin=False
     if created_by:
         where.append(f'{p}created_by = ?')
         params.append(created_by)
+    if created_after:
+        where.append(f'{p}created_at >= ?')
+        params.append(int(created_after))
 
     return where, params
 
 
 def kb_entry_list(offset=0, limit=50, category=None, category_id=None, project_id=None, keyword=None, allowed_categories=None,
                   scope=None, team_id=None, user_id=None, is_admin=False, user_team_ids=None,
-                  user_group_ids=None, emp_ids=None, created_by=None):
-    """新版知识库列表（分页、分类、关键词、四层隔离）"""
+                  user_group_ids=None, emp_ids=None, created_by=None, created_after=None):
+    """新版知识库列表（分页、分类、关键词、四层隔离）
+    created_after: 可选, 毫秒时间戳。None/0 = 不过滤 created_at;有值 SQL 加 AND created_at >= ?
+    老大 23:30: 服务端把时间窗条件下推, 避免客户端在 limit 截断后做过滤漏数据"""
     where, params = _kb_entry_build_where(
         scope=scope, team_id=team_id, user_id=user_id, is_admin=is_admin,
         user_team_ids=user_team_ids, user_group_ids=user_group_ids, emp_ids=emp_ids,
         created_by=created_by, category=category, category_id=category_id, project_id=project_id,
-        keyword=keyword, allowed_categories=allowed_categories
+        keyword=keyword, allowed_categories=allowed_categories, created_after=created_after
     )
 
     conn = _db_conn()

@@ -14402,6 +14402,18 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         group_id = qs.get('groupId', [''])[0] or None
         group_ids_param = qs.get('groupIds', [''])[0] or ''
         created_by = qs.get('createdBy', [''])[0] or None
+        # ★ fix/kb-created-after (老大 23:30): createdAfter 毫秒时间戳, 服务端下推时间窗到 SQL
+        #   之前架构 bug: limit=50 截断后客户端过滤 created_at, updated_at 被 touch 的旧条目永远进不了前 50
+        #   现在: 客户端传 createdAfter=<now-7d>毫秒, SQL 加 AND created_at >= ?, 过滤集 = 全量集
+        #   缺省行为 0 变化 (现有调用方不受影响, 接口契约向后兼容)
+        #   apply when: 任何「分页 limit 截断后客户端再过滤」必须后端 SQL 接收过滤条件
+        created_after = None
+        try:
+            ca_raw = qs.get('createdAfter', [''])[0]
+            if ca_raw:
+                created_after = int(ca_raw)
+        except (ValueError, TypeError):
+            created_after = None
 
         allowed_cats = _allowed_knowledge_categories(auth)
         if category and not _can_access_knowledge_category(auth, category):
@@ -14428,6 +14440,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 is_admin=auth.is_admin, user_team_ids=auth.team_ids,
                 user_group_ids=effective_group_ids,
                 created_by=created_by,
+                created_after=created_after,
                 emp_ids=_get_user_emp_ids(auth.user_id)
             )
             self._send_json(200, result)
