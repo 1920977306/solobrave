@@ -41497,7 +41497,7 @@ window.sb2Go = function(id){
 //   没人重置 .sb2-dash-main 内联 display → 内联 hide 会导致切走再切回永久空白
 //   之前误判「无 display:none 规则 = 永远可见」是错的, 覆盖层子容器不归这里管
 // 通用策略: .active 走 removeClass, chat 走 hidden 属性, dashboard 不动
-function sb2_hideAllModuleMains(){
+window.sb2_hideAllModuleMains = function(){
   // 1. .active class 控制容器 (knowledge/settings/patterns)
   document.querySelectorAll('.sb2-knowledge-main.active, .sb2-settings-main.active, .sb2-patterns-main.active')
     .forEach(function(el){ el.classList.remove('active'); });
