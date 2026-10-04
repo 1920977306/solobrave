@@ -10488,6 +10488,90 @@ window.doLogin = function () {
 }
 .sb2-ptn-detail-footer .sb2-btn{ margin-left:auto; }
 .sb2-ptn-detail-footer .sb2-btn:first-child{ margin-left:0; }
+
+/* ============================================================
+ * sb2-patterns MVP5: 晋升进度 section + 关联合作记录 section
+ * - 晋升进度: GET /api/knowledge-patterns/<id>/progress 真实数据 (后端 commit bb585d9)
+ *   双进度条: hit_remaining (命中差) + confidence_shortfall (置信度差)
+ * - deal: GET /api/deals 列表 (后端 line 15369, 简化为最近 N 条)
+ * ============================================================ */
+.sb2-ptn-progress-body{
+  padding:14px 16px; background:var(--sb2-s2);
+  border-radius:var(--sb2-r-sm); border:1px solid var(--sb2-border);
+  display:flex; flex-direction:column; gap:12px;
+}
+.sb2-ptn-progress-current{
+  display:flex; gap:10px; align-items:center; flex-wrap:wrap;
+  font:400 12px/1.4 "PingFang SC",sans-serif;
+}
+.sb2-ptn-progress-next{
+  color:var(--sb2-t3); font:500 11px/1 "PingFang SC",sans-serif;
+}
+.sb2-ptn-progress-arrow{
+  color:var(--sb2-t3); margin:0 4px;
+}
+.sb2-ptn-progress-row{
+  display:flex; align-items:center; gap:10px;
+  font:400 11px/1.3 "PingFang SC",sans-serif; color:var(--sb2-t2);
+}
+.sb2-ptn-progress-row-label{
+  min-width:80px; flex-shrink:0;
+}
+.sb2-ptn-progress-row-bar{
+  flex:1; height:6px; background:var(--sb2-s3); border-radius:var(--sb2-r-sm);
+  overflow:hidden; position:relative;
+}
+.sb2-ptn-progress-row-fill{
+  position:absolute; left:0; top:0; bottom:0;
+  background:var(--sb2-success); transition:width .3s ease;
+  border-radius:var(--sb2-r-sm);
+}
+.sb2-ptn-progress-row-fill.warning{ background:var(--sb2-warning); }
+.sb2-ptn-progress-row-value{
+  min-width:90px; text-align:right; flex-shrink:0;
+  font:500 11px/1.3 "SF Mono",ui-monospace,monospace; color:var(--sb2-t1);
+}
+.sb2-ptn-progress-deprecated{
+  padding:14px 16px; background:var(--sb2-s3);
+  border:1px dashed var(--sb2-border); border-radius:var(--sb2-r-sm);
+  font:400 12px/1.5 "PingFang SC",sans-serif; color:var(--sb2-t3);
+  text-align:center;
+}
+.sb2-ptn-progress-top{
+  display:flex; align-items:center; gap:6px;
+}
+.sb2-ptn-deals-body{
+  display:flex; flex-direction:column; gap:8px;
+}
+.sb2-ptn-deal-item{
+  padding:10px 12px; background:var(--sb2-s2);
+  border:1px solid var(--sb2-border); border-radius:var(--sb2-r-sm);
+  display:flex; flex-direction:column; gap:4px;
+}
+.sb2-ptn-deal-item-top{
+  display:flex; gap:8px; align-items:center; flex-wrap:wrap;
+  font:500 12px/1.3 "PingFang SC",sans-serif;
+}
+.sb2-ptn-deal-status{
+  padding:2px 8px; border-radius:var(--sb2-r-sm);
+  font:500 10px/1.3 "PingFang SC",sans-serif;
+}
+.sb2-ptn-deal-status.pending{ background:var(--sb2-warning-soft); color:var(--sb2-warning); }
+.sb2-ptn-deal-status.negotiating{ background:var(--sb2-s3); color:var(--sb2-t2); }
+.sb2-ptn-deal-status.sample_sent{ background:var(--sb2-s3); color:var(--sb2-t2); }
+.sb2-ptn-deal-status.approved{ background:var(--sb2-success-soft); color:var(--sb2-success); }
+.sb2-ptn-deal-status.live{ background:var(--sb2-success-soft); color:var(--sb2-success); }
+.sb2-ptn-deal-status.completed{ background:var(--sb2-success-soft); color:var(--sb2-success); }
+.sb2-ptn-deal-status.failed{ background:var(--sb2-warning-soft); color:var(--sb2-warning); }
+.sb2-ptn-deal-meta{
+  font:400 11px/1.3 "SF Mono",ui-monospace,monospace; color:var(--sb2-t3);
+  display:flex; gap:10px; flex-wrap:wrap;
+}
+.sb2-ptn-deal-empty{
+  padding:14px 16px; background:var(--sb2-s2); border-radius:var(--sb2-r-sm);
+  border:1px solid var(--sb2-border); color:var(--sb2-t3);
+  font:400 12px/1.5 "PingFang SC",sans-serif; text-align:center;
+}
 .sb2-btn-danger{
   background:var(--sb2-danger, var(--sb2-warning));
   color:var(--sb2-s1);
@@ -12702,6 +12786,16 @@ window.doLogin = function () {
     <div id="sb2PtnDetailEvidenceWrap" style="display:none">
       <div class="sb2-ptn-section-label" id="sb2PtnDetailEvidenceLabel">证据</div>
       <div id="sb2PtnDetailEvidenceBody"></div>
+    </div>
+    <!-- ★ MVP5: 晋升进度 section — 接 GET /api/knowledge-patterns/<id>/progress -->
+    <div id="sb2PtnProgressWrap" style="display:none">
+      <div class="sb2-ptn-section-label">晋升进度</div>
+      <div class="sb2-ptn-progress-body" id="sb2PtnProgressBody">-</div>
+    </div>
+    <!-- ★ MVP5: 关联合作记录 section — 接 GET /api/deals -->
+    <div id="sb2PtnDealsWrap" style="display:none">
+      <div class="sb2-ptn-section-label" id="sb2PtnDealsLabel">关联合作记录</div>
+      <div class="sb2-ptn-deals-body" id="sb2PtnDealsBody">-</div>
     </div>
   </div>
   <div class="sb2-ptn-detail-footer" id="sb2PtnDetailFooter">
@@ -39982,6 +40076,9 @@ function _sb2PtnDetailRender(p){
   _sb2PtnRenderDetailTags(p);
   // MVP3: 渲染 footer 按钮组 (按 p.status 决定)
   _sb2PtnRenderDetailFooter(p);
+  // MVP5: 拉晋升进度 + 关联合作记录 (异步, 渲染后异步填充)
+  sb2PtnLoadProgress(p.id);
+  sb2PtnLoadDeals();
 }
 
 /* ============================================================
@@ -40043,6 +40140,152 @@ function _sb2PtnRenderDetailTags(p){
   // 状态 (lifecycle) — 生命周期维度
   html += '<span class="sb2-ptn-tag sb2-ptn-tag-status-' + escapeAttr(status) + '" title="状态 (lifecycle)">' + escapeHtml(statusLabel[status] || status) + '</span>';
   tagsEl.innerHTML = html;
+}
+
+/* ============================================================
+ * sb2-patterns MVP5: 晋升进度 + 关联合作记录
+ * - 晋升进度: GET /api/knowledge-patterns/<id>/progress
+ *   后端 _kp_promotion_progress 函数 (server:25541) 已写好, MVP5 commit bb585d9 暴露路由
+ *   响应字段: {current_level, next_level, hit_required, hits_remaining,
+ *              confidence_required, confidence_shortfall, status}
+ *   阈值完全由后端 _KP_AUTO_PROMOTE_TARGETS 控制, 前端不复制常量
+ * - deal: GET /api/deals (server:15369, 子账号隔离) — 列表无 talent_id 过滤 (MVP5 简化)
+ * ============================================================ */
+async function sb2PtnLoadProgress(pid){
+  var wrap = document.getElementById('sb2PtnProgressWrap');
+  var body = document.getElementById('sb2PtnProgressBody');
+  if (!wrap || !body) return;
+  wrap.style.display = '';
+  body.textContent = '载入中…';
+  var resp;
+  try {
+    resp = await apiFetch('/api/knowledge-patterns/' + encodeURIComponent(pid) + '/progress');
+  } catch (e) {
+    body.textContent = '晋升进度载入失败: ' + (e.message || '');
+    return;
+  }
+  if (!resp || !resp.ok) {
+    body.textContent = '晋升进度不可用 (HTTP ' + (resp ? resp.status : 'no response') + ')';
+    return;
+  }
+  var prog;
+  try { prog = await resp.json(); } catch (_) { prog = null; }
+  if (!prog) {
+    body.textContent = '晋升进度数据格式异常';
+    return;
+  }
+  _sb2PtnRenderProgress(prog);
+}
+
+function _sb2PtnRenderProgress(prog){
+  var wrap = document.getElementById('sb2PtnProgressWrap');
+  var body = document.getElementById('sb2PtnProgressBody');
+  if (!wrap || !body) return;
+  var lvIcon = function(lv){
+    return lv === 'verified' ? '📐' : (lv === 'candidate' ? '🔬' : (lv === 'proven' ? '🏆' : '🧪'));
+  };
+  // 终态 (deprecated / proven 无下一级)
+  if (!prog.next_level) {
+    var endLabel = prog.current_level === 'deprecated' ? '已废弃' : (prog.current_level === 'proven' ? '🏆 已成熟 (顶级)' : '当前 ' + prog.current_level);
+    body.outerHTML = '<div class="sb2-ptn-progress-deprecated">' + escapeHtml(endLabel) + '</div>';
+    return;
+  }
+  var curLv = prog.current_level || 'hypothesis';
+  var nextLv = prog.next_level;
+  var hitReq = prog.hit_required || 0;
+  var hitRem = prog.hits_remaining != null ? prog.hits_remaining : hitReq;
+  var csReq = prog.confidence_required || 0;
+  var csShort = prog.confidence_shortfall != null ? prog.confidence_shortfall : csReq;
+  // 当前进度 = 已达成 / 要求
+  var hitPct = hitReq > 0 ? Math.min(100, Math.round((1 - hitRem / hitReq) * 100)) : 0;
+  var csPct = csReq > 0 ? Math.min(100, Math.round((1 - csShort / csReq) * 100)) : 0;
+  var hitCls = hitRem > 0 ? 'warning' : '';
+  var csCls = csShort > 0 ? 'warning' : '';
+  var html = '';
+  html += '<div class="sb2-ptn-progress-current">';
+  html += '<span class="sb2-ptn-level ' + escapeAttr(curLv) + '">' + lvIcon(curLv) + ' ' + escapeHtml(curLv) + '</span>';
+  html += '<span class="sb2-ptn-progress-arrow">→</span>';
+  html += '<span class="sb2-ptn-level ' + escapeAttr(nextLv) + '">' + lvIcon(nextLv) + ' ' + escapeHtml(nextLv) + '</span>';
+  html += '<span class="sb2-ptn-progress-next">(当前 status: ' + escapeHtml(prog.status || '-') + ')</span>';
+  html += '</div>';
+  // 命中进度
+  html += '<div class="sb2-ptn-progress-row">';
+  html += '<span class="sb2-ptn-progress-row-label">命中次数</span>';
+  html += '<span class="sb2-ptn-progress-row-bar"><span class="sb2-ptn-progress-row-fill ' + hitCls + '" style="width:' + hitPct + '%"></span></span>';
+  html += '<span class="sb2-ptn-progress-row-value">' + hitReq + ' (还差 ' + hitRem + ')</span>';
+  html += '</div>';
+  // 置信度进度
+  html += '<div class="sb2-ptn-progress-row">';
+  html += '<span class="sb2-ptn-progress-row-label">置信度</span>';
+  html += '<span class="sb2-ptn-progress-row-bar"><span class="sb2-ptn-progress-row-fill ' + csCls + '" style="width:' + csPct + '%"></span></span>';
+  html += '<span class="sb2-ptn-progress-row-value">≥ ' + csReq + '% (差 ' + csShort + ')</span>';
+  html += '</div>';
+  body.innerHTML = html;
+}
+
+async function sb2PtnLoadDeals(){
+  var wrap = document.getElementById('sb2PtnDealsWrap');
+  var body = document.getElementById('sb2PtnDealsBody');
+  var label = document.getElementById('sb2PtnDealsLabel');
+  if (!wrap || !body) return;
+  wrap.style.display = '';
+  body.innerHTML = '<div class="sb2-ptn-deal-empty">载入中…</div>';
+  var resp;
+  try {
+    resp = await apiFetch('/api/deals?limit=10');
+  } catch (e) {
+    body.innerHTML = '<div class="sb2-ptn-deal-empty">载入失败: ' + escapeHtml(e.message || '') + '</div>';
+    return;
+  }
+  if (!resp || !resp.ok) {
+    body.innerHTML = '<div class="sb2-ptn-deal-empty">不可用 (HTTP ' + (resp ? resp.status : 'no response') + ')</div>';
+    return;
+  }
+  var data;
+  try { data = await resp.json(); } catch (_) { data = null; }
+  if (!data) {
+    body.innerHTML = '<div class="sb2-ptn-deal-empty">响应格式异常</div>';
+    return;
+  }
+  _sb2PtnRenderDeals(data);
+}
+
+function _sb2PtnRenderDeals(data){
+  var body = document.getElementById('sb2PtnDealsBody');
+  var label = document.getElementById('sb2PtnDealsLabel');
+  if (!body) return;
+  var deals = data.deals || data.items || (Array.isArray(data) ? data : []);
+  if (label) label.textContent = '关联合作记录 (最近 ' + deals.length + ' 条)';
+  if (deals.length === 0) {
+    body.innerHTML = '<div class="sb2-ptn-deal-empty">暂无合作记录</div>';
+    return;
+  }
+  var statusLabel = {
+    pending: '待联系', negotiating: '洽谈中', sample_sent: '已寄样',
+    approved: '已通过', live: '直播中', completed: '已完成', failed: '失败'
+  };
+  var html = '';
+  deals.forEach(function(d){
+    var st = d.status || 'pending';
+    var stLabel = statusLabel[st] || st;
+    var productName = d.product_name || '(未指定商品)';
+    var commission = d.commission_rate != null ? (Math.round(d.commission_rate * 100) / 100) + '%' : '-';
+    var gmv = d.actual_gmv || 0;
+    var time = d.scheduled_at ? formatRelativeTime(d.scheduled_at * 1000) : (d.actual_units ? '已交付 ' + d.actual_units + ' 件' : '-');
+    html += '<div class="sb2-ptn-deal-item">';
+    html += '<div class="sb2-ptn-deal-item-top">';
+    html += '<span class="sb2-ptn-deal-status ' + escapeAttr(st) + '">' + escapeHtml(stLabel) + '</span>';
+    html += '<span>' + escapeHtml(productName) + '</span>';
+    html += '<span style="color:var(--sb2-t3);font:400 11px/1.3 monospace;">' + escapeHtml(commission) + '</span>';
+    html += '</div>';
+    html += '<div class="sb2-ptn-deal-meta">';
+    html += '<span>ID: ' + escapeHtml(d.id || '-') + '</span>';
+    if (gmv > 0) html += '<span>GMV ¥' + gmv + '</span>';
+    html += '<span>' + escapeHtml(time) + '</span>';
+    html += '</div>';
+    html += '</div>';
+  });
+  body.innerHTML = html;
 }
 
 async function sb2PtnFeedback(pid, fb){
