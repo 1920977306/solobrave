@@ -11536,11 +11536,13 @@ window.doLogin = function () {
   border-bottom:1px solid var(--sb2-border); background:var(--sb2-s1);
 }
 .sb2-talents-hero-title{
-  font:600 18px/1.3 "PingFang SC",sans-serif; color:var(--sb2-ink);
+  /* ★ fix/sb2-full-restore (commit A): 页头标题 18px → 24px (原型 line 570) */
+  font:600 24px/1.3 "PingFang SC",sans-serif; color:var(--sb2-ink);
   margin:0;
 }
 .sb2-talents-hero-sub{
-  font:400 12px/1.3 "PingFang SC",sans-serif; color:var(--sb2-t3); margin-top:4px;
+  /* ★ fix/sb2-full-restore (commit A): 页头副标题 12px → 13px (原型 line 571) */
+  font:400 13px/1.3 "PingFang SC",sans-serif; color:var(--sb2-t3); margin-top:4px;
 }
 .sb2-talents-hero-acts{ display:flex; gap:8px; margin-left:auto; }
 /* ★ fix/sb2-talents-full-restore (commit 1): 删 .sb2-talents-hero-search 整块 CSS
@@ -11548,9 +11550,19 @@ window.doLogin = function () {
    之前: hero-search svg + input 整块, 老大原话「搜索栏太多了」
    现在: CSS 全删, HTML 也删 (双删彻底, 避免回归) */
 .sb2-talents-btn{
-  height:32px; padding:0 14px; border-radius:var(--sb2-r-sm);
-  border:1px solid var(--sb2-border); background:var(--sb2-s1);
-  color:var(--sb2-t1); font:500 13px/1 "PingFang SC",sans-serif;
+  /* ★ fix/sb2-full-restore (commit A): 按钮对齐原型 line 574-576
+     之前 (672fa3c): height:32px padding:0 14px (硬死高 + 上下 0 padding)
+                    border-radius:var(--sb2-r-sm) (6px)
+                    border:var(--sb2-border) (#E6E6EA)
+                    color:var(--sb2-t1) (#18181B 近黑)
+     现在: padding:7px 14px (上下 7 padding, 高度 32px 自动, 原型 btn line 78)
+          border-radius:var(--sb2-r-md) (10px 圆角, 原型 line 78)
+          border:1px solid var(--sb2-border-strong) (#D6D6DC, 原型 line 214)
+          color:var(--sb2-t2) (#5A5A66 灰, 原型 line 90 rgb(90,90,102))
+     apply when: 任何「按钮视觉对齐原型」必须用现有 token, 不硬编码 hex */
+  padding:7px 14px; border-radius:var(--sb2-r-md);
+  border:1px solid var(--sb2-border-strong); background:var(--sb2-s1);
+  color:var(--sb2-t2); font:500 13px/1 "PingFang SC",sans-serif;
   cursor:pointer; transition:all .15s;
 }
 .sb2-talents-btn:hover{ border-color:var(--sb2-accent); color:var(--sb2-accent); }
@@ -11560,7 +11572,12 @@ window.doLogin = function () {
 .sb2-talents-btn-primary:hover{ background:var(--sb2-brand-strong); border-color:var(--sb2-brand-strong); color:#fff; }
 
 .sb2-talents-table-wrap{
+  /* ★ fix/sb2-full-restore (commit A): 表格卡圆角 10px → 14px (原型 line 574 card 类)
+     复用 --sb2-r-lg (14px) token
+     overflow 保留 auto (老大 03:12 钦点, 820px 横向滚动刚需, 唯一例外)
+     注释: 这是布局还原唯一保留 auto 的项, 其他元素 overflow 都按原型 hidden */
   flex:1; min-height:0; overflow:auto;
+  border-radius:var(--sb2-r-lg);
   background:var(--sb2-s1);
 }
 .sb2-talents-table{
@@ -11568,12 +11585,16 @@ window.doLogin = function () {
   font:400 13px/1.5 "PingFang SC",sans-serif; color:var(--sb2-t1);
 }
 .sb2-talents-table thead th{
+  /* ★ fix/sb2-full-restore (commit A): 表头 12px t3 → 11px t3 (原型 line 80 表格 head 类)
+     t3 已是 #9C9CA8 (rgb 156,156,168) 跟原型一致 */
   position:sticky; top:0; z-index:2;
-  padding:10px 12px; font:500 12px/1.2 "PingFang SC",sans-serif;
+  padding:10px 12px; font:500 11px/1.2 "PingFang SC",sans-serif;
   color:var(--sb2-t3); text-align:left; background:var(--sb2-s2);
   border-bottom:1px solid var(--sb2-border); white-space:nowrap;
 }
 .sb2-talents-table tbody td{
+  /* ★ fix/sb2-full-restore (commit A): 单元格 padding 12px 上下左右 (原型 line 83 table td)
+     老大实测线上 10px 12px (上下 10px 左右 12px) 是 shorthand 笔误, 实际现状已是 12px 全 padding */
   padding:12px; border-bottom:1px solid var(--sb2-border);
   vertical-align:middle;
 }
@@ -11671,9 +11692,14 @@ window.doLogin = function () {
 .sb2-talents-empty .em{ font-size:36px; display:block; margin-bottom:12px; opacity:.5; }
 
 .sb2-talents-footer{
+  /* ★ fix/sb2-full-restore (commit A): 底栏对齐原型 line 596-600 (micro 字号 11px)
+     之前 (672fa3c): font:12px t2 (#5A5A66), margin-top:0
+     现在: font:11px t3 (#9C9CA8 rgb 156,156,168) + margin-top:10px
+     margin-top:10px 让底栏跟表格卡有间距 (原型 div margin-top:10px) */
   display:flex; align-items:center; gap:12px; padding:10px 20px;
   border-top:1px solid var(--sb2-border); background:var(--sb2-s1);
-  font:400 12px/1.4 "PingFang SC",sans-serif; color:var(--sb2-t2);
+  font:400 11px/1.4 "PingFang SC",sans-serif; color:var(--sb2-t3);
+  margin-top:10px;
   flex-shrink:0;
 }
 .sb2-talents-footer-left{ display:flex; align-items:center; gap:8px; }
