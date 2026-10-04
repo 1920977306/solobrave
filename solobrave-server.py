@@ -18935,6 +18935,20 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 self._send_json_error(404, 'Proposal not found'); return
             if row['status'] != 'pending':
                 self._send_json_error(409, f'状态非 pending (当前: {row["status"]}), 已被处理或过期'); return
+            # ★ P1a B1 fix: choice_index 越界校验 (原子占位之前, reject 路径豁免)
+            # 之前 bug: choice_index 超 options.length 时, 占位 UPDATE 已把 status 写成 approved,
+            #   但 line 18949 choice=None → 执行块跳过 → 单子永远卡 approved + exec_result 空 + note 空.
+            #   prod 「P1a 鉴权验证-3」就是这张 approved 卡死单 (老大实证).
+            # 修法: reject=False 走 approved 路径, 必须在占位前校验 choice_index < len(options),
+            #   越界 → 400 「choice_index 越界」, status 不变 pending, 留给前端重渲.
+            #   reject=True 走 rejected 路径, 不用 choice, 豁免.
+            if body.get('reject') is not True:
+                try:
+                    opts = _json.loads(row['options'] or '[]')
+                except Exception:
+                    self._send_json_error(400, 'options 不可解析'); return
+                if not isinstance(opts, list) or choice_index >= len(opts):
+                    self._send_json_error(400, 'choice_index 越界'); return
             cur = conn.execute(
                 "UPDATE proposals SET status=?, resolved_by=?, resolved_at=?, resolution_note=? WHERE id=? AND status='pending'",
                 (new_status, auth.user_info.get('userId', ''), now_ms, note, proposal_id)
