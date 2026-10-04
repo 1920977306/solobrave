@@ -45238,15 +45238,36 @@ function sb2_renderFocus(events, patterns, pendingKb){
     });
   }
 
-  /* 3) 知识待审核: kb_entries status=pending 计数 + category 拆解
-        端点契约: GET /api/knowledge/entries?status=pending
-        真实数据: prod kb_entries.status 取值是 ok/deleted/superseded, 无 pending (后端契约已旧)
-        退化方案: 若 status=pending 返 0 条, 用最近 7 天 status=ok 当作「新提交可复核」候选
-        apply when: 知识待审核语义在后端 status 字段未明文前, 用此兜底 */
+  /* 3) 知识新入库 (老大 23:17 拍板改名): kb_entries 近 7 天新入库计数 + category 拆分
+        端点契约: GET /api/knowledge/entries?limit=50 (不认 status 参数, server.py:14392-14405 解析只有 offset/limit/category/...)
+        真语义: 客户端按 created_at >= now-7d 过滤 + 排除 deleted/superseded (kb_entries 真实 status: ok/deleted/superseded)
+        category 人话映射: legacy_migration → 历史迁移 (前端 0 后端改动)
+        无数据不渲染 (老大红线: 不渲染占位假数据)
+        适用: 24h 时间窗的 talent/done/promote/agent 卡片不动, 仅 review 卡按 7 天 */
+  var now7d = Date.now();
+  var cutoff7d = now7d - 7 * 86400 * 1000;
+  /* ★ 老大红线: 不硬编码 status 取值, 从真实数据反查 (kb_entries status ∈ {ok, deleted, superseded}) */
+  var BAD_STATUSES = ['deleted', 'superseded'];
+  /* category 人话映射表 — 后端契约没翻译, 前端兜底 */
+  var CATEGORY_LABEL = {
+    'legacy_migration': '历史迁移',
+    '达人库': '达人库',
+    '公共知识': '公共知识',
+    '商品库': '商品库',
+    '流量知识': '流量知识'
+  };
+  function _sb2ReviewCatLabel(raw){
+    if (!raw) return '未分类';
+    return CATEGORY_LABEL[raw] || raw;
+  }
   var catMap = {};
   (pendingKb || []).forEach(function(d){
-    var c = d.category || '其他';
-    catMap[c] = (catMap[c] || 0) + 1;
+    var status = d.status || '';
+    var created = Number(d.created_at) || 0;
+    if (BAD_STATUSES.indexOf(status) !== -1) return;
+    if (created < cutoff7d) return;
+    var catLabel = _sb2ReviewCatLabel(d.category);
+    catMap[catLabel] = (catMap[catLabel] || 0) + 1;
   });
   var catNames = Object.keys(catMap);
   if (catNames.length > 0){
@@ -45254,9 +45275,9 @@ function sb2_renderFocus(events, patterns, pendingKb){
     var sumCat = catNames.map(function(c){ return catMap[c] + ' 条' + c; }).join(' · ');
     items.push({
       kind: 'review',
-      title: total + ' 条知识待审核 · 拆解 ' + catNames.length + ' 类',
-      sub: sumCat + ' — 来自 kb_entries',
-      tag: '待审核',
+      title: '近 7 天新入库 ' + total + ' 条知识 · 拆解 ' + catNames.length + ' 类',
+      sub: sumCat + ' — 来自 kb_entries (排除 deleted/superseded)',
+      tag: '新入库',
       tagCls: 'brand',
       target: 'knowledge'
     });
