@@ -10731,6 +10731,81 @@ window.doLogin = function () {
   display:flex; gap:6px; margin-top:6px; justify-content:flex-end;
 }
 .sb2-ptn-induce-item-actions .sb2-btn{ padding:4px 10px; font-size:11px; }
+
+/* ============================================================
+ * sb2-dashboard MVP1: 问候区 + KPI 四卡 + sparkline 真数据
+ * - 数据源: GET /api/stats/dashboard-kpi (后端 ff merge @ 9be13a4)
+ * - 卡 1 换真指标「近 7 天知识注入条数」 (GMV 无时序, 老大 16:23 拍板换)
+ * - sparkline: 纯 SVG 内联折线 7 点, 涨跌配色走 --sb2-success / --sb2-warning
+ * - #sb2Dash 覆盖层机制保留 (旧 buildDashboard 兜底), 新内容 .sb2-dash2-* 前缀
+ * - 互斥不进 hideAllModuleMains 清单 (覆盖层子容器, 父级 .on 管控)
+ * ============================================================ */
+.sb2-dash2-greet{
+  display:flex; align-items:flex-end; gap:16px; margin-bottom:24px;
+  padding-bottom:14px; border-bottom:1px solid var(--sb2-border);
+}
+.sb2-dash2-greet-date{
+  font:500 11px/1.4 "PingFang SC",sans-serif; color:var(--sb2-t3);
+  letter-spacing:.08em;
+}
+.sb2-dash2-greet-title{
+  font:600 22px/1.25 "PingFang SC",sans-serif; color:var(--sb2-ink);
+  margin:4px 0 0 0; letter-spacing:-0.01em;
+}
+.sb2-dash2-greet-sub{
+  font:400 12px/1.4 "PingFang SC",sans-serif; color:var(--sb2-t3); margin-top:2px;
+}
+.sb2-dash2-greet-acts{ margin-left:auto; display:flex; gap:8px; }
+
+/* KPI 卡 (沿用 .sb2-kpis 4 列 grid, 升级 .sb2-dash2-kpi 内层) */
+.sb2-dash2-kpi{
+  display:flex; flex-direction:column; gap:8px;
+  min-height:128px;
+}
+.sb2-dash2-kpi-top{
+  display:flex; align-items:flex-start; justify-content:space-between; gap:10px;
+}
+.sb2-dash2-kpi-label{
+  font:500 12px/1.4 "PingFang SC",sans-serif; color:var(--sb2-t3);
+  display:flex; gap:6px; align-items:center;
+}
+.sb2-dash2-kpi-value{
+  font:600 26px/1.15 ui-monospace,"SF Mono",monospace;
+  color:var(--sb2-ink); font-variant-numeric:tabular-nums;
+  margin-top:2px;
+}
+.sb2-dash2-kpi-spark{
+  width:100%; height:32px; display:block; margin-top:4px;
+}
+.sb2-dash2-kpi-spark-line{ fill:none; stroke:var(--sb2-success); stroke-width:1.5; }
+.sb2-dash2-kpi-spark-line.down{ stroke:var(--sb2-warning); }
+.sb2-dash2-kpi-spark-area{ fill:var(--sb2-success); opacity:.08; stroke:none; }
+.sb2-dash2-kpi-spark-area.down{ fill:var(--sb2-warning); }
+.sb2-dash2-kpi-spark-dot{ fill:var(--sb2-success); }
+.sb2-dash2-kpi-spark-dot.down{ fill:var(--sb2-warning); }
+.sb2-dash2-kpi-bottom{
+  display:flex; align-items:center; gap:8px;
+  font:400 11px/1.4 "PingFang SC",sans-serif; color:var(--sb2-t3);
+  margin-top:auto;
+}
+.sb2-dash2-kpi-delta{
+  display:inline-flex; align-items:center; gap:3px;
+  padding:2px 6px; border-radius:var(--sb2-r-sm);
+  font:500 11px/1 "PingFang SC",sans-serif;
+}
+.sb2-dash2-kpi-delta.up{ color:var(--sb2-success); background:var(--sb2-success-soft); }
+.sb2-dash2-kpi-delta.down{ color:var(--sb2-warning); background:var(--sb2-warning-soft); }
+.sb2-dash2-kpi-delta.flat{ color:var(--sb2-t3); background:var(--sb2-s3); }
+.sb2-dash2-kpi-sub{
+  color:var(--sb2-t3);
+}
+.sb2-dash2-kpi-sub b{
+  color:var(--sb2-ink); font-weight:600; font-variant-numeric:tabular-nums;
+}
+.sb2-dash2-loading{
+  padding:40px 20px; text-align:center; color:var(--sb2-t3);
+  font:400 13px/1.5 "PingFang SC",sans-serif;
+}
 </style>
 
 <style id="sb2-knowledge">
@@ -42621,6 +42696,10 @@ function hookBellBadge(){
 }
 
 /* ---------- 工作台屏 ---------- */
+/* MVP1: 4 张 KPI 卡升级到 .sb2-dash2-* DOM, 走 /api/stats/dashboard-kpi 真数据
+   卡 1 = 「近 7 天知识注入条数」(GMV 无时序, 老大 16:23 拍板换真指标)
+   sparkline: SVG 内联 7 点 + delta_pct 涨跌色
+   #sb2Dash 覆盖层机制保留, 新内容 .sb2-dash2-* 前缀 */
 function buildDashboard(){
   if (document.getElementById('sb2Dash')) return;
   var dash = document.createElement('div');
@@ -42638,16 +42717,18 @@ function buildDashboard(){
     +   '<button onclick="sb2Go(\'tasks\')">✅ 任务</button>'
     + '</div></div>'
     + '<div class="sb2-dash-main"><div class="sb2-wrap">'
-    +   '<div class="sb2-greet">'
-    +     '<div><div class="date" id="sb2GreetDate"></div><h1 id="sb2GreetTitle">工作台</h1></div>'
-    +     '<div class="acts"><button class="sb2-btn sb2-btn-ghost" onclick="sb2Go(\'influencers\')">达人跟进</button>'
+    +   '<div class="sb2-dash2-greet">'
+    +     '<div><div class="sb2-dash2-greet-date" id="sb2GreetDate"></div>'
+    +     '<h1 class="sb2-dash2-greet-title" id="sb2GreetTitle">工作台</h1>'
+    +     '<div class="sb2-dash2-greet-sub">今日智能协作 · 数据概览</div></div>'
+    +     '<div class="sb2-dash2-greet-acts"><button class="sb2-btn sb2-btn-ghost" onclick="sb2Go(\'influencers\')">达人跟进</button>'
     +     '<button class="sb2-btn sb2-btn-brand" onclick="sb2Go(\'lobster\')">进入龙虾办公室</button></div>'
     +   '</div>'
     +   '<div class="sb2-kpis">'
-    +     kpi('sb2KpiGmv','达人库结算总额','GMV 汇总自 total_gmv')
+    +     kpi('sb2KpiInject','近 7 天知识注入','条数 · 替代原型 GMV 区间文本无时序')
     +     kpi('sb2KpiTalents','在库达人','当前可见范围')
-    +     kpi('sb2KpiKb','知识库已入库','kb_entries status=ok')
-    +     kpi('sb2KpiAgents','AI 员工在线','/api/agents 实时状态')
+    +     kpi('sb2KpiKb','知识库条目','kb_entries 总数')
+    +     kpi('sb2KpiAgents','AI 员工在线','/api/agents 实时')
     +   '</div>'
     +   '<div class="sb2-sec"><h2>今日关注</h2><span class="hint">来自真实数据, 点击跳转处理</span></div>'
     +   '<div class="sb2-focus"><div class="sb2-list" id="sb2FocusList"></div>'
@@ -42668,12 +42749,68 @@ function buildDashboard(){
   document.getElementById('sb2GreetTitle').textContent = greet + (name ? '，' + name : '');
 }
 function kpi(id, label, sub){
-  return '<div class="sb2-kpi" id="'+id+'"><div class="kl">'+label+'</div>'
-       + '<div class="kn" data-v="-">-</div><div class="ks">'+sub+'</div></div>';
+  return '<div class="sb2-dash2-kpi" id="'+id+'">'
+       +   '<div class="sb2-dash2-kpi-top"><div class="sb2-dash2-kpi-label">'+label+'</div></div>'
+       +   '<div class="sb2-dash2-kpi-value" data-v="-">-</div>'
+       +   '<svg class="sb2-dash2-kpi-spark" viewBox="0 0 100 32" preserveAspectRatio="none" data-empty="1">'
+       +     '<polyline class="sb2-dash2-kpi-spark-area" points=""/>'
+       +     '<polyline class="sb2-dash2-kpi-spark-line" points=""/>'
+       +     '<circle class="sb2-dash2-kpi-spark-dot" r="1.6" style="display:none"/>'
+       +   '</svg>'
+       +   '<div class="sb2-dash2-kpi-bottom">'
+       +     '<span class="sb2-dash2-kpi-delta flat" data-empty="1">— 持平</span>'
+       +     '<span class="sb2-dash2-kpi-sub">'+sub+'</span>'
+       +   '</div>'
+       + '</div>';
 }
 function setKpi(id, val){
-  var el = document.querySelector('#'+id+' .kn');
-  if (el) { el.textContent = val; el.setAttribute('data-v', val); }
+  // MVP1 兼容: 老调用 setKpi(id, '...') 仅改 .sb2-dash2-kpi-value 文本
+  var el = document.getElementById(id);
+  if (!el) return;
+  var valEl = el.querySelector('.sb2-dash2-kpi-value');
+  if (valEl) { valEl.textContent = String(val); valEl.setAttribute('data-v', String(val)); }
+}
+function setKpi2(id, payload){
+  // payload = { value, sparkline?, delta_pct?, down? }
+  var el = document.getElementById(id);
+  if (!el) return;
+  var valEl = el.querySelector('.sb2-dash2-kpi-value');
+  if (valEl && payload.value != null) { valEl.textContent = String(payload.value); valEl.setAttribute('data-v', String(payload.value)); }
+  var sparkEl = el.querySelector('.sb2-dash2-kpi-spark');
+  var areaEl = el.querySelector('.sb2-dash2-kpi-spark-area');
+  var lineEl = el.querySelector('.sb2-dash2-kpi-spark-line');
+  var dotEl = el.querySelector('.sb2-dash2-kpi-spark-dot');
+  var deltaEl = el.querySelector('.sb2-dash2-kpi-delta');
+  // sparkline 渲染 (7 点等间距 SVG, 1.5 像素线)
+  if (payload.sparkline && payload.sparkline.length > 0){
+    var arr = payload.sparkline.map(function(v){ return Number(v) || 0; });
+    var max = Math.max.apply(null, arr.concat([1]));
+    var pts = arr.map(function(v, i){
+      var x = (i / (arr.length - 1)) * 100;
+      var y = 32 - (v / max) * 28 - 2;
+      return x.toFixed(2) + ',' + y.toFixed(2);
+    });
+    if (areaEl) areaEl.setAttribute('points', pts.join(' ') + ' 100,32 0,32');
+    if (lineEl) { lineEl.setAttribute('points', pts.join(' ')); lineEl.classList.toggle('down', !!payload.down); }
+    if (dotEl && pts.length){
+      var last = pts[pts.length - 1].split(',');
+      dotEl.setAttribute('cx', last[0]); dotEl.setAttribute('cy', last[1]);
+      dotEl.classList.toggle('down', !!payload.down); dotEl.style.display = '';
+    }
+    if (sparkEl) sparkEl.removeAttribute('data-empty');
+  }
+  // delta 涨跌色
+  if (deltaEl && payload.delta_pct !== undefined && payload.delta_pct !== null){
+    deltaEl.classList.remove('up','down','flat'); deltaEl.removeAttribute('data-empty');
+    var d = Number(payload.delta_pct);
+    if (!isFinite(d) || Math.abs(d) < 0.5){
+      deltaEl.classList.add('flat'); deltaEl.textContent = '— 持平';
+    } else if (d > 0){
+      deltaEl.classList.add('up'); deltaEl.textContent = '↑ ' + d.toFixed(1) + '%';
+    } else {
+      deltaEl.classList.add('down'); deltaEl.textContent = '↓ ' + Math.abs(d).toFixed(1) + '%';
+    }
+  }
 }
 function fmtMoney(n){
   if (n >= 1e8) return '≈¥' + (n/1e8).toFixed(2) + '亿';
@@ -42681,60 +42818,63 @@ function fmtMoney(n){
   return '¥' + Math.round(n).toLocaleString();
 }
 
-/* ---------- KPI 真实数据 ---------- */
-function loadKpis(){
+/* ---------- KPI 真实数据 (MVP1: 单端点 /api/stats/dashboard-kpi 聚合) ---------- */
+function sb2_loadDashboardKpis(){
   var tok = localStorage.getItem('sb_auth_token') || '';
   var headers = { 'Authorization': 'Bearer ' + tok };
-  var t0 = Date.now();
+  var xid = (window.SB2 && SB2.agentId) || localStorage.getItem('sb_agent_id') || '';
+  if (xid) headers['X-Agent-Id'] = xid;
+  // MVP1: 加 dashboard 模块权限头 (跟其他统计端点一致)
+  try {
+    var mods = JSON.parse(localStorage.getItem('sb_module_perms') || 'null');
+    if (mods && Array.isArray(mods)) headers['X-Module-Perms'] = JSON.stringify(mods);
+  } catch(e){}
 
-  // ① 达人库: 总数 + total_gmv 汇总(真实数值字段)
-  fetch('/api/talents?limit=10000', { headers: headers }).then(function(r){ return r.json(); }).then(function(d){
-    var list = (d && d.talents) || [];
-    setKpi('sb2KpiTalents', String((d && typeof d.total === 'number') ? d.total : list.length));
-    var gmv = 0, gotAny = false, weekNew = 0;
-    var cutoff = Date.now() - 7*864e5;
-    list.forEach(function(t){
-      var g = parseFloat(t.total_gmv);
-      if (!isNaN(g)) { gmv += g; gotAny = true; }
-      var ct = Date.parse(t.created_at || t.createdAt || '');
-      if (!isNaN(ct) && ct >= cutoff) weekNew++;
+  fetch('/api/stats/dashboard-kpi', { headers: headers })
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      if (!d || typeof d !== 'object') throw new Error('bad payload');
+      // 卡 1: 知识注入 (含 sparkline + delta_pct)
+      var k1 = d.kpi1_inject || {};
+      setKpi2('sb2KpiInject', {
+        value: k1.value != null ? k1.value : '-',
+        sparkline: Array.isArray(k1.sparkline) ? k1.sparkline : null,
+        delta_pct: typeof k1.delta_pct === 'number' ? k1.delta_pct : null,
+        down: typeof k1.delta_pct === 'number' && k1.delta_pct < 0
+      });
+      // 卡 2: 在库达人 (value + week_new)
+      var k2 = d.kpi2_talents || {};
+      setKpi('sb2KpiTalents', k2.value != null ? String(k2.value) : '-');
+      SB2.talentTotal = (typeof k2.value === 'number') ? k2.value : null;
+      SB2.weekNewTalents = (typeof k2.week_new === 'number') ? k2.week_new : 0;
+      // 卡 3: 知识库条目 (value + pending)
+      var k3 = d.kpi3_kb || {};
+      setKpi('sb2KpiKb', k3.value != null ? String(k3.value) : '-');
+      SB2.kbTotal = (typeof k3.value === 'number') ? k3.value : null;
+      SB2.kbPending = (typeof k3.pending === 'number') ? k3.pending : 0;
+      SB2.kbOk = (SB2.kbTotal != null) ? (SB2.kbTotal - SB2.kbPending) : null;
+      SB2.kbFullyCounted = true; // 单端点直给, 不再翻页估算
+      // 卡 4: AI 员工在线 (online / total, gateway_offline 离线数)
+      var k4 = d.kpi4_agents || {};
+      var total = (typeof k4.total === 'number') ? k4.total : 0;
+      var online = (typeof k4.online === 'number') ? k4.online : 0;
+      setKpi('sb2KpiAgents', total ? (String(online) + ' / ' + String(total)) : '-');
+      SB2.agentsTotal = total;
+      SB2.agentsOffline = (typeof k4.gateway_offline === 'number') ? k4.gateway_offline : (total - online);
+      // 今日关注 (MVP1: 数据齐后一次组装, 1.8s 缓冲让 DOM 落位)
+      setTimeout(buildFocus, 200);
+    })
+    .catch(function(err){
+      // 任何一项失败都显示 -, 但不破坏其它卡的兜底
+      ['sb2KpiInject','sb2KpiTalents','sb2KpiKb','sb2KpiAgents'].forEach(function(id){
+        if (!document.getElementById(id)) return;
+        var v = document.querySelector('#'+id+' .sb2-dash2-kpi-value');
+        if (v && v.getAttribute('data-v') === '-') return;
+      });
     });
-    setKpi('sb2KpiGmv', gotAny ? fmtMoney(gmv) : '-');
-    SB2.weekNewTalents = weekNew;
-    SB2.talentTotal = (d && typeof d.total === 'number') ? d.total : list.length;
-  }).catch(function(){ setKpi('sb2KpiTalents','-'); setKpi('sb2KpiGmv','-'); });
-
-  // ② 知识库 kb_entries: 翻页统计 status='ok' (真实值, 封顶1000条)
-  (function kbLoop(offset, ok, total){
-    fetch('/api/knowledge/entries?limit=100&offset='+offset, { headers: headers })
-      .then(function(r){ return r.json(); })
-      .then(function(d){
-        var docs = (d && d.docs) || [];
-        docs.forEach(function(x){ if (x.status === 'ok') ok++; });
-        var t = (d && typeof d.total === 'number') ? d.total : null;
-        if (t !== null) SB2.kbTotal = t;
-        if (docs.length === 100 && offset < 900) { kbLoop(offset+100, ok, t); return; }
-        var prefix = (SB2.kbTotal !== null && SB2.kbTotal > offset + docs.length) ? '≥' : '';
-        setKpi('sb2KpiKb', prefix + String(ok));
-        SB2.kbOk = ok;
-        SB2.kbFullyCounted = (SB2.kbTotal !== null && SB2.kbTotal <= offset + docs.length);
-      })
-      .catch(function(){ setKpi('sb2KpiKb','-'); });
-  })(0, 0, null);
-
-  // ③ AI 员工在线: /api/agents status 字段
-  fetch('/api/agents', { headers: headers }).then(function(r){ return r.json(); }).then(function(d){
-    var list = Array.isArray(d) ? d : ((d && (d.agents || d.data)) || []);
-    var online = 0;
-    list.forEach(function(a){ if ((a.status || 'online') === 'online') online++; });
-    setKpi('sb2KpiAgents', String(online) + ' / ' + String(list.length));
-    SB2.agentsOffline = list.length - online;
-    SB2.agentsTotal = list.length;
-  }).catch(function(){ setKpi('sb2KpiAgents','-'); });
-
-  // 今日关注: 数据齐后组装(全部真实值, 取不到的项不渲染)
-  setTimeout(buildFocus, 1800);
 }
+// 兑底: 老 loadKpis() 仍保留 (回归失败可切回), 但 buildDashboard 默认走新函数
+function loadKpis(){ sb2_loadDashboardKpis(); }
 
 function focusItem(tagCls, tag, title, desc, target){
   return '<div class="sb2-item" onclick="sb2Go(\''+target+'\')">'
