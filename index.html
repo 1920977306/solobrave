@@ -42860,7 +42860,7 @@ function hookBellBadge(){
    MVP2: 三 feed 区 (今日关注 + 规律洞察 + 员工动态) 接 KPI 4 卡之后
    同套 .sb2-dash2-* 前缀; 数据流 fetch + Promise.all
    踩坑 (MVP1 + MVP2 同类型): 字符串拼接 + // 注释 + kpi() 调用 = + string + + kpi() = + string + NaN
-   同样 + /* 注释 */ + expr 也会触发 + + 一元正号 = NaN, 修法: 注释挪到函数体外 /* */ */
+   同样 + 〔块注释〕 + expr 也会触发 + + 一元正号 = NaN, 修法: 注释挪到函数体外 〔块注释〕 */
 function buildDashboard(){
   if (document.getElementById('sb2Dash')) return;
   var dash = document.createElement('div');
@@ -43072,7 +43072,9 @@ function sb2_loadDashboardFeeds(){
   } catch(e){}
 
   var eventsP = fetch('/api/knowledge-events?limit=50', { headers: headers }).then(function(r){ return r.json(); }).then(function(d){ return (d && Array.isArray(d.events)) ? d.events : []; }).catch(function(){ return []; });
-  var patternsP = fetch('/api/knowledge-patterns?status=active&limit=50', { headers: headers }).then(function(r){ return r.json(); }).then(function(d){ return (d && Array.isArray(d.patterns)) ? d.patterns : []; }).catch(function(){ return []; });
+  /* MVP2 P1 修: 去掉 ?status=active (patterns 表 status 取值是 draft/confirmed/rejected/deprecated, 无 active), 后端过滤会返 0 条.
+     改前端过滤 status !== 'rejected' && status !== 'deprecated', 再按 hit_count DESC */
+  var patternsP = fetch('/api/knowledge-patterns?limit=50', { headers: headers }).then(function(r){ return r.json(); }).then(function(d){ return (d && Array.isArray(d.patterns)) ? d.patterns : []; }).catch(function(){ return []; });
   var kbP = fetch('/api/knowledge/entries?status=pending&limit=50', { headers: headers }).then(function(r){ return r.json(); }).then(function(d){ return (d && Array.isArray(d.docs)) ? d.docs : []; }).catch(function(){ return []; });
   var agentsP = fetch('/api/agents', { headers: headers }).then(function(r){ return r.json(); }).then(function(d){ return Array.isArray(d) ? d : ((d && (d.agents || d.data)) || []); }).catch(function(){ return []; });
 
@@ -43176,17 +43178,19 @@ function sb2_renderFocus(events, patterns, pendingKb){
 function sb2_renderInsights(patterns){
   var el = document.getElementById('sb2Dash2InsightList');
   if (!el) return;
-  var arr = (patterns || []).slice();
+  /* MVP2 P1 修: patterns 表 status 取值是 draft/confirmed/rejected/deprecated, 无 active.
+     前端过滤排除 rejected/deprecated, 按 hit_count DESC */
+  var arr = (patterns || []).filter(function(p){
+    var s = p.status || '';
+    return s !== 'rejected' && s !== 'deprecated';
+  });
   if (arr.length === 0){
     el.innerHTML = '<div class="sb2-dash2-feed-empty"><span class="em">📐</span>暂无活跃规律</div>';
     return;
   }
-  /* 主推: verification_level == 'verified' && confidence_score DESC TOP 1, 否则 confidence_score DESC TOP 1 */
   arr.sort(function(a, b){
-    var av = (a.verification_level === 'verified' ? 1 : 0);
-    var bv = (b.verification_level === 'verified' ? 1 : 0);
-    if (av !== bv) return bv - av;
-    return (Number(b.confidence_score) || 0) - (Number(a.confidence_score) || 0);
+    var ah = Number(a.hit_count) || 0, bh = Number(b.hit_count) || 0;
+    return bh - ah;
   });
   var main = arr[0];
   var subs = arr.slice(1, 3);
