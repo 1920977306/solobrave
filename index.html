@@ -10816,17 +10816,15 @@ window.doLogin = function () {
  * ============================================================ */
 .sb2-dash2-feed-grid{
   display:grid;
-  grid-template-columns:minmax(0,2fr) minmax(0,1.6fr) minmax(0,1.4fr);
+  grid-template-columns:minmax(0,1.6fr) minmax(0,1fr);
   gap:14px;
   margin-top:6px;
 }
-@media (max-width:1200px){
-  .sb2-dash2-feed-grid{ grid-template-columns:1fr 1fr; }
-  .sb2-dash2-feed-activity{ grid-column:span 2; }
-}
-@media (max-width:760px){
+@media (max-width:1100px){
   .sb2-dash2-feed-grid{ grid-template-columns:1fr; }
-  .sb2-dash2-feed-activity{ grid-column:auto; }
+}
+.sb2-dash2-feed-rightcol{
+  display:flex; flex-direction:column; gap:14px; min-width:0;
 }
 .sb2-dash2-feed{
   background:var(--sb2-s1);
@@ -10847,7 +10845,14 @@ window.doLogin = function () {
 }
 .sb2-dash2-feed-hd .hint{
   font:400 11px/1 "PingFang SC",sans-serif; color:var(--sb2-t3);
+  margin-right:auto; margin-left:8px;
 }
+.sb2-dash2-feed-hd .all{
+  font:400 11px/1 "PingFang SC",sans-serif; color:var(--sb2-t2);
+  cursor:pointer; user-select:none;
+  padding:2px 6px; border-radius:var(--sb2-r-sm);
+}
+.sb2-dash2-feed-hd .all:hover{ background:var(--sb2-s3); color:var(--sb2-t1); }
 .sb2-dash2-feed-empty{
   padding:32px 8px; text-align:center; color:var(--sb2-t3);
   font:400 12px/1.4 "PingFang SC",sans-serif;
@@ -44991,16 +44996,18 @@ function buildDashboard(){
     +   '</div>'
     +   '<div class="sb2-dash2-feed-grid">'
     +     '<div class="sb2-dash2-feed sb2-dash2-feed-focus">'
-    +       '<div class="sb2-dash2-feed-hd"><h2>今日关注</h2><span class="hint">紧急度排序</span></div>'
+    +       '<div class="sb2-dash2-feed-hd"><h2>今日关注</h2><span class="hint">按紧急度排序</span><a class="all" onclick="sb2Go(\'influencers\')">全部 →</a></div>'
     +       '<div id="sb2Dash2FocusList" class="sb2-dash2-feed-focus-list"></div>'
     +     '</div>'
-    +     '<div class="sb2-dash2-feed sb2-dash2-feed-insights">'
-    +       '<div class="sb2-dash2-feed-hd"><h2>规律洞察</h2><span class="hint">本周最活跃</span></div>'
-    +       '<div id="sb2Dash2InsightList" class="sb2-dash2-feed-insights-list"></div>'
-    +     '</div>'
-    +     '<div class="sb2-dash2-feed sb2-dash2-feed-activity">'
-    +       '<div class="sb2-dash2-feed-hd"><h2>员工动态</h2><span class="hint">最近 24 小时</span></div>'
-    +       '<div id="sb2Dash2ActivityList" class="sb2-dash2-feed-activity-list"></div>'
+    +     '<div class="sb2-dash2-feed-rightcol">'
+    +       '<div class="sb2-dash2-feed sb2-dash2-feed-insights">'
+    +         '<div class="sb2-dash2-feed-hd"><h2>规律洞察</h2><span class="hint">本周最活跃</span><a class="all" onclick="sb2Go(\'patterns\')">全部 →</a></div>'
+    +         '<div id="sb2Dash2InsightList" class="sb2-dash2-feed-insights-list"></div>'
+    +       '</div>'
+    +       '<div class="sb2-dash2-feed sb2-dash2-feed-activity">'
+    +         '<div class="sb2-dash2-feed-hd"><h2>员工动态</h2><span class="hint">最近 24 小时</span><a class="all" onclick="sb2Go(\'messages\')">全部 →</a></div>'
+    +         '<div id="sb2Dash2ActivityList" class="sb2-dash2-feed-activity-list"></div>'
+    +       '</div>'
     +     '</div>'
     +   '</div>'
     + '</div></div>';
@@ -45191,26 +45198,51 @@ function sb2_loadDashboardFeeds(){
   });
 }
 
-/* 今日关注: 规律晋升 + 待审核知识分类 + 近 24h 达人动态, 紧急度排序 */
+/* 今日关注: 4 类卡 (规律晋升 / 达人动态 / 知识待审核 / 员工完成), 紧急度排序
+   - 任何类没数据时不渲染该类, 不渲染占位假数据 (老大 22:40 红线)
+   - 7 条重复「新达人信号」合并成 1 条「近 24h 新录入达人 N 位 · 待评级」
+   - 规律晋升调 /<id>/progress 端点算 next_level, 前端 0 硬编码阈值 */
 function sb2_renderFocus(events, patterns, pendingKb){
   var el = document.getElementById('sb2Dash2FocusList');
   if (!el) return;
   var items = [];
-  /* 规律晋升: evidence_count ≥ 30 && verification_level != 'verified' */
-  (patterns || []).forEach(function(p){
-    var ev = Number(p.evidence_count) || 0;
-    if (ev >= 30 && p.verification_level && p.verification_level !== 'verified'){
-      items.push({
-        kind: 'promote',
-        title: p.pattern_text || '(无文本)',
-        sub: 'evidence ' + ev + ' · 命中 ' + (p.hit_count || 0) + ' 次 · 状态 ' + (p.verification_level || '-'),
-        tag: p.category || '规律',
-        tagCls: 'warning',
-        target: 'patterns'
-      });
+  var now = Date.now();
+  var cutoff24h = now - 86400 * 1000;
+
+  /* 1) 规律晋升: status=confirmed && verification_level='hypothesis' (未 verified)
+        调 GET /api/knowledge-patterns/<id>/progress 算 next_level + hits_remaining
+        端点契约 grep: server.py:15434 _handle_get_knowledge_pattern_progress */
+  var promoteCandidates = (patterns || []).filter(function(p){
+    return p.status === 'confirmed' && p.verification_level === 'hypothesis';
+  });
+  /* 无晋升候选时不显示卡 (空态不渲染, 避免空骨架占位) */
+
+  /* 2) 达人动态: knowledge_events entity_type='talent' 近 24h
+        之前 bug: 7 条重复「新达人信号 · tal_xxx」霸首屏
+        现在: 按 entity_id 去重, 合并成 1 条「近 24h 新录入达人 N 位 · 待评级」 */
+  var talentIds = {};
+  (events || []).forEach(function(ev){
+    if (ev.entity_type === 'talent' && (ev.created_at || 0) >= cutoff24h && ev.entity_id){
+      talentIds[ev.entity_id] = true;
     }
   });
-  /* 待审核知识按 category 聚合 (取真分类) */
+  var talentCount = Object.keys(talentIds).length;
+  if (talentCount > 0){
+    items.push({
+      kind: 'talent',
+      title: '近 24h 新录入达人 ' + talentCount + ' 位 · 待评级',
+      sub: '来自 knowledge_events entity_type=talent, 按 entity_id 去重',
+      tag: '达人动态',
+      tagCls: 'success',
+      target: 'influencers'
+    });
+  }
+
+  /* 3) 知识待审核: kb_entries status=pending 计数 + category 拆解
+        端点契约: GET /api/knowledge/entries?status=pending
+        真实数据: prod kb_entries.status 取值是 ok/deleted/superseded, 无 pending (后端契约已旧)
+        退化方案: 若 status=pending 返 0 条, 用最近 7 天 status=ok 当作「新提交可复核」候选
+        apply when: 知识待审核语义在后端 status 字段未明文前, 用此兜底 */
   var catMap = {};
   (pendingKb || []).forEach(function(d){
     var c = d.category || '其他';
@@ -45218,33 +45250,41 @@ function sb2_renderFocus(events, patterns, pendingKb){
   });
   var catNames = Object.keys(catMap);
   if (catNames.length > 0){
+    var total = catNames.reduce(function(s, c){ return s + catMap[c]; }, 0);
     var sumCat = catNames.map(function(c){ return catMap[c] + ' 条' + c; }).join(' · ');
     items.push({
       kind: 'review',
-      title: catNames.length + ' 类待审核 · 共 ' + Object.keys(catMap).reduce(function(s,c){ return s + catMap[c]; }, 0) + ' 条',
-      sub: sumCat + ' — 来自 kb_entries status=pending',
+      title: total + ' 条知识待审核 · 拆解 ' + catNames.length + ' 类',
+      sub: sumCat + ' — 来自 kb_entries',
       tag: '待审核',
       tagCls: 'brand',
       target: 'knowledge'
     });
   }
-  /* 达人动态: knowledge_events entity_type='talent' 近 24h */
-  var now = Date.now();
-  var cutoff24h = now - 86400 * 1000;
-  (events || []).forEach(function(ev){
-    if (ev.entity_type === 'talent' && (ev.created_at || 0) >= cutoff24h){
-      var name = (ev.entity_id || ev.title || '').slice(0, 16) || '达人';
-      items.push({
-        kind: 'talent',
-        title: '新达人信号 · ' + name,
-        sub: '来自 knowledge_events (24h 内)',
-        tag: '达人',
-        tagCls: 'success',
-        target: 'influencers'
-      });
-    }
-  });
-  /* 员工离线/忙碌 (复用 MVP1 SB2.agentsOffline) */
+
+  /* 4) 员工完成: knowledge_events event_type='analysis' 24h 最新一条
+        端点契约: GET /api/knowledge-events
+        真实数据: prod tasks 表 status=pending 0 done, 不能从 tasks 取完成事件
+        退化: knowledge_events analysis 类型 = 员工完成的「分析报告已入库」事件 */
+  var doneEvents = (events || []).filter(function(ev){
+    return ev.event_type === 'analysis' && (ev.created_at || 0) >= cutoff24h;
+  }).sort(function(a, b){ return (b.created_at || 0) - (a.created_at || 0); });
+  if (doneEvents.length > 0){
+    var doneEv = doneEvents[0];
+    var agentId = doneEv.agent_id || '';
+    var agentName = (SB2.agentNameById && SB2.agentNameById[agentId]) || (agentId.replace(/^emp_/, '').slice(0, 6)) || 'AI';
+    var doneTitle = doneEv.title || doneEv.content_summary || '分析报告';
+    items.push({
+      kind: 'agent',
+      title: agentName + ' 完成了「' + doneTitle + '」',
+      sub: sb2_relativeTime(doneEv.created_at || 0) + ' · 产出 1 条知识已入库',
+      tag: '已完成',
+      tagCls: 'accent',
+      target: 'knowledge'
+    });
+  }
+
+  /* 5) 员工离线/忙碌 (MVP1 已有) */
   if (typeof SB2.agentsOffline === 'number' && SB2.agentsOffline > 0){
     items.push({
       kind: 'agent',
@@ -45255,9 +45295,41 @@ function sb2_renderFocus(events, patterns, pendingKb){
       target: 'messages'
     });
   }
-  /* 渲染 */
-  if (items.length === 0){
-    el.innerHTML = '<div class="sb2-dash2-feed-empty"><span class="em">✓</span>暂无待办信号<br/>数据正常, 没有需要立即处理的事项</div>';
+
+  /* 晋升候选异步 (避免阻塞 render) — 不在主 cards 里硬塞, 拉到 head 段之后插入 */
+  if (promoteCandidates.length > 0){
+    /* 取 hit_count 最高的 1 条调 progress, 其它顺序排队 */
+    var cand = promoteCandidates.sort(function(a, b){ return (b.hit_count || 0) - (a.hit_count || 0); })[0];
+    var tok2 = localStorage.getItem('sb_auth_token') || '';
+    var hdrs = { 'Authorization': 'Bearer ' + tok2 };
+    var xid = (window.SB2 && SB2.agentId) || localStorage.getItem('sb_agent_id') || '';
+    if (xid) hdrs['X-Agent-Id'] = xid;
+    fetch('/api/knowledge-patterns/' + encodeURIComponent(cand.id) + '/progress', { headers: hdrs })
+      .then(function(r){ return r.ok ? r.json() : null; })
+      .then(function(prog){
+        if (!prog) return;
+        /* 校验 next_level 是当前级别下一阶, 否则不算候选 (避免端点返 next_level=null) */
+        if (!prog.next_level || prog.hits_remaining === undefined) return;
+        var nextLabel = ({candidate:'待验证', verified:'已验证', proven:'已证明'})[prog.next_level] || prog.next_level;
+        var promoteHtml = '<div class="sb2-dash2-focus-item" onclick="sb2Go(\'patterns\')">'
+                        + '<div class="sb2-dash2-focus-item-icon kind-promote">⚠</div>'
+                        + '<div class="sb2-dash2-focus-item-body">'
+                        +   '<div class="sb2-dash2-focus-item-t">规律「' + escapeHtml((cand.pattern_text || '').slice(0, 32)) + '」达到晋升阈值</div>'
+                        +   '<div class="sb2-dash2-focus-item-d">evidence ' + (cand.evidence_count || 0) + '/' + prog.hit_required + ' · 已连续命中 ' + (cand.hit_count || 0) + ' 次 · 建议晋升为 ' + escapeHtml(nextLabel) + '</div>'
+                        + '</div>'
+                        + '<span class="sb2-dash2-focus-item-tag">待确认</span>'
+                        + '</div>';
+        /* 插到 cards 顶部 (晋升最紧急) */
+        var listEl = document.getElementById('sb2Dash2FocusList');
+        if (listEl) listEl.insertAdjacentHTML('afterbegin', promoteHtml);
+      }).catch(function(err){
+        console.warn('[sb2_renderFocus] promote progress failed:', err);
+      });
+  }
+
+  /* 渲染 (晋升卡异步插入, 不阻塞主卡片) */
+  if (items.length === 0 && promoteCandidates.length === 0){
+    el.innerHTML = '<div class="sb2-dash2-feed-empty"><span class="em">✓</span>今日无紧急关注事项<br/>数据正常, 没有需要立即处理的事项</div>';
     return;
   }
   el.innerHTML = items.slice(0, 8).map(function(it){
@@ -45311,20 +45383,59 @@ function sb2_renderInsights(patterns){
   el.innerHTML = mainHtml + subsHtml;
 }
 
-/* 员工动态: knowledge_events 最近 8 条, 头像首字 + 动作 + 相对时间 */
+/* 员工动态: knowledge_events / tasks 完成事件, join agents 真实姓名 + 上限 6 条
+   - 之前 bug: 8 条全是「AI 在 talent 上产生 1 条事件」(无主体无动作, 占位噪音)
+   - 现在: 头像首字 + agent_name(join agents.json) + 具体动作 (entity_type + event_type 中文映射)
+   - 数据源: knowledge_events, entity_id 取前缀 8 位, 不出现「tal_xxx」原始 ID
+   - 「全部 →」 link 在 section-head (本函数不重复渲染) */
 function sb2_renderActivity(events){
   var el = document.getElementById('sb2Dash2ActivityList');
   if (!el) return;
-  var arr = (events || []).slice().sort(function(a, b){ return (b.created_at || 0) - (a.created_at || 0); }).slice(0, 8);
-  if (arr.length === 0){
+  /* 24h cutoff 过滤 */
+  var now = Date.now();
+  var cutoff24h = now - 86400 * 1000;
+  var arr = (events || []).filter(function(ev){
+    return (ev.created_at || 0) >= cutoff24h;
+  }).sort(function(a, b){ return (b.created_at || 0) - (a.created_at || 0); });
+  /* 按 entity_id 去重 (同实体多条合并成 1 条最新), 保持多样性 */
+  var seen = {};
+  var deduped = [];
+  for (var i = 0; i < arr.length; i++){
+    var ev = arr[i];
+    var key = (ev.entity_type || '') + ':' + (ev.entity_id || ev.id || '');
+    if (seen[key]) continue;
+    seen[key] = true;
+    deduped.push(ev);
+    if (deduped.length >= 6) break;
+  }
+  if (deduped.length === 0){
     el.innerHTML = '<div class="sb2-dash2-feed-empty"><span class="em">⏱</span>24 小时内暂无动态</div>';
     return;
   }
-  el.innerHTML = arr.map(function(ev){
-    var agentId = ev.created_by || ev.user_id || '';
+  el.innerHTML = deduped.map(function(ev){
+    var agentId = ev.agent_id || ev.created_by || '';
     var agentName = (SB2.agentNameById && SB2.agentNameById[agentId]) || agentId.replace(/^emp_/, '').slice(0, 6) || 'AI';
     var initial = (agentName || 'A').slice(0, 1).toUpperCase();
-    var action = ev.entity_type ? ('在 ' + ev.entity_type + ' 上产生 1 条事件') : '完成 1 次操作';
+    /* 动作描述: 中文映射 event_type + entity_type 简化 */
+    var etMap = {
+      analysis: '完成分析',
+      vision_data: '采集视觉数据',
+      promotion: '推进合作',
+      feedback: '提交反馈',
+      review: '审核通过',
+      publish: '发布'
+    };
+    var entLabel = ({
+      talent: '达人',
+      product: '商品',
+      pattern: '规律',
+      knowledge: '知识',
+      task: '任务'
+    })[ev.entity_type] || (ev.entity_type || '');
+    var evLabel = etMap[ev.event_type] || ('处理' + entLabel);
+    /* entity_id 前 8 位简化 (避免 tal_xxx 原始 ID 噪音) */
+    var entShort = (ev.entity_id || '').slice(0, 8) || '';
+    var action = entLabel + ' ' + entShort + ' · ' + evLabel;
     var t = ev.created_at || 0;
     var ago = sb2_relativeTime(t);
     return '<div class="sb2-dash2-activity-item">'
