@@ -11700,6 +11700,28 @@ window.doLogin = function () {
 .sb2-talents-pager button:disabled{ opacity:.4; cursor:not-allowed; }
 .sb2-talents-pager .ellipsis{ padding:0 4px; color:var(--sb2-t3); }
 
+/* ★ fix/sb2-proto-align (commit 3 修): 批量操作条
+   选中行后 (fix checkbox 也算) 底部 slide-in 工具条
+   n=0 隐藏, n>0 显示, position:sticky bottom 跟 footer 区分 */
+.sb2-talents-batch-bar{
+  display:none; align-items:center; gap:12px;
+  padding:10px 20px; margin:0 20px 10px;
+  background:var(--sb2-s2); border:1px solid var(--sb2-border);
+  border-radius:var(--sb2-r);
+  box-shadow:0 -2px 8px rgba(0,0,0,.04);
+}
+.sb2-talents-batch-bar.on{ display:flex; }
+.sb2-talents-batch-count{
+  font:500 12px/1.4 "PingFang SC",sans-serif; color:var(--sb2-t1);
+}
+.sb2-talents-batch-count b{
+  color:var(--sb2-brand); font-weight:600; font-variant-numeric:tabular-nums;
+  margin:0 2px;
+}
+.sb2-talents-batch-actions{
+  display:flex; gap:8px; margin-left:auto;
+}
+
 /* 旧 talents 系列容器兜底隐藏 (跟 knowledgeMid 兜底同模式) */
 #influencersMid,
 #influencersRight,
@@ -13787,6 +13809,21 @@ window.doLogin = function () {
         <div class="sb2-talents-footer-left" id="sb2TalentsFooterLeft">共 0 条</div>
         <div class="sb2-talents-footer-spacer"></div>
         <div class="sb2-talents-pager" id="sb2TalentsPager"></div>
+      </div>
+      <!-- ★ fix/sb2-proto-align (commit 3 修): 批量操作条 (选中行后 slide-in 显示)
+            之前: footer-left 改文案「已选 N 行可批量」一行小字 (不显眼, 老大打回)
+            现在: 独立 .sb2-talents-batch-bar 工具条, position:sticky bottom
+                  n=0 隐藏, n>0 显示, 含「已选 N」+ 三个操作按钮 (MVP3 之前 toast 占位)
+                  视觉权重对齐原型 (原型 line 600 是 footer 文字, 升级为操作条更显眼)
+            apply when: 任何「选中行批量」业务必须独立工具条, footer 一行字不够 -->
+      <div class="sb2-talents-batch-bar" id="sb2TalentsBatchBar">
+        <div class="sb2-talents-batch-count">已选 <b id="sb2TalentsBatchCount">0</b> 行</div>
+        <div class="sb2-talents-batch-actions">
+          <button class="sb2-talents-btn" onclick="sb2TalentsToast('加入任务 — MVP3 接入')">加入任务</button>
+          <button class="sb2-talents-btn" onclick="sb2TalentsToast('导出 — MVP3 接入')">导出</button>
+          <button class="sb2-talents-btn" onclick="sb2TalentsToast('指派员工 — MVP3 接入')">指派员工</button>
+          <button class="sb2-talents-btn sb2-talents-btn-ghost" onclick="sb2TalentsClearSelection()">取消</button>
+        </div>
       </div>
     </div>
   </div>
@@ -41303,25 +41340,49 @@ function sb2TalentsRenderPager(){
   pager.innerHTML = html;
 }
 
-/* ★ MVP1: 选中状态同步到 footer 计数 + 批量提示文案 (原型: 选中行可批量: 加入任务 / 导出 / 指派员工) */
+/* ★ MVP1: 选中状态同步到 footer 计数 + 批量提示文案 (原型: 选中行可批量: 加入任务 / 导出 / 指派员工)
+   ★ fix/sb2-proto-align (commit 3 修): footer 保留总条数文案, 批量操作条独立渲染 (commit 1 footer 一行字不显眼, 老大打回) */
 function sb2TalentsUpdateFooter(){
   var el = document.getElementById('sb2TalentsFooterLeft');
   if (!el) return;
   var keys = Object.keys(_sb2TalentsSelectedIds || {});
   var n = keys.length;
   if (n === 0) el.textContent = '共 ' + _sb2TalentsTotal + ' 位达人';
-  else el.textContent = '已选 ' + n + ' 行可批量: 加入任务 / 导出 / 指派员工';
+  else el.textContent = '已选 ' + n + ' 行 · 下方操作条批量处理';
   var checkAll = document.getElementById('sb2TalentsCheckAll');
   if (checkAll){
     var listLen = (_sb2TalentsList || []).length;
     checkAll.checked = listLen > 0 && n === listLen;
     checkAll.indeterminate = n > 0 && n < listLen;
   }
+  /* 同步批量操作条显隐 + 计数 */
+  sb2TalentsUpdateBatchBar();
+}
+
+/* ★ fix/sb2-proto-align (commit 3 修): 批量操作条显隐 + 计数
+   n=0 隐藏 (display:none 默认), n>0 显示 (.on class 触发 display:flex)
+   老大要求: 选中行后出现的操作条, 文案照抄 (原型 line 600 footer) */
+function sb2TalentsUpdateBatchBar(){
+  var bar = document.getElementById('sb2TalentsBatchBar');
+  if (!bar) return;
+  var keys = Object.keys(_sb2TalentsSelectedIds || {});
+  var n = keys.length;
+  var cntEl = document.getElementById('sb2TalentsBatchCount');
+  if (cntEl) cntEl.textContent = String(n);
+  bar.classList.toggle('on', n > 0);
+}
+
+/* ★ fix/sb2-proto-align (commit 3 修): 取消选中 (清空 _sb2TalentsSelectedIds + 同步 UI) */
+function sb2TalentsClearSelection(){
+  _sb2TalentsSelectedIds = {};
+  document.querySelectorAll('.sb2-talents-row-check').forEach(function(cb){ cb.checked = false; });
+  sb2TalentsUpdateFooter();
 }
 
 /* ★ fix/sb2-proto-align (commit 1): 筛选下拉面板 toggle + 按钮文字显示已选数量
-   选中状态 3 维 (rating/category/status) 任一非空, 按钮显示「筛选 (N)」
-   全部清空回退「筛选 ▾」 */
+   选中状态 3 维 (rating/category/status) 任一非空, 按钮显示「筛选 · N ▾」
+   全部清空回退「筛选 ▾」
+   ★ fix/sb2-proto-align (commit 3 修): 改格式「筛选 · N ▾」(老大拍板 · 间隔号) 不是「筛选 (N) ▾」 */
 function sb2TalentsToggleFilter(){
   var pop = document.getElementById('sb2TalentsFilterPop');
   if (!pop) return;
@@ -41332,7 +41393,10 @@ function sb2TalentsToggleFilter(){
     document.activeElement.blur();
   }
 }
-/* ★ fix/sb2-proto-align (commit 1): 更新筛选按钮文字 (已选数量回显) */
+/* ★ fix/sb2-proto-align (commit 1+3): 更新筛选按钮文字 (已选数量回显)
+   之前: 「筛选 (N) ▾」括号, 老大打回
+   现在: 「筛选 · N ▾」间隔号 · (老大拍板的样板)
+   ★ apply when: 任何「按钮文字显示已选数量」格式必须先看老大样板, 不要自己递归 */
 function sb2TalentsUpdateFilterBtn(){
   var btn = document.getElementById('sb2TalentsFilterBtn');
   if (!btn) return;
@@ -41340,7 +41404,7 @@ function sb2TalentsUpdateFilterBtn(){
   if (_sb2TalentsFilterRating) selectedCount++;
   if (_sb2TalentsFilterCategory) selectedCount++;
   if (_sb2TalentsFilterStatus) selectedCount++;
-  btn.textContent = selectedCount > 0 ? ('筛选 (' + selectedCount + ') ▾') : '筛选 ▾';
+  btn.textContent = selectedCount > 0 ? ('筛选 · ' + selectedCount + ' ▾') : '筛选 ▾';
 }
 
 /* ★ MVP1: 切换侧栏维度 — 三维 AND 联动, 切任一维触发重载
@@ -41470,6 +41534,9 @@ window.sb2TalentsToggleOne = sb2TalentsToggleOne;
 window.sb2TalentsToggleFilter = sb2TalentsToggleFilter;
 window.sb2TalentsToggleRow = sb2TalentsToggleRow;
 window.sb2TalentsUpdateFilterBtn = sb2TalentsUpdateFilterBtn;
+/* ★ fix/sb2-proto-align (commit 3 修): 批量操作条函数挂 window (onclick 内联调用必走 window) */
+window.sb2TalentsUpdateBatchBar = sb2TalentsUpdateBatchBar;
+window.sb2TalentsClearSelection = sb2TalentsClearSelection;
 window.sb2TalentsToast = sb2TalentsToast;
 
 /* ============================================================
