@@ -3846,6 +3846,34 @@ def init_db():
         # Memory Pipeline L0-L3 分层记忆表 + Token 预算 + Pipeline 状态
         memory_pipeline.create_memory_tables(conn)
 
+        # ★ Wave 1 P1a: proposals 表 (AI 提议 → 人类拍板, 决定权给人类)
+        # schema 见 /Users/qichen/sb-dev/redesign-full/docs/SB2-wave1-proposals-spec.md §1
+        # 设计原则: 选择权给 AI, 决定权给人类 (老大 17:14 拍板).
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS proposals (
+                id TEXT PRIMARY KEY,
+                type TEXT NOT NULL,                     -- task.create | talent.create | message.send
+                agent_id TEXT NOT NULL,                 -- 提议的 AI 员工
+                agent_name TEXT DEFAULT '',
+                title TEXT NOT NULL,                    -- 一句话标题 (卡片主文案)
+                summary TEXT DEFAULT '',                -- AI 的依据说明
+                options TEXT NOT NULL,                   -- JSON: 〔{label, payload, rationale}〕 1~3 个
+                recommended INTEGER DEFAULT 0,          -- AI 推荐第几项 (前端标 ★)
+                status TEXT DEFAULT 'pending',          -- pending | approved | rejected | expired | executed | failed
+                context TEXT DEFAULT '{}',              -- JSON: 关联上下文 (chat_message_id 等)
+                idempotency_key TEXT UNIQUE,            -- sha1(agent_id+type+canonical_payload) 防重复创建
+                created_at INTEGER,                     -- 毫秒
+                expires_at INTEGER,                     -- 毫秒, created_at + 24h
+                resolved_by TEXT DEFAULT '',            -- 拍板人 (user_xxx)
+                resolved_at INTEGER,
+                resolution_note TEXT DEFAULT '',        -- 驳回理由 / 执行结果摘要
+                exec_result TEXT DEFAULT ''             -- JSON: 执行回执 (任务id/达人id/消息id)
+            )
+        ''')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_proposals_status ON proposals(status)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_proposals_agent_id ON proposals(agent_id)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_proposals_created_at ON proposals(created_at DESC)')
+
         conn.commit()
 
         # 旧 JSON 数据迁移（幂等）
@@ -3858,6 +3886,160 @@ def init_db():
         _migrate_talent_categories(conn)
     finally:
         conn.close()
+
+
+# ★ Wave 1 P1a: 3 类执行器 (复用不复制, 红线)
+#   - task.create 复用 _handle_post_task line 16918 INSERT 逻辑 (剥鉴权/读体/响应)
+#   - talent.create 复用 _handle_post_talent line 18196-18302 业务逻辑 (剥鉴权/读体/响应, 防 self._send_json 冲响应)
+#   - message.send 走 JSON 文件锁协议 (chat_messages 表 0 结果, prod 实证 line 82/2115/2121)
+# 执行器返回 (success, result_or_None, error_msg), resolve 事务外执行, 失败落 failed 不回滚 approved (spec §2.2)
+
+import json as _json
+
+def _create_task_internal(payload, owner_auth):
+    """Wave 1 P1a task.create 执行器, 复用 _handle_post_task INSERT 逻辑, 不复制业务.
+    返回 (success: bool, task_dict_or_None: dict|None, error_msg: str|None)."""
+    if not payload or not payload.get('title'):
+        return (False, None, '任务标题不能为空')
+    _req_task_status = payload.get('status')
+    if _req_task_status is None:
+        _req_task_status = 'pending'
+    elif _req_task_status not in _ALLOWED_TASK_STATUSES:
+        return (False, None, f'非法任务状态: {_req_task_status}，仅允许 {list(_ALLOWED_TASK_STATUSES)}')
+    task_id = f"task_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
+    conn = _db_conn()
+    try:
+        # ★ creator/creator_name 强制归属拍板人 (owner_auth.user_info),
+        # 提案记录 agent_id/agent_name 留作审计链, 这样审计能区分「谁提议」「谁拍板」
+        conn.execute('''INSERT INTO tasks (id, title, description, assignee, assignee_name, creator, creator_name, status, priority, deadline, project_id, progress)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''', (
+            task_id,
+            payload.get('title', '').strip(),
+            payload.get('description', ''),
+            payload.get('assignee', ''),
+            payload.get('assigneeName', ''),
+            owner_auth.user_info.get('userId', ''),
+            owner_auth.user_info.get('displayName', ''),
+            _req_task_status,
+            payload.get('priority', 'normal'),
+            payload.get('deadline', ''),
+            payload.get('projectId', ''),
+            payload.get('progress', '')
+        ))
+        conn.commit()
+        row = conn.execute('SELECT * FROM tasks WHERE id = ?', (task_id,)).fetchone()
+    finally:
+        conn.close()
+    return (True, dict(row), None)
+
+
+def _create_talent_internal(body, owner_auth):
+    """Wave 1 P1a talent.create 执行器, 复用 _handle_post_talent 业务逻辑, 不复制.
+    从 line 18196-18302 剥离鉴权/读体/响应 (避免 self._send_json 冲掉 resolve 响应),
+    留下 _deduplicate_talent 名称去重 + douyin_id 查重 + 同用户同名合并 + INSERT + 两层架构 created_by 归属.
+    去重命中不返 200, 落 failed + resolution_note (resolve 端统一处理).
+    返回 (success: bool, result_or_None: dict|None, error_msg: str|None)."""
+    if not body or not body.get('name'):
+        return (False, None, 'Missing name')
+    name = str(body.get('name', '')).strip()
+    douyin_id = str(body.get('douyin_id') or body.get('douyinId') or '').strip()
+
+    # 名称去重 (跟原 handler line 18217-18232 一致)
+    dedupe_hit = _deduplicate_talent(name)
+    if dedupe_hit and dedupe_hit.get('id'):
+        return (False, None, f"达人已存在: {dedupe_hit['id']} (名称匹配: {dedupe_hit['name']})")
+
+    # douyin_id 查重 (跟原 handler line 18238-18251 一致)
+    if douyin_id:
+        conn = _db_conn()
+        try:
+            existing = conn.execute(
+                "SELECT * FROM talents WHERE LOWER(douyin_id) = LOWER(?) LIMIT 1",
+                (douyin_id,)
+            ).fetchone()
+        finally:
+            conn.close()
+        if existing:
+            return (False, None, f"达人已存在: {existing['id']} (抖音号 {douyin_id} 重复)")
+
+    # 匿名 localhost 强制拒写 (跟原 handler line 18254-18259 一致, 防 created_by='localhost' 脏数据)
+    if _is_unidentified_localhost(owner_auth):
+        return (False, None, 'Anonymous create forbidden: 无法确定归属 (X-Agent-Id 缺失)')
+
+    # 两层架构 created_by 强制归属 (跟原 handler line 18260-18262 一致)
+    row = _dict_to_talent_row(body)
+    row['created_by'] = _resolve_talent_owner_id(owner_auth)
+
+    conn = _db_conn()
+    try:
+        # 同用户同名合并更新 (跟原 handler line 18265-18290 一致)
+        same_name = conn.execute(
+            'SELECT * FROM talents WHERE created_by = ? AND name = ? LIMIT 1',
+            (row['created_by'], name)
+        ).fetchone()
+        if same_name:
+            merged = _talent_row_to_dict(same_name)
+            merged.update(body)
+            merged['id'] = same_name['id']
+            merged['created_by'] = same_name['created_by']
+            merged['updated_at'] = int(time.time() * 1000)
+            upd_row = _dict_to_talent_row(merged)
+            conn.execute(
+                f"UPDATE talents SET {', '.join(f'{c} = ?' for c in _TALENT_COLUMNS)} WHERE id = ?",
+                tuple(upd_row[c] for c in _TALENT_COLUMNS) + (same_name['id'],)
+            )
+            conn.commit()
+            if upd_row.get('group_id'):
+                _update_brand_product_stats(conn, upd_row['group_id'])
+                conn.commit()
+            merged_out = conn.execute('SELECT * FROM talents WHERE id = ?', (same_name['id'],)).fetchone()
+            result = _talent_row_to_dict(merged_out)
+            result['merged'] = True
+            return (True, result, None)
+        # INSERT 新达人 (跟原 handler line 18291-18302 一致)
+        conn.execute(
+            f"INSERT INTO talents ({', '.join(_TALENT_COLUMNS)}) VALUES ({', '.join('?' * len(_TALENT_COLUMNS))})",
+            tuple(row[c] for c in _TALENT_COLUMNS)
+        )
+        conn.commit()
+        if row.get('group_id'):
+            _update_brand_product_stats(conn, row['group_id'])
+            conn.commit()
+        row_out = conn.execute('SELECT * FROM talents WHERE id = ?', (row['id'],)).fetchone()
+    finally:
+        conn.close()
+    return (True, _talent_row_to_dict(row_out), None)
+
+
+def _send_message_internal(target_agent_id, content, sender_user_id, agent_name):
+    """Wave 1 P1a message.send 执行器, 走 JSON 文件锁协议 (红线: chat_messages 表 0 结果, prod 实证 line 82/2115/2121).
+    锁协议 (跟 _handle_post_chat line 20079-20096 同款):
+      1. lock = _get_chat_lock(target_agent_id), lock.acquire(timeout=30)
+         拿不到 → 抛 RuntimeError, resolve 端落 failed (不阻塞 resolve 响应)
+      2. messages = _load_chat(target_agent_id) → list, 兜底 []
+      3. append {id, role:'user', content, timestamp, userId}
+      4. _save_chat(target_agent_id, messages), finally release
+    角色归属定死: user role + userId = 拍板人 (决定权是人的).
+    content 前缀加「[agent_name 代拟]」便于审计溯源 (代谁发的).
+    backlog 注记: 跳过 chat_store_max 归档逻辑, 单 agent JSON 可能无限增长, MVP 后补截断."""
+    lock = _get_chat_lock(target_agent_id)
+    if not lock.acquire(timeout=30):
+        raise RuntimeError(f'chat lock timeout: {target_agent_id}')
+    try:
+        messages = _load_chat(target_agent_id)
+        if not isinstance(messages, list):
+            messages = []
+        prefixed = f'[{agent_name} 代拟]\n{content}' if agent_name else content
+        messages.append({
+            'id': 'msg_' + uuid.uuid4().hex[:8],
+            'role': 'user',
+            'content': prefixed,
+            'timestamp': datetime.now().isoformat(),
+            'userId': sender_user_id,
+        })
+        _save_chat(target_agent_id, messages)
+    finally:
+        lock.release()
 
 
 # 通知类型与通知开关字段的映射
@@ -4191,6 +4373,22 @@ def _brand_row_to_dict(row):
         'createdAt': d.get('created_at') or 0,
         'updatedAt': d.get('updated_at') or 0,
     }
+
+
+def _proposal_row_to_dict(row):
+    """Wave 1 P1a proposals row → dict 转换器 (跟 _talent_row_to_dict line 4376 同模式).
+    options / context / exec_result 是 JSON 字符串, 解析成 Python 对象返给前端."""
+    if row is None:
+        return None
+    d = dict(row)
+    for k in ('options', 'context', 'exec_result'):
+        v = d.get(k)
+        if isinstance(v, str) and v:
+            try:
+                d[k] = json.loads(v)
+            except Exception:
+                pass  # 保留原 string, 避免解析失败炸 handler
+    return d
 
 
 def _talent_row_to_dict(row):
@@ -7501,6 +7699,16 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 self._handle_get_talent(rest)
             return
 
+        # Wave 1 P1a: proposals API (AI 提议 → 人类拍板)
+        if path == '/api/proposals':
+            self._handle_get_proposals()
+            return
+        if path.startswith('/api/proposals/'):
+            rest = path[len('/api/proposals/'):]
+            if rest and '/' not in rest:
+                self._handle_get_proposal(rest)
+            return
+
         # Product API
         if path == '/api/products':
             self._handle_get_products()
@@ -8038,6 +8246,17 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 self._handle_post_kb_retry_embedding(parts[1])
                 return
 
+        # Wave 1 P1a: proposals API (POST 创建 / resolve 拍板)
+        if path == '/api/proposals':
+            self._handle_post_proposals()
+            return
+        if path.startswith('/api/proposals/'):
+            rest = path[len('/api/proposals/'):]
+            parts = rest.split('/')
+            if len(parts) == 2 and parts[1] == 'resolve':
+                self._handle_post_proposal_resolve(parts[0])
+                return
+
         # Brand API
         if path == '/api/brands':
             self._handle_post_brand()
@@ -8460,6 +8679,13 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             doc_id = path[len('/api/knowledge/'):]
             if doc_id:
                 self._handle_delete_knowledge(doc_id)
+                return
+
+        # Wave 1 P1a: proposals API (DELETE 撤销)
+        if path.startswith('/api/proposals/'):
+            sub = path[len('/api/proposals/'):]
+            if sub and '/' not in sub:
+                self._handle_delete_proposal(sub)
                 return
 
         # Brand API
@@ -18544,6 +18770,255 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         finally:
             conn.close()
         self._send_json(200, {'deleted': cur.rowcount > 0, 'id': follow_up_id})
+
+    # ═══════════════════════════════════════════════════
+    # Wave 1 P1a: proposals 提议 + 拍板 (AI 提议 → 人类拍板, 决定权给人类)
+    # spec: /Users/qichen/sb-dev/redesign-full/docs/SB2-wave1-proposals-spec.md §2
+    #   POST   /api/proposals                  — AI 创建提议 (agent 身份, 幂等)
+    #   GET    /api/proposals                  — 列表 (审批中心, admin-only 收窄)
+    #   GET    /api/proposals/:id              — 详情 (人类/agent, 惰性过期)
+    #   POST   /api/proposals/:id/resolve      — 人类拍板 (agent 身份 403 硬闸)
+    #   DELETE /api/proposals/:id              — 撤销 (提议人 / admin)
+    # ═══════════════════════════════════════════════════
+
+    def _handle_post_proposals(self):
+        """POST /api/proposals — AI 创建提议 (X-Agent-Id agent 身份, 幂等)
+        spec §2.1: idempotency_key = sha1(agent_id + type + canonical_payload)
+        冲突时返 200 duplicate:true (Agent 重试/网络重放不会产生两张单)."""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status); return
+        # ★ AI 身份硬闸: 必须有 X-Agent-Id (localhost_agent_id 标记), 否则一律 403
+        #   agent 身份才能提议, 真人管理员不直接 POST 提议 (走 spec §2.1 设计意图)
+        agent_id = getattr(auth, 'localhost_agent_id', None)
+        if not agent_id:
+            self._send_json_error(403, '仅 AI 员工 (X-Agent-Id) 可创建提议')
+            return
+        body = self._read_body()
+        if not body:
+            self._send_json_error(400, 'Missing body'); return
+        ptype = body.get('type')
+        title = body.get('title')
+        options = body.get('options')
+        # type 白名单 + 必填校验
+        _ALLOWED_PROPOSAL_TYPES = ('task.create', 'talent.create', 'message.send')
+        if ptype not in _ALLOWED_PROPOSAL_TYPES:
+            self._send_json_error(400, f'type 非法: {ptype}, 仅允许 {_ALLOWED_PROPOSAL_TYPES}'); return
+        if not title or not options or not isinstance(options, list) or len(options) < 1 or len(options) > 3:
+            self._send_json_error(400, 'title 必填 + options 必须 1~3 项'); return
+        # canonical_json 排序保证 sha1 一致
+        import hashlib, json as _json
+        canonical_payload = _json.dumps(body.get('payload') or options[0].get('payload') or {}, sort_keys=True, separators=(',', ':'))
+        idem_key = hashlib.sha1(f"{agent_id}|{ptype}|{canonical_payload}".encode('utf-8')).hexdigest()
+        now_ms = int(time.time() * 1000)
+        # 幂等查询
+        conn = _db_conn()
+        try:
+            existing = conn.execute('SELECT * FROM proposals WHERE idempotency_key = ?', (idem_key,)).fetchone()
+            if existing:
+                # duplicate, 返 200 + 已有提议
+                self._send_json(200, {**_proposal_row_to_dict(existing), 'duplicate': True}); return
+            proposal_id = 'prp_' + uuid.uuid4().hex[:12]
+            conn.execute('''INSERT INTO proposals (id, type, agent_id, agent_name, title, summary, options, recommended, status, context, idempotency_key, created_at, expires_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''', (
+                proposal_id,
+                ptype,
+                agent_id,
+                body.get('agent_name') or auth.user_info.get('displayName', ''),
+                title,
+                body.get('summary', ''),
+                _json.dumps(options, ensure_ascii=False),
+                int(body.get('recommended', 0) or 0),
+                'pending',
+                _json.dumps(body.get('context') or {}, ensure_ascii=False),
+                idem_key,
+                now_ms,
+                now_ms + 24 * 60 * 60 * 1000
+            ))
+            conn.commit()
+            row = conn.execute('SELECT * FROM proposals WHERE id = ?', (proposal_id,)).fetchone()
+        finally:
+            conn.close()
+        self._send_json(201, _proposal_row_to_dict(row))
+
+    def _handle_get_proposals(self):
+        """GET /api/proposals — 列表 (审批中心), admin-only 收窄 (老大拍板)
+        spec §2.2 + 老大 19:05 收窄: 人类用户原文 → admin-only 更稳, 审批中心本来就给老大用.
+        惰性过期: GET 列表/详情时 UPDATE pending → expired WHERE expires_at < now."""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status); return
+        # ★ GET admin-only 收窄 (跟 resolve 硬闸 is_admin 一致, 老大 19:05 拍板)
+        #   跟 line 11082/11209 等 is_scope_filtered 模式同源
+        if not auth.is_admin or getattr(auth, 'localhost_agent_id', None):
+            self._send_json_error(403, '仅人类管理员可看审批中心')
+            return
+        # 惰性过期
+        conn = _db_conn()
+        try:
+            now_ms = int(time.time() * 1000)
+            conn.execute("UPDATE proposals SET status='expired' WHERE status='pending' AND expires_at < ?", (now_ms,))
+            conn.commit()
+            query = parse_qs(urlparse(self.path).query)
+            status_filter = query.get('status', [''])[0]
+            limit = int(query.get('limit', ['50'])[0])
+            offset = int(query.get('offset', ['0'])[0])
+            if status_filter:
+                rows = conn.execute(
+                    'SELECT * FROM proposals WHERE status = ? ORDER BY created_at DESC LIMIT ? OFFSET ?',
+                    (status_filter, limit, offset)
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    'SELECT * FROM proposals ORDER BY created_at DESC LIMIT ? OFFSET ?',
+                    (limit, offset)
+                ).fetchall()
+            total = conn.execute('SELECT COUNT(*) FROM proposals').fetchone()[0]
+            proposals = [_proposal_row_to_dict(r) for r in rows]
+        finally:
+            conn.close()
+        self._send_json(200, {'proposals': proposals, 'total': total, 'offset': offset, 'limit': limit})
+
+    def _handle_get_proposal(self, proposal_id):
+        """GET /api/proposals/:id — 详情, 人类/agent 均可
+        惰性过期: pending → expired WHERE expires_at < now."""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status); return
+        conn = _db_conn()
+        try:
+            now_ms = int(time.time() * 1000)
+            row = conn.execute('SELECT * FROM proposals WHERE id = ?', (proposal_id,)).fetchone()
+            if not row:
+                self._send_json_error(404, 'Proposal not found'); return
+            # 惰性过期
+            if row['status'] == 'pending' and (row['expires_at'] or 0) < now_ms:
+                conn.execute("UPDATE proposals SET status='expired' WHERE id = ?", (proposal_id,))
+                conn.commit()
+                row = conn.execute('SELECT * FROM proposals WHERE id = ?', (proposal_id,)).fetchone()
+        finally:
+            conn.close()
+        self._send_json(200, _proposal_row_to_dict(row))
+
+    def _handle_post_proposal_resolve(self, proposal_id):
+        """POST /api/proposals/:id/resolve — 人类拍板, agent 身份一律 403 (硬闸)
+        spec §2.2: 原子占位 UPDATE WHERE status='pending', 影响 0 行 → 409.
+        拍板后事务外执行 (执行器 _create_task_internal / _create_talent_internal / _send_message_internal),
+        失败落 failed 不回滚 approved (spec §2.2: 执行在 resolve 事务外)."""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status); return
+        # ★ P1a 修正 1: 禁用 hasattr, 改用全仓惯例 getattr(auth, 'localhost_agent_id', None)
+        # hasattr 只查属性存不存在不查值, 任何路径以后显式置 None 真人管理员会被 403 永远挡在门外.
+        # 跟 line 14831/16760/18074/18315/18587 等 9+ 处同模式, 不许发明新写法.
+        if not auth.is_admin or getattr(auth, 'localhost_agent_id', None):
+            self._send_json_error(403, '仅人类管理员可拍板')
+            return
+        body = self._read_body()
+        if not body:
+            self._send_json_error(400, 'Missing body'); return
+        choice_index = body.get('choice_index')
+        note = body.get('note', '')
+        if not isinstance(choice_index, int) or choice_index < 0:
+            self._send_json_error(400, 'choice_index 必须是非负整数'); return
+        # ★ P1a 修正: spec §2.2 状态机 (pending | approved | rejected | expired | executed | failed)
+        #   approved: 采纳某项, 执行器跑
+        #   rejected: 驳回, 只记状态不执行
+        #   choice_index >= options.length 时 → 视为「驳回」
+        new_status = 'rejected' if body.get('reject') is True else 'approved'
+        now_ms = int(time.time() * 1000)
+        # 原子占位 (spec §2.2): UPDATE ... WHERE id=? AND status='pending', 影响 0 行 → 409
+        conn = _db_conn()
+        try:
+            row = conn.execute('SELECT * FROM proposals WHERE id = ?', (proposal_id,)).fetchone()
+            if not row:
+                self._send_json_error(404, 'Proposal not found'); return
+            if row['status'] != 'pending':
+                self._send_json_error(409, f'状态非 pending (当前: {row["status"]}), 已被处理或过期'); return
+            cur = conn.execute(
+                "UPDATE proposals SET status=?, resolved_by=?, resolved_at=?, resolution_note=? WHERE id=? AND status='pending'",
+                (new_status, auth.user_info.get('userId', ''), now_ms, note, proposal_id)
+            )
+            if cur.rowcount == 0:
+                # 两人同时拍板同一张, 后到的输 409
+                self._send_json_error(409, '状态已被并发更新, 请刷新'); return
+            conn.commit()
+            # 重新读最新 row
+            row = conn.execute('SELECT * FROM proposals WHERE id = ?', (proposal_id,)).fetchone()
+            options = _json.loads(row['options'] or '[]')
+            choice = options[choice_index] if (new_status == 'approved' and 0 <= choice_index < len(options)) else None
+        finally:
+            conn.close()
+        # ★ 执行在 resolve 事务外 (spec §2.2 红线), 失败落 failed 不回滚 approved
+        #   拍板原子性 = UPDATE 成功, 执行失败不影响 approved 状态
+        exec_status = 'executed' if new_status == 'approved' else new_status
+        exec_result = {}
+        exec_note = ''
+        if new_status == 'approved' and choice:
+            payload = choice.get('payload') or {}
+            try:
+                if row['type'] == 'task.create':
+                    ok, result, err = _create_task_internal(payload, auth)
+                    if not ok:
+                        exec_status = 'failed'; exec_note = err or '执行器返回失败'
+                    else:
+                        exec_result = {'task_id': result.get('id')}
+                elif row['type'] == 'talent.create':
+                    ok, result, err = _create_talent_internal(payload, auth)
+                    if not ok:
+                        exec_status = 'failed'; exec_note = err or '执行器返回失败'
+                    else:
+                        exec_result = {'talent_id': result.get('id')}
+                elif row['type'] == 'message.send':
+                    try:
+                        _send_message_internal(
+                            payload.get('target_agent_id') or payload.get('agent_id'),
+                            payload.get('content', ''),
+                            auth.user_info.get('userId', ''),
+                            row['agent_name']
+                        )
+                        exec_result = {'target_agent_id': payload.get('target_agent_id') or payload.get('agent_id')}
+                    except Exception as e:
+                        exec_status = 'failed'; exec_note = f'message.send 失败: {e}'
+            except Exception as e:
+                exec_status = 'failed'; exec_note = f'执行器异常: {e}'
+            # 写 exec_result + resolution_note
+            conn = _db_conn()
+            try:
+                conn.execute(
+                    "UPDATE proposals SET status=?, exec_result=?, resolution_note=? WHERE id=?",
+                    (exec_status, _json.dumps(exec_result, ensure_ascii=False) if exec_result else '', exec_note, proposal_id)
+                )
+                conn.commit()
+                row = conn.execute('SELECT * FROM proposals WHERE id = ?', (proposal_id,)).fetchone()
+            finally:
+                conn.close()
+        self._send_json(200, _proposal_row_to_dict(row))
+
+    def _handle_delete_proposal(self, proposal_id):
+        """DELETE /api/proposals/:id — 撤销 (提议人 / admin)
+        提议人 (agent_id 匹配) 可撤销自己提议; admin 可撤销任意.
+        已拍板的 (status != pending) 一律 409 (不能撤销已执行/已驳回的提议, 避免审计链断裂)."""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status); return
+        conn = _db_conn()
+        try:
+            row = conn.execute('SELECT * FROM proposals WHERE id = ?', (proposal_id,)).fetchone()
+            if not row:
+                self._send_json_error(404, 'Proposal not found'); return
+            if row['status'] != 'pending':
+                self._send_json_error(409, f'仅 pending 状态可撤销 (当前: {row["status"]})'); return
+            agent_id = getattr(auth, 'localhost_agent_id', None)
+            is_creator = agent_id and agent_id == row['agent_id']
+            is_admin = auth.is_admin and not getattr(auth, 'localhost_agent_id', None)
+            if not (is_creator or is_admin):
+                self._send_json_error(403, '仅提议人或管理员可撤销'); return
+            conn.execute('DELETE FROM proposals WHERE id = ?', (proposal_id,))
+            conn.commit()
+        finally:
+            conn.close()
+        self._send_json(200, {'deleted': True, 'id': proposal_id})
 
     # ═══════════════════════════════════════════════════
     # 达人库 API (旧 JSON 兼容)
