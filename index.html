@@ -10986,6 +10986,250 @@ window.doLogin = function () {
 }
 .sb2-knowledge-main.active{ display:flex; }
 
+/* ============================================================
+ * sb2-talents MVP1: 骨架 + 列表 + 侧栏三维筛选 + 搜索 + 分页
+ * 视觉基准: docs/prototype-screens/s5-talents.jpg (冻结不改)
+ * 命名空间 sb2Talents* (跟 sb2Knowledge/sb2Patterns 平行)
+ *  - 0 硬编码 hex (全走 --sb2-* token)
+ *  - 接口签名 0 改动 (复用 /api/talents 现有端点)
+ *  - snake_case 字段直读 (id/name/avatar/douyin_id/level/followers/category/cooperation_status/rating_score/live_gpm/total_gmv/matched_products)
+ *  - 旧 talents DOM (#influencersMid / #influencersRight 等) CSS 兜底 display:none !important (旧 DOM 不退役仅兜底)
+ *  - 互斥: sb2_hideAllModuleMains selector 加 .sb2-talents-main.active
+ *  - 评级列用 rating_score 分档 (≥4.5=A / 3.5~4.49=B / 2.0~3.49=C / <2 或 0=D-)
+ *  - 等级列: 原值显示, 空显 -, 侧栏不做等级筛选 (老大实测: LV3/LV4/L2/LV5 与 L3/L4 混存 + 181 条空, level 首字符不是 A/B/C)
+ *  - cooperation_status 7 枚举中文映射 (available/communicating/cooperating/blacklist/resting/following/archived)
+ *  - GPM 进度条按本页数据 max 动态归一 (不许写死量级, 实测 0~1000 均值 14.8)
+ *  - 三维筛选现场聚合 (评级/类目/状态), 三维 AND 联动, 切任一维后其他两维计数重新聚合
+ * ============================================================ */
+.sb2-talents-main{
+  display:none; flex-direction:column; flex:1; height:100%;
+  padding:0; overflow:hidden;
+  font:400 13px/1.5 "PingFang SC",-apple-system,sans-serif;
+  color:var(--sb2-t1); background:var(--sb2-bg);
+}
+.sb2-talents-main.active{ display:flex; }
+
+.sb2-talents-layout{
+  display:flex; flex:1; min-height:0;
+}
+.sb2-talents-side{
+  width:236px; flex-shrink:0; border-right:1px solid var(--sb2-border);
+  background:var(--sb2-s1); padding:16px 0; overflow-y:auto;
+}
+.sb2-talents-side-search{
+  position:relative; padding:0 14px 12px;
+}
+.sb2-talents-side-search input{
+  width:100%; height:30px; padding:0 10px 0 30px;
+  border:1px solid var(--sb2-border); border-radius:var(--sb2-r-sm);
+  background:var(--sb2-s2); color:var(--sb2-t1); font:400 12px/1 "PingFang SC",sans-serif;
+  outline:none; transition:border-color .15s;
+}
+.sb2-talents-side-search input:focus{ border-color:var(--sb2-accent); background:var(--sb2-s1); }
+.sb2-talents-side-search svg{
+  position:absolute; left:24px; top:9px; width:14px; height:14px;
+  color:var(--sb2-t3);
+}
+
+.sb2-talents-side-group{ padding:8px 0; }
+.sb2-talents-side-group-label{
+  padding:6px 16px; font:600 11px/1.3 "PingFang SC",sans-serif;
+  color:var(--sb2-t3); letter-spacing:.04em; text-transform:uppercase;
+}
+.sb2-talents-side-item{
+  display:flex; align-items:center; justify-content:space-between;
+  padding:6px 16px; cursor:pointer; font:400 13px/1.4 "PingFang SC",sans-serif;
+  color:var(--sb2-t2); transition:background .12s, color .12s;
+}
+.sb2-talents-side-item:hover{ background:var(--sb2-s2); color:var(--sb2-t1); }
+.sb2-talents-side-item.active{
+  background:var(--sb2-brand-soft); color:var(--sb2-brand);
+  font-weight:500;
+}
+.sb2-talents-side-count{
+  font:400 11px/1 "PingFang SC",sans-serif; color:var(--sb2-t3);
+  flex-shrink:0; margin-left:8px;
+}
+.sb2-talents-side-item.active .sb2-talents-side-count{ color:var(--sb2-brand); }
+
+.sb2-talents-main-pane{
+  flex:1; min-width:0; display:flex; flex-direction:column;
+}
+.sb2-talents-hero{
+  display:flex; align-items:center; gap:12px; padding:16px 20px 12px;
+  border-bottom:1px solid var(--sb2-border); background:var(--sb2-s1);
+}
+.sb2-talents-hero-title{
+  font:600 18px/1.3 "PingFang SC",sans-serif; color:var(--sb2-ink);
+  margin:0;
+}
+.sb2-talents-hero-sub{
+  font:400 12px/1.3 "PingFang SC",sans-serif; color:var(--sb2-t3); margin-top:4px;
+}
+.sb2-talents-hero-search{
+  margin-left:auto; position:relative; width:300px;
+}
+.sb2-talents-hero-search input{
+  width:100%; height:32px; padding:0 10px 0 32px;
+  border:1px solid var(--sb2-border); border-radius:var(--sb2-r-sm);
+  background:var(--sb2-s2); color:var(--sb2-t1); font:400 13px/1 "PingFang SC",sans-serif;
+  outline:none; transition:border-color .15s;
+}
+.sb2-talents-hero-search input:focus{ border-color:var(--sb2-accent); background:var(--sb2-s1); }
+.sb2-talents-hero-search svg{
+  position:absolute; left:10px; top:9px; width:14px; height:14px;
+  color:var(--sb2-t3);
+}
+.sb2-talents-hero-acts{ display:flex; gap:8px; margin-left:12px; }
+.sb2-talents-btn{
+  height:32px; padding:0 14px; border-radius:var(--sb2-r-sm);
+  border:1px solid var(--sb2-border); background:var(--sb2-s1);
+  color:var(--sb2-t1); font:500 13px/1 "PingFang SC",sans-serif;
+  cursor:pointer; transition:all .15s;
+}
+.sb2-talents-btn:hover{ border-color:var(--sb2-accent); color:var(--sb2-accent); }
+.sb2-talents-btn-primary{
+  background:var(--sb2-brand); border-color:var(--sb2-brand); color:#fff;
+}
+.sb2-talents-btn-primary:hover{ background:var(--sb2-brand-strong); border-color:var(--sb2-brand-strong); color:#fff; }
+
+.sb2-talents-table-wrap{
+  flex:1; min-height:0; overflow:auto;
+  background:var(--sb2-s1);
+}
+.sb2-talents-table{
+  width:100%; border-collapse:separate; border-spacing:0;
+  font:400 13px/1.5 "PingFang SC",sans-serif; color:var(--sb2-t1);
+}
+.sb2-talents-table thead th{
+  position:sticky; top:0; z-index:2;
+  padding:10px 12px; font:500 12px/1.2 "PingFang SC",sans-serif;
+  color:var(--sb2-t3); text-align:left; background:var(--sb2-s2);
+  border-bottom:1px solid var(--sb2-border); white-space:nowrap;
+}
+.sb2-talents-table tbody td{
+  padding:12px; border-bottom:1px solid var(--sb2-border);
+  vertical-align:middle;
+}
+.sb2-talents-table tbody tr{
+  cursor:pointer; transition:background .12s;
+}
+.sb2-talents-table tbody tr:hover{ background:var(--sb2-s2); }
+.sb2-talents-table tbody tr.selected{ background:var(--sb2-brand-soft); }
+.sb2-talents-checkbox{
+  width:14px; height:14px; cursor:pointer;
+  accent-color:var(--sb2-accent);
+}
+.sb2-talents-talent{
+  display:flex; align-items:center; gap:10px;
+}
+.sb2-talents-avatar{
+  width:32px; height:32px; border-radius:var(--sb2-r-full);
+  background:var(--sb2-s3); color:var(--sb2-t2);
+  display:flex; align-items:center; justify-content:center;
+  font:600 13px/1 "PingFang SC",sans-serif; flex-shrink:0;
+  overflow:hidden;
+}
+.sb2-talents-avatar img{ width:100%; height:100%; object-fit:cover; }
+.sb2-talents-name{
+  font:600 13px/1.3 "PingFang SC",sans-serif; color:var(--sb2-ink);
+}
+.sb2-talents-handle{
+  font:400 11px/1.2 "PingFang SC",sans-serif; color:var(--sb2-t3);
+  margin-top:2px;
+}
+.sb2-talents-chip{
+  display:inline-block; padding:2px 8px; border-radius:var(--sb2-r-full);
+  font:500 11px/1.2 "PingFang SC",sans-serif;
+  background:var(--sb2-s2); color:var(--sb2-t2); border:1px solid var(--sb2-border);
+  white-space:nowrap;
+}
+.sb2-talents-chip-level{
+  font:500 12px/1 "PingFang SC",sans-serif; color:var(--sb2-t1);
+  background:transparent; border:0;
+}
+.sb2-talents-gpm{
+  display:flex; align-items:center; gap:8px;
+}
+.sb2-talents-gpm-bar{
+  flex:1; max-width:80px; height:6px; border-radius:var(--sb2-r-full);
+  background:var(--sb2-s3); overflow:hidden;
+}
+.sb2-talents-gpm-fill{
+  height:100%; background:var(--sb2-accent); border-radius:var(--sb2-r-full);
+  transition:width .3s ease;
+}
+.sb2-talents-gpm-val{
+  font:500 12px/1.2 "PingFang SC",sans-serif; color:var(--sb2-t1);
+  min-width:36px; text-align:right;
+}
+.sb2-talents-rating{
+  display:inline-block; padding:3px 10px; border-radius:var(--sb2-r-sm);
+  font:600 12px/1 "PingFang SC",sans-serif; min-width:24px; text-align:center;
+}
+.sb2-talents-rating.r-A{ background:var(--sb2-success-soft); color:var(--sb2-success); }
+.sb2-talents-rating.r-B{ background:var(--sb2-accent-soft); color:var(--sb2-accent); }
+.sb2-talents-rating.r-C{ background:var(--sb2-warning-soft); color:var(--sb2-warning); }
+.sb2-talents-rating.r-D{ background:var(--sb2-s3); color:var(--sb2-t3); }
+
+.sb2-talents-status{
+  display:inline-block; padding:3px 10px; border-radius:var(--sb2-r-sm);
+  font:500 11px/1.2 "PingFang SC",sans-serif;
+  background:var(--sb2-s2); color:var(--sb2-t2); border:1px solid var(--sb2-border);
+}
+.sb2-talents-status.s-available{ background:var(--sb2-success-soft); color:var(--sb2-success); border-color:transparent; }
+.sb2-talents-status.s-cooperating{ background:var(--sb2-accent-soft); color:var(--sb2-accent); border-color:transparent; }
+.sb2-talents-status.s-communicating{ background:var(--sb2-warning-soft); color:var(--sb2-warning); border-color:transparent; }
+.sb2-talents-status.s-blacklist{ background:var(--sb2-danger-soft); color:var(--sb2-danger); border-color:transparent; }
+.sb2-talents-status.s-resting{ background:var(--sb2-s3); color:var(--sb2-t3); border-color:transparent; }
+.sb2-talents-status.s-following{ background:var(--sb2-s2); color:var(--sb2-t2); border-color:transparent; }
+.sb2-talents-status.s-archived{ background:var(--sb2-s3); color:var(--sb2-t3); border-color:transparent; opacity:.7; }
+
+.sb2-talents-num{
+  font-variant-numeric:tabular-nums;
+}
+.sb2-talents-empty{
+  padding:60px 20px; text-align:center;
+  color:var(--sb2-t3); font:400 13px/1.5 "PingFang SC",sans-serif;
+}
+.sb2-talents-empty .em{ font-size:36px; display:block; margin-bottom:12px; opacity:.5; }
+
+.sb2-talents-footer{
+  display:flex; align-items:center; gap:12px; padding:10px 20px;
+  border-top:1px solid var(--sb2-border); background:var(--sb2-s1);
+  font:400 12px/1.4 "PingFang SC",sans-serif; color:var(--sb2-t2);
+  flex-shrink:0;
+}
+.sb2-talents-footer-left{ display:flex; align-items:center; gap:8px; }
+.sb2-talents-footer-spacer{ flex:1; }
+.sb2-talents-pager{ display:flex; align-items:center; gap:4px; }
+.sb2-talents-pager button{
+  min-width:30px; height:28px; padding:0 8px;
+  border:1px solid var(--sb2-border); border-radius:var(--sb2-r-sm);
+  background:var(--sb2-s1); color:var(--sb2-t1); font:500 12px/1 "PingFang SC",sans-serif;
+  cursor:pointer; transition:all .12s;
+}
+.sb2-talents-pager button:hover:not(:disabled){ border-color:var(--sb2-accent); color:var(--sb2-accent); }
+.sb2-talents-pager button.active{ background:var(--sb2-accent); border-color:var(--sb2-accent); color:#fff; }
+.sb2-talents-pager button:disabled{ opacity:.4; cursor:not-allowed; }
+.sb2-talents-pager .ellipsis{ padding:0 4px; color:var(--sb2-t3); }
+
+/* 旧 talents 系列容器兜底隐藏 (跟 knowledgeMid 兜底同模式) */
+#influencersMid,
+#influencersRight,
+#talentsRightHeader,
+#talentsRightTitle,
+#talentsRightActions,
+#talentsRightContent,
+#talentsMidTitle,
+#talentsMidCount,
+#talentsMidSearch,
+#talentsMidSort,
+#talentsMidItems,
+#talentsMidPagination,
+#talentsMainItems,
+#navInfluencers{ display:none !important; }
+
 .sb2-kb-hero{ display:flex; align-items:center; gap:12px; margin-bottom:16px; }
 .sb2-kb-hero-title{
   font:600 24px/1.2 "PingFang SC",sans-serif; color:var(--sb2-ink);
@@ -12993,6 +13237,74 @@ window.doLogin = function () {
   <div class="sb2-ptn-chips" id="sb2PtnChips"></div>
   <div class="sb2-ptn-list" id="sb2PtnList">
     <div class="sb2-ptn-empty">载入中…</div>
+  </div>
+</div>
+
+<!-- ★ sb2-talents MVP1: 全新达人库屏 (骨架 + 列表 + 侧栏三维筛选现场聚合 + 搜索 + 分页, 旧 #influencersMid 兜底) -->
+<div class="sb2-talents-main" id="sb2TalentsMain">
+  <div class="sb2-talents-layout">
+    <aside class="sb2-talents-side">
+      <div class="sb2-talents-side-search">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+        <input type="text" placeholder="搜索达人..." id="sb2TalentsSideSearch" oninput="sb2TalentsOnSearch(this.value)">
+      </div>
+      <div class="sb2-talents-side-group">
+        <div class="sb2-talents-side-group-label">评级</div>
+        <div class="sb2-talents-side-list" id="sb2TalentsSideRating"></div>
+      </div>
+      <div class="sb2-talents-side-group">
+        <div class="sb2-talents-side-group-label">类目</div>
+        <div class="sb2-talents-side-list" id="sb2TalentsSideCategory"></div>
+      </div>
+      <div class="sb2-talents-side-group">
+        <div class="sb2-talents-side-group-label">状态</div>
+        <div class="sb2-talents-side-list" id="sb2TalentsSideStatus"></div>
+      </div>
+    </aside>
+    <div class="sb2-talents-main-pane">
+      <div class="sb2-talents-hero">
+        <div>
+          <h1 class="sb2-talents-hero-title">达人库</h1>
+          <div class="sb2-talents-hero-sub" id="sb2TalentsHeroSub">载入中…</div>
+        </div>
+        <div class="sb2-talents-hero-search">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+          <input type="text" placeholder="搜索达人 / 知识 / 规律 / 员工…" id="sb2TalentsHeroSearch" oninput="sb2TalentsOnSearch(this.value)">
+        </div>
+        <div class="sb2-talents-hero-acts">
+          <button class="sb2-talents-btn" onclick="sb2TalentsToast('筛选功能在 MVP5')">筛选</button>
+          <button class="sb2-talents-btn" onclick="sb2TalentsToast('导出功能在 MVP5')">导出</button>
+          <button class="sb2-talents-btn sb2-talents-btn-primary" onclick="sb2TalentsToast('录入功能在 MVP3')">+ 录入达人</button>
+        </div>
+      </div>
+      <div class="sb2-talents-table-wrap">
+        <table class="sb2-talents-table">
+          <thead>
+            <tr>
+              <th style="width:36px"><input type="checkbox" class="sb2-talents-checkbox" id="sb2TalentsCheckAll" onchange="sb2TalentsToggleAll(this.checked)"></th>
+              <th>达人</th>
+              <th>类目</th>
+              <th style="width:64px">等级</th>
+              <th style="width:90px" class="sb2-talents-num">粉丝</th>
+              <th style="width:120px" class="sb2-talents-num">近30天GMV</th>
+              <th style="width:140px">GPM</th>
+              <th style="width:64px" class="sb2-talents-num">口碑</th>
+              <th style="width:80px" class="sb2-talents-num">匹配商品</th>
+              <th style="width:54px">评级</th>
+              <th style="width:90px">状态</th>
+            </tr>
+          </thead>
+          <tbody id="sb2TalentsTbody">
+            <tr><td colspan="11" class="sb2-talents-empty"><span class="em">👥</span>载入中…</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="sb2-talents-footer">
+        <div class="sb2-talents-footer-left" id="sb2TalentsFooterLeft">已选 0 条</div>
+        <div class="sb2-talents-footer-spacer"></div>
+        <div class="sb2-talents-pager" id="sb2TalentsPager"></div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -40069,6 +40381,370 @@ async function sb2SettingsEventsStats(){
 var _sb2PtnPatterns = [];
 var _sb2PtnLevel = ''; // '', 'hypothesis', 'candidate', 'verified'
 
+/* ============================================================
+ * sb2-talents MVP1: 端点契约 / 三维筛选现场聚合 / 评级分档 / 状态映射 / GPM 归一 / 表格 + 分页
+ * 端点契约 (grep 源码 + 老大实测):
+ *   GET /api/talents?q=&cooperation=&talent_category=&rating=&status=active&offset=&limit=
+ *     → { talents: [...], total, offset, limit }
+ *   排序: 后端 ORDER BY followers DESC
+ *   非 admin 自动过滤 visible_ids (localhost X-Agent-Id 走两层架构, 全量需 prod HTTPS admin)
+ * 设计-数据鸿沟 (老大实测):
+ *   - level 混存 LV3/LV4/L2/LV5 与 L3/L4 + 181 条空 → 显示原值, 空显 -, 侧栏不做等级筛选
+ *   - ai_rating 209/212 空 → 评级列用 rating_score 分档 (≥4.5=A / 3.5~4.49=B / 2.0~3.49=C / <2 或 0=D-)
+ *   - matched_products 全非空 (212/212) → 用 matched_products
+ *   - cooperation_status 分布: available 189 / communicating 11 / cooperating 10 / blacklist 1 / resting 1
+ *     (following 0 / archived 0, 映射函数里照写)
+ * ============================================================ */
+var _sb2TalentsList = [];
+var _sb2TalentsTotal = 0;
+var _sb2TalentsPage = 1;
+var _sb2TalentsLimit = 50;
+var _sb2TalentsFilterRating = '';   // '' / 'A' / 'B' / 'C' / 'D'
+var _sb2TalentsFilterCategory = ''; // '' / 类目字符串
+var _sb2TalentsFilterStatus = '';   // '' / 7 枚举之一
+var _sb2TalentsSearchTimer = null;
+var _sb2TalentsSearchQ = '';
+var _sb2TalentsSelectedIds = {};    // {id: true}
+var _sb2TalentsLoaded = false;
+
+/* ★ MVP1: cooperation_status 7 枚举中文映射 (老大实测: available 189 / communicating 11 / cooperating 10 / blacklist 1 / resting 1; following/archived 0 条, 映射函数里照写) */
+var _SB2_TALENT_STATUS_LABELS = {
+  'available': '可合作',
+  'cooperating': '已合作',
+  'communicating': '沟通中',
+  'following': '关注',
+  'blacklist': '黑名单',
+  'resting': '暂休',
+  'archived': '归档'
+};
+
+/* ★ MVP1: 评级分档函数 — 老大实测 ai_rating 209/212 空, level 首字符不是 A/B/C, 用 rating_score 分档
+   阈值: ≥4.5=A / 3.5~4.49=B / 2.0~3.49=C / <2 或 0/空=D-
+   颜色: A 绿(--sb2-success) B 蓝(--sb2-accent) C 橙(--sb2-warning) D 灰(--sb2-t3) */
+function sb2TalentsRatingBucket(score){
+  var s = Number(score);
+  if (!s || s <= 0) return 'D';
+  if (s >= 4.5) return 'A';
+  if (s >= 3.5) return 'B';
+  if (s >= 2.0) return 'C';
+  return 'D';
+}
+
+/* ★ MVP1: GPM 进度条归一 — 按本页数据 max 动态归一 (不许写死量级, 实测 0~1000 均值 14.8) */
+function sb2TalentsGpmFill(value, pageMax){
+  var v = Number(value) || 0;
+  if (v <= 0) return 0;
+  if (!pageMax || pageMax <= 0) return 0;
+  return Math.min(100, Math.round((v / pageMax) * 100));
+}
+
+/* ★ MVP1: 千分位 + 万单位 (total_gmv 0~500 万跨度大, 显示 ¥28.1万) */
+function sb2TalentsFmtGmv(v){
+  var n = Number(v) || 0;
+  if (n === 0) return '¥0';
+  if (n >= 10000) return '¥' + (n / 10000).toFixed(1) + '万';
+  return '¥' + n.toLocaleString('en-US');
+}
+function sb2TalentsFmtFollowers(v){
+  var n = Number(v) || 0;
+  if (n >= 10000) return (n / 10000).toFixed(1) + '万';
+  return String(n);
+}
+function sb2TalentsFmtRating(v){
+  var n = Number(v);
+  if (!n) return '-';
+  return n.toFixed(2);
+}
+
+/* ★ MVP1: HTML 转义 */
+function sb2TalentsEsc(s){
+  return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){
+    return ({'&':'&','<':'<','>':'>','"':'"',"'":'&#39;'})[c];
+  });
+}
+
+/* ★ MVP1: 单行 HTML 渲染 */
+function sb2TalentsRowHtml(t, pageMaxGpm){
+  var id = sb2TalentsEsc(t.id || '');
+  var name = sb2TalentsEsc(t.name || '-');
+  var avatar = t.avatar || '';
+  var initial = name.charAt(0) || '?';
+  var handleRaw = (t.douyin_id || '').replace(/^@/, '');
+  var handle = handleRaw ? '@' + sb2TalentsEsc(handleRaw) : '';
+  var category = sb2TalentsEsc(t.category || '-');
+  var level = sb2TalentsEsc(t.level || '-');
+  var followers = sb2TalentsFmtFollowers(t.followers);
+  var gmv = sb2TalentsFmtGmv(t.total_gmv);
+  var gpm = Number(t.live_gpm) || 0;
+  var gpmFill = sb2TalentsGpmFill(gpm, pageMaxGpm);
+  var rating = sb2TalentsFmtRating(t.rating_score);
+  var matched = Number(t.matched_products);
+  var matchedStr = (matched == null || matched === 0 || isNaN(matched)) ? '0' : String(matched);
+  var bucket = sb2TalentsRatingBucket(t.rating_score);
+  var statusKey = t.cooperation_status || '';
+  var statusLabel = _SB2_TALENT_STATUS_LABELS[statusKey] || statusKey || '-';
+  var avatarHtml = avatar
+    ? '<img src="' + sb2TalentsEsc(avatar) + '" alt="' + name + '" onerror="this.parentNode.textContent=\'' + initial + '\'">'
+    : initial;
+  var checked = _sb2TalentsSelectedIds[id] ? 'checked' : '';
+  return '<tr data-tid="' + id + '">'
+    + '<td onclick="event.stopPropagation()"><input type="checkbox" class="sb2-talents-checkbox sb2-talents-row-check" data-tid="' + id + '" ' + checked + ' onchange="sb2TalentsToggleOne(\'' + id + '\', this.checked)"></td>'
+    + '<td><div class="sb2-talents-talent"><div class="sb2-talents-avatar">' + avatarHtml + '</div>'
+    +   '<div><div class="sb2-talents-name">' + name + '</div>'
+    +   (handle ? '<div class="sb2-talents-handle">' + handle + '</div>' : '')
+    + '</div></div></td>'
+    + '<td><span class="sb2-talents-chip">' + category + '</span></td>'
+    + '<td><span class="sb2-talents-chip-level">' + level + '</span></td>'
+    + '<td class="sb2-talents-num">' + followers + '</td>'
+    + '<td class="sb2-talents-num">' + gmv + '</td>'
+    + '<td><div class="sb2-talents-gpm" title="GPM 原值: ' + gpm + '"><div class="sb2-talents-gpm-bar"><div class="sb2-talents-gpm-fill" style="width:' + gpmFill + '%"></div></div><span class="sb2-talents-gpm-val">' + gpm + '</span></div></td>'
+    + '<td class="sb2-talents-num">' + rating + '</td>'
+    + '<td class="sb2-talents-num">' + matchedStr + '</td>'
+    + '<td><span class="sb2-talents-rating r-' + bucket + '">' + bucket + '</span></td>'
+    + '<td><span class="sb2-talents-status s-' + sb2TalentsEsc(statusKey) + '">' + sb2TalentsEsc(statusLabel) + '</span></td>'
+    + '</tr>';
+}
+
+/* ★ MVP1: 表格渲染 */
+function sb2TalentsRenderTable(){
+  var tbody = document.getElementById('sb2TalentsTbody');
+  if (!tbody) return;
+  var list = _sb2TalentsList || [];
+  if (list.length === 0){
+    tbody.innerHTML = '<tr><td colspan="11" class="sb2-talents-empty"><span class="em">👥</span>暂无达人</td></tr>';
+    return;
+  }
+  var pageMaxGpm = 0;
+  for (var i = 0; i < list.length; i++){
+    var g = Number(list[i].live_gpm) || 0;
+    if (g > pageMaxGpm) pageMaxGpm = g;
+  }
+  var html = '';
+  for (var j = 0; j < list.length; j++){
+    html += sb2TalentsRowHtml(list[j], pageMaxGpm);
+  }
+  tbody.innerHTML = html;
+}
+
+/* ★ MVP1: 三维筛选现场聚合 — 拿到本页列表后, 客户端聚合, 跟知识库 chips 同一招
+   三维 AND 联动: 切任一维后其他两维计数从 _sb2TalentsList 重新聚合 (实测 answer: 切维度不重聚合会出幽灵计数) */
+function sb2TalentsRenderSide(){
+  var list = _sb2TalentsList || [];
+  var ratingCount = { 'A': 0, 'B': 0, 'C': 0, 'D': 0 };
+  var catCount = {};
+  var statusCount = {};
+  for (var i = 0; i < list.length; i++){
+    var t = list[i];
+    var b = sb2TalentsRatingBucket(t.rating_score);
+    ratingCount[b] = (ratingCount[b] || 0) + 1;
+    var cat = t.category || '(空)';
+    catCount[cat] = (catCount[cat] || 0) + 1;
+    var st = t.cooperation_status || '(空)';
+    statusCount[st] = (statusCount[st] || 0) + 1;
+  }
+  // 评级维
+  var ratingEl = document.getElementById('sb2TalentsSideRating');
+  if (ratingEl){
+    var ratingHtml = '<div class="sb2-talents-side-item' + (_sb2TalentsFilterRating === '' ? ' active' : '') + '" data-rating="" onclick="sb2TalentsOnSideClick(\'rating\', \'\')"><span>全部</span><span class="sb2-talents-side-count">' + list.length + '</span></div>';
+    ['A','B','C','D'].forEach(function(k){
+      var label = k === 'A' ? 'A 级 (优先)' : (k === 'B' ? 'B 级' : (k === 'C' ? 'C 级' : 'D 级 (未评)'));
+      ratingHtml += '<div class="sb2-talents-side-item' + (_sb2TalentsFilterRating === k ? ' active' : '') + '" data-rating="' + k + '" onclick="sb2TalentsOnSideClick(\'rating\', \'' + k + '\')"><span>' + label + '</span><span class="sb2-talents-side-count">' + (ratingCount[k] || 0) + '</span></div>';
+    });
+    ratingEl.innerHTML = ratingHtml;
+  }
+  // 类目维 (按计数降序, 取前 12 个避免冗长)
+  var catEl = document.getElementById('sb2TalentsSideCategory');
+  if (catEl){
+    var catHtml = '<div class="sb2-talents-side-item' + (_sb2TalentsFilterCategory === '' ? ' active' : '') + '" data-cat="" onclick="sb2TalentsOnSideClick(\'category\', \'\')"><span>全部类目</span><span class="sb2-talents-side-count">' + list.length + '</span></div>';
+    var cats = Object.keys(catCount).map(function(k){ return [k, catCount[k]]; });
+    cats.sort(function(a, b){ return b[1] - a[1]; });
+    var topCats = cats.slice(0, 12);
+    topCats.forEach(function(c){
+      catHtml += '<div class="sb2-talents-side-item' + (_sb2TalentsFilterCategory === c[0] ? ' active' : '') + '" data-cat="' + sb2TalentsEsc(c[0]) + '" onclick="sb2TalentsOnSideClick(\'category\', \'' + c[0].replace(/'/g, "\\'") + '\')"><span>' + sb2TalentsEsc(c[0]) + '</span><span class="sb2-talents-side-count">' + c[1] + '</span></div>';
+    });
+    catEl.innerHTML = catHtml;
+  }
+  // 状态维
+  var statusEl = document.getElementById('sb2TalentsSideStatus');
+  if (statusEl){
+    var statusHtml = '<div class="sb2-talents-side-item' + (_sb2TalentsFilterStatus === '' ? ' active' : '') + '" data-status="" onclick="sb2TalentsOnSideClick(\'status\', \'\')"><span>全部状态</span><span class="sb2-talents-side-count">' + list.length + '</span></div>';
+    var order = ['available', 'communicating', 'cooperating', 'blacklist', 'resting', 'following', 'archived'];
+    order.forEach(function(k){
+      var cnt = statusCount[k] || 0;
+      var label = _SB2_TALENT_STATUS_LABELS[k] || k;
+      statusHtml += '<div class="sb2-talents-side-item' + (_sb2TalentsFilterStatus === k ? ' active' : '') + '" data-status="' + k + '" onclick="sb2TalentsOnSideClick(\'status\', \'' + k + '\')"><span>' + sb2TalentsEsc(label) + '</span><span class="sb2-talents-side-count">' + cnt + '</span></div>';
+    });
+    statusEl.innerHTML = statusHtml;
+  }
+}
+
+/* ★ MVP1: 分页 < 1 2 3 … 37 > (offset/limit 真分页) */
+function sb2TalentsRenderPager(){
+  var pager = document.getElementById('sb2TalentsPager');
+  if (!pager) return;
+  var total = _sb2TalentsTotal;
+  var page = _sb2TalentsPage;
+  var limit = _sb2TalentsLimit;
+  var totalPages = Math.max(1, Math.ceil(total / limit));
+  if (totalPages <= 1){
+    pager.innerHTML = '<span style="color:var(--sb2-t3)">共 ' + total + ' 条</span>';
+    return;
+  }
+  var html = '';
+  html += '<button ' + (page <= 1 ? 'disabled' : '') + ' onclick="sb2TalentsGoPage(' + (page - 1) + ')">←</button>';
+  var pages = [];
+  if (totalPages <= 7){
+    for (var p = 1; p <= totalPages; p++) pages.push(p);
+  } else {
+    pages.push(1);
+    if (page > 4) pages.push('…');
+    var start = Math.max(2, page - 1);
+    var end = Math.min(totalPages - 1, page + 1);
+    for (var p2 = start; p2 <= end; p2++) pages.push(p2);
+    if (page < totalPages - 3) pages.push('…');
+    pages.push(totalPages);
+  }
+  pages.forEach(function(x){
+    if (x === '…') html += '<span class="ellipsis">…</span>';
+    else html += '<button class="' + (x === page ? 'active' : '') + '" onclick="sb2TalentsGoPage(' + x + ')">' + x + '</button>';
+  });
+  html += '<button ' + (page >= totalPages ? 'disabled' : '') + ' onclick="sb2TalentsGoPage(' + (page + 1) + ')">→</button>';
+  html += '<span style="color:var(--sb2-t3);margin-left:8px">共 ' + total + ' 条</span>';
+  pager.innerHTML = html;
+}
+
+/* ★ MVP1: 选中状态同步到 footer 计数 */
+function sb2TalentsUpdateFooter(){
+  var el = document.getElementById('sb2TalentsFooterLeft');
+  if (!el) return;
+  var keys = Object.keys(_sb2TalentsSelectedIds || {});
+  var n = keys.length;
+  if (n === 0) el.textContent = '共 ' + _sb2TalentsTotal + ' 条';
+  else el.textContent = '已选 ' + n + ' 条 · 共 ' + _sb2TalentsTotal + ' 条';
+  var checkAll = document.getElementById('sb2TalentsCheckAll');
+  if (checkAll){
+    var listLen = (_sb2TalentsList || []).length;
+    checkAll.checked = listLen > 0 && n === listLen;
+    checkAll.indeterminate = n > 0 && n < listLen;
+  }
+}
+
+/* ★ MVP1: 切换侧栏维度 — 三维 AND 联动, 切任一维触发重载 */
+function sb2TalentsOnSideClick(dim, val){
+  if (dim === 'rating') _sb2TalentsFilterRating = val;
+  else if (dim === 'category') _sb2TalentsFilterCategory = val;
+  else if (dim === 'status') _sb2TalentsFilterStatus = val;
+  _sb2TalentsPage = 1;
+  sb2TalentsLoad();
+}
+
+/* ★ MVP1: 搜索 (debounce 300ms, 接 q 参数, name/douyin_id/bio LIKE) */
+function sb2TalentsOnSearch(v){
+  clearTimeout(_sb2TalentsSearchTimer);
+  _sb2TalentsSearchTimer = setTimeout(function(){
+    _sb2TalentsSearchQ = (v || '').trim().toLowerCase();
+    // 同步两个 input
+    var sideInput = document.getElementById('sb2TalentsSideSearch');
+    var heroInput = document.getElementById('sb2TalentsHeroSearch');
+    if (sideInput && sideInput.value !== v) sideInput.value = v;
+    if (heroInput && heroInput.value !== v) heroInput.value = v;
+    _sb2TalentsPage = 1;
+    sb2TalentsLoad();
+  }, 300);
+}
+
+/* ★ MVP1: 翻页 */
+function sb2TalentsGoPage(p){
+  if (p < 1 || p > Math.ceil(_sb2TalentsTotal / _sb2TalentsLimit)) return;
+  _sb2TalentsPage = p;
+  sb2TalentsLoad();
+}
+
+/* ★ MVP1: 全选/单选 */
+function sb2TalentsToggleAll(checked){
+  _sb2TalentsSelectedIds = {};
+  if (checked){
+    (_sb2TalentsList || []).forEach(function(t){
+      if (t.id) _sb2TalentsSelectedIds[t.id] = true;
+    });
+  }
+  // 同步行 checkbox
+  document.querySelectorAll('.sb2-talents-row-check').forEach(function(cb){
+    cb.checked = checked;
+  });
+  sb2TalentsUpdateFooter();
+}
+function sb2TalentsToggleOne(id, checked){
+  if (checked) _sb2TalentsSelectedIds[id] = true;
+  else delete _sb2TalentsSelectedIds[id];
+  sb2TalentsUpdateFooter();
+}
+
+/* ★ MVP1: 占位 toast (筛选/导出/录入 — MVP3/MVP5 才是真动作) */
+function sb2TalentsToast(msg){
+  if (typeof showToast === 'function') showToast(msg, 'info');
+  else { try { console.log('[sb2-talents]', msg); } catch(e){} }
+}
+
+/* ★ MVP1: 主加载 — 端点契约 GET /api/talents?xxx */
+async function sb2TalentsLoad(){
+  var tbody = document.getElementById('sb2TalentsTbody');
+  var heroSub = document.getElementById('sb2TalentsHeroSub');
+  if (tbody) tbody.innerHTML = '<tr><td colspan="11" class="sb2-talents-empty"><span class="em">⏳</span>载入中…</td></tr>';
+  if (heroSub) heroSub.textContent = '载入中…';
+  var params = [];
+  params.push('limit=' + _sb2TalentsLimit);
+  params.push('offset=' + ((_sb2TalentsPage - 1) * _sb2TalentsLimit));
+  if (_sb2TalentsSearchQ) params.push('q=' + encodeURIComponent(_sb2TalentsSearchQ));
+  if (_sb2TalentsFilterStatus) params.push('cooperation=' + encodeURIComponent(_sb2TalentsFilterStatus));
+  if (_sb2TalentsFilterCategory) params.push('talent_category=' + encodeURIComponent(_sb2TalentsFilterCategory));
+  // rating 维不走后端 SUBSTR level (实测 SUBSTR 选不出), 改前端 filter
+  var url = '/api/talents?' + params.join('&');
+  try {
+    var resp = await apiFetch(url);
+    if (!resp || !resp.ok){
+      if (tbody) tbody.innerHTML = '<tr><td colspan="11" class="sb2-talents-empty"><span class="em">⚠️</span>载入失败 (HTTP ' + (resp ? resp.status : 'no response') + ')</td></tr>';
+      if (heroSub) heroSub.textContent = '载入失败';
+      return;
+    }
+    var data = await resp.json();
+    var list = (data && Array.isArray(data.talents)) ? data.talents : [];
+    // 前端 rating 维过滤 (老大实测 SUBSTR 不行)
+    if (_sb2TalentsFilterRating){
+      list = list.filter(function(t){ return sb2TalentsRatingBucket(t.rating_score) === _sb2TalentsFilterRating; });
+    }
+    _sb2TalentsList = list;
+    _sb2TalentsTotal = (data && typeof data.total === 'number') ? data.total : list.length;
+    // 清掉不在当前页的选中
+    var pageIds = {};
+    list.forEach(function(t){ if (t.id) pageIds[t.id] = true; });
+    Object.keys(_sb2TalentsSelectedIds).forEach(function(k){ if (!pageIds[k]) delete _sb2TalentsSelectedIds[k]; });
+    if (heroSub) heroSub.textContent = '共 ' + _sb2TalentsTotal + ' 位达人 · 按等级与类目分组';
+    sb2TalentsRenderSide();
+    sb2TalentsRenderTable();
+    sb2TalentsRenderPager();
+    sb2TalentsUpdateFooter();
+    _sb2TalentsLoaded = true;
+  } catch (e) {
+    if (tbody) tbody.innerHTML = '<tr><td colspan="11" class="sb2-talents-empty"><span class="em">⚠️</span>载入异常: ' + sb2TalentsEsc(e && e.message || String(e)) + '</td></tr>';
+    if (heroSub) heroSub.textContent = '载入异常';
+  }
+}
+
+/* ★ MVP1: 入口 (切模块时调一次) */
+function sb2TalentsInit(){
+  if (!_sb2TalentsLoaded) sb2TalentsLoad();
+}
+/* ★ SEV1 教训: 跨脚本块调用挂 window, 函数声明 vs typeof 检查保底 */
+window.sb2TalentsInit = sb2TalentsInit;
+window.sb2TalentsLoad = sb2TalentsLoad;
+window.sb2TalentsOnSearch = sb2TalentsOnSearch;
+window.sb2TalentsOnSideClick = sb2TalentsOnSideClick;
+window.sb2TalentsGoPage = sb2TalentsGoPage;
+window.sb2TalentsToggleAll = sb2TalentsToggleAll;
+window.sb2TalentsToggleOne = sb2TalentsToggleOne;
+window.sb2TalentsToast = sb2TalentsToast;
+
 async function sb2PatternsInit(){
   var heroSub = document.getElementById('sb2PtnHeroSub');
   var listEl = document.getElementById('sb2PtnList');
@@ -40911,7 +41587,15 @@ function switchModule(module) {
     }
   }
   else if (module === 'products') { loadProductBrands(); loadProducts(); }
-  else if (module === 'influencers') switchTalentMidTab(_talentActiveTab);
+  else if (module === 'influencers') {
+    // ★ sb2-talents MVP1: 显示新屏, 旧 #influencersMid / #influencersRight CSS 兜底 display:none (旧 DOM 不退役仅兜底)
+    var sb2t = document.getElementById('sb2TalentsMain');
+    if (sb2t) {
+      sb2t.classList.add('active');
+      if (typeof sb2TalentsInit === 'function') sb2TalentsInit();
+    }
+    // 旧 switchTalentMidTab 保留兜底 (回归失败可切回), 但默认走新屏
+  }
   else if (module === 'tasks') loadTasks();
   else if (module === 'settings') {
     // 旧 renderSettingsMid 仍在 (CSP/系统设置兜底) — 保留, 但 MVP6 新屏优先显示
@@ -43315,7 +43999,7 @@ window.sb2Go = function(id){
 // 通用策略: .active 走 removeClass, chat 走 hidden 属性, dashboard 不动
 window.sb2_hideAllModuleMains = function(){
   // 1. .active class 控制容器 (knowledge/settings/patterns)
-  document.querySelectorAll('.sb2-knowledge-main.active, .sb2-settings-main.active, .sb2-patterns-main.active')
+  document.querySelectorAll('.sb2-knowledge-main.active, .sb2-settings-main.active, .sb2-patterns-main.active, .sb2-talents-main.active')
     .forEach(function(el){ el.classList.remove('active'); });
   // 2. hidden 属性控制容器 (chat)
   var chatEl = document.getElementById('sb2ChatMain');
