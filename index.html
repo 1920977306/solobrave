@@ -10883,11 +10883,16 @@ window.doLogin = function () {
 /* 今日关注 (focus) — 紧急度排序, focus item 列表 */
 .sb2-dash2-feed-focus-list{ display:flex; flex-direction:column; gap:8px; }
 .sb2-dash2-focus-item{
-  display:flex; align-items:flex-start; gap:10px;
-  padding:10px 12px;
+  /* ★ fix/sb2-full-restore (commit C 修): feed 条目卡 (focus-item) 对齐原型密度
+        之前 (0f41475): padding:10px 12px + border-radius:var(--sb2-r-sm) + gap:10px
+        现在: padding:16px 24px + border-radius:var(--sb2-r-lg) (14px) + gap:14px (原型 line 380 卡片)
+        之前 commit B 我错改了 .sb2-dash2-feed-rightcol (右列容器), 不是条目卡本身,
+        老大双 tab 实测发现 0 生效 — apply when: 改 CSS 必须确认选对元素 */
+  display:flex; align-items:flex-start; gap:14px;
+  padding:16px 24px;
   background:var(--sb2-s2);
   border:1px solid var(--sb2-border);
-  border-radius:var(--sb2-r-sm);
+  border-radius:var(--sb2-r-lg);
   cursor:pointer; transition:background .15s ease;
 }
 .sb2-dash2-focus-item:hover{ background:var(--sb2-s3); }
@@ -10938,10 +10943,15 @@ window.doLogin = function () {
 /* 规律洞察 (insights) — 单条主推 + 副条 */
 .sb2-dash2-feed-insights-list{ display:flex; flex-direction:column; gap:8px; }
 .sb2-dash2-insight-main{
-  padding:12px 14px;
+  /* ★ fix/sb2-full-restore (commit C 修): 规律洞察主推卡 (insight-main) 对齐原型密度
+        之前 (0f41475): padding:12px 14px + border-radius:var(--sb2-r-sm) (6px)
+        现在: padding:16px 24px + border-radius:var(--sb2-r-lg) (14px) (原型 line 400 大卡)
+        注意: .sb2-dash2-insight-sub (副条) + .sb2-dash2-activity-item (员工动态条目) 是增强件
+        原型无对应物, 保持现状豁免 (老大 03:18 拍板) */
+  padding:16px 24px;
   background:var(--sb2-success-soft);
   border:1px solid var(--sb2-success);
-  border-radius:var(--sb2-r-sm);
+  border-radius:var(--sb2-r-lg);
   cursor:pointer;
 }
 .sb2-dash2-insight-main:hover{ opacity:.92; }
@@ -12255,11 +12265,19 @@ window.doLogin = function () {
 /* 视图切换控件在 header 中, 共用 .segmented-control 样式, 这里只做轻量覆盖 */
 .sb2-view-switch { margin-left: 8px; flex-shrink: 0; }
 
-/* ─── 达人库密集表格 ────────────────────────────────────── */
+/* ─── 达人库密集表格 ──────────────────────────────────────
+   ★ fix/sb2-full-restore (commit C 修): line 12259 这份是后定义的重复块,
+        同优先级 (.sb2-talents-table-wrap) 后定义赢, 覆盖了 line 11596 我改的
+        border-radius var(--sb2-r-lg) 14px (实测还是 r-md 10px)。
+        老大双 tab 走查发现: 重复 CSS 块是 4.7 万行 index.html 的常态,
+        改完必须 grep -n 验证只有 1 份定义, 否则只改一份 = 白改。
+        修法: 改这份后块对齐原型 (14px 圆角 + 11px t3 + 12px padding),
+        不是去重 (老块里 .sb2-num/.sb2-col-* 等增强件选择器有用, 不能整块删)
+        apply when: 任何 CSS 改前先 grep -n "选择器{" 数重复次数, 实测终值 */
 .sb2-talents-table-wrap {
   overflow-x: auto;
   border: 1px solid var(--sb2-border);
-  border-radius: var(--sb2-r-md);
+  border-radius: var(--sb2-r-lg);
   background: var(--sb2-s1);
   box-shadow: var(--sb2-sh1);
 }
@@ -12274,11 +12292,11 @@ window.doLogin = function () {
   border-bottom: 1px solid var(--sb2-border);
 }
 .sb2-talents-table thead th {
-  padding: 10px 12px;
+  padding: 12px;
   text-align: left;
-  font-weight: 600;
-  font-size: 12px;
-  color: var(--sb2-t2);
+  font-weight: 500;
+  font-size: 11px;
+  color: var(--sb2-t3);
   white-space: nowrap;
   letter-spacing: 0.02em;
 }
@@ -12294,7 +12312,7 @@ window.doLogin = function () {
   box-shadow: inset 3px 0 0 var(--sb2-brand);
 }
 .sb2-talents-table tbody td {
-  padding: 10px 12px;
+  padding: 12px;
   vertical-align: middle;
 }
 .sb2-num {
