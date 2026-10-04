@@ -11579,13 +11579,23 @@ window.doLogin = function () {
   font:500 11px/1.2 "PingFang SC",sans-serif;
   background:var(--sb2-s2); color:var(--sb2-t2); border:1px solid var(--sb2-border);
 }
-.sb2-talents-status.s-available{ background:var(--sb2-success-soft); color:var(--sb2-success); border-color:transparent; }
-.sb2-talents-status.s-cooperating{ background:var(--sb2-accent-soft); color:var(--sb2-accent); border-color:transparent; }
-.sb2-talents-status.s-communicating{ background:var(--sb2-warning-soft); color:var(--sb2-warning); border-color:transparent; }
+/* ★ fix/talents-hotfix: 状态 chip 配色对齐原型
+   之前: cooperating 蓝 / communicating 橙 / available 绿 — 跟原型颠倒
+   现在: cooperating 绿(已合作优先亮色) / communicating 蓝(沟通中提示色) / available 灰(待联系不抢眼)
+   黑名单红, 休息/归档 灰 */
+.sb2-talents-status.s-available{ background:var(--sb2-s3); color:var(--sb2-t3); border-color:transparent; }
+.sb2-talents-status.s-cooperating{ background:var(--sb2-success-soft); color:var(--sb2-success); border-color:transparent; }
+.sb2-talents-status.s-communicating{ background:var(--sb2-accent-soft); color:var(--sb2-accent); border-color:transparent; }
 .sb2-talents-status.s-blacklist{ background:var(--sb2-danger-soft); color:var(--sb2-danger); border-color:transparent; }
 .sb2-talents-status.s-resting{ background:var(--sb2-s3); color:var(--sb2-t3); border-color:transparent; }
 .sb2-talents-status.s-following{ background:var(--sb2-s2); color:var(--sb2-t2); border-color:transparent; }
 .sb2-talents-status.s-archived{ background:var(--sb2-s3); color:var(--sb2-t3); border-color:transparent; opacity:.7; }
+
+/* ★ fix/talents-hotfix: 黑名单行整行沉底置灰 (跟 tasks 模块 cancelled-row 同款)
+   之前: 黑名单跟普通行同色同 opacity, 黑名单达人混进首屏 (老大实证)
+   现在: 黑名单合作状态行整行 opacity: .55 沉底 */
+.sb2-talents-row-blacklist{ opacity:.55; }
+.sb2-talents-row-blacklist:hover{ opacity:.8; }
 
 .sb2-talents-num{
   font-variant-numeric:tabular-nums;
@@ -40964,6 +40974,10 @@ var _sb2PtnLevel = ''; // '', 'hypothesis', 'candidate', 'verified'
  * ============================================================ */
 var _sb2TalentsList = [];
 var _sb2TalentsTotal = 0;
+/* ★ fix/talents-hotfix: 服务端响应带全量 facets (rating/category/cooperation GROUP BY),
+   前端不再从当前页 _sb2TalentsList 算聚合 (之前用 list 算 → 全部 50 = 当前页 limit)
+   apply when: 任何「侧栏聚合需全库数据」必须服务端 GROUP BY 一次拿, 禁前端从当前页算 */
+var _sb2TalentsFacets = null;
 var _sb2TalentsPage = 1;
 var _sb2TalentsLimit = 50;
 var _sb2TalentsFilterRating = '';   // '' / 'A' / 'B' / 'C' / 'D'
@@ -41005,22 +41019,32 @@ function sb2TalentsGpmFill(value, pageMax){
   return Math.min(100, Math.round((v / pageMax) * 100));
 }
 
-/* ★ MVP1: 千分位 + 万单位 (total_gmv 0~500 万跨度大, 显示 ¥28.1万) */
+/* ★ MVP1: 千分位 + 万单位 (total_gmv 0~500 万跨度大, 显示 ¥28.1万)
+   ★ fix/talents-hotfix: 原型是 ¥186,700 纯千分位无万单位 → 统一 ¥300,000 千分位
+   之前: ≥10000 转万单位 (300.0万), 老大实测错位 */
 function sb2TalentsFmtGmv(v){
   var n = Number(v) || 0;
   if (n === 0) return '¥0';
-  if (n >= 10000) return '¥' + (n / 10000).toFixed(1) + '万';
   return '¥' + n.toLocaleString('en-US');
 }
 function sb2TalentsFmtFollowers(v){
   var n = Number(v) || 0;
-  if (n >= 10000) return (n / 10000).toFixed(1) + '万';
-  return String(n);
+  /* 原型 82,000 千分位 → 统一千分位, 不用万单位 */
+  return n.toLocaleString('en-US');
 }
 function sb2TalentsFmtRating(v){
   var n = Number(v);
   if (!n) return '-';
   return n.toFixed(2);
+}
+
+/* ★ fix/talents-hotfix: GMV mini bar 归一 — 跟 GPM 同模式, 用本页 max 动态归一
+   apply when: 任何「表格数字列 mini bar」必须按本页 max 动态归一, 禁写死量级 */
+function sb2TalentsGmvFill(value, pageMax){
+  var v = Number(value) || 0;
+  if (v <= 0) return 0;
+  if (!pageMax || pageMax <= 0) return 0;
+  return Math.min(100, Math.round((v / pageMax) * 100));
 }
 
 /* ★ MVP1: HTML 转义 */
@@ -41031,7 +41055,7 @@ function sb2TalentsEsc(s){
 }
 
 /* ★ MVP1: 单行 HTML 渲染 */
-function sb2TalentsRowHtml(t, pageMaxGpm){
+function sb2TalentsRowHtml(t, pageMaxGpm, pageMaxGmv){
   var id = sb2TalentsEsc(t.id || '');
   var name = sb2TalentsEsc(t.name || '-');
   var avatar = t.avatar || '';
@@ -41041,7 +41065,9 @@ function sb2TalentsRowHtml(t, pageMaxGpm){
   var category = sb2TalentsEsc(t.category || '-');
   var level = sb2TalentsEsc(t.level || '-');
   var followers = sb2TalentsFmtFollowers(t.followers);
-  var gmv = sb2TalentsFmtGmv(t.total_gmv);
+  var gmvRaw = Number(t.total_gmv) || 0;
+  var gmv = sb2TalentsFmtGmv(gmvRaw);
+  var gmvFill = sb2TalentsGmvFill(gmvRaw, pageMaxGmv);
   var gpm = Number(t.live_gpm) || 0;
   var gpmFill = sb2TalentsGpmFill(gpm, pageMaxGpm);
   var rating = sb2TalentsFmtRating(t.rating_score);
@@ -41054,7 +41080,9 @@ function sb2TalentsRowHtml(t, pageMaxGpm){
     ? '<img src="' + sb2TalentsEsc(avatar) + '" alt="' + name + '" onerror="this.parentNode.textContent=\'' + initial + '\'">'
     : initial;
   var checked = _sb2TalentsSelectedIds[id] ? 'checked' : '';
-  return '<tr data-tid="' + id + '">'
+  /* ★ fix/talents-hotfix: 黑名单行整行沉底置灰 (CSS .sb2-talents-row-blacklist) */
+  var rowClass = (statusKey === 'blacklist') ? ' class="sb2-talents-row-blacklist"' : '';
+  return '<tr data-tid="' + id + '"' + rowClass + '>'
     + '<td onclick="event.stopPropagation()"><input type="checkbox" class="sb2-talents-checkbox sb2-talents-row-check" data-tid="' + id + '" ' + checked + ' onchange="sb2TalentsToggleOne(\'' + id + '\', this.checked)"></td>'
     + '<td><div class="sb2-talents-talent"><div class="sb2-talents-avatar">' + avatarHtml + '</div>'
     +   '<div><div class="sb2-talents-name">' + name + '</div>'
@@ -41063,7 +41091,8 @@ function sb2TalentsRowHtml(t, pageMaxGpm){
     + '<td><span class="sb2-talents-chip">' + category + '</span></td>'
     + '<td><span class="sb2-talents-chip-level">' + level + '</span></td>'
     + '<td class="sb2-talents-num">' + followers + '</td>'
-    + '<td class="sb2-talents-num">' + gmv + '</td>'
+    /* ★ fix/talents-hotfix: GMV 列加 mini bar (跟 GPM 同模式, 用 pageMax 归一) */
+    + '<td><div class="sb2-talents-gpm" title="总 GMV 原值: ' + gmvRaw + '"><div class="sb2-talents-gpm-bar"><div class="sb2-talents-gpm-fill" style="width:' + gmvFill + '%"></div></div><span class="sb2-talents-gpm-val">' + gmv + '</span></div></td>'
     + '<td><div class="sb2-talents-gpm" title="GPM 原值: ' + gpm + '"><div class="sb2-talents-gpm-bar"><div class="sb2-talents-gpm-fill" style="width:' + gpmFill + '%"></div></div><span class="sb2-talents-gpm-val">' + gpm + '</span></div></td>'
     + '<td class="sb2-talents-num">' + rating + '</td>'
     + '<td class="sb2-talents-num">' + matchedStr + '</td>'
@@ -41082,13 +41111,16 @@ function sb2TalentsRenderTable(){
     return;
   }
   var pageMaxGpm = 0;
+  var pageMaxGmv = 0;
   for (var i = 0; i < list.length; i++){
     var g = Number(list[i].live_gpm) || 0;
     if (g > pageMaxGpm) pageMaxGpm = g;
+    var m = Number(list[i].total_gmv) || 0;
+    if (m > pageMaxGmv) pageMaxGmv = m;
   }
   var html = '';
   for (var j = 0; j < list.length; j++){
-    html += sb2TalentsRowHtml(list[j], pageMaxGpm);
+    html += sb2TalentsRowHtml(list[j], pageMaxGpm, pageMaxGmv);
   }
   tbody.innerHTML = html;
 }
@@ -41096,33 +41128,33 @@ function sb2TalentsRenderTable(){
 /* ★ MVP1: 三维筛选现场聚合 — 拿到本页列表后, 客户端聚合, 跟知识库 chips 同一招
    三维 AND 联动: 切任一维后其他两维计数从 _sb2TalentsList 重新聚合 (实测 answer: 切维度不重聚合会出幽灵计数) */
 function sb2TalentsRenderSide(){
-  var list = _sb2TalentsList || [];
-  var ratingCount = { 'A': 0, 'B': 0, 'C': 0, 'D': 0 };
-  var catCount = {};
-  var statusCount = {};
-  for (var i = 0; i < list.length; i++){
-    var t = list[i];
-    var b = sb2TalentsRatingBucket(t.rating_score);
-    ratingCount[b] = (ratingCount[b] || 0) + 1;
-    var cat = t.category || '(空)';
-    catCount[cat] = (catCount[cat] || 0) + 1;
-    var st = t.cooperation_status || '(空)';
-    statusCount[st] = (statusCount[st] || 0) + 1;
-  }
+  /* ★ fix/talents-hotfix: 用 _sb2TalentsFacets (服务端全量聚合) 而非 _sb2TalentsList (当前页 50 条)
+     之前: 从 _sb2TalentsList 算 → 全部 50 (当前页 limit), 不准
+     现在: 服务端 GROUP BY 全量聚合 → 全部 1847/240 等, 跟 _sb2TalentsTotal 一致
+     apply when: 任何「侧栏聚合需全库」必须服务端 GROUP BY 一次拿, 禁前端从当前页算 */
+  var facets = _sb2TalentsFacets || { rating: {}, category: {}, cooperation: {} };
+  var totalCount = _sb2TalentsTotal || 0;
   // 评级维
   var ratingEl = document.getElementById('sb2TalentsSideRating');
   if (ratingEl){
-    var ratingHtml = '<div class="sb2-talents-side-item' + (_sb2TalentsFilterRating === '' ? ' active' : '') + '" data-rating="" onclick="sb2TalentsOnSideClick(\'rating\', \'\')"><span>全部</span><span class="sb2-talents-side-count">' + list.length + '</span></div>';
+    var ratingHtml = '<div class="sb2-talents-side-item' + (_sb2TalentsFilterRating === '' ? ' active' : '') + '" data-rating="" onclick="sb2TalentsOnSideClick(\'rating\', \'\')"><span>全部</span><span class="sb2-talents-side-count">' + totalCount + '</span></div>';
+    var ratingLabels = {'A': 'A 级 (优先)', 'B': 'B 级', 'C': 'C 级', 'D': 'D 级 (未评)'};
     ['A','B','C','D'].forEach(function(k){
-      var label = k === 'A' ? 'A 级 (优先)' : (k === 'B' ? 'B 级' : (k === 'C' ? 'C 级' : 'D 级 (未评)'));
-      ratingHtml += '<div class="sb2-talents-side-item' + (_sb2TalentsFilterRating === k ? ' active' : '') + '" data-rating="' + k + '" onclick="sb2TalentsOnSideClick(\'rating\', \'' + k + '\')"><span>' + label + '</span><span class="sb2-talents-side-count">' + (ratingCount[k] || 0) + '</span></div>';
+      var cnt = (facets.rating && facets.rating[k]) ? facets.rating[k] : 0;
+      ratingHtml += '<div class="sb2-talents-side-item' + (_sb2TalentsFilterRating === k ? ' active' : '') + '" data-rating="' + k + '" onclick="sb2TalentsOnSideClick(\'rating\', \'' + k + '\')"><span>' + ratingLabels[k] + '</span><span class="sb2-talents-side-count">' + cnt + '</span></div>';
     });
+    // 显示 (空) 桶 (等级未评, 老大说等级空显 - 保持不动)
+    var emptyCnt = (facets.rating && facets.rating['(空)']) ? facets.rating['(空)'] : 0;
+    if (emptyCnt > 0) {
+      ratingHtml += '<div class="sb2-talents-side-item' + (_sb2TalentsFilterRating === 'NONE' ? ' active' : '') + '" data-rating="NONE" onclick="sb2TalentsOnSideClick(\'rating\', \'NONE\')"><span>未评</span><span class="sb2-talents-side-count">' + emptyCnt + '</span></div>';
+    }
     ratingEl.innerHTML = ratingHtml;
   }
   // 类目维 (按计数降序, 取前 12 个避免冗长)
   var catEl = document.getElementById('sb2TalentsSideCategory');
   if (catEl){
-    var catHtml = '<div class="sb2-talents-side-item' + (_sb2TalentsFilterCategory === '' ? ' active' : '') + '" data-cat="" onclick="sb2TalentsOnSideClick(\'category\', \'\')"><span>全部类目</span><span class="sb2-talents-side-count">' + list.length + '</span></div>';
+    var catHtml = '<div class="sb2-talents-side-item' + (_sb2TalentsFilterCategory === '' ? ' active' : '') + '" data-cat="" onclick="sb2TalentsOnSideClick(\'category\', \'\')"><span>全部类目</span><span class="sb2-talents-side-count">' + totalCount + '</span></div>';
+    var catCount = facets.category || {};
     var cats = Object.keys(catCount).map(function(k){ return [k, catCount[k]]; });
     cats.sort(function(a, b){ return b[1] - a[1]; });
     var topCats = cats.slice(0, 12);
@@ -41131,13 +41163,13 @@ function sb2TalentsRenderSide(){
     });
     catEl.innerHTML = catHtml;
   }
-  // 状态维
+  // 状态维 (cooperation_status)
   var statusEl = document.getElementById('sb2TalentsSideStatus');
   if (statusEl){
-    var statusHtml = '<div class="sb2-talents-side-item' + (_sb2TalentsFilterStatus === '' ? ' active' : '') + '" data-status="" onclick="sb2TalentsOnSideClick(\'status\', \'\')"><span>全部状态</span><span class="sb2-talents-side-count">' + list.length + '</span></div>';
-    var order = ['available', 'communicating', 'cooperating', 'blacklist', 'resting', 'following', 'archived'];
+    var statusHtml = '<div class="sb2-talents-side-item' + (_sb2TalentsFilterStatus === '' ? ' active' : '') + '" data-status="" onclick="sb2TalentsOnSideClick(\'status\', \'\')"><span>全部状态</span><span class="sb2-talents-side-count">' + totalCount + '</span></div>';
+    var order = ['cooperating', 'communicating', 'available', 'blacklist', 'resting', 'following', 'archived'];
     order.forEach(function(k){
-      var cnt = statusCount[k] || 0;
+      var cnt = (facets.cooperation && facets.cooperation[k]) ? facets.cooperation[k] : 0;
       var label = _SB2_TALENT_STATUS_LABELS[k] || k;
       statusHtml += '<div class="sb2-talents-side-item' + (_sb2TalentsFilterStatus === k ? ' active' : '') + '" data-status="' + k + '" onclick="sb2TalentsOnSideClick(\'status\', \'' + k + '\')"><span>' + sb2TalentsEsc(label) + '</span><span class="sb2-talents-side-count">' + cnt + '</span></div>';
     });
@@ -41282,6 +41314,10 @@ async function sb2TalentsLoad(){
     }
     _sb2TalentsList = list;
     _sb2TalentsTotal = (data && typeof data.total === 'number') ? data.total : list.length;
+    /* ★ fix/talents-hotfix: 服务端响应 facets 全量聚合 (跟 total 同口径)
+       之前: 侧栏从 _sb2TalentsList (当前页 50 条) 算 → 全部 50, 不准
+       现在: 服务端 GROUP BY 全量 → 全部 1847/240 等, 跟 total 一致 */
+    _sb2TalentsFacets = (data && data.facets) ? data.facets : null;
     // 清掉不在当前页的选中
     var pageIds = {};
     list.forEach(function(t){ if (t.id) pageIds[t.id] = true; });
