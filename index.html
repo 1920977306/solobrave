@@ -10806,6 +10806,163 @@ window.doLogin = function () {
   padding:40px 20px; text-align:center; color:var(--sb2-t3);
   font:400 13px/1.5 "PingFang SC",sans-serif;
 }
+
+/* ============================================================
+ * sb2-dashboard MVP2: 三 feed 区 (今日关注 + 规律洞察 + 员工动态)
+ * - 3 列 grid: focus 40% / insights 35% / activity 25%
+ * - .sb2-dash2-feed-hd 标题行 (与 MVP1 .sb2-sec 同款但走 .sb2-dash2-* 前缀)
+ * - .sb2-dash2-feed-focus / -insights / -activity 三段内容
+ * - 数据: /api/knowledge-events / knowledge-patterns / knowledge/entries 客户端 filter
+ * ============================================================ */
+.sb2-dash2-feed-grid{
+  display:grid;
+  grid-template-columns:minmax(0,2fr) minmax(0,1.6fr) minmax(0,1.4fr);
+  gap:14px;
+  margin-top:6px;
+}
+@media (max-width:1200px){
+  .sb2-dash2-feed-grid{ grid-template-columns:1fr 1fr; }
+  .sb2-dash2-feed-activity{ grid-column:span 2; }
+}
+@media (max-width:760px){
+  .sb2-dash2-feed-grid{ grid-template-columns:1fr; }
+  .sb2-dash2-feed-activity{ grid-column:auto; }
+}
+.sb2-dash2-feed{
+  background:var(--sb2-s1);
+  border:1px solid var(--sb2-border);
+  border-radius:var(--sb2-r);
+  padding:14px 16px;
+  min-height:160px;
+  display:flex; flex-direction:column; gap:10px;
+}
+.sb2-dash2-feed-hd{
+  display:flex; align-items:baseline; justify-content:space-between;
+  padding-bottom:6px;
+  border-bottom:1px solid var(--sb2-border);
+}
+.sb2-dash2-feed-hd h2{
+  font:600 14px/1.3 "PingFang SC",sans-serif; color:var(--sb2-t1); margin:0;
+  letter-spacing:-0.005em;
+}
+.sb2-dash2-feed-hd .hint{
+  font:400 11px/1 "PingFang SC",sans-serif; color:var(--sb2-t3);
+}
+.sb2-dash2-feed-empty{
+  padding:32px 8px; text-align:center; color:var(--sb2-t3);
+  font:400 12px/1.4 "PingFang SC",sans-serif;
+}
+.sb2-dash2-feed-empty .em{ font-size:18px; opacity:.4; margin-bottom:6px; display:block; }
+
+/* 今日关注 (focus) — 紧急度排序, focus item 列表 */
+.sb2-dash2-feed-focus-list{ display:flex; flex-direction:column; gap:8px; }
+.sb2-dash2-focus-item{
+  display:flex; align-items:flex-start; gap:10px;
+  padding:10px 12px;
+  background:var(--sb2-s2);
+  border:1px solid var(--sb2-border);
+  border-radius:var(--sb2-r-sm);
+  cursor:pointer; transition:background .15s ease;
+}
+.sb2-dash2-focus-item:hover{ background:var(--sb2-s3); }
+.sb2-dash2-focus-item-icon{
+  flex:0 0 auto; width:28px; height:28px;
+  border-radius:var(--sb2-r-sm);
+  display:flex; align-items:center; justify-content:center;
+  font-size:14px;
+}
+.sb2-dash2-focus-item-icon.kind-promote{ background:var(--sb2-warning-soft); color:var(--sb2-warning); }
+.sb2-dash2-focus-item-icon.kind-review{ background:var(--sb2-brand-soft); color:var(--sb2-brand); }
+.sb2-dash2-focus-item-icon.kind-talent{ background:var(--sb2-success-soft); color:var(--sb2-success); }
+.sb2-dash2-focus-item-icon.kind-agent{ background:var(--sb2-ink-soft); color:var(--sb2-ink); }
+.sb2-dash2-focus-item-body{ flex:1 1 auto; min-width:0; }
+.sb2-dash2-focus-item-t{
+  font:500 13px/1.35 "PingFang SC",sans-serif; color:var(--sb2-ink);
+  margin-bottom:2px;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+.sb2-dash2-focus-item-d{
+  font:400 11px/1.4 "PingFang SC",sans-serif; color:var(--sb2-t3);
+  display:flex; gap:8px; flex-wrap:wrap;
+}
+.sb2-dash2-focus-item-d b{ color:var(--sb2-t1); font-weight:600; }
+.sb2-dash2-focus-item-tag{
+  flex:0 0 auto;
+  font:500 10px/1 "PingFang SC",sans-serif;
+  padding:3px 6px; border-radius:var(--sb2-r-sm);
+  background:var(--sb2-s3); color:var(--sb2-t2);
+}
+
+/* 规律洞察 (insights) — 单条主推 + 副条 */
+.sb2-dash2-feed-insights-list{ display:flex; flex-direction:column; gap:8px; }
+.sb2-dash2-insight-main{
+  padding:12px 14px;
+  background:var(--sb2-success-soft);
+  border:1px solid var(--sb2-success);
+  border-radius:var(--sb2-r-sm);
+  cursor:pointer;
+}
+.sb2-dash2-insight-main:hover{ opacity:.92; }
+.sb2-dash2-insight-main-cat{
+  font:500 10px/1 "SF Mono",ui-monospace,monospace;
+  color:var(--sb2-success); text-transform:uppercase; letter-spacing:.05em;
+  margin-bottom:4px;
+}
+.sb2-dash2-insight-main-text{
+  font:600 13px/1.45 "PingFang SC",sans-serif; color:var(--sb2-ink);
+  margin-bottom:8px;
+}
+.sb2-dash2-insight-main-meta{
+  display:flex; gap:10px; flex-wrap:wrap;
+  font:400 11px/1.4 "SF Mono",ui-monospace,monospace; color:var(--sb2-t2);
+}
+.sb2-dash2-insight-main-meta b{ color:var(--sb2-success); font-weight:700; }
+.sb2-dash2-insight-sub{
+  padding:8px 12px;
+  background:var(--sb2-s2);
+  border:1px solid var(--sb2-border);
+  border-radius:var(--sb2-r-sm);
+  display:flex; gap:10px; align-items:center;
+  cursor:pointer;
+}
+.sb2-dash2-insight-sub:hover{ background:var(--sb2-s3); }
+.sb2-dash2-insight-sub-text{
+  flex:1 1 auto; min-width:0;
+  font:400 12px/1.4 "PingFang SC",sans-serif; color:var(--sb2-t1);
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+.sb2-dash2-insight-sub-conf{
+  flex:0 0 auto;
+  font:500 10px/1 "SF Mono",ui-monospace,monospace;
+  color:var(--sb2-t3); padding:2px 6px;
+  background:var(--sb2-s3); border-radius:var(--sb2-r-sm);
+}
+
+/* 员工动态 (activity) — 头像 + 动作 + 相对时间 */
+.sb2-dash2-feed-activity-list{ display:flex; flex-direction:column; gap:6px; }
+.sb2-dash2-activity-item{
+  display:flex; align-items:center; gap:10px;
+  padding:6px 4px;
+}
+.sb2-dash2-activity-avatar{
+  flex:0 0 auto;
+  width:28px; height:28px;
+  border-radius:50%;
+  background:var(--sb2-s3);
+  color:var(--sb2-t1);
+  display:flex; align-items:center; justify-content:center;
+  font:600 11px/1 "PingFang SC",sans-serif;
+}
+.sb2-dash2-activity-body{ flex:1 1 auto; min-width:0; }
+.sb2-dash2-activity-line{
+  font:400 12px/1.4 "PingFang SC",sans-serif; color:var(--sb2-t1);
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+.sb2-dash2-activity-line b{ color:var(--sb2-ink); font-weight:600; }
+.sb2-dash2-activity-time{
+  flex:0 0 auto;
+  font:400 10px/1 "SF Mono",ui-monospace,monospace; color:var(--sb2-t3);
+}
 </style>
 
 <style id="sb2-knowledge">
@@ -42699,7 +42856,11 @@ function hookBellBadge(){
 /* MVP1: 4 张 KPI 卡升级到 .sb2-dash2-* DOM, 走 /api/stats/dashboard-kpi 真数据
    卡 1 = 「近 7 天知识注入条数」(GMV 无时序, 老大 16:23 拍板换真指标)
    sparkline: SVG 内联 7 点 + delta_pct 涨跌色
-   #sb2Dash 覆盖层机制保留, 新内容 .sb2-dash2-* 前缀 */
+   #sb2Dash 覆盖层机制保留, 新内容 .sb2-dash2-* 前缀
+   MVP2: 三 feed 区 (今日关注 + 规律洞察 + 员工动态) 接 KPI 4 卡之后
+   同套 .sb2-dash2-* 前缀; 数据流 fetch + Promise.all
+   踩坑 (MVP1 + MVP2 同类型): 字符串拼接 + // 注释 + kpi() 调用 = + string + + kpi() = + string + NaN
+   同样 + /* 注释 */ + expr 也会触发 + + 一元正号 = NaN, 修法: 注释挪到函数体外 /* */ */
 function buildDashboard(){
   if (document.getElementById('sb2Dash')) return;
   var dash = document.createElement('div');
@@ -42730,9 +42891,20 @@ function buildDashboard(){
     +     kpi('sb2KpiKb','知识库条目','kb_entries 总数')
     +     kpi('sb2KpiAgents','AI 员工在线','/api/agents 实时')
     +   '</div>'
-    +   '<div class="sb2-sec"><h2>今日关注</h2><span class="hint">来自真实数据, 点击跳转处理</span></div>'
-    +   '<div class="sb2-focus"><div class="sb2-list" id="sb2FocusList"></div>'
-    +   '<div class="sb2-mini"><div style="font:600 13px/1.5 \'PingFang SC\',sans-serif; color:var(--sb2-t1); margin-bottom:6px;">数据速览</div><div id="sb2MiniBody"></div></div></div>'
+    +   '<div class="sb2-dash2-feed-grid">'
+    +     '<div class="sb2-dash2-feed sb2-dash2-feed-focus">'
+    +       '<div class="sb2-dash2-feed-hd"><h2>今日关注</h2><span class="hint">紧急度排序</span></div>'
+    +       '<div id="sb2Dash2FocusList" class="sb2-dash2-feed-focus-list"></div>'
+    +     '</div>'
+    +     '<div class="sb2-dash2-feed sb2-dash2-feed-insights">'
+    +       '<div class="sb2-dash2-feed-hd"><h2>规律洞察</h2><span class="hint">本周最活跃</span></div>'
+    +       '<div id="sb2Dash2InsightList" class="sb2-dash2-feed-insights-list"></div>'
+    +     '</div>'
+    +     '<div class="sb2-dash2-feed sb2-dash2-feed-activity">'
+    +       '<div class="sb2-dash2-feed-hd"><h2>员工动态</h2><span class="hint">最近 24 小时</span></div>'
+    +       '<div id="sb2Dash2ActivityList" class="sb2-dash2-feed-activity-list"></div>'
+    +     '</div>'
+    +   '</div>'
     + '</div></div>';
   document.body.appendChild(dash);
   // 日期/问候
@@ -42872,6 +43044,8 @@ function sb2_loadDashboardKpis(){
         if (v && v.getAttribute('data-v') === '-') return;
       });
     });
+  /* MVP2: 三 feed 区加载 (今日关注 + 规律洞察 + 员工动态) — 与 KPI 4 卡并行 */
+  sb2_loadDashboardFeeds();
 }
 // 兑底: 老 loadKpis() 仍保留 (回归失败可切回), 但 buildDashboard 默认走新函数
 function loadKpis(){ sb2_loadDashboardKpis(); }
@@ -42882,25 +43056,203 @@ function focusItem(tagCls, tag, title, desc, target){
        + '<span class="sb2-tag '+tagCls+'">'+tag+'</span></div>';
 }
 function buildFocus(){
-  var html = '', mini = '';
-  // 知识待审核(仅在 kb 全量统计完成时给精确值)
-  if (typeof SB2.kbOk === 'number' && SB2.kbFullyCounted && typeof SB2.kbTotal === 'number') {
-    var pending = SB2.kbTotal - SB2.kbOk;
-    if (pending > 0) html += focusItem('sb2-tag-warning','待审核', pending + ' 条知识待审核', 'kb_entries 中 status≠ok 的条目, 点击去知识库处理', 'knowledge');
-    else html += focusItem('sb2-tag-success','知识库','知识库全部入库','kb_entries ' + SB2.kbTotal + ' 条均已审核', 'knowledge');
-    mini += '<div class="row"><span>知识库条目</span><b>'+SB2.kbTotal+'</b></div>';
+  /* MVP1 兼容: 老逻辑 (写 #sb2FocusList / #sb2MiniBody), 但 MVP2 已删除, 函数无副作用 */
+  return;
+}
+
+/* ---------- MVP2 三 feed 区加载 (knowledge-events + knowledge-patterns + kb entries) ---------- */
+function sb2_loadDashboardFeeds(){
+  var tok = localStorage.getItem('sb_auth_token') || '';
+  var headers = { 'Authorization': 'Bearer ' + tok };
+  var xid = (window.SB2 && SB2.agentId) || localStorage.getItem('sb_agent_id') || '';
+  if (xid) headers['X-Agent-Id'] = xid;
+  try {
+    var mods = JSON.parse(localStorage.getItem('sb_module_perms') || 'null');
+    if (mods && Array.isArray(mods)) headers['X-Module-Perms'] = JSON.stringify(mods);
+  } catch(e){}
+
+  var eventsP = fetch('/api/knowledge-events?limit=50', { headers: headers }).then(function(r){ return r.json(); }).then(function(d){ return (d && Array.isArray(d.events)) ? d.events : []; }).catch(function(){ return []; });
+  var patternsP = fetch('/api/knowledge-patterns?status=active&limit=50', { headers: headers }).then(function(r){ return r.json(); }).then(function(d){ return (d && Array.isArray(d.patterns)) ? d.patterns : []; }).catch(function(){ return []; });
+  var kbP = fetch('/api/knowledge/entries?status=pending&limit=50', { headers: headers }).then(function(r){ return r.json(); }).then(function(d){ return (d && Array.isArray(d.docs)) ? d.docs : []; }).catch(function(){ return []; });
+  var agentsP = fetch('/api/agents', { headers: headers }).then(function(r){ return r.json(); }).then(function(d){ return Array.isArray(d) ? d : ((d && (d.agents || d.data)) || []); }).catch(function(){ return []; });
+
+  Promise.all([eventsP, patternsP, kbP, agentsP]).then(function(arr){
+    var events = arr[0], patterns = arr[1], pendingKb = arr[2], agents = arr[3];
+    /* 缓存 agent 名查找表 (MVP2 解析事件 createdBy) */
+    SB2.agentNameById = {};
+    agents.forEach(function(a){
+      if (a && a.id) SB2.agentNameById[a.id] = a.displayName || a.name || a.username || a.id;
+    });
+    sb2_renderFocus(events, patterns, pendingKb);
+    sb2_renderInsights(patterns);
+    sb2_renderActivity(events);
+  }).catch(function(err){
+    console.warn('[sb2_loadDashboardFeeds]', err);
+  });
+}
+
+/* 今日关注: 规律晋升 + 待审核知识分类 + 近 24h 达人动态, 紧急度排序 */
+function sb2_renderFocus(events, patterns, pendingKb){
+  var el = document.getElementById('sb2Dash2FocusList');
+  if (!el) return;
+  var items = [];
+  /* 规律晋升: evidence_count ≥ 30 && verification_level != 'verified' */
+  (patterns || []).forEach(function(p){
+    var ev = Number(p.evidence_count) || 0;
+    if (ev >= 30 && p.verification_level && p.verification_level !== 'verified'){
+      items.push({
+        kind: 'promote',
+        title: p.pattern_text || '(无文本)',
+        sub: 'evidence ' + ev + ' · 命中 ' + (p.hit_count || 0) + ' 次 · 状态 ' + (p.verification_level || '-'),
+        tag: p.category || '规律',
+        tagCls: 'warning',
+        target: 'patterns'
+      });
+    }
+  });
+  /* 待审核知识按 category 聚合 (取真分类) */
+  var catMap = {};
+  (pendingKb || []).forEach(function(d){
+    var c = d.category || '其他';
+    catMap[c] = (catMap[c] || 0) + 1;
+  });
+  var catNames = Object.keys(catMap);
+  if (catNames.length > 0){
+    var sumCat = catNames.map(function(c){ return catMap[c] + ' 条' + c; }).join(' · ');
+    items.push({
+      kind: 'review',
+      title: catNames.length + ' 类待审核 · 共 ' + Object.keys(catMap).reduce(function(s,c){ return s + catMap[c]; }, 0) + ' 条',
+      sub: sumCat + ' — 来自 kb_entries status=pending',
+      tag: '待审核',
+      tagCls: 'brand',
+      target: 'knowledge'
+    });
   }
-  if (typeof SB2.weekNewTalents === 'number' && SB2.weekNewTalents > 0)
-    html += focusItem('sb2-tag-brand','达人', '近 7 天新增达人 ' + SB2.weekNewTalents + ' 位', '点击去达人库查看与评级', 'influencers');
-  if (typeof SB2.agentsOffline === 'number' && SB2.agentsOffline > 0)
-    html += focusItem('sb2-tag-accent','员工', SB2.agentsOffline + ' 位 AI 员工离线/忙碌', '共 ' + SB2.agentsTotal + ' 位, 点击去即时通讯检查', 'messages');
-  if (!html) html = '<div class="sb2-item"><div class="body"><div class="t">暂无待办信号</div><div class="d">数据正常, 没有需要立即处理的事项</div></div></div>';
-  var listEl = document.getElementById('sb2FocusList');
-  if (listEl) listEl.innerHTML = html;
-  if (typeof SB2.talentTotal === 'number') mini += '<div class="row"><span>在库达人</span><b>'+SB2.talentTotal+'</b></div>';
-  if (typeof SB2.kbOk === 'number') mini += '<div class="row"><span>已入库知识</span><b>'+SB2.kbOk+'</b></div>';
-  var miniEl = document.getElementById('sb2MiniBody');
-  if (miniEl) miniEl.innerHTML = mini || '<div class="row"><span>数据加载中…</span></div>';
+  /* 达人动态: knowledge_events entity_type='talent' 近 24h */
+  var now = Date.now();
+  var cutoff24h = now - 86400 * 1000;
+  (events || []).forEach(function(ev){
+    if (ev.entity_type === 'talent' && (ev.created_at || 0) >= cutoff24h){
+      var name = (ev.entity_id || ev.title || '').slice(0, 16) || '达人';
+      items.push({
+        kind: 'talent',
+        title: '新达人信号 · ' + name,
+        sub: '来自 knowledge_events (24h 内)',
+        tag: '达人',
+        tagCls: 'success',
+        target: 'influencers'
+      });
+    }
+  });
+  /* 员工离线/忙碌 (复用 MVP1 SB2.agentsOffline) */
+  if (typeof SB2.agentsOffline === 'number' && SB2.agentsOffline > 0){
+    items.push({
+      kind: 'agent',
+      title: SB2.agentsOffline + ' 位 AI 员工离线/忙碌',
+      sub: '共 ' + SB2.agentsTotal + ' 位, 点击去即时通讯检查',
+      tag: '员工',
+      tagCls: 'accent',
+      target: 'messages'
+    });
+  }
+  /* 渲染 */
+  if (items.length === 0){
+    el.innerHTML = '<div class="sb2-dash2-feed-empty"><span class="em">✓</span>暂无待办信号<br/>数据正常, 没有需要立即处理的事项</div>';
+    return;
+  }
+  el.innerHTML = items.slice(0, 8).map(function(it){
+    return '<div class="sb2-dash2-focus-item" onclick="sb2Go(\''+it.target+'\')">'
+         + '<div class="sb2-dash2-focus-item-icon kind-'+it.kind+'">'+(it.kind==='promote'?'⚠':it.kind==='review'?'📋':it.kind==='talent'?'👤':'⚡')+'</div>'
+         + '<div class="sb2-dash2-focus-item-body">'
+         +   '<div class="sb2-dash2-focus-item-t">'+escapeHtml(it.title)+'</div>'
+         +   '<div class="sb2-dash2-focus-item-d">'+escapeHtml(it.sub)+'</div>'
+         + '</div>'
+         + '<span class="sb2-dash2-focus-item-tag">'+escapeHtml(it.tag)+'</span>'
+         + '</div>';
+  }).join('');
+}
+
+/* 规律洞察: 单条主推 (verified 优先) + 2 条副推 */
+function sb2_renderInsights(patterns){
+  var el = document.getElementById('sb2Dash2InsightList');
+  if (!el) return;
+  var arr = (patterns || []).slice();
+  if (arr.length === 0){
+    el.innerHTML = '<div class="sb2-dash2-feed-empty"><span class="em">📐</span>暂无活跃规律</div>';
+    return;
+  }
+  /* 主推: verification_level == 'verified' && confidence_score DESC TOP 1, 否则 confidence_score DESC TOP 1 */
+  arr.sort(function(a, b){
+    var av = (a.verification_level === 'verified' ? 1 : 0);
+    var bv = (b.verification_level === 'verified' ? 1 : 0);
+    if (av !== bv) return bv - av;
+    return (Number(b.confidence_score) || 0) - (Number(a.confidence_score) || 0);
+  });
+  var main = arr[0];
+  var subs = arr.slice(1, 3);
+  var mainHtml = '<div class="sb2-dash2-insight-main" onclick="sb2Go(\'patterns\')">'
+                + '<div class="sb2-dash2-insight-main-cat">'+escapeHtml((main.category || '规律'))+'</div>'
+                + '<div class="sb2-dash2-insight-main-text">'+escapeHtml((main.pattern_text || '').slice(0, 80))+'</div>'
+                + '<div class="sb2-dash2-insight-main-meta">'
+                +   '<span><b>'+(main.confidence_score != null ? main.confidence_score.toFixed(1) : '-')+'%</b> 置信</span>'
+                +   '<span>evidence <b>'+(main.evidence_count || 0)+'</b></span>'
+                +   '<span>命中 <b>'+(main.hit_count || 0)+'</b> 次</span>'
+                +   '<span>'+(main.verification_level === 'verified' ? '✓ verified' : '○ ' + (main.verification_level || 'hypothesis'))+'</span>'
+                + '</div>'
+                + '</div>';
+  var subsHtml = subs.map(function(p){
+    return '<div class="sb2-dash2-insight-sub" onclick="sb2Go(\'patterns\')">'
+         + '<div class="sb2-dash2-insight-sub-text">'+escapeHtml((p.pattern_text || '').slice(0, 60))+'</div>'
+         + '<div class="sb2-dash2-insight-sub-conf">'+(p.confidence_score != null ? p.confidence_score.toFixed(1) : '-')+'%</div>'
+         + '</div>';
+  }).join('');
+  el.innerHTML = mainHtml + subsHtml;
+}
+
+/* 员工动态: knowledge_events 最近 8 条, 头像首字 + 动作 + 相对时间 */
+function sb2_renderActivity(events){
+  var el = document.getElementById('sb2Dash2ActivityList');
+  if (!el) return;
+  var arr = (events || []).slice().sort(function(a, b){ return (b.created_at || 0) - (a.created_at || 0); }).slice(0, 8);
+  if (arr.length === 0){
+    el.innerHTML = '<div class="sb2-dash2-feed-empty"><span class="em">⏱</span>24 小时内暂无动态</div>';
+    return;
+  }
+  el.innerHTML = arr.map(function(ev){
+    var agentId = ev.created_by || ev.user_id || '';
+    var agentName = (SB2.agentNameById && SB2.agentNameById[agentId]) || agentId.replace(/^emp_/, '').slice(0, 6) || 'AI';
+    var initial = (agentName || 'A').slice(0, 1).toUpperCase();
+    var action = ev.entity_type ? ('在 ' + ev.entity_type + ' 上产生 1 条事件') : '完成 1 次操作';
+    var t = ev.created_at || 0;
+    var ago = sb2_relativeTime(t);
+    return '<div class="sb2-dash2-activity-item">'
+         + '<div class="sb2-dash2-activity-avatar">'+escapeHtml(initial)+'</div>'
+         + '<div class="sb2-dash2-activity-body">'
+         +   '<div class="sb2-dash2-activity-line"><b>'+escapeHtml(agentName)+'</b> '+escapeHtml(action)+'</div>'
+         + '</div>'
+         + '<div class="sb2-dash2-activity-time">'+ago+'</div>'
+         + '</div>';
+  }).join('');
+}
+
+/* 相对时间 (毫秒 → 「3 小时前」) */
+function sb2_relativeTime(ms){
+  if (!ms) return '-';
+  var now = Date.now();
+  var diff = Math.max(0, now - ms);
+  if (diff < 60 * 1000) return '刚刚';
+  if (diff < 3600 * 1000) return Math.floor(diff / 60000) + ' 分钟前';
+  if (diff < 86400 * 1000) return Math.floor(diff / 3600000) + ' 小时前';
+  if (diff < 7 * 86400 * 1000) return Math.floor(diff / 86400000) + ' 天前';
+  var d = new Date(ms);
+  return (d.getMonth()+1) + '/' + d.getDate();
+}
+
+function escapeHtml(s){
+  if (s == null) return '';
+  return String(s).replace(/[&<>"']/g, function(c){
+    return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c];
+  });
 }
 
 /* ---------- 显隐控制 ---------- */
