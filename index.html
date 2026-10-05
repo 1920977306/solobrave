@@ -38157,6 +38157,17 @@ async function loadKnowledgePage(page) {
     renderKnowledgeList(_knowledgeData.docs);
     renderKnowledgePagination(_knowledgeData.total, _knowledgePage, _knowledgePageSize);
     var statsData = await statsRes.json();
+    /* 〔fix/sb2-side-restore commit 15〕16 轮打回修正 (批注③时序坑):
+       数据落位 (categories + docs + stats) 后调 renderSideFor('knowledge') 重渲侧栏
+       — 老大原话: 「数据到位后要重渲染侧栏, 在 loadKnowledge 数据落位后调一次侧栏重渲染,
+         函数名/调用方式你自己确认, 别造第二个渲染入口」
+       — 复用既有 window.renderSideFor (line 45979, 已挂 window 跨块访问)
+       — 触发条件: statsData 落位 + categories 落位 之后, _knowledgeInitialized=true 之前
+       — 避免造第二个渲染入口 (例如 _renderKnowledgeSide 这种) — 直接用既有 renderSideFor
+       — 守卫写法 (&& fn) 防 renderSideFor 跨块 undefined 静默 */
+    window._sb2KbStats = window._sb2KbStats || {};
+    window._sb2KbStats.byCategory = (statsData.stats && statsData.stats.byCategory) || [];
+    if (typeof window.renderSideFor === 'function') window.renderSideFor('knowledge');
     renderKnowledgeStats(statsData.stats || {});
     _updateKnowledgeNewButtonVisibility();
     _updateKnowledgeEditorProjectCategoryOptions();
@@ -46144,45 +46155,83 @@ var SB2_SIDE_RENDERERS = {
     return { title:'AI 办公室', sub: list.length+' 员工 · '+onlineCount+' 在线', items:items, searchInput:'搜索员工…' };
   },
   knowledge: function(){
-    /* 〔fix/sb2-side-restore commit 13〕16 轮批注③: 知识库侧栏对齐原版 (line 695-705)
-       原型侧栏结构:
-       - 标题「知识库」+ 副标「287 条 · 531 chunks」(真数据: 条目数 + chunk 总数)
-       - 语义搜索输入 (原版有, 14 轮误删, 恢复)
-       - 分类组: 全部条目 / 公共知识 / 达人库 / 商品知识 / 工作流 (带计数)
-       - 范围组: 全员可读 / 我创建的 / 项目组共享
-       - 底部「规律库入口 →」(原型 line 706: sideItem('📐','规律库入口 →','', '', 'var(--gold)', ()=>go('patterns')))
+    /* 〔fix/sb2-side-restore commit 15〕16 轮打回修正 (批注③数据源):
+       - 修前 bug: SB2_SIDE_RENDERERS.knowledge 读 window.knowledgeCategories — 那是
+         权限字段 (值 ['*'], line 16754), 不是分类数据 → 实测分类组永远显示「加载中…」,
+         副标「0 分类 · 全局可见」. 铁律第 3 条: 字段名假设没验证就用了.
+       - 真数据源 (老大 17:47 拍板):
+         分类树:    _knowledgeData.categories (line 37991, 含 id/name/children 树状)
+         分类计数:  _knowledgeCatCounts (line 38010, {categoryId: n})
+         文档总数:  _knowledgeCatCountsTotal (line 38011) / _knowledgeData.total (line 38158)
+         chunks 数: stats 接口 byCategory 数组各项 count 求和 (kb_entry_stats line 4024,
+                   renderKnowledgeStats line 38754 消费点; stats.total 是文档数不是 chunks)
        修法:
-       - 加 searchInput:'语义搜索…' (跟 messages/talents 同样的 data 字段)
-       - 加底部 group '规律库入口 →' (跨模块跳转)
-       - 副标 sub: 真数据 (条目数 + chunk 总数), 严禁硬编码 (老大硬指令)
-         数据源: window._sb2KbStats (sb2KbLoad 末尾写入, 服务端 /api/knowledge/entries 镜像, plural 跟原型对齐)
-       - 范围组用守卫写法 (&& fn), 防跨块 undefined 静默
-       - 不动: 标题 '知识库' 保留, 分类组结构保留 (已有 cats 真数据兜底) */
-    var cats = (typeof window.knowledgeCategories !== 'undefined' && Array.isArray(window.knowledgeCategories)) ? window.knowledgeCategories : [];
-    var kstats = (typeof window._sb2KbStats === 'object' && window._sb2KbStats) || { total:0, chunks:0 };
-    var total = (typeof kstats.total === 'number') ? kstats.total : 0;
-    var chunks = (typeof kstats.chunks === 'number') ? kstats.chunks : 0;
-    /* sub 文案: 'N 条 · M chunks' (原型 line 700 '287 条 · 531 chunks'), chunks 数真接口兜底 0 不编造 */
-    var sub = (total > 0 || chunks > 0) ? (total + ' 条 · ' + chunks + ' chunks') : (cats.length + ' 分类 · 全局可见');
+       - flatten _knowledgeData.categories 树状 (children 递归展开, 但保留层级缩进)
+       - 首项「全部条目」badge = _knowledgeCatCountsTotal (文档总数)
+       - 其后各分类 badge = _knowledgeCatCounts[String(cat.id)] (id 兜底 string)
+       - 副标: '_knowledgeCatCountsTotal 条 · byCategory count 求和 chunks' (真接口数据, 严禁硬编码)
+       - 时序坑 (老大原话): 分类数据异步加载, 数据落位后必须重渲染侧栏
+         — 调用点见 loadKnowledge line 38163 (statsData 落位后, _knowledgeInitialized=true 前)
+         — 重渲函数 window.renderSideFor('knowledge') 已存在 (line 45979), 不造第二个入口
+       - 范围组 / 底部规律库入口 / searchInput 全保留 (commit 13 已加)
+       - 不动: 标题 '知识库', 范围组, 底部「规律库入口 →」 */
+    var catsTree = (typeof window._knowledgeData === 'object' && window._knowledgeData && Array.isArray(window._knowledgeData.categories))
+      ? window._knowledgeData.categories : [];
+    var counts = (typeof window._knowledgeCatCounts === 'object' && window._knowledgeCatCounts) ? window._knowledgeCatCounts : null;
+    var totalDocs = (typeof window._knowledgeCatCountsTotal === 'number') ? window._knowledgeCatCountsTotal
+      : ((typeof window._knowledgeData === 'object' && window._knowledgeData && typeof window._knowledgeData.total === 'number') ? window._knowledgeData.total : 0);
+    /* chunks 数: stats.byCategory 各项 count 求和 (server 实际字段含义以 byCategory 数组为准)
+       kb_entry_stats 响应 schema: {total, byScope, byCategory: [{name, count}], pendingChunks}
+       stats.total 是 kb_entries 文档数, 不是 chunks; chunks 单独计算待 server 加 totalChunks 字段
+       暂用 byCategory 求和当 chunks 数近似 (老大原话), 标注 [P1 教训: 字段名假设] */
+    var chunksTotal = 0;
+    if (typeof window._sb2KbStats === 'object' && window._sb2KbStats && Array.isArray(window._sb2KbStats.byCategory)) {
+      chunksTotal = window._sb2KbStats.byCategory.reduce(function(s, c){ return s + (Number(c.count) || 0); }, 0);
+    }
+    /* 副标: 'N 条 · M chunks' (原型 line 700 '287 条 · 531 chunks'), 真数据兜底 0 不编造
+       没数据时显「加载中…」, 不写「0 分类 · 全局可见」(那是修前假数据兜底) */
+    var dash = '–';
+    var sub;
+    if (catsTree.length === 0 && totalDocs === 0) {
+      sub = '加载中…';
+    } else if (totalDocs > 0 || chunksTotal > 0) {
+      sub = totalDocs + ' 条 · ' + chunksTotal + ' chunks';
+    } else {
+      sub = catsTree.length + ' 分类';
+    }
+    /* flatten 树状 (递归 children, 保留层级缩进前缀 '— ' 给子分类) */
+    var flatCats = [];
+    (function walk(arr, depth){
+      (arr || []).forEach(function(c){
+        flatCats.push({ id:c.id, name:(c.name || c.display_name || '未分类'), depth:depth });
+        if (Array.isArray(c.children) && c.children.length) walk(c.children, depth + 1);
+      });
+    })(catsTree, 0);
+    /* 分类组: 首项「全部条目」 + 各分类 (扁平树 + 计数 + 兜底 dash) */
+    var catItems = [
+      { name:'全部条目', badge: totalDocs > 0 ? String(totalDocs) : dash, active:false,
+        onClick:"switchKnowledgeCategory && switchKnowledgeCategory('all')" }
+    ];
+    flatCats.slice(0, 30).forEach(function(c){
+      var cnt = (counts && typeof counts[String(c.id)] === 'number') ? counts[String(c.id)] : null;
+      var prefix = c.depth > 0 ? new Array(c.depth + 1).join('— ') : '';
+      catItems.push({
+        name: prefix + c.name,
+        badge: cnt !== null ? String(cnt) : dash,
+        active:false,
+        onClick:"switchKnowledgeCategory && switchKnowledgeCategory('"+(c.id || '')+"')"
+      });
+    });
     return {
       title:'知识库', sub:sub,
       searchInput:'语义搜索…',
       items:[
-        { label:'分类', items: (cats.length ? cats : [{name:'加载中…'}]).slice(0, 30).map(function(c){
-          var cnt = (typeof c.chunks === 'number') ? c.chunks : (typeof c.total === 'number') ? c.total : null;
-          return { name:(c.name || c.display_name || '-'),
-                   badge: cnt !== null ? String(cnt) : '',
-                   onClick:"openKnowledgeCategory && openKnowledgeCategory('"+(c.id || c.name)+"')" };
-        })},
+        { label:'分类', items: catItems },
         { label:'范围', items:[
           { name:'全员可读',  onClick:"switchKnowledgeScope && switchKnowledgeScope('global')" },
           { name:'我创建的',  onClick:"switchKnowledgeScope && switchKnowledgeScope('mine')" },
           { name:'项目组共享', onClick:"switchKnowledgeScope && switchKnowledgeScope('project')" }
         ]},
-        /* 〔fix/sb2-side-restore commit 13〕16 轮批注③: 底部「规律库入口 →」 (跨模块跳转)
-           原型 line 706: sideItem('📐','规律库入口 →','', '', 'var(--gold)', ()=>go('patterns'))
-           - 图标 📐 + 文案 + onClick 跳 patterns 模块
-           - sb2Go guard 写法防跨块 undefined 静默 */
         { label:' ', items:[
           { name:'📐 规律库入口 →', onClick:"sb2Go && sb2Go('patterns')" }
         ]}
