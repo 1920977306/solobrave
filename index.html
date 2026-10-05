@@ -10215,8 +10215,19 @@ body.sb2-no-side .sb2-topbar{ left:60px; }
   font:600 17px/1.4 "PingFang SC",sans-serif; color:var(--sb2-t1);
 }
 .sb2-side-sub{ font:400 11px/1.4 "PingFang SC",sans-serif; color:var(--sb2-t3); margin-top:3px; }
-/* 〔fix/sb2-side-restore commit 11〕14 轮热修: 删 .sb2-side-search CSS (跟 DOM 同步清理)
-   侧栏不重复 ⌘K 搜索框, 只留顶栏全局搜索 (line 46328 DOM 已删, 这段 CSS 同步删) */
+/* 〔fix/sb2-side-restore commit 12〕15 轮热修: 恢复 .sb2-side-search-input CSS (messages 模块专用)
+   14 轮 commit 11 全删了侧栏搜索框, 但 messages 模块侧栏原版就有 "搜索员工..." 过滤 AI 员工列表
+   (老大截图标注①确认), 现在恢复: 仅 messages 模块用 .sb2-side-search-input, 其他模块维持删除 */
+.sb2-side-search-input{
+  margin:10px 12px 6px; padding:7px 10px;
+  background:var(--sb2-s1); border:1px solid var(--sb2-border); border-radius:var(--sb2-r-md);
+  font:400 12px/1.2 "PingFang SC",sans-serif; color:var(--sb2-t1);
+}
+.sb2-side-search-input:focus-within{ border-color:var(--sb2-accent); }
+.sb2-side-search-input input{
+  width:100%; border:none; outline:none; background:transparent;
+  font:inherit; padding:0;
+}
 .sb2-side-scroll{ flex:1; overflow-y:auto; padding:6px 8px 24px; }
 .sb2-side-label{
   font:500 10px/1.4 "PingFang SC",sans-serif; color:var(--sb2-t3);
@@ -12667,11 +12678,24 @@ body.sb2-no-side .sb2-topbar{ left:60px; }
 
 /* ===== Shell ===== */
 .sb2-chat-shell {
+  /* 〔fix/sb2-side-restore commit 12〕15 轮热修: 聊天主卡片缩小居中
+     老大主诉: 「聊天界面是放大的, 应该缩小」 — 老 prod 老版 (commit 1 ~渲染) 横向铺满模块
+     原型 solobrave-redesign/index.html line 476 #s-chat card 在 .screen (max-width 1240px margin auto) 内
+     + .content padding 上下 sp-5 (24) 左右 sp-6 (32) 下 sp-7 (48)
+     修法:
+     - max-width 1240px margin 0 auto (跟工作台 .sb2-wrap + 达人库 hero/table/footer 同款)
+     - padding 24px 上下 32px 左右 (sp-5 sp-6 对齐原型, 不顶满父容器)
+     - 垂直 height 100% 维持 (父 .app-main flex:1 已 calc(100vh - 48px), 实际等价 calc(100vh - 顶栏 - 48px))
+     - token 化, 0 hex (用 --sb2-* token 派生, 老规矩)
+     - overflow hidden 保留 (chat 内部 sticky 滚动需要) */
   display: flex;
   flex-direction: column;
   width: 100%;
+  max-width: 1240px;
   height: 100%;
-  background: var(--sb2-chat-messages-bg);
+  margin: 0 auto;
+  padding: 24px 32px;
+  background: transparent;
   font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
   font-size: 14px;
   color: var(--sb2-chat-bubble-text);
@@ -46055,7 +46079,7 @@ var SB2_SIDE_RENDERERS = {
         return { name: (g.name || g.display_name || '-'), onClick:"openGroup && openGroup('"+g.id+"')" };
       })});
     }
-    return { title:'AI 办公室', sub: list.length+' 员工 · '+onlineCount+' 在线', items:items };
+    return { title:'AI 办公室', sub: list.length+' 员工 · '+onlineCount+' 在线', items:items, searchInput:'搜索员工…' };
   },
   knowledge: function(){
     var cats = (typeof window.knowledgeCategories !== 'undefined' && Array.isArray(window.knowledgeCategories)) ? window.knowledgeCategories : [];
@@ -46252,6 +46276,22 @@ var SB2_CURRENT_MODULE = 'messages';
    修法: 同步挂 window, 后续赋值处 (showDash / renderSideFor 末尾) 也要同步 */
 window.SB2_CURRENT_MODULE = SB2_CURRENT_MODULE;
 
+/* 〔fix/sb2-side-restore commit 12〕15 轮热修: 侧栏员工列表过滤 (messages 模块专用)
+   老大截图标注① 确认侧栏原版有 "搜索员工..." 输入, 14 轮误删, 现在恢复
+   - 实时过滤 .sb2-side-item 文本, 不匹配则 display:none
+   - 只在 messages 模块渲染 (.sb2-side-search-input, see renderSideFor)
+   - 其他模块侧栏不渲染, 无 input, 无 .sb2-side-search-input (14 轮删除保持)
+   - apply when: 任何「侧栏列表过滤」必须用守卫写法过滤 name, 不改 side 容器内其它 group (项目组群聊等) */
+function sb2SideFilter(keyword){
+  var k = (keyword || '').trim().toLowerCase();
+  var items = document.querySelectorAll('#sb2Side .sb2-side-item');
+  items.forEach(function(el){
+    if (!k){ el.style.display = ''; return; }
+    var name = (el.textContent || '').trim().toLowerCase();
+    el.style.display = name.indexOf(k) >= 0 ? '' : 'none';
+  });
+}
+
 function renderSideFor(moduleId){
   var side = document.getElementById('sb2Side');
   if (!side) return;
@@ -46275,12 +46315,18 @@ function renderSideFor(moduleId){
   var html = '';
   html += '<div class="sb2-side-head"><div class="sb2-side-title">'+escHtml(data.title)+'</div>';
   if (data.sub) html += '<div class="sb2-side-sub">'+escHtml(data.sub)+'</div></div>';
-  /* 〔fix/sb2-side-restore commit 11〕14 轮热修: 删侧栏搜索框 (重复 ⌘K)
-     老大原话: 「这个搜索框怎么每个地方都有」
-     修法: 只留顶栏全局搜索 (⌘K), 侧栏不重复输入
-     - sb2_openPalette() 函数保留防回归 (顶栏 ⌘K 仍调它)
-     - data.searchPlaceholder 字段保留防回归 (其他函数可能引用)
-     - 若模块内确需过滤, 用现有筛选 chip 体系 (三维评级/类目/状态) */
+  /* 〔fix/sb2-side-restore commit 12〕15 轮热修: messages 模块侧栏恢复搜索输入 (15 轮恢复 14 轮误删)
+     只在 data.searchInput 存在时渲染 .sb2-side-search-input — 14 轮 commit 11 全删之后
+     截图发现 messages 模块原版侧栏顶部就有 "搜索员工..." 过滤 AI 员工列表
+     - 其他模块 (dashboard/talents/knowledge/patterns/products) 不加 searchInput 字段, 不渲染
+     - 跟 14 轮 commit 11 删 .sb2-side-search 逻辑一致: 14 轮是误删, 15 轮选择性恢复
+     - data.searchInput: 占位文案 (不是 searchPlaceholder — placeholder 是 ⌘K 全局搜)
+     - sb2SideFilter 函数 (line 46284+) 实时过滤 name, 不影响项目组群聊等其它 group */
+  if (data.searchInput) {
+    html += '<div class="sb2-side-search-input">'
+         +  '<input type="text" placeholder="'+escHtml(data.searchInput)+'" oninput="sb2SideFilter(this.value)" autocomplete="off">'
+         +  '</div>';
+  }
   html += '<div class="sb2-side-scroll">';
   (data.items || []).forEach(function(group){
     if (group.label) html += '<div class="sb2-side-label">'+escHtml(group.label)+'</div>';
