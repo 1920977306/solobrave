@@ -10295,6 +10295,22 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
    不动: dashboard / knowledge / patterns / tasks / talents 等模块的 .sb2-side-item .badge / .dot (保留三件套) */
 .sb2-side--module-messages .sb2-side-item .badge{ display:none; }
 .sb2-side--module-messages .sb2-side-item .dot{ display:none; }
+/* 〔19 轮批注②-1..4 2026-10-06 03:20〕协调人代改 (两次角色纠正仍被推回, 按 r25.3 先例)
+   知识库侧栏对照原版 (规格 docs/design-spec/v2-19轮知识库.md 批注②):
+   ②-1 item gap 0 → 10px (跟原型 .side-item gap 10 一致)
+   ②-2 dot 占位: base .dot 已 7×7 r-full, knowledge 作用域转 transparent (对齐 messages 文字位)
+   ②-3 计数 badge → meta 样式: 透明底无 padding, 11px/500/t3/15.4 (原型 .side-item .meta)
+   ②-4 side-label 10px/1.4 → 11px/15.4, pad 左 10 → 8
+   作用域严格限 knowledge: messages gap0/dot隐 不动, patterns/talents/products/dashboard badge 不动 */
+.sb2-side--module-knowledge .sb2-side-item{ gap:10px; }
+.sb2-side--module-knowledge .sb2-side-item .dot{ background:transparent; }
+.sb2-side--module-knowledge .sb2-side-item .badge{
+  background:transparent; padding:0; color:var(--sb2-t3);
+  font:500 11px/1.4 "PingFang SC",sans-serif;
+}
+.sb2-side--module-knowledge .sb2-side-label{
+  font:500 11px/1.4 "PingFang SC",sans-serif; padding:12px 8px 4px;
+}
 /* 〔fix/sb2-side-restore commit 22〕17 轮批注②补修: active 项改原型白卡样式
    老大 17:03 trace 实测证据: 16 轮 commit 13 只灰化了 badge, active 项本体未改,
      还是橙底 --sb2-brand-soft, 这就是老大说「太亮了」的根源.
@@ -46440,7 +46456,7 @@ var SB2_SIDE_RENDERERS = {
        — counts map 的 key 是 byCategory name (字符串), 不是数字 id, 因为 byCategory 项无 id 字段
        — 如果 byCategory 项用 catId 字符串, 用 counts[String(c.id)] 也兼容 */
     var catItems = [
-      { name:'全部条目', badge: totalDocs > 0 ? String(totalDocs) : dash, active:false,
+      { name:'全部条目', badge: totalDocs > 0 ? String(totalDocs) : dash, active:false, dot:true,
         onClick:"switchKnowledgeCategory && switchKnowledgeCategory('all')" }
     ];
     flatCats.slice(0, 30).forEach(function(c){
@@ -46454,6 +46470,7 @@ var SB2_SIDE_RENDERERS = {
         name: prefix + c.name,
         badge: cnt !== null ? String(cnt) : dash,
         active:false,
+        dot:true,
         onClick:"switchKnowledgeCategory && switchKnowledgeCategory('"+(c.id || '')+"')"
       });
     });
@@ -46728,7 +46745,7 @@ function renderSideFor(moduleId){
       var dot = it.dot === true ? '<span class="dot"></span>' : (it.dot === false ? '<span class="dot offline"></span>' : '');
       var badge = it.badge ? '<span class="badge">'+escHtml(it.badge)+'</span>' : '';
       html += '<div class="sb2-side-item'+(it.active ? ' active' : '')+'" onclick="'+escAttr(it.onClick || '')+'">'
-              + '<span class="name">'+dot+escHtml(it.name || '-')+'</span>'+badge+'</div>';
+              + dot+'<span class="name">'+escHtml(it.name || '-')+'</span>'+badge+'</div>';
     });
   });
   html += '</div>';
