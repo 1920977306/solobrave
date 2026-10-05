@@ -9994,20 +9994,31 @@ window.doLogin = function () {
   padding:10px 0; gap:2px;
 }
 .sb2-rail-logo{
-  width:34px; height:34px; border-radius:var(--sb2-r-md); margin-bottom:10px;
+  /* 〔fix/sb2-side-restore commit 13〕16 轮批注①: rail 对齐原版 (line 117 原型 .rail-logo)
+     - 34px → 36px (原型)
+     - 13px → 15px 字号 (原型)
+     - letter-spacing -.5px (原型细节)
+     - box-shadow 加 inset 0 1px 0 rgba(255,255,255,.25) 高光层次
+     - 0 hex 老规矩 (rgba 透明允许) */
+  width:36px; height:36px; border-radius:var(--sb2-r-md); margin-bottom:10px;
   background:linear-gradient(135deg,#FF7A3D,#FF3D2E);
   display:grid; place-items:center; color:#fff;
-  font:800 13px/1 "PingFang SC",sans-serif;
-  box-shadow:0 3px 10px rgba(255,90,54,.35);
+  font:800 15px/1 "PingFang SC",sans-serif; letter-spacing:-.5px;
+  box-shadow:0 4px 12px rgba(255,90,54,.35), inset 0 1px 0 rgba(255,255,255,.25);
 }
 .sb2-rail-btn{
+  /* 〔fix/sb2-side-restore commit 13〕16 轮批注①: rail-btn 对齐原版 (line 123 原型 .rail-btn)
+     - 已有 40x40 r-md (✓ 对齐)
+     - hover = surface-3 → var(--sb2-s3) (✓ 对齐)
+     - active = brand-soft 浅橙底 + brand 橙字 (✓ 对齐, 不是高饱和橙底白字)
+     - svg 19px → 20px (原型对齐) */
   width:40px; height:40px; border-radius:var(--sb2-r-md);
   display:grid; place-items:center; color:var(--sb2-t3);
   position:relative; transition:all .15s ease; margin-bottom:1px;
 }
 .sb2-rail-btn:hover{ background:var(--sb2-s3); color:var(--sb2-t1); }
 .sb2-rail-btn.active{ background:var(--sb2-brand-soft); color:var(--sb2-brand); }
-.sb2-rail-btn svg{ width:19px; height:19px; }
+.sb2-rail-btn svg{ width:20px; height:20px; }
 .sb2-rail-tip{
   position:absolute; left:calc(100% + 10px); top:50%;
   transform:translateY(-50%) translateX(-4px);
@@ -10250,7 +10261,13 @@ body.sb2-no-side .sb2-topbar{ left:60px; }
   margin-left:auto; font:500 10px/1 ui-monospace,monospace; padding:2px 6px; border-radius:var(--sb2-r-full);
   background:var(--sb2-s3); color:var(--sb2-t2);
 }
-.sb2-side-item.active .badge{ background:var(--sb2-brand); color:var(--sb2-s1); }
+/* 〔fix/sb2-side-restore commit 13〕16 轮批注②: 达人库 active badge 降饱和
+   老大原话: 「不要那个颜色, 太亮了, 还是原版好看」
+   - 修前: active badge background:var(--sb2-brand) 高饱和橙底白字 (亮橙高亮, 老大嫌太亮)
+   - 现在: active badge background:transparent + color:var(--sb2-t3) 灰字 (跟非 active 同色, 不抢眼)
+   - 其他模块 (knowledge/patterns) 也受这条 CSS 影响 (统一规则), 不破主题, 符合原版「拍灰不拍橙」基调
+   - 不动: 非 active 仍是 background:var(--sb2-s3) + color:var(--sb2-t2) 灰底 */
+.sb2-side-item.active .badge{ background:transparent; color:var(--sb2-t3); }
 .sb2-side-item .name{ flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .sb2-side-foot{ padding:10px 14px; border-top:1px solid var(--sb2-border); display:flex; align-items:center; gap:8px; font:400 11px/1.4 "PingFang SC",sans-serif; color:var(--sb2-t3); }
 .sb2-side-foot .dot{ width:6px; height:6px; border-radius:var(--sb2-r-full); background:var(--sb2-success); }
@@ -11833,18 +11850,38 @@ body.sb2-no-side .sb2-topbar{ left:60px; }
   font:400 13px/1.5 "PingFang SC",sans-serif;
 }
 .sb2-kb-card{
-  padding:14px 16px; border:1px solid var(--sb2-border); border-radius:var(--sb2-r-md);
+  /* 〔fix/sb2-side-restore commit 13〕16 轮批注⑤: 知识库条目卡片对齐原版
+     原型 line 767: card-pad (background surface-1 white card + padding 16px 18px) + flex gap 14px align-items:center
+     - cursor:pointer
+     - hover border-color strong + sh1 (跟原型 card-hover 同款) */
+  padding:16px 18px; border:1px solid var(--sb2-border); border-radius:var(--sb2-r-md);
   background:var(--sb2-s1); cursor:pointer; transition:all .15s;
+  display:flex; flex-direction:column; gap:8px;
 }
 .sb2-kb-card:hover{
   border-color:var(--sb2-border-strong);
   box-shadow:0 1px 3px rgba(0,0,0,0.04);
 }
 .sb2-kb-card-title{
-  margin:0 0 6px; font:600 14px/1.4 "PingFang SC",sans-serif; color:var(--sb2-ink);
+  /* 原型 line 768: 标题加粗单行 + ellipsis */
+  margin:0; font:600 14px/1.4 "PingFang SC",sans-serif; color:var(--sb2-ink);
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
 }
 .sb2-kb-card-meta{
-  font:400 11px/1.3 "SF Mono",ui-monospace,monospace; color:var(--sb2-t3); margin-bottom:8px;
+  /* 原型 line 769: meta 行 t3 弱色, 「kb_xxxx · N chunks · 更新于 x」格式
+     - 等宽字体给 kb_id (跟原型 ui-monospace 一致, monospace 标识符视觉)
+     - 普通字体给 chunks + updated (跟原型 fs-micro 一致)
+     - sep 分隔符 t3 micro
+     - flex row 让 id/chunks/updated 同行 */
+  display:flex; gap:6px; align-items:center;
+  font:400 11px/1.3 "PingFang SC",sans-serif; color:var(--sb2-t3);
+}
+.sb2-kb-card-meta .sb2-kb-card-id{
+  font:400 11px/1.3 "SF Mono",ui-monospace,monospace; color:var(--sb2-t2);
+  font-variant-numeric:tabular-nums;
+}
+.sb2-kb-card-meta .sb2-kb-card-sep{
+  color:var(--sb2-t3); opacity:.6;
 }
 .sb2-kb-card-tags{ display:flex; gap:6px; flex-wrap:wrap; }
 .sb2-tag{
@@ -40343,21 +40380,35 @@ function sb2KbRenderList(entries){
     return;
   }
   el.innerHTML = entries.map(function(e){
-    var title = escapeHtml(e.title || '(无标题)');
-    var id = escapeHtml(e.id || '');
+    var title = e.title || '(无标题)';
+    var id = e.id || '';
     var chunks = ((e.chunk_count != null ? e.chunk_count : 0)) + ' chunks';
-    var updated = escapeHtml(e.updated_at || e.updated || '');
-    var cat = escapeHtml(e.category || e.category_name || '未分类');
-    var scope = escapeHtml(_sb2ScopeLabel(e.scope || e.scope_name || 'global'));
-    var status = e.status || 'ok';
-    var statusClass = 'sb2-tag-status-' + (status === 'pending' ? 'pending' : status === 'failed' ? 'failed' : 'ok');
-    return '<article class="sb2-kb-card" data-kb-id="' + escapeAttr(id) + '" data-sb2-scope="' + escapeAttr(e.scope || e.scope_name || 'global') + '" onclick="sb2KbOpenDetail(\'' + escapeAttr(id) + '\')">' +
-      '<h3 class="sb2-kb-card-title">' + title + '</h3>' +
-      '<div class="sb2-kb-card-meta">' + id + ' · ' + chunks + ' · ' + updated + '</div>' +
+    /* 〔fix/sb2-side-restore commit 13〕16 轮批注⑤: 知识库条目卡片对齐原版
+       原型 line 767 meta 格式: 'kb_xxxx · N chunks · 更新于 x' (t3 micro)
+       修法: updated_at 转「更新于 2 小时前」相对时间格式 (跟 sb2_relativeTime 统一),
+       原值 (ISO) 作为 title 兜底, 鼠标悬停可查
+       status 文案中文化 (原型 line 769: 已入库绿 / 待审核金): 'pending' → '待审核', 'ok' → '已入库'
+       meta 顺序: id · chunks · 更新于 relative (跟原型一致) */
+    var updatedRaw = e.updated_at || e.updated || '';
+    var updated = updatedRaw ? ('更新于 ' + sb2_relativeTime(updatedRaw)) : '更新于 -';
+    var cat = e.category || e.category_name || '未分类';
+    var scope = _sb2ScopeLabel(e.scope || e.scope_name || 'global');
+    var statusRaw = e.status || 'ok';
+    var statusLabel = statusRaw === 'pending' ? '待审核' : statusRaw === 'failed' ? '失败' : statusRaw === 'superseded' ? '已废弃' : '已入库';
+    var statusClass = 'sb2-tag-status-' + (statusRaw === 'pending' ? 'pending' : statusRaw === 'failed' ? 'failed' : statusRaw === 'superseded' ? 'superseded' : 'ok');
+    return '<article class="sb2-kb-card" data-kb-id="' + escapeAttr(id) + '" data-sb2-scope="' + escapeAttr(e.scope || e.scope_name || 'global') + '" title="' + escapeAttr(updatedRaw) + '" onclick="sb2KbOpenDetail(\'' + escapeAttr(id) + '\')">' +
+      '<h3 class="sb2-kb-card-title">' + escapeHtml(title) + '</h3>' +
+      '<div class="sb2-kb-card-meta">' +
+        '<span class="sb2-kb-card-id">' + escapeHtml(id) + '</span>' +
+        '<span class="sb2-kb-card-sep">·</span>' +
+        '<span class="sb2-kb-card-chunks">' + escapeHtml(chunks) + '</span>' +
+        '<span class="sb2-kb-card-sep">·</span>' +
+        '<span class="sb2-kb-card-updated">' + escapeHtml(updated) + '</span>' +
+      '</div>' +
       '<div class="sb2-kb-card-tags">' +
-        '<span class="sb2-tag sb2-tag-cat">' + cat + '</span>' +
-        '<span class="sb2-tag sb2-tag-scope">' + scope + '</span>' +
-        '<span class="sb2-tag ' + statusClass + '">' + status + '</span>' +
+        '<span class="sb2-tag sb2-tag-cat">' + escapeHtml(cat) + '</span>' +
+        '<span class="sb2-tag sb2-tag-scope">' + escapeHtml(scope) + '</span>' +
+        '<span class="sb2-tag ' + statusClass + '">' + escapeHtml(statusLabel) + '</span>' +
       '</div>' +
     '</article>';
   }).join('');
@@ -46082,17 +46133,47 @@ var SB2_SIDE_RENDERERS = {
     return { title:'AI 办公室', sub: list.length+' 员工 · '+onlineCount+' 在线', items:items, searchInput:'搜索员工…' };
   },
   knowledge: function(){
+    /* 〔fix/sb2-side-restore commit 13〕16 轮批注③: 知识库侧栏对齐原版 (line 695-705)
+       原型侧栏结构:
+       - 标题「知识库」+ 副标「287 条 · 531 chunks」(真数据: 条目数 + chunk 总数)
+       - 语义搜索输入 (原版有, 14 轮误删, 恢复)
+       - 分类组: 全部条目 / 公共知识 / 达人库 / 商品知识 / 工作流 (带计数)
+       - 范围组: 全员可读 / 我创建的 / 项目组共享
+       - 底部「规律库入口 →」(原型 line 706: sideItem('📐','规律库入口 →','', '', 'var(--gold)', ()=>go('patterns')))
+       修法:
+       - 加 searchInput:'语义搜索…' (跟 messages/talents 同样的 data 字段)
+       - 加底部 group '规律库入口 →' (跨模块跳转)
+       - 副标 sub: 真数据 (条目数 + chunk 总数), 严禁硬编码 (老大硬指令)
+         数据源: window._sb2KbStats (sb2KbLoad 末尾写入, 服务端 /api/knowledge/entries 镜像, plural 跟原型对齐)
+       - 范围组用守卫写法 (&& fn), 防跨块 undefined 静默
+       - 不动: 标题 '知识库' 保留, 分类组结构保留 (已有 cats 真数据兜底) */
     var cats = (typeof window.knowledgeCategories !== 'undefined' && Array.isArray(window.knowledgeCategories)) ? window.knowledgeCategories : [];
-    var sub = cats.length + ' 分类 · 全局可见';
+    var kstats = (typeof window._sb2KbStats === 'object' && window._sb2KbStats) || { total:0, chunks:0 };
+    var total = (typeof kstats.total === 'number') ? kstats.total : 0;
+    var chunks = (typeof kstats.chunks === 'number') ? kstats.chunks : 0;
+    /* sub 文案: 'N 条 · M chunks' (原型 line 700 '287 条 · 531 chunks'), chunks 数真接口兜底 0 不编造 */
+    var sub = (total > 0 || chunks > 0) ? (total + ' 条 · ' + chunks + ' chunks') : (cats.length + ' 分类 · 全局可见');
     return {
       title:'知识库', sub:sub,
+      searchInput:'语义搜索…',
       items:[
         { label:'分类', items: (cats.length ? cats : [{name:'加载中…'}]).slice(0, 30).map(function(c){
-          return { name:(c.name || c.display_name || '-'), onClick:"openKnowledgeCategory && openKnowledgeCategory('"+(c.id || c.name)+"')" };
+          var cnt = (typeof c.chunks === 'number') ? c.chunks : (typeof c.total === 'number') ? c.total : null;
+          return { name:(c.name || c.display_name || '-'),
+                   badge: cnt !== null ? String(cnt) : '',
+                   onClick:"openKnowledgeCategory && openKnowledgeCategory('"+(c.id || c.name)+"')" };
         })},
         { label:'范围', items:[
-          { name:'全局',     onClick:"switchKnowledgeScope && switchKnowledgeScope('global')" },
-          { name:'我的项目', onClick:"switchKnowledgeScope && switchKnowledgeScope('project')" }
+          { name:'全员可读',  onClick:"switchKnowledgeScope && switchKnowledgeScope('global')" },
+          { name:'我创建的',  onClick:"switchKnowledgeScope && switchKnowledgeScope('mine')" },
+          { name:'项目组共享', onClick:"switchKnowledgeScope && switchKnowledgeScope('project')" }
+        ]},
+        /* 〔fix/sb2-side-restore commit 13〕16 轮批注③: 底部「规律库入口 →」 (跨模块跳转)
+           原型 line 706: sideItem('📐','规律库入口 →','', '', 'var(--gold)', ()=>go('patterns'))
+           - 图标 📐 + 文案 + onClick 跳 patterns 模块
+           - sb2Go guard 写法防跨块 undefined 静默 */
+        { label:' ', items:[
+          { name:'📐 规律库入口 →', onClick:"sb2Go && sb2Go('patterns')" }
         ]}
       ]
     };
@@ -46187,7 +46268,13 @@ var SB2_SIDE_RENDERERS = {
     return {
       title:'',
       sub:'',
-      searchPlaceholder:'搜索达人…',
+      /* 〔fix/sb2-side-restore commit 13〕16 轮批注②: 达人库侧栏恢复「搜索达人...」输入
+         14 轮 commit 11 全删了 .sb2-side-search (line 46328), 但 talents 侧栏原版有 (line 724-735 区域)
+         老大截图标注①确认侧栏以原版为准, 现在恢复: 仅 talents 模块 searchInput
+         - dashboard/knowledge/patterns/products 维持 14 轮删除 (按老大规矩: 原版有的模块侧栏搜索才恢复,
+           talents/knowledge/messages 三个原版都有, dashboard 原版无搜索)
+         - dashboard 已在 14 轮 commit 11 删, 维持现状不动 */
+      searchInput:'搜索达人…',
       items:[
         { label:'评级', items: ratingItems },
         { label:'类目', items: catItems },
