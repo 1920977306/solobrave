@@ -12686,6 +12686,18 @@ body.sb2-no-side .sb2-topbar{ left:60px; }
 .sb2-chat-shell[hidden],
 .sb2-chat-shell.hidden { display: none !important; }
 
+/* 〔fix/sb2-side-restore commit 6 C〕iframe 撑满 — AI 办公室主区整个 = office-v3.html
+   iframe 100% 宽高撑满 .sb2-chat-shell (parent flex column), office-v3.html 自带完整 UI
+   border:0 去掉默认 1px 灰框, display:block 避免 inline baseline 4px 间隙 */
+.sb2-chat-iframe {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  display: block;
+  flex: 1 1 auto;
+  background: transparent;
+}
+
 /* ===== Topbar (布局对齐原型: 头像 + 姓名·角色 + 状态行 + 右侧 ghost 按钮) ===== */
 .sb2-chat-topbar {
   flex: 0 0 auto;
@@ -14733,63 +14745,23 @@ body.sb2-no-side .sb2-topbar{ left:60px; }
   <div class="tasks-mid-items" id="tasksListItems"></div>
 </div>
 
-<!-- ★ feat/sb2-chat: 新 sb2 聊天主区 (核心链: 消息流 + 发送框), 作为兄弟节点在 chatArea 之外 -->
+<!-- ★ fix/sb2-side-restore commit 6 C: messages 模块主区 = 龙虾办公室 iframe (AI 办公室)
+     老大原话: 「即时通讯改成 AI 办公室, 以前的龙虾办公室就是现在的工作台」
+     - messages 模块 label 改 'AI 办公室', 主区嵌 office-v3.html 撑满 100% 宽高
+     - office-v3.html 自带完整 UI: 员工分区办公总览 (对话中/工作中/休息分区), 员工卡带头像,
+       BroadcastChannel 'lobster-office' 同源双向同步 (新消息/状态变化即时反映), 点员工直接聊
+     - 56px office-v3 顶栏先保留 (下轮再去)
+     - 老 #chatArea / 内部 chat UI (顶栏/进度条/消息流/发送框) 全部废弃, 老 DOM 保留但 hidden
+     - renderChatMain 仍控制 hidden 属性 (line 46742) — 当前模块='messages' 时显示 iframe -->
 <main id="sb2ChatMain" class="sb2-chat-shell" hidden>
-  <!-- 顶栏 (布局对齐原型: 头像 + 姓名·角色 + 状态行 + 右侧 ghost 按钮) -->
-  <header class="sb2-chat-topbar">
-    <div class="sb2-chat-topbar-info">
-      <span class="sb2-chat-topbar-avatar" id="sb2ChatTopbarAvatar">R</span>
-      <div class="sb2-chat-topbar-meta">
-        <div class="sb2-chat-topbar-name" id="sb2ChatTopbarName">-</div>
-        <div class="sb2-chat-topbar-status offline" id="sb2ChatTopbarStatus">
-          <span class="sb2-chat-topbar-status-dot"></span>
-          <span id="sb2ChatTopbarStatusText">未连接</span>
-        </div>
-      </div>
-    </div>
-    <div class="sb2-chat-topbar-right">
-      <button class="sb2-chat-topbar-ghost" type="button" id="sb2ChatTopbarProfile" title="员工档案" onclick="sb2_toastComingSoon('员工档案')">员工档案</button>
-      <button class="sb2-chat-topbar-ghost" type="button" id="sb2ChatTopbarSettings" title="会话设置" onclick="sb2_toastComingSoon('会话设置')">设置</button>
-    </div>
-  </header>
-
-  <!-- 流式进度条 (顶部, 仅在 AI 生成时显示) -->
-  <div class="sb2-chat-progress" id="sb2ChatProgress" hidden>
-    <div class="sb2-chat-progress-fill"></div>
-  </div>
-
-  <!-- 消息流容器 (核心) -->
-  <div class="sb2-chat-messages" id="sb2ChatMessages">
-    <div class="sb2-chat-empty">
-      <div class="sb2-chat-empty-icon">💬</div>
-      <div id="sb2ChatEmptyText">选择一个 AI 员工开始对话</div>
-      <div class="sb2-chat-empty-tip">Enter 发送 / Shift+Enter 换行 / 📎 附件</div>
-    </div>
-  </div>
-
-  <!-- 发送框 (像素级复刻原型: ghost 附件 + 白底输入囊 + btn-ink 发送) -->
-  <div class="sb2-chat-input-wrap">
-    <!-- 附件预览条 -->
-    <div class="sb2-chat-attach-bar" id="sb2ChatAttachBar"></div>
-
-    <!-- 输入行: 附件方钮 + 白底输入囊 + 深色发送按钮 (原型 flex row) -->
-    <div class="sb2-chat-input-row">
-      <button class="sb2-btn sb2-btn-ghost sb2-chat-attach-btn" type="button" id="sb2ChatAttachBtn" title="图片附件" aria-label="添加图片附件">
-        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
-      </button>
-      <div class="sb2-chat-input-pill">
-        <textarea id="sb2ChatInput" class="sb2-chat-input" rows="1" placeholder="给员工派活… (Enter 发送, Shift+Enter 换行)" autocomplete="off"></textarea>
-      </div>
-      <button class="sb2-btn sb2-btn-ink sb2-chat-send-btn" id="sb2ChatSendBtn" type="button" disabled title="发送" aria-label="发送消息">发送</button>
-    </div>
-    <input type="file" id="sb2ChatFileInput" accept="image/*" multiple style="display:none;">
-
-    <!-- §2 浮层容器: slash / @mention / model 三功能共用 (绝对定位锚输入框上方) -->
-    <div class="sb2-chat-tasks-popup" id="sb2ChatTasksPopup" hidden></div>
-  </div>
+  <iframe id="sb2ChatIframe" class="sb2-chat-iframe"
+          src="./office-v3.html"
+          title="AI 办公室"
+          allow="clipboard-write"
+          loading="lazy"></iframe>
 </main>
 
-<!-- Chat Area (feat/sb2-chat: 老 DOM 隐藏兜底, 由 #sb2ChatMain 替代, JS 函数 100% 不动) -->
+<!-- Chat Area (feat/sb2-chat: 老 DOM 隐藏兜底 — 现在主区改 iframe, 整块不再显示, 保留兜底 DOM 以防老 JS 函数引用 #chatArea 元素, 由老 switchModule messages 分支兜底 display:none) -->
 <div class="chat-area hidden" id="chatArea">
 <!-- 顶部状态条 (ui/chat-main-v21-polish: 5 段布局第 1 段 - 团队门面叙事) -->
 <div class="chat-topbar" id="chatTopbar">
@@ -43158,7 +43130,11 @@ function switchModule(module) {
   var chatArea = document.getElementById('chatArea');
   var appSidebar = document.querySelector('.app-sidebar');
   if (module === 'messages') {
-    if (chatArea) chatArea.style.display = 'flex';
+    /* 〔fix/sb2-side-restore commit 6 C〕messages 模块主区改 iframe (AI 办公室 office-v3.html)
+       - 老 chatArea 顶栏+消息流+发送框全废弃, chatArea 隐藏
+       - 主区 #sb2ChatMain.hidden 由 wrapper2 (line 46783) 控制, 这里只 hide 老 chatArea
+       - 侧栏 employeeList 仍显示 (AI 员工列表) — 跟 office-v3 自带侧栏并存 */
+    if (chatArea) chatArea.style.display = 'none';
     // ★ fix/chat-page-tab-bar-768px-r2: ≤768 时 .app-sidebar 隐藏 (跟达人库/商品页 L34292 一致 inline 强制)
     //  - 之前: 不分 viewport 一律 display: flex → ≤768 主区被 280px 侧栏压缩
     //  - 现在: ≤768 隐藏, ≥769 显示 (跟达人库/商品 inline 逻辑对齐)
@@ -45141,8 +45117,12 @@ var ICONS = {
 /* ---------- 导航定义(permission = 旧 hasModulePermission 模块名) ---------- */
 var MODULES = [
   { id:'dashboard', label:'工作台',      icon:ICONS.dash,   perm:null },
-  { id:'messages',  label:'即时通讯',    icon:ICONS.chat,   perm:'messages' },
-  { id:'lobster',   label:'龙虾办公室',  icon:ICONS.lobster,perm:'messages', fn:'openLobsterOffice' },
+  /* 〔fix/sb2-side-restore commit 6 C〕messages 模块改名为「AI 办公室」
+     - 主区 = office-v3.html iframe (员工分区办公总览, 见 #sb2ChatMain)
+     - 以前的龙虾办公室 = 现在的工作台 (总览定位), rail 不再保留单独入口
+     - id 仍 'messages' (防 hideAllModuleMains / 权限清单大面积回归)
+     - openLobsterOffice() 函数保留不删 (旧 left-nav navOffice 兜底, 防回归) */
+  { id:'messages',  label:'AI 办公室',   icon:ICONS.chat,   perm:'messages' },
   { id:'knowledge', label:'知识库',      icon:ICONS.book,   perm:'knowledge' },
   { id:'patterns',  label:'规律库',      icon:ICONS.sigma,  perm:'patterns' },
   { id:'products',  label:'商品库',      icon:ICONS.box,    perm:'products' },
@@ -45222,7 +45202,9 @@ function buildDashboard(){
     +     '<h1 class="sb2-dash2-greet-title" id="sb2GreetTitle">工作台</h1>'
     /* ★ fix/sb2-proto-align (commit 2): 删 sub「今日智能协作 · 数据概览」(原型 line 369-371 没有 sub 元素) */ + '</div>'
     +     '<div class="sb2-dash2-greet-acts"><button class="sb2-btn sb2-btn-ghost" onclick="sb2Go(\'influencers\')">达人跟进</button>'
-    +     '<button class="sb2-btn sb2-btn-brand" onclick="sb2Go(\'lobster\')">进入龙虾办公室</button></div>'
+    /* 〔fix/sb2-side-restore commit 6 C〕以前的龙虾办公室就是现在的工作台, rail 不再保留单独入口
+        dashboard 上的「进入龙虾办公室」按钮改 sb2Go('messages') (进 AI 办公室) */
+    +     '<button class="sb2-btn sb2-btn-brand" onclick="sb2Go(\'messages\')">进入 AI 办公室</button></div>'
     +   '</div>'
     +   '<div class="sb2-kpis">'
     +     kpi('sb2KpiInject','近 7 天知识注入','')
@@ -45248,10 +45230,12 @@ function buildDashboard(){
     +   '</div>'
     + '</div></div>';
   document.body.appendChild(dash);
-  // 日期/问候
+  // 日期/问候 (B1 节日: 命中当天追加「· 国庆节 第N天」)
   var now = new Date();
   var wd = ['日','一','二','三','四','五','六'][now.getDay()];
   var dateStr = (now.getMonth()+1)+'月'+now.getDate()+'日 星期'+wd;
+  var holidayLabel = _sb2GetHolidayLabel(now);
+  if (holidayLabel) dateStr += ' · ' + holidayLabel;
   document.getElementById('sb2GreetDate').textContent = dateStr;
   var h = now.getHours();
   var greet = h < 6 ? '夜深了' : h < 12 ? '早上好' : h < 14 ? '中午好' : h < 18 ? '下午好' : '晚上好';
@@ -45725,7 +45709,11 @@ function sb2_renderActivity(events){
   el.innerHTML = deduped.map(function(ev){
     var agentId = ev.agent_id || ev.created_by || '';
     var agentName = (SB2.agentNameById && SB2.agentNameById[agentId]) || agentId.replace(/^emp_/, '').slice(0, 6) || 'AI';
-    var initial = (agentName || 'A').slice(0, 1).toUpperCase();
+    /* 〔fix/sb2-side-restore commit 6 B2〕真头像: 查 window.emps[].avatar 索引 AVATAR_PRESETS
+       agents.json avatar 是 int (0-23) → AVATAR_PRESETS[avatar] 是 PNG URL
+       老 renderAvatar 函数 (line 20378) 是 prod 既有逻辑, 这里内联避免跨块
+       fallback 字母头像 (color hash 配色, office-v3 / 既有 renderAvatar 同款) */
+    var avatarHtml = _sb2RenderAgentAvatar(agentId, agentName);
     /* 动作描述: 中文映射 event_type + entity_type 简化 */
     var etMap = {
       analysis: '完成分析',
@@ -45749,13 +45737,37 @@ function sb2_renderActivity(events){
     var t = ev.created_at || 0;
     var ago = sb2_relativeTime(t);
     return '<div class="sb2-dash2-activity-item">'
-         + '<div class="sb2-dash2-activity-avatar">'+escapeHtml(initial)+'</div>'
+         + '<div class="sb2-dash2-activity-avatar">'+avatarHtml+'</div>'
          + '<div class="sb2-dash2-activity-body">'
          +   '<div class="sb2-dash2-activity-line"><b>'+escapeHtml(agentName)+'</b> '+escapeHtml(action)+'</div>'
          + '</div>'
          + '<div class="sb2-dash2-activity-time">'+ago+'</div>'
          + '</div>';
   }).join('');
+}
+
+/* 〔fix/sb2-side-restore commit 6 B2〕员工头像 helper
+   - 优先 AVATAR_PRESETS[emp.avatar] (avatars/avatar-N.png) — agents.json avatar int 索引
+   - fallback: 字母头像 (color hash 配色, 跟 office-v3 / prod renderAvatar 同款 4 套分支)
+   - 全 --sb2-* token, 0 hex (用 colors 数组内 hex 老规矩, 老 renderAvatar 也用这套) */
+function _sb2RenderAgentAvatar(agentId, agentName){
+  var size = 28;
+  var empAvatar = null;
+  if (typeof window !== 'undefined' && Array.isArray(window.emps)){
+    for (var i = 0; i < window.emps.length; i++){
+      if (window.emps[i] && window.emps[i].id === agentId){ empAvatar = window.emps[i].avatar; break; }
+    }
+  }
+  if (typeof empAvatar === 'number' && typeof AVATAR_PRESETS !== 'undefined' && AVATAR_PRESETS[empAvatar]){
+    return '<img src="'+escapeAttr(AVATAR_PRESETS[empAvatar])+'" class="sb2-dash2-activity-img" alt="">';
+  }
+  var name = agentName || agentId || 'AI';
+  var letter = escapeHtml(name.charAt(0).toUpperCase());
+  var hash = 0;
+  for (var c = 0; c < name.length; c++){ hash = (hash << 5) - hash + name.charCodeAt(c); hash = hash & hash; }
+  var COLORS = ['#FF6B35', '#FF9500', '#34C759', '#1677ff', '#5856D6', '#AF52DE', '#FF2D55'];
+  var bg = COLORS[Math.abs(hash) % COLORS.length];
+  return '<div class="sb2-dash2-activity-letter" style="background:'+bg+';">'+letter+'</div>';
 }
 
 /* 相对时间 (毫秒 → 「3 小时前」) */
@@ -45908,6 +45920,32 @@ function sb2BellSync(){
 }
 
 /* ---------- #side 上下文侧栏 (新全局) — 按模块动态渲染 ---------- */
+
+/* 〔fix/sb2-side-restore commit 6 B1〕2026 法定节假日表 (日期以国务院放假安排为准)
+   元旦 1.1 / 春节 2.17-2.23 / 清明 4.4-4.6 / 劳动节 5.1-5.5 / 端午 6.19-6.21 / 中秋 9.25-9.27 / 国庆 10.1-10.7
+   命中当天返节日后缀 (含第 N 天), 非假期返空字符串 */
+var _SB2_HOLIDAYS_2026 = [
+  { name:'元旦', start:'2026-01-01', end:'2026-01-01' },
+  { name:'春节', start:'2026-02-17', end:'2026-02-23' },
+  { name:'清明', start:'2026-04-04', end:'2026-04-06' },
+  { name:'劳动节', start:'2026-05-01', end:'2026-05-05' },
+  { name:'端午', start:'2026-06-19', end:'2026-06-21' },
+  { name:'中秋', start:'2026-09-25', end:'2026-09-27' },
+  { name:'国庆节', start:'2026-10-01', end:'2026-10-07' }
+];
+function _sb2GetHolidayLabel(d){
+  var y = d.getFullYear(), m = d.getMonth() + 1, day = d.getDate();
+  var pad = function(n) { return n < 10 ? '0' + n : '' + n; };
+  var today = y + '-' + pad(m) + '-' + pad(day);
+  for (var i = 0; i < _SB2_HOLIDAYS_2026.length; i++){
+    var h = _SB2_HOLIDAYS_2026[i];
+    if (today >= h.start && today <= h.end){
+      var dayNum = Math.floor((Date.UTC(y, m - 1, day) - Date.UTC(parseInt(h.start.slice(0,4)), parseInt(h.start.slice(5,7)) - 1, parseInt(h.start.slice(8,10)))) / 86400000) + 1;
+      return h.name + ' 第' + dayNum + '天';
+    }
+  }
+  return '';
+}
 var SB2_SIDE_RENDERERS = {
   dashboard: function(){
     /* 〔fix/sb2-side-restore commit 2〕工作台侧栏还原原型 (line 678-687)
@@ -45938,6 +45976,11 @@ var SB2_SIDE_RENDERERS = {
     };
   },
   messages: function(){
+    /* 〔fix/sb2-side-restore commit 6 C〕messages 模块改名为「AI 办公室」
+       - title: '即时通讯' → 'AI 办公室' (侧栏标题跟模块名一致, 跟随面包屑)
+       - 主区 #sb2ChatMain = office-v3.html iframe (员工分区办公总览, 见该元素)
+       - 侧栏保留: AI 员工列表 + 项目组群聊 (跟 office-v3 自带侧栏并存)
+       - 子项 onClick 全部用守卫写法 (&& fn), 防跨块 undefined 静默 */
     var list = (typeof window.emps !== 'undefined' && Array.isArray(window.emps)) ? window.emps : [];
     var groups = [];
     try { groups = (typeof window.projects !== 'undefined' && Array.isArray(window.projects)) ? window.projects : []; } catch(e){}
@@ -45955,7 +45998,7 @@ var SB2_SIDE_RENDERERS = {
         return { name: (g.name || g.display_name || '-'), onClick:"openGroup && openGroup('"+g.id+"')" };
       })});
     }
-    return { title:'即时通讯', sub: list.length+' 员工 · '+onlineCount+' 在线', items:items };
+    return { title:'AI 办公室', sub: list.length+' 员工 · '+onlineCount+' 在线', items:items };
   },
   knowledge: function(){
     var cats = (typeof window.knowledgeCategories !== 'undefined' && Array.isArray(window.knowledgeCategories)) ? window.knowledgeCategories : [];
@@ -46007,7 +46050,8 @@ var SB2_SIDE_RENDERERS = {
     var statusActive = (typeof _sb2TalentsFilterStatus === 'string') ? _sb2TalentsFilterStatus : '';
     // 评级维 (原型 line 729-730: 全部 / A级(优先) / B级 / C级)
     var ratingItems = [
-      { name:'全部', badge: total > 0 ? String(total) : dash, active: ratingActive === '' }
+      { name:'全部', badge: total > 0 ? String(total) : dash, active: ratingActive === '',
+        onClick:"sb2TalentsOnSideClick && sb2TalentsOnSideClick('rating','')" }
     ];
     var ratingLabels = { 'A':'A 级 (优先)', 'B':'B 级', 'C':'C 级', 'D':'D 级 (未评)' };
     ['A','B','C','D'].forEach(function(k){
@@ -46021,7 +46065,8 @@ var SB2_SIDE_RENDERERS = {
     });
     // 类目维 (top 6, 按计数降序)
     var catItems = [
-      { name:'全部类目', badge: total > 0 ? String(total) : dash, active: categoryActive === '' }
+      { name:'全部类目', badge: total > 0 ? String(total) : dash, active: categoryActive === '',
+        onClick:"sb2TalentsOnSideClick && sb2TalentsOnSideClick('category','')" }
     ];
     var catList = Object.keys(cats).map(function(k){ return [k, cats[k]]; });
     /* 〔fix/sb2-side-restore commit 3 D4〕类目维排除 "(空)" key
@@ -46041,7 +46086,8 @@ var SB2_SIDE_RENDERERS = {
     // 状态维 (原型 line 733-734: 已合作 / 试投中 / 待联系)
     var STATUS_LABELS = { 'cooperating':'已合作', 'communicating':'试投中', 'available':'待联系' };
     var statusItems = [
-      { name:'全部状态', badge: total > 0 ? String(total) : dash, active: statusActive === '' }
+      { name:'全部状态', badge: total > 0 ? String(total) : dash, active: statusActive === '',
+        onClick:"sb2TalentsOnSideClick && sb2TalentsOnSideClick('status','')" }
     ];
     ['cooperating','communicating','available'].forEach(function(k){
       var cnt = statuses[k];
@@ -46216,8 +46262,12 @@ function updateCrumb(){
   var main = document.getElementById('sb2CrumbMain');
   if (!main) return;
   var m = SB2_CURRENT_MODULE;
+  /* 〔fix/sb2-side-restore commit 6 C〕messages 模块改名为「AI 办公室」
+     - messages: '即时通讯' → 'AI 办公室'
+     - lobster 移除 (rail 不再保留入口)
+     - 其余模块不变 (按需扩展) */
   var map = {
-    dashboard:'工作台', messages:'即时通讯', lobster:'龙虾办公室',
+    dashboard:'工作台', messages:'AI 办公室',
     knowledge:'知识库', patterns:'规律库', influencers:'达人库',
     products:'商品库', tasks:'任务', settings:'设置'
   };
