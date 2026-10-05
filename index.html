@@ -11627,7 +11627,8 @@ window.doLogin = function () {
 }
 .sb2-talents-table tbody td{
   /* ★ fix/sb2-full-restore (commit A): 单元格 padding 12px 上下左右 (原型 line 83 table td)
-     老大实测线上 10px 12px (上下 10px 左右 12px) 是 shorthand 笔误, 实际现状已是 12px 全 padding */
+     老大实测线上 10px 12px (上下 10px 左右 12px) 是 shorthand 笔误, 实际现状已是 12px 全 padding
+     ★ fix/sb2-talents-density: 主定义保留 12px, 后定义块 line 12317 主导改 6px 12px (line 11628 改了等于没改) */
   padding:12px; border-bottom:1px solid var(--sb2-border);
   vertical-align:middle;
 }
@@ -11657,7 +11658,7 @@ window.doLogin = function () {
 }
 .sb2-talents-handle{
   font:400 11px/1.2 "PingFang SC",sans-serif; color:var(--sb2-t3);
-  margin-top:2px;
+  margin-top:0;
 }
 .sb2-talents-chip{
   display:inline-block; padding:3px 8px; border-radius:var(--sb2-r-full);
@@ -11694,7 +11695,7 @@ window.doLogin = function () {
 .sb2-talents-rating.r-D{ background:var(--sb2-s3); color:var(--sb2-t3); }
 
 .sb2-talents-status{
-  display:inline-block; padding:3px 8px; border-radius:var(--sb2-r-full);
+  display:inline-block; padding:1px 8px; border-radius:var(--sb2-r-full);
   font:500 11px/1.2 "PingFang SC",sans-serif;
   background:var(--sb2-s2); color:var(--sb2-t2); border:0;
 }
@@ -12313,8 +12314,12 @@ window.doLogin = function () {
   background: var(--sb2-brand-soft);
   box-shadow: inset 3px 0 0 var(--sb2-brand);
 }
+/* ★ fix/sb2-talents-density: padding 12px → 6px 垂直 (横向保持 12px)
+   后定义块主导 (line 12317 同定义赢, 主定义 line 11628 不生效)
+   原型 .table td padding: 12px (line 261), 线上 12 实测 td 71 (老) vs prototype 60。
+   减 6 垂直, 砍 12 行高 (71 → 59)。pager 一屏可见: 12 × 57 = 684 + 标题区 130 + pager 25 ≈ 839 px ≤ viewport 870 */
 .sb2-talents-table tbody td {
-  padding: 12px;
+  padding: 6px 12px;
   vertical-align: middle;
 }
 .sb2-num {
@@ -41146,7 +41151,7 @@ var _sb2TalentsTotal = 0;
    apply when: 任何「侧栏聚合需全库数据」必须服务端 GROUP BY 一次拿, 禁前端从当前页算 */
 var _sb2TalentsFacets = null;
 var _sb2TalentsPage = 1;
-var _sb2TalentsLimit = 50;
+var _sb2TalentsLimit = 12;
 var _sb2TalentsFilterRating = '';   // '' / 'A' / 'B' / 'C' / 'D'
 var _sb2TalentsFilterCategory = ''; // '' / 类目字符串
 var _sb2TalentsFilterStatus = '';   // '' / 7 枚举之一
