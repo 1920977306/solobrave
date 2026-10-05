@@ -40334,7 +40334,11 @@ async function sb2KbInit(){
     window._sb2KbCatCounts = catCounts;
     window._sb2KbCatCountsTotal = totalEntries;
 
-    sb2KbRenderHero(statsData || {}, _sb2KbEntries);
+    /* 〔fix/sb2-side-restore commit 18〕16 轮批注③第四次打回 — hero 嵌套 bug:
+       修前 bug: 传 statsData (原始响应 {stats:{...}}), 函数读 stats.total 拿 undefined → fallback 50 样本 + chunks 0
+         侧栏对是因为用 statsRoot (line 40317 已解 statsData.stats), 但 hero 漏改调用处
+       修法: 改传 statsRoot (同 try 块已定义, 跟侧栏三处共用) */
+    sb2KbRenderHero(statsRoot || {}, _sb2KbEntries);
     sb2KbRenderChips(_sb2KbCats, _sb2KbEntries);
     sb2KbRenderList(_sb2KbEntries);
 
