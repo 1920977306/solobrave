@@ -10158,18 +10158,6 @@ body.sb2-no-side .sb2-dash{ left:60px; }
 /* 内容区让位: 顶栏 48px + 轨 60px + #side 236px */
 .app-container{ margin-top:48px; margin-left:296px; }
 
-/* 〔fix/sb2-side-restore commit 5〕中等屏 <1100 让位, 断点对齐原型
-   老大指令: 「原型 line 283 @media (max-width:1100px) .side{display:none}」
-             取代之前 768 兜底 (820 屏仍会让位失败, 1 件 4 commit 走查复测多次)
-   让位: 顶栏 / 工作台覆盖层都 left:60 (全宽, 不留空白条)
-   现有 768 媒体查询不动 (≤768 仍走全隐藏 .left-nav 回归) */
-@media (max-width: 1100px) {
-  .sb2-side { display: none; }
-  .sb2-topbar { left: 60px; }
-  .sb2-dash { left: 60px; }
-  .app-container { margin-left: 60px; }
-}
-
 /* —— 新顶栏 48px (固定于顶部) —— */
 .sb2-topbar{
   /* 〔fix/sb2-side-restore commit 5〕布局让位: 默认让位 #side 236px
@@ -10224,6 +10212,28 @@ body.sb2-no-side .sb2-topbar{ left:60px; }
   position:fixed; top:48px; left:60px; bottom:0; width:236px; z-index:80;
   background:var(--sb2-s2); border-right:1px solid var(--sb2-border);
   display:flex; flex-direction:column; overflow:hidden;
+}
+
+/* 〔fix/sb2-side-restore commit 8 R1 回归修正〕中等屏 <1100 让位, 断点对齐原型
+   老大指令: 「原型 line 283 @media (max-width:1100px) .side{display:none}」
+             取代之前 768 兜底 (820 屏仍会让位失败, 1 件 4 commit 走查复测多次)
+   让位: 顶栏 / 工作台覆盖层都 left:60 (全宽, 不留空白条)
+   现有 768 媒体查询不动 (≤768 仍走全隐藏 .left-nav 回归)
+
+   〔R1 回归根因 2026-10-05〕媒体块必须在被覆盖选择器的基础定义之后, 同优先级后定义赢
+   - 之前: 媒体块 line 10166, 在 .sb2-topbar 基础定义 (line 10174) 之前
+     → vw=820 实测 .sb2-side display=flex / .sb2-topbar left=296px, matchMedia true 但媒体块没赢
+   - 现在: 媒体块搬到 .sb2-side 基础定义之后 (line 10229), 10274 @media (max-width:768px) 之前
+     → 同优先级后定义赢规则下, 媒体块覆盖基础定义生效
+
+   〔第八轮验收假阳性 2026-10-04〕当时先点了任务模块 (body.sb2-no-side + 内联 display:none),
+     探针测到的是 tasks 状态不是 media query — 假阳性过测, 老大已下架采纳审记失误
+   — 这一轮必须按规矩在有侧栏模块 (达人库/规律库/商品库) 上 vw=820 验收 */
+@media (max-width: 1100px) {
+  .sb2-side { display: none; }
+  .sb2-topbar { left: 60px; }
+  .sb2-dash { left: 60px; }
+  .app-container { margin-left: 60px; }
 }
 .sb2-side-head{
   padding:18px 16px 10px; border-bottom:1px solid var(--sb2-border);
