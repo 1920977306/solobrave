@@ -33438,32 +33438,9 @@ function loadProducts(page) {
     renderProductPagination(_productData.total, _productPage, _productPageSize);
     renderProductBrandOptions();
     if (!_productCurrentId) showProductEmptyState();
-    /* 〔fix/sb2-side-restore commit 25〕17 轮追加 3 项 B: 商品库侧栏「加载中…」卡死
-       修前 bug: SB2_SIDE_RENDERERS.products 读 window.productCategories 永远空,
-         fallback [{name:'加载中…'}] 永不更新 (时序坑, 同 commit 16 知识库批注③).
-       修法 (派单对齐, 接口实测响应已确认 — 见 commit message):
-       - /api/products 响应 schema: {products: [...], total: N, offset: N, limit: N}
-         实测: product[0].category = "生活家居" (字符串)
-       - 不另发请求 / 不改 server 业务代码 (派单红线, DB_PATH 覆盖点已够用)
-       - 聚合 _productData.products category 字段: {id, name, count}
-         — name 从 category 字符串取 (跟规律库聚合模式对称)
-         — count 累加同 category 的 product 数
-         — 按 count 降序, 排前面的类目
-       - 写 window.productCategories 给侧栏读
-       - 调 renderSideFor('products') 重渲侧栏 (knowledge commit 16 同款模式)
-       - 样本: 当前 page 拿到 _productPageSize (默认 20) 条, 不够全库 (派单说"主区正常 87 条")
-         — 派单 commit 24 之后如果品类更多, 应考虑拿 /api/products?limit=500 全库样本 (同 _dashState.cache:9541 已有的调用)
-         — 当前 page-level 聚合对当前 page 类目覆盖, 大部分时间够用; 切 page 时 categories 也跟着更新 */
-    var catMap = {};
-    _productData.products.forEach(function(p){
-      var c = p.category || '未分类';
-      if (!catMap[c]) catMap[c] = { id: c, name: c, count: 0 };
-      catMap[c].count++;
-    });
-    var catList = Object.keys(catMap).map(function(k){ return catMap[k]; });
-    catList.sort(function(a, b){ return b.count - a.count; });
-    window.productCategories = catList;
-    if (typeof window.renderSideFor === 'function') window.renderSideFor('products');
+    // 〔fix/sb2-side-restore commit 25 B 补修〕商品库侧栏 categories 改全库聚合:
+    //   loadProducts 内部 page-level 聚合删了 (派单 22:04 拍板: 全库聚合, 不能 page-level).
+    //   改由 loadProductCategories(切模块时触发一次)做全库聚合 + renderSideFor('products') 重渲.
   }).catch(function(e){
     if (itemsEl) itemsEl.innerHTML = '<div class="products-empty"><div class="products-empty-text">加载失败</div></div>';
   });
@@ -33510,6 +33487,40 @@ function loadProductBrands() {
     if (sel) sel.disabled = false;
   }).catch(function(e){
     if (sel) sel.disabled = false;
+  });
+}
+
+/* 〔fix/sb2-side-restore commit 25 B 补修〕商品库侧栏 classes 全库聚合
+   派单 22:04 打回 B: 「商品库侧栏类目必须全库聚合」(page-level 不够, 87 条样本只占 50-60% 覆盖)
+   修法:
+   - 仿 loadProductBrands 模式, 加 loadProductCategories 函数
+   - 调 /api/products?limit=500 拿全库样本 (派单说"主区正常 87 条", 500 限够覆盖)
+   - 聚合 products.category 字段 → {id, name, count}, 按 count 降序
+   - 写 window.productCategories 给侧栏读
+   - 调 renderSideFor('products') 重渲侧栏
+   - 触发点: 切到 products 模块时由 switchModule (line 486) 触发一次, 切 page 不重跑 (避免冗余)
+   - 接口实测响应已确认 (worktree dev server 18210): product[0].category = "生活家居" (字符串)
+   - 跟规律库 sb2PatternsInit 聚合 (commit 24 A) 同款模式, 但触发点不同:
+     规律库 sb2PatternsInit 是模块 init 入口 (必然跑一次), 商品库 loadProducts 是 page-level (切 page 重复触发) */
+function loadProductCategories(){
+  /* 〔fix/sb2-side-restore commit 25 B 补修〕全库聚合: 用 limit=500 而非 page-level 样本.
+     火塘型 fire-and-forget: 不阻塞商品库主区 page 加载, 异步写 window + renderSideFor 重渲.
+     失败兜底: window.productCategories 保持上次值 (空 fallback 仍走「加载中…」) */
+  apiFetch('/api/products?limit=500').then(function(r){return r.json();}).then(function(data){
+    var products = (data && data.products) || [];
+    var catMap = {};
+    products.forEach(function(p){
+      var c = p.category || '未分类';
+      if (!catMap[c]) catMap[c] = { id: c, name: c, count: 0 };
+      catMap[c].count++;
+    });
+    var catList = Object.keys(catMap).map(function(k){ return catMap[k]; });
+    catList.sort(function(a, b){ return b.count - a.count; });
+    window.productCategories = catList;
+    if (typeof window.renderSideFor === 'function') window.renderSideFor('products');
+    console.log('[products] categories 聚合完成, count:', catList.length);
+  }).catch(function(e){
+    console.warn('[products] categories 聚合失败:', e);
   });
 }
 
@@ -43479,7 +43490,7 @@ function switchModule(module) {
       if (typeof sb2PatternsInit === 'function') sb2PatternsInit();
     }
   }
-  else if (module === 'products') { loadProductBrands(); loadProducts(); }
+  else if (module === 'products') { loadProductBrands(); loadProductCategories(); loadProducts(); }
   else if (module === 'influencers') {
     // ★ sb2-talents MVP1: 显示新屏, 旧 #influencersMid / #influencersRight CSS 兜底 display:none (旧 DOM 不退役仅兜底)
     var sb2t = document.getElementById('sb2TalentsMain');
