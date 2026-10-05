@@ -10050,7 +10050,18 @@ window.doLogin = function () {
 }
 body.sb2-no-side .sb2-dash{ left:60px; }
 .sb2-dash.on{ display:flex; }
-.sb2-dash-main{ flex:1; overflow-y:auto; padding:26px 34px 60px; }
+.sb2-dash-main{
+  /* 〔fix/sb2-side-restore commit 14〕16 轮批注⑥: 工作台问候区上方大空白压缩
+     老大原话: 「顶栏到「10月5日 星期一」之间的空白压缩」
+     修前: padding:26px 34px 60px (顶栏 48 + 26 = 74px 空白, 老大嫌太大)
+     现在: padding:14px 34px 60px (顶栏 48 + 14 = 62px 空白, 压缩 12px)
+     - 上 padding 26 → 14 (压缩 greet 区上方空白)
+     - 左右 34 不动 (跟工作台布局对齐)
+     - 下 60 不动 (footer 留白)
+     - 影响: 问候区(KPI/feed grid)上方空白减少, KPI 卡跟问候区贴近, 但不影响 feed 内部布局
+     - 原型 line 363 .content padding: var(--sp-5) var(--sp-6) var(--sp-7) = 24 32 48, 我们 14 < 24 更紧凑 */
+  flex:1; overflow-y:auto; padding:14px 34px 60px;
+}
 .sb2-wrap{ max-width:1180px; margin:0 auto; }
 
 .sb2-greet{ display:flex; align-items:flex-end; gap:16px; margin-bottom:22px; }
