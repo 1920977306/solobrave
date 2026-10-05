@@ -12803,10 +12803,13 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
          → root cause 2: z-index: 1 与 .sb2-side (fixed z-index:80) 同级层叠
          → root cause 3: fixed 元素不受 .app-main position:relative 约束, 层叠规则异常
          → 老大 940 视口实测: shell 仍压在 .sb2-side 上面 (达人库侧栏被压, 用户看不到)
-       修后 v4 (本次): position absolute + left 60px + right 0 + top 86 + bottom 18 + transform none
-         - position absolute: 走 .app-main 父容器层叠 (line 311 .app-main { position: relative }), 不创建新 stacking context
-         - left: 60 / right: 0: shell 完整让位 .sb2-side width 236px + rail 60px, 不压侧栏
-         - top: 86 + bottom: 18: 锚 .app-main 父容器上下, 卡底距 .app-main 底 18 (跟原型 #s-chat card y=86 + h=836 距 body h=940-86-836-18=0 一致)
+       修后 v4 (bed3c4e): position absolute + left 60px + right 0 + top 86 + bottom 18 + transform none
+         - 探针实测 (InAppBrowser evaluate, 1618×940): 卡顶 viewport y=134 ≠ 规格 86 — root cause: top:86 锚
+           .app-main 父容器, 而 .app-main 顶在 viewport y=48 (顶栏高 48), 48+86=134; 底缝 18 ✓ (bottom:18 锚
+           .app-main padding box 底 = viewport 底)
+       修后 v5 (本次 r25.3): top: 86 → 38 (= 规格卡 y86 − .app-main 顶 48)
+         - 卡顶 = 48+38 = 86 ✓ 规格; 卡高 = 892−38−18 = 836 ✓ 跟原型 #s-chat card h=836 一致
+         - left: 60 / right: 0 / bottom: 18 / transform none / max-width 1240 全部保留 v4 不动
          - transform: none: 不创建新 stacking context, 不与 .sb2-side 抢层叠
          - max-width: 1240 (跟原型对齐)
      范围: 不动 .sb2-side (line 10220 fixed z-index:80 让位完成), 不动 .app-main (line 304 flex 父容器)
@@ -12814,7 +12817,7 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
   display: flex;
   flex-direction: column;
   position: absolute;
-  top: 86px;
+  top: 38px;
   bottom: 18px;
   left: 60px;
   right: 0;
