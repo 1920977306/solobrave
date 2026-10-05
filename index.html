@@ -10171,17 +10171,22 @@ body.sb2-no-side .sb2-topbar{ left:60px; }
   font:600 13px/1 "PingFang SC",sans-serif; color:var(--sb2-t1); font-weight:600;
 }
 .sb2-topbar-crumb .sep{ color:var(--sb2-t3); }
+/* 〔fix/sb2-side-restore commit 23〕17 轮追加第 5 项: 顶栏全局搜索缩成图标
+   修前: 380px 宽 button + 占位 hint + ⌘K kbd (占顶栏 38% 宽度)
+   修后: 36x36 icon button + svg only (跟 .sb2-bell-btn 同款), 顶栏省下 344px 空间
+   保留: onclick → sb2_openPalette → openGlobalSearch → globalSearchModal + focus input(未动) */
 .sb2-topbar-search{
-  flex:1; max-width:380px; display:flex; align-items:center; gap:8px;
-  padding:7px 12px; border:1px solid var(--sb2-border); border-radius:var(--sb2-r-md);
-  background:var(--sb2-s2); color:var(--sb2-t3);
-  font:400 12px/1 "PingFang SC",sans-serif; cursor:pointer; transition:all .15s;
+  width:36px; height:36px; border-radius:var(--sb2-r-md);
+  display:grid; place-items:center; cursor:pointer;
+  color:var(--sb2-t2); border:none; background:transparent;
+  transition:all .15s;
 }
-.sb2-topbar-search:hover{ border-color:var(--sb2-border-strong); background:var(--sb2-s1); }
+.sb2-topbar-search:hover{ background:var(--sb2-s3); color:var(--sb2-t1); }
+/* .kbd span 已删, 注释保留 (修前结构)
 .sb2-topbar-search .kbd{
   margin-left:auto; font:500 10px/1 ui-monospace,monospace; padding:2px 6px; border-radius:4px;
   background:var(--sb2-s1); border:1px solid var(--sb2-border); color:var(--sb2-t2);
-}
+} */
 .sb2-topbar-actions{ margin-left:auto; display:flex; gap:6px; align-items:center; }
 .sb2-bell-btn{
   width:36px; height:36px; border-radius:var(--sb2-r-md);
@@ -13476,10 +13481,16 @@ body.sb2-no-side .sb2-topbar{ left:60px; }
 <!-- ★ feat/sb2-global-shell: 新顶栏 (固定 48px) — body 直接子元素, 避免被 app-container 的 overflow:hidden/display:flex 影响 -->
 <header class="sb2-topbar" id="sb2Topbar" aria-label="全局顶栏">
   <div class="sb2-topbar-crumb" id="sb2TopbarCrumb"><b id="sb2CrumbMain">工作台</b></div>
+  <!-- 〔fix/sb2-side-restore commit 23〕17 轮追加第 5 项: 顶栏全局搜索缩成图标
+       老大派单 21:00: 「顶栏全局搜索缩成图标」(撤回 17 轮原批注③ 「侧栏搜索全保留」决策对头)
+       修法 (派单对齐 nav#navSearch 已是 icon-only 搜索按钮 line 13508):
+       - 删 <span id="sb2TopbarSearchHint">搜索达人 / 知识 / 规律 / 员工…</span> 占位文字
+       - 删 <span class="kbd">⌘K</span> 快捷键角标
+       - 保留 svg icon (14x14) + onclick="sb2_openPalette()" + aria-label="搜索"
+       - 实际效果: 顶栏 380px 宽 button → 36x36 icon button, 跟右侧 .sb2-bell-btn 通知按钮同款
+       - sb2_openPalette 调 openGlobalSearch → 显示 globalSearchModal + focus input(不变) -->
   <button class="sb2-topbar-search" id="sb2TopbarSearch" type="button" onclick="sb2_openPalette()" aria-label="搜索">
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
-    <span id="sb2TopbarSearchHint">搜索达人 / 知识 / 规律 / 员工…</span>
-    <span class="kbd">⌘K</span>
   </button>
   <div class="sb2-topbar-actions">
     <button class="sb2-bell-btn" type="button" onclick="toggleNotificationPanel()" aria-label="通知" id="sb2TopbarBell">
