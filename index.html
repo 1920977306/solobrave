@@ -11910,13 +11910,21 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
   font:400 13px/1.5 "PingFang SC",sans-serif;
 }
 .sb2-kb-card{
-  /* 〔fix/sb2-side-restore commit 13〕16 轮批注⑤: 知识库条目卡片对齐原版
-     原型 line 767: card-pad (background surface-1 white card + padding 16px 18px) + flex gap 14px align-items:center
-     - cursor:pointer
-     - hover border-color strong + sh1 (跟原型 card-hover 同款) */
-  padding:16px 18px; border:1px solid var(--sb2-border); border-radius:var(--sb2-r-md);
+  /* 〔fix/sb2-side-restore 19 轮批注①〕知识库卡片改水平对齐原型 line 768
+     原型 line 768: card-pad + flex gap 14px align-items:center (title-meta 左, tags 右)
+     修前 (commit 13): display flex-direction column gap 8 (title 上 → meta 中 → tags 下 三段垂直)
+     修后 (本轮): display flex align-items center gap 14 (水平一行, title-meta wrap info 在左 flex:1, tags 在右)
+     圆角: r-md 10px → r-lg 14px (原型 r14, token 已存在 line 9964)
+     pad: 16 18 → 16 24 (跟原型 #s-knowledge card pad 16 24 一致, v2 规格表 line 39)
+     范围: 仅知识库 .sb2-kb-card, 不影响 talents/patterns/products 卡片样式 */
+  padding:16px 24px; border:1px solid var(--sb2-border); border-radius:var(--sb2-r-lg);
   background:var(--sb2-s1); cursor:pointer; transition:all .15s;
-  display:flex; flex-direction:column; gap:8px;
+  display:flex; align-items:center; gap:14px;
+}
+.sb2-kb-card-info{
+  /* 批注① 19 轮: 卡片左侧 info 容器 (title 在上 + meta 在下) 撑满剩余空间
+     flex:1 min-width:0 让 ellipsis 生效 (父容器必须有 min-width:0 否则 ellipsis 不工作) */
+  flex:1; min-width:0; display:flex; flex-direction:column; gap:4px;
 }
 .sb2-kb-card:hover{
   border-color:var(--sb2-border-strong);
@@ -40582,13 +40590,15 @@ function sb2KbRenderList(entries){
     var statusLabel = statusRaw === 'pending' ? '待审核' : statusRaw === 'failed' ? '失败' : statusRaw === 'superseded' ? '已废弃' : '已入库';
     var statusClass = 'sb2-tag-status-' + (statusRaw === 'pending' ? 'pending' : statusRaw === 'failed' ? 'failed' : statusRaw === 'superseded' ? 'superseded' : 'ok');
     return '<article class="sb2-kb-card" data-kb-id="' + escapeAttr(id) + '" data-sb2-scope="' + escapeAttr(e.scope || e.scope_name || 'global') + '" title="' + escapeAttr(updatedRaw) + '" onclick="sb2KbOpenDetail(\'' + escapeAttr(id) + '\')">' +
-      '<h3 class="sb2-kb-card-title">' + escapeHtml(title) + '</h3>' +
-      '<div class="sb2-kb-card-meta">' +
-        '<span class="sb2-kb-card-id">' + escapeHtml(id) + '</span>' +
-        '<span class="sb2-kb-card-sep">·</span>' +
-        '<span class="sb2-kb-card-chunks">' + escapeHtml(chunks) + '</span>' +
-        '<span class="sb2-kb-card-sep">·</span>' +
-        '<span class="sb2-kb-card-updated">' + escapeHtml(updated) + '</span>' +
+      '<div class="sb2-kb-card-info">' +
+        '<h3 class="sb2-kb-card-title">' + escapeHtml(title) + '</h3>' +
+        '<div class="sb2-kb-card-meta">' +
+          '<span class="sb2-kb-card-id">' + escapeHtml(id) + '</span>' +
+          '<span class="sb2-kb-card-sep">·</span>' +
+          '<span class="sb2-kb-card-chunks">' + escapeHtml(chunks) + '</span>' +
+          '<span class="sb2-kb-card-sep">·</span>' +
+          '<span class="sb2-kb-card-updated">' + escapeHtml(updated) + '</span>' +
+        '</div>' +
       '</div>' +
       '<div class="sb2-kb-card-tags">' +
         '<span class="sb2-tag sb2-tag-cat">' + escapeHtml(cat) + '</span>' +
