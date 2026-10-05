@@ -11020,6 +11020,26 @@ body.sb2-no-side .sb2-topbar{ left:60px; }
   color:var(--sb2-t1);
   display:flex; align-items:center; justify-content:center;
   font:600 11px/1 "PingFang SC",sans-serif;
+  overflow:hidden;
+}
+/* 〔fix/sb2-side-restore commit 9〕员工动态头像 img 限尺寸 (12 轮热修)
+   - 修前: <img class="sb2-dash2-activity-img"> 没限宽高, PNG 原尺寸 200x200+ 撑出 28px 容器, 溢出卡片
+     → 老大截图标注①: "原尺寸巨大的红发动漫插画"
+   - 现在: img 100% 撑满容器, object-fit:cover + border-radius:50%, 跟 .sb2-talents-avatar img 同款
+   - overflow:hidden 在父容器兜底, 防 PNG 任意比例溢出 */
+.sb2-dash2-activity-img{
+  width:100%; height:100%;
+  object-fit:cover;
+  border-radius:50%;
+  display:block;
+}
+/* fallback 字母头像 (color hash) 同样 100% 圆, 跟 img 一致 */
+.sb2-dash2-activity-letter{
+  width:100%; height:100%;
+  display:flex; align-items:center; justify-content:center;
+  border-radius:50%;
+  font:600 12px/1 "PingFang SC",sans-serif;
+  color:var(--sb2-s1);
 }
 .sb2-dash2-activity-body{ flex:1 1 auto; min-width:0; }
 .sb2-dash2-activity-line{
@@ -12707,17 +12727,9 @@ body.sb2-no-side .sb2-topbar{ left:60px; }
 .sb2-chat-shell[hidden],
 .sb2-chat-shell.hidden { display: none !important; }
 
-/* 〔fix/sb2-side-restore commit 6 C〕iframe 撑满 — AI 办公室主区整个 = office-v3.html
-   iframe 100% 宽高撑满 .sb2-chat-shell (parent flex column), office-v3.html 自带完整 UI
-   border:0 去掉默认 1px 灰框, display:block 避免 inline baseline 4px 间隙 */
-.sb2-chat-iframe {
-  width: 100%;
-  height: 100%;
-  border: 0;
-  display: block;
-  flex: 1 1 auto;
-  background: transparent;
-}
+/* 〔fix/sb2-side-restore commit 9〕删 .sb2-chat-iframe CSS (commit 6 C 引入, 12 轮热修清理)
+   老大纠偏: messages 是聊天模块不是 iframe 容器, office-v3 iframe 整体删 (HTML 段)
+   CSS 段也删干净, 避免回归 */
 
 /* ===== Topbar (布局对齐原型: 头像 + 姓名·角色 + 状态行 + 右侧 ghost 按钮) ===== */
 .sb2-chat-topbar {
@@ -14766,23 +14778,72 @@ body.sb2-no-side .sb2-topbar{ left:60px; }
   <div class="tasks-mid-items" id="tasksListItems"></div>
 </div>
 
-<!-- ★ fix/sb2-side-restore commit 6 C: messages 模块主区 = 龙虾办公室 iframe (AI 办公室)
-     老大原话: 「即时通讯改成 AI 办公室, 以前的龙虾办公室就是现在的工作台」
-     - messages 模块 label 改 'AI 办公室', 主区嵌 office-v3.html 撑满 100% 宽高
-     - office-v3.html 自带完整 UI: 员工分区办公总览 (对话中/工作中/休息分区), 员工卡带头像,
-       BroadcastChannel 'lobster-office' 同源双向同步 (新消息/状态变化即时反映), 点员工直接聊
-     - 56px office-v3 顶栏先保留 (下轮再去)
-     - 老 #chatArea / 内部 chat UI (顶栏/进度条/消息流/发送框) 全部废弃, 老 DOM 保留但 hidden
-     - renderChatMain 仍控制 hidden 属性 (line 46742) — 当前模块='messages' 时显示 iframe -->
+<!-- ★ fix/sb2-side-restore commit 9 (老大 12 轮热修): messages 模块主区恢复老聊天 UI
+     老大纠偏: 第九轮 commit 6 C 把 messages 主区换成 office-v3 iframe 是过度执行
+     - 老大原意: 去掉的是「龙虾办公室」(功能已改到工作台), 不是删消息聊天界面
+     - 修法: 还原老 chat UI (顶栏+进度条+消息流+发送框) 回到 #sb2ChatMain, 删除 office-v3 iframe
+     - 老 chatArea (line 14793) 兜底 DOM 保留但 display:none, 老 switchModule messages 分支改 display:'flex' 切回主区
+     - rail 按钮文字「AI 办公室」改回「即时通讯」(模块内容既然是聊天, 名字必须诚实)
+     - rail 🦞 龙虾入口保持移除不动 (MODULES.lobster 已删)
+     - 工作台「进入 AI 办公室」按钮保留不动 (这才是老大说的"功能改到工作台展示")
+     - openLobsterOffice 函数继续保留防回归
+     - renderChatMain 仍控制 hidden 属性 (line 46742) — 当前模块='messages' 时显示 -->
 <main id="sb2ChatMain" class="sb2-chat-shell" hidden>
-  <iframe id="sb2ChatIframe" class="sb2-chat-iframe"
-          src="./office-v3.html"
-          title="AI 办公室"
-          allow="clipboard-write"
-          loading="lazy"></iframe>
+  <!-- 顶栏 (布局对齐原型: 头像 + 姓名·角色 + 状态行 + 右侧 ghost 按钮) -->
+  <header class="sb2-chat-topbar">
+    <div class="sb2-chat-topbar-info">
+      <span class="sb2-chat-topbar-avatar" id="sb2ChatTopbarAvatar">R</span>
+      <div class="sb2-chat-topbar-meta">
+        <div class="sb2-chat-topbar-name" id="sb2ChatTopbarName">-</div>
+        <div class="sb2-chat-topbar-status offline" id="sb2ChatTopbarStatus">
+          <span class="sb2-chat-topbar-status-dot"></span>
+          <span id="sb2ChatTopbarStatusText">未连接</span>
+        </div>
+      </div>
+    </div>
+    <div class="sb2-chat-topbar-right">
+      <button class="sb2-chat-topbar-ghost" type="button" id="sb2ChatTopbarProfile" title="员工档案" onclick="sb2_toastComingSoon('员工档案')">员工档案</button>
+      <button class="sb2-chat-topbar-ghost" type="button" id="sb2ChatTopbarSettings" title="会话设置" onclick="sb2_toastComingSoon('会话设置')">设置</button>
+    </div>
+  </header>
+
+  <!-- 流式进度条 (顶部, 仅在 AI 生成时显示) -->
+  <div class="sb2-chat-progress" id="sb2ChatProgress" hidden>
+    <div class="sb2-chat-progress-fill"></div>
+  </div>
+
+  <!-- 消息流容器 (核心) -->
+  <div class="sb2-chat-messages" id="sb2ChatMessages">
+    <div class="sb2-chat-empty">
+      <div class="sb2-chat-empty-icon">💬</div>
+      <div id="sb2ChatEmptyText">选择一个 AI 员工开始对话</div>
+      <div class="sb2-chat-empty-tip">Enter 发送 / Shift+Enter 换行 / 📎 附件</div>
+    </div>
+  </div>
+
+  <!-- 发送框 (像素级复刻原型: ghost 附件 + 白底输入囊 + btn-ink 发送) -->
+  <div class="sb2-chat-input-wrap">
+    <!-- 附件预览条 -->
+    <div class="sb2-chat-attach-bar" id="sb2ChatAttachBar"></div>
+
+    <!-- 输入行: 附件方钮 + 白底输入囊 + 深色发送按钮 (原型 flex row) -->
+    <div class="sb2-chat-input-row">
+      <button class="sb2-btn sb2-btn-ghost sb2-chat-attach-btn" type="button" id="sb2ChatAttachBtn" title="图片附件" aria-label="添加图片附件">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+      </button>
+      <div class="sb2-chat-input-pill">
+        <textarea id="sb2ChatInput" class="sb2-chat-input" rows="1" placeholder="给员工派活… (Enter 发送, Shift+Enter 换行)" autocomplete="off"></textarea>
+      </div>
+      <button class="sb2-btn sb2-btn-ink sb2-chat-send-btn" id="sb2ChatSendBtn" type="button" disabled title="发送" aria-label="发送消息">发送</button>
+    </div>
+    <input type="file" id="sb2ChatFileInput" accept="image/*" multiple style="display:none;">
+
+    <!-- §2 浮层容器: slash / @mention / model 三功能共用 (绝对定位锚输入框上方) -->
+    <div class="sb2-chat-tasks-popup" id="sb2ChatTasksPopup" hidden></div>
+  </div>
 </main>
 
-<!-- Chat Area (feat/sb2-chat: 老 DOM 隐藏兜底 — 现在主区改 iframe, 整块不再显示, 保留兜底 DOM 以防老 JS 函数引用 #chatArea 元素, 由老 switchModule messages 分支兜底 display:none) -->
+<!-- Chat Area (feat/sb2-chat: 老 DOM 隐藏兜底, 由 #sb2ChatMain 替代, JS 函数 100% 不动) -->
 <div class="chat-area hidden" id="chatArea">
 <!-- 顶部状态条 (ui/chat-main-v21-polish: 5 段布局第 1 段 - 团队门面叙事) -->
 <div class="chat-topbar" id="chatTopbar">
@@ -43151,11 +43212,13 @@ function switchModule(module) {
   var chatArea = document.getElementById('chatArea');
   var appSidebar = document.querySelector('.app-sidebar');
   if (module === 'messages') {
-    /* 〔fix/sb2-side-restore commit 6 C〕messages 模块主区改 iframe (AI 办公室 office-v3.html)
-       - 老 chatArea 顶栏+消息流+发送框全废弃, chatArea 隐藏
-       - 主区 #sb2ChatMain.hidden 由 wrapper2 (line 46783) 控制, 这里只 hide 老 chatArea
-       - 侧栏 employeeList 仍显示 (AI 员工列表) — 跟 office-v3 自带侧栏并存 */
-    if (chatArea) chatArea.style.display = 'none';
+    /* 〔fix/sb2-side-restore commit 9〕messages 主区恢复老 chat UI (12 轮热修)
+       - 老大纠偏: commit 6 C 把 chatArea display 改 none 是过度执行
+       - 现在 chatArea.style.display 还原 'flex', 老 chat UI 回来
+       - #sb2ChatMain (新 sb2 chat 主区) hidden 由 wrapper2 控制 (line 46742)
+         但 commit 9 #sb2ChatMain 内部恢复老 chat UI 内容, 跟 #chatArea 双保险
+       - 侧栏 employeeList 仍显示 (AI 员工列表) */
+    if (chatArea) chatArea.style.display = 'flex';
     // ★ fix/chat-page-tab-bar-768px-r2: ≤768 时 .app-sidebar 隐藏 (跟达人库/商品页 L34292 一致 inline 强制)
     //  - 之前: 不分 viewport 一律 display: flex → ≤768 主区被 280px 侧栏压缩
     //  - 现在: ≤768 隐藏, ≥769 显示 (跟达人库/商品 inline 逻辑对齐)
@@ -45138,12 +45201,12 @@ var ICONS = {
 /* ---------- 导航定义(permission = 旧 hasModulePermission 模块名) ---------- */
 var MODULES = [
   { id:'dashboard', label:'工作台',      icon:ICONS.dash,   perm:null },
-  /* 〔fix/sb2-side-restore commit 6 C〕messages 模块改名为「AI 办公室」
-     - 主区 = office-v3.html iframe (员工分区办公总览, 见 #sb2ChatMain)
-     - 以前的龙虾办公室 = 现在的工作台 (总览定位), rail 不再保留单独入口
+  /* 〔fix/sb2-side-restore commit 9〕messages 模块 label 'AI 办公室' → '即时通讯' (12 轮热修)
+     - 老大纠偏: 既然主区是老 chat UI (顶栏+消息流+发送框), 名字必须诚实叫「即时通讯」
+     - 以前的龙虾办公室仍合并到工作台 (commit 6 思路对了一半), 但 rail 不再单独入口
      - id 仍 'messages' (防 hideAllModuleMains / 权限清单大面积回归)
      - openLobsterOffice() 函数保留不删 (旧 left-nav navOffice 兜底, 防回归) */
-  { id:'messages',  label:'AI 办公室',   icon:ICONS.chat,   perm:'messages' },
+  { id:'messages',  label:'即时通讯',    icon:ICONS.chat,   perm:'messages' },
   { id:'knowledge', label:'知识库',      icon:ICONS.book,   perm:'knowledge' },
   { id:'patterns',  label:'规律库',      icon:ICONS.sigma,  perm:'patterns' },
   { id:'products',  label:'商品库',      icon:ICONS.box,    perm:'products' },
@@ -45767,27 +45830,43 @@ function sb2_renderActivity(events){
   }).join('');
 }
 
-/* 〔fix/sb2-side-restore commit 6 B2〕员工头像 helper
-   - 优先 AVATAR_PRESETS[emp.avatar] (avatars/avatar-N.png) — agents.json avatar int 索引
-   - fallback: 字母头像 (color hash 配色, 跟 office-v3 / prod renderAvatar 同款 4 套分支)
-   - 全 --sb2-* token, 0 hex (用 colors 数组内 hex 老规矩, 老 renderAvatar 也用这套) */
+/* 〔fix/sb2-side-restore commit 9〕员工头像 helper (12 轮热修升级)
+   优先级:
+   1) window.emps[].avatar 是 int → AVATAR_PRESETS[avatar] (PNG 真头像, agents.json avatar 0-23)
+   2) (新) 没 int 但 AVATAR_PRESETS 在 → 按 id/name hash % length 落不同 preset
+      - 修前: ev.agent_id 不在 emps 里或 emps[].avatar 不是数字, 一律 fallback 字母色块,
+        全员同色块 → 老大截图标注② 全员同一张图 (色块同字同色)
+      - 现在: 缺数据时按 hash 落不同 preset, 全员不同图 (真分散到 24 个 preset)
+   3) (老 fallback) AVATAR_PRESETS 数组不在 → 字母 hash 色块 (.sb2-dash2-activity-letter)
+   - 全 --sb2-* token + rgba 透明 (COLORS 数组内 hex 老规矩, office-v3 同款)
+   - 返回 HTML 字符串, 父容器 .sb2-dash2-activity-avatar 28px 圆裁切 */
 function _sb2RenderAgentAvatar(agentId, agentName){
-  var size = 28;
   var empAvatar = null;
   if (typeof window !== 'undefined' && Array.isArray(window.emps)){
     for (var i = 0; i < window.emps.length; i++){
       if (window.emps[i] && window.emps[i].id === agentId){ empAvatar = window.emps[i].avatar; break; }
     }
   }
-  if (typeof empAvatar === 'number' && typeof AVATAR_PRESETS !== 'undefined' && AVATAR_PRESETS[empAvatar]){
-    return '<img src="'+escapeAttr(AVATAR_PRESETS[empAvatar])+'" class="sb2-dash2-activity-img" alt="">';
+  var presets = (typeof AVATAR_PRESETS !== 'undefined' && Array.isArray(AVATAR_PRESETS)) ? AVATAR_PRESETS : null;
+  /* 优先级 1: int 索引 (agents.json 8 emps avatar = 0/4/6/7/17/19/21/23, 全唯一) */
+  if (typeof empAvatar === 'number' && presets && presets[empAvatar]){
+    return '<img src="'+escapeAttr(presets[empAvatar])+'" class="sb2-dash2-activity-img" alt="">';
   }
+  /* 优先级 2: 按 id/name hash 落不同 preset (新, 修前 bug: 全员同色块) */
+  if (presets && presets.length > 0){
+    var key = (agentId || agentName || 'AI');
+    var hash = 0;
+    for (var c = 0; c < key.length; c++){ hash = (hash << 5) - hash + key.charCodeAt(c); hash = hash & hash; }
+    var idx = Math.abs(hash) % presets.length;
+    return '<img src="'+escapeAttr(presets[idx])+'" class="sb2-dash2-activity-img" alt="">';
+  }
+  /* 优先级 3: 字母 hash 色块 (AVATAR_PRESETS 数组不在的极端 fallback) */
   var name = agentName || agentId || 'AI';
   var letter = escapeHtml(name.charAt(0).toUpperCase());
-  var hash = 0;
-  for (var c = 0; c < name.length; c++){ hash = (hash << 5) - hash + name.charCodeAt(c); hash = hash & hash; }
+  var hash2 = 0;
+  for (var c2 = 0; c2 < name.length; c2++){ hash2 = (hash2 << 5) - hash2 + name.charCodeAt(c2); hash2 = hash2 & hash2; }
   var COLORS = ['#FF6B35', '#FF9500', '#34C759', '#1677ff', '#5856D6', '#AF52DE', '#FF2D55'];
-  var bg = COLORS[Math.abs(hash) % COLORS.length];
+  var bg = COLORS[Math.abs(hash2) % COLORS.length];
   return '<div class="sb2-dash2-activity-letter" style="background:'+bg+';">'+letter+'</div>';
 }
 
@@ -45997,10 +46076,9 @@ var SB2_SIDE_RENDERERS = {
     };
   },
   messages: function(){
-    /* 〔fix/sb2-side-restore commit 6 C〕messages 模块改名为「AI 办公室」
-       - title: '即时通讯' → 'AI 办公室' (侧栏标题跟模块名一致, 跟随面包屑)
-       - 主区 #sb2ChatMain = office-v3.html iframe (员工分区办公总览, 见该元素)
-       - 侧栏保留: AI 员工列表 + 项目组群聊 (跟 office-v3 自带侧栏并存)
+    /* 〔fix/sb2-side-restore commit 9〕title 'AI 办公室' → '即时通讯' (12 轮热修)
+       - 配合主区恢复老 chat UI, 名字必须诚实
+       - 侧栏保留: AI 员工列表 + 项目组群聊 (跟原版一致, 不跟 office-v3 iframe 嵌入了)
        - 子项 onClick 全部用守卫写法 (&& fn), 防跨块 undefined 静默 */
     var list = (typeof window.emps !== 'undefined' && Array.isArray(window.emps)) ? window.emps : [];
     var groups = [];
@@ -46019,7 +46097,7 @@ var SB2_SIDE_RENDERERS = {
         return { name: (g.name || g.display_name || '-'), onClick:"openGroup && openGroup('"+g.id+"')" };
       })});
     }
-    return { title:'AI 办公室', sub: list.length+' 员工 · '+onlineCount+' 在线', items:items };
+    return { title:'即时通讯', sub: list.length+' 员工 · '+onlineCount+' 在线', items:items };
   },
   knowledge: function(){
     var cats = (typeof window.knowledgeCategories !== 'undefined' && Array.isArray(window.knowledgeCategories)) ? window.knowledgeCategories : [];
@@ -46119,9 +46197,14 @@ var SB2_SIDE_RENDERERS = {
         onClick: "sb2TalentsOnSideClick && sb2TalentsOnSideClick('status','" + k + "')"
       });
     });
+    /* 〔fix/sb2-side-restore commit 9〕侧栏 title '达人库' + sub '位在库' 清空 (12 轮热修)
+       老大 hard rule: 全页「达人库」三字只出现一次 (hero h1 line 13859)
+       原型 talents renderer line 725 有 side-title '达人库' + side-sub '1,847 位在库',
+       但老大说 "原型有的照留、没有的就删, 最终全页只出现一次 (hero h1)" → 删
+       renderSideFor 渲染时 title/sub = '' → .side-title 空 div 不显字, .side-sub if(data.sub) 不进 dom */
     return {
-      title:'达人库',
-      sub: ((typeof _sb2TalentsTotal === 'number' && _sb2TalentsTotal > 0) ? _sb2TalentsTotal : dash) + ' 位在库',
+      title:'',
+      sub:'',
       searchPlaceholder:'搜索达人…',
       items:[
         { label:'评级', items: ratingItems },
@@ -46283,13 +46366,17 @@ function updateCrumb(){
   var main = document.getElementById('sb2CrumbMain');
   if (!main) return;
   var m = SB2_CURRENT_MODULE;
-  /* 〔fix/sb2-side-restore commit 6 C〕messages 模块改名为「AI 办公室」
-     - messages: '即时通讯' → 'AI 办公室'
-     - lobster 移除 (rail 不再保留入口)
-     - 其余模块不变 (按需扩展) */
+  /* 〔fix/sb2-side-restore commit 9〕12 轮热修:
+     - messages 'AI 办公室' → '即时通讯' (commit 9 配合主区恢复老 chat UI, 名字诚实)
+     - influencers early return 清空 — 老大要求全页「达人库」三字只出现一次 (hero h1 line 13859)
+       原型 line 567-588 达人库视图 hero 只有 h1, 没顶栏 crumb 也没侧栏标题
+       (注: 原型 talents renderer line 725 有 side-title '达人库' + side-sub '1,847 位在库',
+        但老大 hard rule 是 "全页只出现一次", 删)
+     - 其他模块 map 不变 (工作台/规律库/商品库/任务/设置 顶栏仍显) */
+  if (m === 'influencers'){ main.textContent = ''; return; }
   var map = {
-    dashboard:'工作台', messages:'AI 办公室',
-    knowledge:'知识库', patterns:'规律库', influencers:'达人库',
+    dashboard:'工作台', messages:'即时通讯',
+    knowledge:'知识库', patterns:'规律库',
     products:'商品库', tasks:'任务', settings:'设置'
   };
   main.textContent = map[m] || m;
