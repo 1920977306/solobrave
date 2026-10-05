@@ -10056,9 +10056,15 @@ window.doLogin = function () {
 
 /* —— 工作台屏 —— */
 .sb2-dash{
-  position:fixed; top:48px; left:60px; right:0; bottom:0; z-index:80;
+  /* 〔fix/sb2-side-restore commit 5〕布局让位: 默认让位 #side 236px
+     修前 bug: 工作台 .sb2-dash{ left:60px } 全宽横跨侧栏,
+              顶栏同 left:60, crumb「达人库」压在侧栏标题正上方 (+h1 = 三个达人库挤左上角)
+     修法: left:60 → left:296 (60 轨 + 236 #side = 296, 内容列从 x=296 开始)
+     lobster / tasks 隐藏 #side 时用 body.sb2-no-side 还原全宽 */
+  position:fixed; top:48px; left:296px; right:0; bottom:0; z-index:80;
   display:none; background:var(--sb2-bg);
 }
+body.sb2-no-side .sb2-dash{ left:60px; }
 .sb2-dash.on{ display:flex; }
 .sb2-dash-main{ flex:1; overflow-y:auto; padding:26px 34px 60px; }
 .sb2-wrap{ max-width:1180px; margin:0 auto; }
@@ -10152,17 +10158,35 @@ window.doLogin = function () {
 /* 内容区让位: 顶栏 48px + 轨 60px + #side 236px */
 .app-container{ margin-top:48px; margin-left:296px; }
 
+/* 〔fix/sb2-side-restore commit 5〕中等屏 <1100 让位, 断点对齐原型
+   老大指令: 「原型 line 283 @media (max-width:1100px) .side{display:none}」
+             取代之前 768 兜底 (820 屏仍会让位失败, 1 件 4 commit 走查复测多次)
+   让位: 顶栏 / 工作台覆盖层都 left:60 (全宽, 不留空白条)
+   现有 768 媒体查询不动 (≤768 仍走全隐藏 .left-nav 回归) */
+@media (max-width: 1100px) {
+  .sb2-side { display: none; }
+  .sb2-topbar { left: 60px; }
+  .sb2-dash { left: 60px; }
+  .app-container { margin-left: 60px; }
+}
+
 /* —— 新顶栏 48px (固定于顶部) —— */
 .sb2-topbar{
-  position:fixed; left:60px; top:0; right:0; height:48px; z-index:95;
+  /* 〔fix/sb2-side-restore commit 5〕布局让位: 默认让位 #side 236px
+     跟 .sb2-dash 同模式 (commit 5 任务 A 1/2)
+     lobster / tasks 隐藏 #side 时 body.sb2-no-side 还原全宽 */
+  position:fixed; left:296px; top:0; right:0; height:48px; z-index:95;
   background:var(--sb2-s1); border-bottom:1px solid var(--sb2-border);
   display:flex; align-items:center; padding:0 18px; gap:14px;
 }
+body.sb2-no-side .sb2-topbar{ left:60px; }
 .sb2-topbar-crumb{
   display:flex; align-items:center; gap:6px;
   font:500 13px/1 "PingFang SC",sans-serif; color:var(--sb2-t3);
 }
-.sb2-topbar-crumb b{ font:600 14px/1 "PingFang SC",sans-serif; color:var(--sb2-t1); font-weight:600; }
+.sb2-topbar-crumb b{ /* 〔fix/sb2-side-restore commit 5〕crumb b 字号 14→13 对齐原型 fs-small */
+  font:600 13px/1 "PingFang SC",sans-serif; color:var(--sb2-t1); font-weight:600;
+}
 .sb2-topbar-crumb .sep{ color:var(--sb2-t3); }
 .sb2-topbar-search{
   flex:1; max-width:380px; display:flex; align-items:center; gap:8px;
@@ -10204,7 +10228,9 @@ window.doLogin = function () {
 .sb2-side-head{
   padding:18px 16px 10px; border-bottom:1px solid var(--sb2-border);
 }
-.sb2-side-title{ font:600 14px/1.4 "PingFang SC",sans-serif; color:var(--sb2-t1); }
+.sb2-side-title{ /* 〔fix/sb2-side-restore commit 5〕侧栏标题 14→17 对齐原型 fs-title */
+  font:600 17px/1.4 "PingFang SC",sans-serif; color:var(--sb2-t1);
+}
 .sb2-side-sub{ font:400 11px/1.4 "PingFang SC",sans-serif; color:var(--sb2-t3); margin-top:3px; }
 .sb2-side-search{
   margin:10px 12px 6px; padding:7px 10px;
@@ -41580,13 +41606,22 @@ async function sb2TalentsLoad(){
     /* ★ fix/sb2-side-restore commit 1: 镜像到 window._sb2TalentFacetCounts (renderer 期望 plural key)
        原型侧栏 line 729-734 评级/类目/状态 三维带计数 — 全局变量跨模块可读
        server 返回 {rating, category, cooperation} → 客户端映射 {ratings, categories, statuses}
-       未加载 (sb2TalentsLoad 未跑过 / fetch 失败) 时 null, renderer 兜底空对象 + 显「–」 */
-    window._sb2TalentFacetCounts = _sb2TalentsFacets ? {
-      total: _sb2TalentsTotal,
-      ratings: _sb2TalentsFacets.rating || {},
-      categories: _sb2TalentsFacets.category || {},
-      statuses: _sb2TalentsFacets.cooperation || {}
-    } : null;
+       未加载 (sb2TalentsLoad 未跑过 / fetch 失败) 时 null, renderer 兜底空对象 + 显「–」
+       〔fix/sb2-side-restore commit 5 任务 C〕侧栏计数全局化:
+         server 端 facets 是 WHERE 过滤后 GROUP BY (e0b8e28 已拍),
+         修前 bug: 点「已合作」→ server 返合作桶 facets=9 (过滤后), 侧栏 badge 跟着变成 9 → 试投中/待联系变 0,
+                  原型侧栏计数是全局静态 (107 全部), 不该跟过滤集变
+         修法: 检测 hasFilter, 仅无过滤时才覆盖 _sb2TalentFacetCounts
+              有过滤时保持旧值 (上次无过滤的全局快照), 侧栏 renderer 读 window._sb2TalentFacetCounts 不变 */
+    var hasFilter = !!( _sb2TalentsFilterRating || _sb2TalentsFilterCategory || _sb2TalentsFilterStatus || _sb2TalentsSearchQ );
+    if (!hasFilter) {
+      window._sb2TalentFacetCounts = _sb2TalentsFacets ? {
+        total: _sb2TalentsTotal,
+        ratings: _sb2TalentsFacets.rating || {},
+        categories: _sb2TalentsFacets.category || {},
+        statuses: _sb2TalentsFacets.cooperation || {}
+      } : null;
+    }
     /* 〔fix/sb2-side-restore commit 4 D1b 作用域墙〕守卫改 window.*
        修前 bug: sb2-shell-js IIFE 内 renderSideFor / SB2_CURRENT_MODULE 私有,
                 typeof SB2_CURRENT_MODULE !== 'undefined' 恒 false 静默跳过
@@ -46117,11 +46152,16 @@ function renderSideFor(moduleId){
   //   〔fix/sb2-side-restore commit 2〕老大指令: 删 dashboard 早退, 让 dashboard 显侧栏
   //   行为同步: showDash → renderSideFor('dashboard') 工作台内容; 切其他模块 → renderSideFor(id) 切内容
   // lobster / tasks 模块内置侧栏 (.sb2-tasks-side 等), 全局 #sb2Side 仍隐藏让位
+  // 〔fix/sb2-side-restore commit 5〕body.sb2-no-side class 控制顶栏/dash 全宽 vs 让位
+  //   隐藏 #side (lobster/tasks) → body.sb2-no-side → 顶栏/dash left:60 (CSS body.sb2-no-side 守卫)
+  //   显示 #side (其他模块) → body 无 sb2-no-side → 顶栏/dash left:296 让位
   if (moduleId === 'lobster' || moduleId === 'tasks') {
     side.style.display = 'none';
+    if (typeof document !== 'undefined' && document.body) document.body.classList.add('sb2-no-side');
     return;
   }
   side.style.display = '';
+  if (typeof document !== 'undefined' && document.body) document.body.classList.remove('sb2-no-side');
   var fn = SB2_SIDE_RENDERERS[moduleId];
   var data = fn ? fn() : { title: moduleId, sub:'-', items:[] };
   var html = '';
