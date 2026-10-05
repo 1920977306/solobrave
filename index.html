@@ -41585,6 +41585,16 @@ async function sb2TalentsLoad(){
        之前: 侧栏从 _sb2TalentsList (当前页 50 条) 算 → 全部 50, 不准
        现在: 服务端 GROUP BY 全量 → 全部 1847/240 等, 跟 total 一致 */
     _sb2TalentsFacets = (data && data.facets) ? data.facets : null;
+    /* ★ fix/sb2-side-restore commit 1: 镜像到 window._sb2TalentFacetCounts (renderer 期望 plural key)
+       原型侧栏 line 729-734 评级/类目/状态 三维带计数 — 全局变量跨模块可读
+       server 返回 {rating, category, cooperation} → 客户端映射 {ratings, categories, statuses}
+       未加载 (sb2TalentsLoad 未跑过 / fetch 失败) 时 null, renderer 兜底空对象 + 显「–」 */
+    window._sb2TalentFacetCounts = _sb2TalentsFacets ? {
+      total: _sb2TalentsTotal,
+      ratings: _sb2TalentsFacets.rating || {},
+      categories: _sb2TalentsFacets.category || {},
+      statuses: _sb2TalentsFacets.cooperation || {}
+    } : null;
     // 清掉不在当前页的选中
     var pageIds = {};
     list.forEach(function(t){ if (t.id) pageIds[t.id] = true; });
@@ -45939,19 +45949,70 @@ var SB2_SIDE_RENDERERS = {
     };
   },
   influencers: function(){
+    /* 〔fix/sb2-side-restore commit 1〕达人库侧栏还原原型 (line 724-735)
+       删: 「筛选」(全部达人/高GMV/未跟进/紧急) + 「视图」(密集表格/经典卡片) — 旧 3 入口根因
+       改: 评级(全部/A级优先/B级/C级/D级) + 类目(top 6) + 状态(已合作/试投中/待联系) 三维带计数
+       数据: window._sb2TalentFacetCounts (sb2TalentsLoad 末尾写入, 服务端 facets 镜像, plural key 跟原型对齐)
+       未加载: 显「–」, 严禁硬编码数字 (老大硬指令) */
+    var fc = (typeof window._sb2TalentFacetCounts === 'object' && window._sb2TalentFacetCounts) || { ratings:{}, categories:{}, statuses:{}, total: 0 };
+    var ratings = fc.ratings || {};
+    var cats = fc.categories || {};
+    var statuses = fc.statuses || {};
+    var total = (typeof fc.total === 'number') ? fc.total : 0;
+    var dash = '–';
+    var ratingActive = (typeof _sb2TalentsFilterRating === 'string') ? _sb2TalentsFilterRating : '';
+    var categoryActive = (typeof _sb2TalentsFilterCategory === 'string') ? _sb2TalentsFilterCategory : '';
+    var statusActive = (typeof _sb2TalentsFilterStatus === 'string') ? _sb2TalentsFilterStatus : '';
+    // 评级维 (原型 line 729-730: 全部 / A级(优先) / B级 / C级)
+    var ratingItems = [
+      { name:'全部', badge: total > 0 ? String(total) : dash, active: ratingActive === '' }
+    ];
+    var ratingLabels = { 'A':'A 级 (优先)', 'B':'B 级', 'C':'C 级', 'D':'D 级 (未评)' };
+    ['A','B','C','D'].forEach(function(k){
+      var cnt = ratings[k];
+      ratingItems.push({
+        name: ratingLabels[k] || (k + ' 级'),
+        badge: (typeof cnt === 'number') ? String(cnt) : dash,
+        active: ratingActive === k,
+        onClick: "sb2TalentsOnSideClick && sb2TalentsOnSideClick('rating','" + k + "')"
+      });
+    });
+    // 类目维 (top 6, 按计数降序)
+    var catItems = [
+      { name:'全部类目', badge: total > 0 ? String(total) : dash, active: categoryActive === '' }
+    ];
+    var catList = Object.keys(cats).map(function(k){ return [k, cats[k]]; });
+    catList.sort(function(a, b){ return (b[1]||0) - (a[1]||0); });
+    catList.slice(0, 6).forEach(function(c){
+      catItems.push({
+        name: c[0],
+        badge: (typeof c[1] === 'number') ? String(c[1]) : dash,
+        active: categoryActive === c[0],
+        onClick: "sb2TalentsOnSideClick && sb2TalentsOnSideClick('category','" + String(c[0]).replace(/'/g, "\\'") + "')"
+      });
+    });
+    // 状态维 (原型 line 733-734: 已合作 / 试投中 / 待联系)
+    var STATUS_LABELS = { 'cooperating':'已合作', 'communicating':'试投中', 'available':'待联系' };
+    var statusItems = [
+      { name:'全部状态', badge: total > 0 ? String(total) : dash, active: statusActive === '' }
+    ];
+    ['cooperating','communicating','available'].forEach(function(k){
+      var cnt = statuses[k];
+      statusItems.push({
+        name: STATUS_LABELS[k] || k,
+        badge: (typeof cnt === 'number') ? String(cnt) : dash,
+        active: statusActive === k,
+        onClick: "sb2TalentsOnSideClick && sb2TalentsOnSideClick('status','" + k + "')"
+      });
+    });
     return {
-      title:'达人库', sub:'筛选 · 标签 · 跟进',
+      title:'达人库',
+      sub: ((typeof _sb2TalentsTotal === 'number' && _sb2TalentsTotal > 0) ? _sb2TalentsTotal : dash) + ' 位在库',
+      searchPlaceholder:'搜索达人…',
       items:[
-        { label:'筛选', items:[
-          { name:'全部达人',     onClick:"filterInfluencerSkills && filterInfluencerSkills('')" },
-          { name:'高 GMV',       onClick:"filterInfluencerSkills && filterInfluencerSkills('high_gmv')" },
-          { name:'未跟进',       onClick:"filterInfluencerSkills && filterInfluencerSkills('unfollowed')" },
-          { name:'紧急',         onClick:"filterInfluencerSkills && filterInfluencerSkills('urgent')" }
-        ]},
-        { label:'视图', items:[
-          { name:'密集表格 (默认)', onClick:"switchTalentView && switchTalentView('sb2')" },
-          { name:'经典卡片',         onClick:"switchTalentView && switchTalentView('card')" }
-        ]}
+        { label:'评级', items: ratingItems },
+        { label:'类目', items: catItems },
+        { label:'状态', items: statusItems }
       ]
     };
   },
@@ -45991,7 +46052,7 @@ function renderSideFor(moduleId){
   var html = '';
   html += '<div class="sb2-side-head"><div class="sb2-side-title">'+escHtml(data.title)+'</div>';
   if (data.sub) html += '<div class="sb2-side-sub">'+escHtml(data.sub)+'</div></div>';
-  html += '<div class="sb2-side-search" onclick="sb2_openPalette()"><span>搜索…</span><span class="kbd">⌘K</span></div>';
+  html += '<div class="sb2-side-search" onclick="sb2_openPalette()"><span>'+escHtml(data.searchPlaceholder || '搜索…')+'</span><span class="kbd">⌘K</span></div>';
   html += '<div class="sb2-side-scroll">';
   (data.items || []).forEach(function(group){
     if (group.label) html += '<div class="sb2-side-label">'+escHtml(group.label)+'</div>';
