@@ -1782,36 +1782,9 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   color: var(--text-secondary);
   flex-shrink: 0;
 }
-.talents-mid-search {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  background: var(--bg-tertiary);
-  border-radius: var(--radius-md);
-  border: 0.5px solid var(--separator);
-  transition: border-color 0.15s, background 0.15s;
-}
-.talents-mid-search-full {
-  flex: 1 1 100%;
-  min-width: 0;
-}
-.talents-mid-search:focus-within {
-  background: #ffffff;
-  border-color: var(--accent);
-}
-.talents-mid-search svg { color: var(--text-tertiary); flex-shrink: 0; width: 16px; height: 16px; }
-.talents-mid-search input {
-  flex: 1;
-  min-width: 0;
-  border: none;
-  background: transparent;
-  outline: none;
-  font-size: 14px;
-  color: var(--text-primary);
-}
+/* 〔fix/sb2-side-restore commit 11〕14 轮热修: 删 .talents-mid-search CSS (跟 DOM 同步清理)
+   老 talents 中栏搜索框, 跟 hero 下拉三维筛选 chip 体系功能重复, 删 (line 14693 DOM 已删)
+   用 hero 「筛选 ▾」下拉里的三维 chip 替代 (评级/类目/状态) */
 .talents-filter-row {
   display: flex;
   align-items: center;
@@ -10242,17 +10215,8 @@ body.sb2-no-side .sb2-topbar{ left:60px; }
   font:600 17px/1.4 "PingFang SC",sans-serif; color:var(--sb2-t1);
 }
 .sb2-side-sub{ font:400 11px/1.4 "PingFang SC",sans-serif; color:var(--sb2-t3); margin-top:3px; }
-.sb2-side-search{
-  margin:10px 12px 6px; padding:7px 10px;
-  background:var(--sb2-s1); border:1px solid var(--sb2-border); border-radius:var(--sb2-r-md);
-  font:400 12px/1.2 "PingFang SC",sans-serif; color:var(--sb2-t3);
-  display:flex; align-items:center; gap:8px; cursor:pointer;
-}
-.sb2-side-search:hover{ border-color:var(--sb2-border-strong); color:var(--sb2-t2); }
-.sb2-side-search .kbd{
-  margin-left:auto; font:500 10px/1 ui-monospace,monospace; padding:2px 6px; border-radius:4px;
-  background:var(--sb2-s2); border:1px solid var(--sb2-border); color:var(--sb2-t2);
-}
+/* 〔fix/sb2-side-restore commit 11〕14 轮热修: 删 .sb2-side-search CSS (跟 DOM 同步清理)
+   侧栏不重复 ⌘K 搜索框, 只留顶栏全局搜索 (line 46328 DOM 已删, 这段 CSS 同步删) */
 .sb2-side-scroll{ flex:1; overflow-y:auto; padding:6px 8px 24px; }
 .sb2-side-label{
   font:500 10px/1.4 "PingFang SC",sans-serif; color:var(--sb2-t3);
@@ -11081,19 +11045,8 @@ body.sb2-no-side .sb2-topbar{ left:60px; }
 }
 .sb2-tasks-side h1{ font-size:16px; font-weight:600; }
 .sb2-tasks-side .sub{ font-size:11px; color:var(--sb2-t3); margin:3px 0 14px; }
-.sb2-tasks-side-search{
-  position:relative; margin-bottom:18px;
-}
-.sb2-tasks-side-search input{
-  width:100%; padding:8px 12px;
-  border:1px solid var(--sb2-border-strong); border-radius:var(--sb2-r-md);
-  font-size:12px; background:var(--sb2-s2); outline:none;
-}
-.sb2-tasks-side-search input:focus{ border-color:var(--sb2-accent); background:var(--sb2-s1); }
-.sb2-tasks-side-search svg{
-  position:absolute; right:10px; top:9px; width:14px; height:14px;
-  color:var(--sb2-t3); pointer-events:none;
-}
+/* 〔fix/sb2-side-restore commit 11〕14 轮热修: 删 .sb2-tasks-side-search CSS (跟 DOM 同步清理)
+   侧栏不重复 ⌘K 搜索框, 只留顶栏全局搜索 (DOM 段 line 13950 已删) */
 .sb2-tasks-side-group{ padding:8px 0; }
 .sb2-tasks-side-group-label{
   font-size:11px; color:var(--sb2-t3); margin-bottom:6px;
@@ -11645,13 +11598,14 @@ body.sb2-no-side .sb2-topbar{ left:60px; }
 .sb2-talents-btn-primary:hover{ background:var(--sb2-brand-strong); border-color:var(--sb2-brand-strong); color:#fff; }
 
 .sb2-talents-table-wrap{
-  /* 〔fix/sb2-side-restore commit 7 R2〕表格卡补回卡片感
-     - 保留 border-radius 14px (r-lg) + background s1
-     - 加 border 1px border-strong (r-lg 卡片标配)
-     - 加 box-shadow sh-1 浅阴影 (rgba 透明 — 老规矩 0 hex, 用 token 派生)
-     - max-width 1240 margin auto (跟工作台 .sb2-wrap 同款, 宽屏不无限拉伸)
-     - flex:1 保留, overflow:auto (老大 03:12 钦点 820px 横向滚动刚需) */
-  flex:1; min-height:0; overflow:auto;
+  /* 〔fix/sb2-side-restore commit 11〕14 轮热修: 表格卡随内容收缩, 不 flex 拉伸填满模块高度
+     修前: flex:1 + min-height:0 → 表格卡被拉伸填满模块高度, 10 行数据只占一半, 下半截大白空
+     (老大截图标注①)
+     现在: height auto (默认) → 表格卡按内容自适应, 底部分页条跟内容走, 不留大白空
+     - overflow:auto 保留 (老大 03:12 钦点 820px 横向滚动刚需, 但高度不再是 auto scroll 而是内容自适应)
+     - border-radius / background / border / shadow / max-width 1240 margin auto 全保留
+     (commit 7 R2 的卡片感 + 居中) */
+  overflow:auto;
   border-radius:var(--sb2-r-lg);
   background:var(--sb2-s1);
   border:1px solid var(--sb2-border-strong);
@@ -12975,10 +12929,12 @@ body.sb2-no-side .sb2-topbar{ left:60px; }
   line-height: 1.55;
 }
 .sb2-chat-bubble[data-role="user"] {
+  /* 〔fix/sb2-side-restore commit 11〕14 轮热修: 删 box-shadow 冗余 (line 13093+ token 已 none)
+     原型 line 514 气泡 box-shadow:none — token var(--sb2-chat-bubble-shadow-user) 已是 none,
+     CSS 里再 box-shadow: var(...); 是冗余, 删后跟原型语义对齐 (「气泡无阴影」是设计意图, 不是配置开关) */
   background: var(--sb2-chat-bubble-user-bg);
   color: var(--sb2-chat-bubble-user-fg);
   border-bottom-right-radius: var(--sb2-chat-bubble-radius-self);
-  box-shadow: var(--sb2-chat-bubble-shadow-user);
   align-self: flex-end;  /* 用户气泡在 col 内右对齐 */
   max-width: 100%;
 }
@@ -12986,7 +12942,6 @@ body.sb2-no-side .sb2-topbar{ left:60px; }
   background: var(--sb2-chat-bubble-assistant-bg);
   color: var(--sb2-chat-bubble-assistant-fg);
   border-bottom-left-radius: var(--sb2-chat-bubble-radius-self);
-  box-shadow: var(--sb2-chat-bubble-shadow-assistant);
   align-self: flex-start;
   max-width: 100%;
 }
@@ -13034,15 +12989,19 @@ body.sb2-no-side .sb2-topbar{ left:60px; }
   font-size: 12.5px;
 }
 .sb2-chat-bubble-time {
+  /* 〔fix/sb2-side-restore commit 11〕14 轮热修: 时间戳移出 bubble, 放 col 下方 (line 46607 渲染改)
+     原型 line 487 + 506 时间戳在 bubble 外 (margin-top 4px), 助手默认左对齐, 用户 text-align:right
+     现在: display:block + default left + .sb2-chat-msg-row[data-role="user"] 下 text-align:right
+     margin-top 4px 跟原型一致, color var(--sb2-chat-bubble-time) (t3 弱色, 跟 prototype text-3 一致) */
   display: block;
   margin-top: 4px;
   font-size: var(--sb2-chat-bubble-time-size);
   color: var(--sb2-chat-bubble-time);
-  align-self: flex-end;
   font-family: "PingFang SC", -apple-system, sans-serif;
+  text-align: left;
 }
-.sb2-chat-bubble[data-role="user"] .sb2-chat-bubble-time {
-  color: var(--sb2-chat-bubble-time-fg);
+.sb2-chat-msg-row[data-role="user"] .sb2-chat-bubble-time {
+  text-align: right;
 }
 .sb2-chat-bubble-images {
   display: flex;
@@ -13952,10 +13911,9 @@ body.sb2-no-side .sb2-topbar{ left:60px; }
     <aside class="sb2-tasks-side">
       <h1>任务</h1>
       <div class="sub" id="sb2TasksSideSub">载入中…</div>
-      <div class="sb2-tasks-side-search">
-        <input type="text" placeholder="搜索任务标题…" id="sb2TasksSideSearch" oninput="sb2TasksOnSearch(this.value)">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
-      </div>
+      <!-- 〔fix/sb2-side-restore commit 11〕14 轮热修: 删 .sb2-tasks-side-search DOM (重复 ⌘K)
+           sb2TasksOnSearch 函数保留防回归 (line 13960 引用, 函数定义不删)
+           若模块内确需过滤, 用现有 segmented-control (filterTasks) 状态筛选 chip 体系 -->
       <div class="sb2-tasks-side-group">
         <div class="sb2-tasks-side-group-label">状态</div>
         <div class="sb2-tasks-side-list" id="sb2TasksSideStatus"></div>
@@ -14693,10 +14651,9 @@ body.sb2-no-side .sb2-topbar{ left:60px; }
       <button class="segmented-item active" data-view="table" onclick="setTalentViewMode('table')" title="高密度表格视图 (sb2.0)">表格</button>
       <button class="segmented-item" data-view="card" onclick="setTalentViewMode('card')" title="经典卡片视图 (可回退)">卡片</button>
     </div>
-    <div class="talents-mid-search talents-mid-search-full">
-      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
-      <input type="text" placeholder="搜索达人昵称/关键词..." id="talentsMidSearch" oninput="onTalentSearch(this.value)">
-    </div>
+    <!-- 〔fix/sb2-side-restore commit 11〕14 轮热修: 删 .talents-mid-search DOM (重复 ⌘K)
+         onTalentSearch 函数保留防回归 (其他模块可能引用)
+         若模块内确需过滤, 用现有 hero 下拉三维 chip 体系 (sb2-talents-filter-pop 评级/类目/状态) -->
     <div class="talents-mid-tabs" style="display:flex;gap:8px;margin-bottom:0;padding:0 8px;flex:1 1 100%;">
       <button class="talent-tab-btn active" data-tab="analyzed" onclick="switchTalentMidTab('analyzed')">📊 已分析达人</button>
       <button class="talent-tab-btn" data-tab="main" onclick="switchTalentMidTab('main')">👥 达人主库</button>
@@ -14743,12 +14700,8 @@ body.sb2-no-side .sb2-topbar{ left:60px; }
     </div>
   </div>
   <div class="talents-tab-pane" id="talentsAnalyzedItems" style="display:flex;">
-    <div style="padding:0 14px 10px;flex-shrink:0;">
-      <div class="talents-mid-search">
-        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
-        <input type="text" placeholder="搜索已分析达人..." id="talentsAnalyzedSearch" oninput="onAnalyzedTalentSearch(this.value)">
-      </div>
-    </div>
+    <!-- 〔fix/sb2-side-restore commit 11〕14 轮热修: 删 talentsAnalyzedSearch DOM (重复 ⌘K)
+         onAnalyzedTalentSearch 函数保留防回归, 用 hero 「筛选 ▾」三维 chip 替代 -->
     <div class="talents-mid-items" id="talentsAnalyzedList" style="padding-top:0;"></div>
     <div class="talents-mid-pagination" id="talentsAnalyzedPagination"></div>
   </div>
@@ -35103,6 +35056,9 @@ function switchTalentMidTab(tab) {
   if (analyzedEl) analyzedEl.style.display = isAnalyzed ? 'flex' : 'none';
   if (mainEl) mainEl.style.display = isAnalyzed ? 'none' : 'flex';
   // 头部的搜索框/合作状态筛选/排序只适用于达人主库
+  // 〔fix/sb2-side-restore commit 11〕14 轮热修: 头部的搜索框 DOM 已删 (line 14654), querySelector 返 null
+  //   headerSearch 守卫 (if) 接住 null, 不会 NPE, 函数逻辑保留防回归
+  //   filterRow (.talents-filter-row) 仍在, 保留
   var headerSearch = document.querySelector('.talents-mid-header .talents-mid-search');
   var filterRow = document.querySelector('.talents-mid-header .talents-filter-row');
   if (headerSearch) headerSearch.style.display = isAnalyzed ? 'none' : '';
@@ -46319,7 +46275,12 @@ function renderSideFor(moduleId){
   var html = '';
   html += '<div class="sb2-side-head"><div class="sb2-side-title">'+escHtml(data.title)+'</div>';
   if (data.sub) html += '<div class="sb2-side-sub">'+escHtml(data.sub)+'</div></div>';
-  html += '<div class="sb2-side-search" onclick="sb2_openPalette()"><span>'+escHtml(data.searchPlaceholder || '搜索…')+'</span><span class="kbd">⌘K</span></div>';
+  /* 〔fix/sb2-side-restore commit 11〕14 轮热修: 删侧栏搜索框 (重复 ⌘K)
+     老大原话: 「这个搜索框怎么每个地方都有」
+     修法: 只留顶栏全局搜索 (⌘K), 侧栏不重复输入
+     - sb2_openPalette() 函数保留防回归 (顶栏 ⌘K 仍调它)
+     - data.searchPlaceholder 字段保留防回归 (其他函数可能引用)
+     - 若模块内确需过滤, 用现有筛选 chip 体系 (三维评级/类目/状态) */
   html += '<div class="sb2-side-scroll">';
   (data.items || []).forEach(function(group){
     if (group.label) html += '<div class="sb2-side-label">'+escHtml(group.label)+'</div>';
@@ -46602,8 +46563,8 @@ else init();
       +    chipsHtml
       + '    <div class="sb2-chat-bubble' + (isErr ? ' sb2-chat-bubble-error' : '') + '" data-role="' + _sb2EscapeHtml(role) + '">'
       + '      <div class="sb2-chat-bubble-body">' + bodyHtml + imgHtml + propCardHtml + '</div>'
-      + '      <span class="sb2-chat-bubble-time">' + _sb2EscapeHtml(time) + '</span>'
       + '    </div>'
+      + '    <span class="sb2-chat-bubble-time">' + _sb2EscapeHtml(time) + '</span>'
       + '  </div>'
       + '</div>';
   }
