@@ -12743,6 +12743,17 @@ body.sb2-no-side .sb2-topbar{ left:60px; }
      - 垂直 height 100% 维持 (父 .app-main flex:1 已 calc(100vh - 48px), 实际等价 calc(100vh - 顶栏 - 48px))
      - token 化, 0 hex (用 --sb2-* token 派生, 老规矩)
      - overflow hidden 保留 (chat 内部 sticky 滚动需要) */
+  /* 〔fix/sb2-side-restore commit 20〕17 轮批注①: 聊天主区白边
+     老大 19:12 trace 实测证据: .app-main { background: var(--right-content-bg) } = #ffffff 纯白,
+     .sb2-chat-shell 背景 transparent → 1240 卡片四周露白底, 白卡白底边界看不见, 老大看到的就是"白边"
+     — 修法 (老大原话方案 a, scoped 到聊天模块, 不动其他模块白底):
+       .sb2-chat-shell { background: var(--sb2-bg) } = #F6F6F8 灰底
+       — 1240 卡片 padding 区域 (24px 上下 + 32px 左右) 变灰, 跟 .app-main 白底形成边界
+       — 视觉: 1240 卡片四周留灰缝, 跟原型 #s-chat card 在 body bg=#F6F6F8 上的视觉一致
+     — 0 hex 红线: 用 --sb2-bg token (= #F6F6F8), 跟原型 --bg token 同色 (line 14 原型 :root)
+     — 不动 .app-main (其他模块 dashboard/talents 仍白底, 跟原版一致)
+     — 内部子元素维持原背景: topbar (--sb2-s1 白), messages (--sb2-bg 灰), input (transparent 透灰)
+       → 视觉跟原型 #s-chat card 内部一致 (topbar 白底, chatThread 灰底) */
   display: flex;
   flex-direction: column;
   width: 100%;
@@ -12750,7 +12761,7 @@ body.sb2-no-side .sb2-topbar{ left:60px; }
   height: 100%;
   margin: 0 auto;
   padding: 24px 32px;
-  background: transparent;
+  background: var(--sb2-bg);
   font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
   font-size: 14px;
   color: var(--sb2-chat-bubble-text);
