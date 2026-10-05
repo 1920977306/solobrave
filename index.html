@@ -10203,8 +10203,15 @@ body.sb2-no-side .sb2-topbar{ left:60px; }
 .sb2-topbar-create:hover{ background:var(--sb2-ink-hover); box-shadow:var(--sb2-sh2); }
 
 /* —— 新 #side 上下文侧栏 236px —— */
+/* 〔fix/sb2-side-restore commit 19〕17 轮批注②: 侧栏上方 48px 死白角
+   老大 19:12 trace 实测证据: .sb2-side { top:48px } 让 1240 卡片跟侧栏顶之间露 48px 死白角
+   — 根因: top:48px = 顶栏高度, 但顶栏 fixed 已经压在视口顶, 侧栏再让 48px = 视觉留白条
+   — 修法: top:48px → top:0, 侧栏头部贴视口顶, 对齐原型 #side (18203 原型侧栏从 y=0 开始)
+   — 1100 media 块 (line 10227) / 768 media 块 (line 10287) 都是 display:none, 没独立 top 值, 不影响
+   — 源顺序纪律: 改完基础定义 (line 10206) 仍在 1100 media 之前, 同优先级后定义赢规则保持
+   — 验收: rail 点 AI 办公室/达人库 (有侧栏模块), 侧栏标题 y≈0-24 贴顶, 无白条纹 */
 .sb2-side{
-  position:fixed; top:48px; left:60px; bottom:0; width:236px; z-index:80;
+  position:fixed; top:0; left:60px; bottom:0; width:236px; z-index:80;
   background:var(--sb2-s2); border-right:1px solid var(--sb2-border);
   display:flex; flex-direction:column; overflow:hidden;
 }
