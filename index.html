@@ -10249,15 +10249,19 @@ body.sb2-no-side .sb2-topbar{ left:60px; }
   font:600 17px/1.4 "PingFang SC",sans-serif; color:var(--sb2-t1);
 }
 .sb2-side-sub{ font:400 11px/1.4 "PingFang SC",sans-serif; color:var(--sb2-t3); margin-top:3px; }
-/* 〔fix/sb2-side-restore commit 21〕17 轮批注③: 一页一搜索 (侧栏 searchInput 全下线)
-   决策: 每页只留顶栏 ⌘K 全局搜索 (openGlobalSearch), 侧栏搜索输入全下线
-   — 删除: .sb2-side-search-input CSS 段 (本段) + sb2SideFilter 函数 + renderSideFor 渲染逻辑 + 3 模块 searchInput 字段
-   — 保留: 顶栏 ⌘K 全局搜索 / openGlobalSearch 全链路 (支持员工/群/知识, type='employee' → openChat)
-   — 跟 14 轮 commit 11 (messages 模块侧栏搜索被误删) + 15 轮 commit 12 (恢复) 形成完整闭环:
-     * 14 轮: 误删侧栏所有搜索框
-     * 15 轮: 恢复 messages 模块 searchInput (侧栏原版有, 截图确认)
-     * 17 轮: 决策不再需要侧栏搜索 (⌘K 全局搜覆盖), 全下线 — 这是 UI 设计演化, 不是回归
-   — apply when: 任何「侧栏过滤/搜索」先确认 ⌘K 全局搜是否覆盖, 不重复造轮子 */
+/* 〔fix/sb2-side-restore commit 12〕15 轮热修: 恢复 .sb2-side-search-input CSS (messages 模块专用)
+   14 轮 commit 11 全删了侧栏搜索框, 但 messages 模块侧栏原版就有 "搜索员工..." 过滤 AI 员工列表
+   (老大截图标注①确认), 现在恢复: 仅 messages 模块用 .sb2-side-search-input, 其他模块维持删除 */
+.sb2-side-search-input{
+  margin:10px 12px 6px; padding:7px 10px;
+  background:var(--sb2-s1); border:1px solid var(--sb2-border); border-radius:var(--sb2-r-md);
+  font:400 12px/1.2 "PingFang SC",sans-serif; color:var(--sb2-t1);
+}
+.sb2-side-search-input:focus-within{ border-color:var(--sb2-accent); }
+.sb2-side-search-input input{
+  width:100%; border:none; outline:none; background:transparent;
+  font:inherit; padding:0;
+}
 .sb2-side-scroll{ flex:1; overflow-y:auto; padding:6px 8px 24px; }
 .sb2-side-label{
   font:500 10px/1.4 "PingFang SC",sans-serif; color:var(--sb2-t3);
@@ -46233,7 +46237,7 @@ var SB2_SIDE_RENDERERS = {
         return { name: (g.name || g.display_name || '-'), onClick:"openGroup && openGroup('"+g.id+"')" };
       })});
     }
-    return { title:'AI 办公室', sub: list.length+' 员工 · '+onlineCount+' 在线', items:items };
+    return { title:'AI 办公室', sub: list.length+' 员工 · '+onlineCount+' 在线', items:items, searchInput:'搜索员工…' };
   },
   knowledge: function(){
     /* 〔fix/sb2-side-restore commit 16+17〕16 轮批注③打回链修正 (真数据链路):
@@ -46324,6 +46328,7 @@ var SB2_SIDE_RENDERERS = {
     });
     return {
       title:'知识库', sub:sub,
+      searchInput:'语义搜索…',
       items:[
         { label:'分类', items: catItems },
         { label:'范围', items:[
@@ -46427,6 +46432,13 @@ var SB2_SIDE_RENDERERS = {
     return {
       title:'',
       sub:'',
+      /* 〔fix/sb2-side-restore commit 13〕16 轮批注②: 达人库侧栏恢复「搜索达人...」输入
+         14 轮 commit 11 全删了 .sb2-side-search (line 46328), 但 talents 侧栏原版有 (line 724-735 区域)
+         老大截图标注①确认侧栏以原版为准, 现在恢复: 仅 talents 模块 searchInput
+         - dashboard/knowledge/patterns/products 维持 14 轮删除 (按老大规矩: 原版有的模块侧栏搜索才恢复,
+           talents/knowledge/messages 三个原版都有, dashboard 原版无搜索)
+         - dashboard 已在 14 轮 commit 11 删, 维持现状不动 */
+      searchInput:'搜索达人…',
       items:[
         { label:'评级', items: ratingItems },
         { label:'类目', items: catItems },
@@ -46515,6 +46527,22 @@ var SB2_CURRENT_MODULE = 'messages';
    修法: 同步挂 window, 后续赋值处 (showDash / renderSideFor 末尾) 也要同步 */
 window.SB2_CURRENT_MODULE = SB2_CURRENT_MODULE;
 
+/* 〔fix/sb2-side-restore commit 12〕15 轮热修: 侧栏员工列表过滤 (messages 模块专用)
+   老大截图标注① 确认侧栏原版有 "搜索员工..." 输入, 14 轮误删, 现在恢复
+   - 实时过滤 .sb2-side-item 文本, 不匹配则 display:none
+   - 只在 messages 模块渲染 (.sb2-side-search-input, see renderSideFor)
+   - 其他模块侧栏不渲染, 无 input, 无 .sb2-side-search-input (14 轮删除保持)
+   - apply when: 任何「侧栏列表过滤」必须用守卫写法过滤 name, 不改 side 容器内其它 group (项目组群聊等) */
+function sb2SideFilter(keyword){
+  var k = (keyword || '').trim().toLowerCase();
+  var items = document.querySelectorAll('#sb2Side .sb2-side-item');
+  items.forEach(function(el){
+    if (!k){ el.style.display = ''; return; }
+    var name = (el.textContent || '').trim().toLowerCase();
+    el.style.display = name.indexOf(k) >= 0 ? '' : 'none';
+  });
+}
+
 function renderSideFor(moduleId){
   var side = document.getElementById('sb2Side');
   if (!side) return;
@@ -46538,6 +46566,18 @@ function renderSideFor(moduleId){
   var html = '';
   html += '<div class="sb2-side-head"><div class="sb2-side-title">'+escHtml(data.title)+'</div>';
   if (data.sub) html += '<div class="sb2-side-sub">'+escHtml(data.sub)+'</div></div>';
+  /* 〔fix/sb2-side-restore commit 12〕15 轮热修: messages 模块侧栏恢复搜索输入 (15 轮恢复 14 轮误删)
+     只在 data.searchInput 存在时渲染 .sb2-side-search-input — 14 轮 commit 11 全删之后
+     截图发现 messages 模块原版侧栏顶部就有 "搜索员工..." 过滤 AI 员工列表
+     - 其他模块 (dashboard/talents/knowledge/patterns/products) 不加 searchInput 字段, 不渲染
+     - 跟 14 轮 commit 11 删 .sb2-side-search 逻辑一致: 14 轮是误删, 15 轮选择性恢复
+     - data.searchInput: 占位文案 (不是 searchPlaceholder — placeholder 是 ⌘K 全局搜)
+     - sb2SideFilter 函数 (line 46284+) 实时过滤 name, 不影响项目组群聊等其它 group */
+  if (data.searchInput) {
+    html += '<div class="sb2-side-search-input">'
+         +  '<input type="text" placeholder="'+escHtml(data.searchInput)+'" oninput="sb2SideFilter(this.value)" autocomplete="off">'
+         +  '</div>';
+  }
   html += '<div class="sb2-side-scroll">';
   (data.items || []).forEach(function(group){
     if (group.label) html += '<div class="sb2-side-label">'+escHtml(group.label)+'</div>';
