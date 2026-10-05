@@ -41482,6 +41482,10 @@ function sb2TalentsOnSideClick(dim, val){
   if (pop) pop.classList.remove('on');
   sb2TalentsUpdateFilterBtn();
   sb2TalentsLoad();
+  /* 〔fix/sb2-side-restore commit 3 D1c〕点击后侧栏 active 高亮迁移
+     修前 bug: 点了「已合作」表格真过滤 (9 行 ✓), 但侧栏 active 不动
+     修法: load 完后重渲侧栏, 新 _sb2TalentsFilterStatus === 'cooperating' 会触发 active
+     (D1b 同模式, 但 D1c 是点击侧栏路径而非 sb2TalentsLoad 自身重渲) */
 }
 
 /* ★ MVP1: 搜索 (debounce 300ms, 接 q 参数, name/douyin_id/bio LIKE)
@@ -41579,6 +41583,14 @@ async function sb2TalentsLoad(){
       categories: _sb2TalentsFacets.category || {},
       statuses: _sb2TalentsFacets.cooperation || {}
     } : null;
+    /* 〔fix/sb2-side-restore commit 3 D1b〕数据到了, 重渲侧栏
+       修前 bug: rail 点击达人库 → renderSideFor 同步渲染 (此时 fc=null 全「–」)
+                → sb2TalentsLoad 异步写完镜像但没人重渲 → 永远「–」
+       修法: 镜像写完后, 当前模块若是 influencers, 触发 renderSideFor 重渲 */
+    if (typeof SB2_CURRENT_MODULE !== 'undefined' && SB2_CURRENT_MODULE === 'influencers'
+        && typeof renderSideFor === 'function') {
+      renderSideFor('influencers');
+    }
     // 清掉不在当前页的选中
     var pageIds = {};
     list.forEach(function(t){ if (t.id) pageIds[t.id] = true; });
@@ -45970,6 +45982,11 @@ var SB2_SIDE_RENDERERS = {
       { name:'全部类目', badge: total > 0 ? String(total) : dash, active: categoryActive === '' }
     ];
     var catList = Object.keys(cats).map(function(k){ return [k, cats[k]]; });
+    /* 〔fix/sb2-side-restore commit 3 D4〕类目维排除 "(空)" key
+       修前 bug: facets.category 有 "(空)":38 (类目未填), top6 降序会混进侧栏当类目名显示
+       修法: 先 filter 掉 "(空)", 再 sort + slice(0, 6)
+       设计哲学: 真类目 < 6 个就显示几个, 不强行补 (空) 桶占位 (跟 '真数据不编造' 一致) */
+    catList = catList.filter(function(c){ return c[0] !== '(空)'; });
     catList.sort(function(a, b){ return (b[1]||0) - (a[1]||0); });
     catList.slice(0, 6).forEach(function(c){
       catItems.push({
@@ -46034,16 +46051,27 @@ window._sb2PendingKbReviews = 0;
 
 window.sb2RefreshDashboardBadges = function(){
   if (typeof apiFetch !== 'function') return Promise.resolve();
-  var pProposals = Promise.resolve(apiFetch('/api/proposals?status=pending&limit=1')).then(function(r){
+  /* 〔fix/sb2-side-restore commit 3 D3〕apiFetch 返回 raw Response, 消费前必须 await resp.json()
+     修前 bug: apiFetch 返回 Response 对象, r.total / r.proposals 对 Response 全 undefined
+              → n = 0 静默吞掉, badge 永远 0 (proposals 实测有 1 条 pending 但显 0)
+     修法: safeParse 统一把 Response → JSON, 已经是对象就透传, 容错返 null */
+  var safeParse = function(resp){
+    if (!resp) return Promise.resolve(null);
+    if (resp && typeof resp.json === 'function') {
+      return Promise.resolve(resp.json()).then(function(d){ return d; }).catch(function(){ return null; });
+    }
+    return Promise.resolve(resp);
+  };
+  var pProposals = safeParse(apiFetch('/api/proposals?status=pending&limit=1')).then(function(data){
     var n = 0;
-    if (r && typeof r === 'object') {
-      if (typeof r.total === 'number') n = r.total;
-      else if (Array.isArray(r.proposals)) n = r.proposals.length;
-      else if (Array.isArray(r)) n = r.length;
+    if (data && typeof data === 'object') {
+      if (typeof data.total === 'number') n = data.total;
+      else if (Array.isArray(data.proposals)) n = data.proposals.length;
+      else if (Array.isArray(data)) n = data.length;
     }
     return Number(n) || 0;
   }).catch(function(){ return 0; });
-  var pKpi = Promise.resolve(apiFetch('/api/stats/dashboard-kpi')).then(function(r){
+  var pKpi = safeParse(apiFetch('/api/stats/dashboard-kpi')).then(function(r){
     var n = (r && r.kpi3_kb && r.kpi3_kb.pending != null) ? r.kpi3_kb.pending : 0;
     return Number(n) || 0;
   }).catch(function(){ return 0; });
@@ -46084,7 +46112,7 @@ function renderSideFor(moduleId){
     (group.items || []).forEach(function(it){
       var dot = it.dot === true ? '<span class="dot"></span>' : (it.dot === false ? '<span class="dot offline"></span>' : '');
       var badge = it.badge ? '<span class="badge">'+escHtml(it.badge)+'</span>' : '';
-      html += '<div class="sb2-side-item" onclick="'+escAttr(it.onClick || '')+'">'
+      html += '<div class="sb2-side-item'+(it.active ? ' active' : '')+'" onclick="'+escAttr(it.onClick || '')+'">'
               + '<span class="name">'+dot+escHtml(it.name || '-')+'</span>'+badge+'</div>';
     });
   });

@@ -18348,16 +18348,24 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         facets_category = {}
         facets_cooperation = {'cooperating': 0, 'communicating': 0, 'available': 0, 'resting': 0, 'blacklist': 0, '(空)': 0}
         for t in talents:
-            lv = (t.get('level') or '').strip()
-            if lv:
-                b = lv[0].upper()
-                if b in ('A', 'B', 'C', 'D'):
-                    facets_rating[b] += 1
-                else:
-                    # 演示数据 L3/L4/L5 等不归 A/B/C/D 桶 → 归 (空) 桶 (老大指示: 等级空显 -)
-                    facets_rating['(空)'] += 1
-            else:
+            # 〔fix/sb2-side-restore commit 3 D2〕评级维改按 rating_score 分桶
+            rs = t.get('rating_score')
+            score = None
+            if rs is not None and rs != '':
+                try:
+                    score = float(rs)
+                except (ValueError, TypeError):
+                    score = None
+            if score is None:
                 facets_rating['(空)'] += 1
+            elif score >= 4.5:
+                facets_rating['A'] += 1
+            elif score >= 3.5:
+                facets_rating['B'] += 1
+            elif score >= 2.0:
+                facets_rating['C'] += 1
+            else:
+                facets_rating['D'] += 1
             cat = (t.get('category') or '').strip() or '(空)'
             facets_category[cat] = facets_category.get(cat, 0) + 1
             cs = (t.get('cooperation_status') or '').strip() or '(空)'
