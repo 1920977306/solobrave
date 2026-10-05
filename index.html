@@ -10283,13 +10283,18 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
 }
 .sb2-side-item:hover{ background:var(--sb2-s3); color:var(--sb2-t1); }
 /* 〔18 轮批注③〕纯文字聊天员工项 (原型 .side-item, 规格 docs/design-spec/v1-18轮批注.md 批注③)
-   修前 (r25): .sb2-side-item .dot/.badge display:none → 误杀所有模块 (dashboard 紧急待办 / 项目组等的 badge 也隐藏)
-   修后: 用 :has(.sb2-side-search-input) 限定 messages 模块侧栏 (只有 messages 才有搜索框)
-   范围: 聊天员工项 height 38 / padding 8 10 / radius 10 / font 14/22.4 / gap 21 / 无 .dot .badge (功能以后要单开派单)
-   不动: dashboard / knowledge / patterns / tasks 等模块的 .sb2-side-item .badge / .dot (保留三件套)
-   :has() 支持: Chrome 105+ / Safari 15.4+ / worktree dev server 测试浏览器实测 */
-.sb2-side:has(.sb2-side-search-input) .sb2-side-item .badge{ display:none; }
-.sb2-side:has(.sb2-side-search-input) .sb2-side-item .dot{ display:none; }
+   〔18 轮批注③ 二打回 2026-10-06 01:53〕行级修法照抄:
+     修前 v3 (a9e9338): :has(.sb2-side-search-input) 限定 → 误杀 talents 评级/类目/状态 badge
+       (root cause: talents 模块 renderSideFor 也设了 searchInput='搜索达人…' (line 46529),
+        :has() 匹配上 talents 侧栏 → 评级/类目/状态 .dot/.badge 全部隐藏 → 老大 940 视口实测发现)
+     修后 v4 (本次): 改用 messages 模块专属 class .sb2-side--module-messages
+       (renderSideFor 末尾 line 46694 后侧栏设 className='sb2-side sb2-side--module-'+moduleId,
+        只有 messages 模块才打 .sb2-side--module-messages class,其他模块不打)
+       → 严格 messages 模块专属,不动 dashboard / talents / knowledge / patterns / tasks
+   范围: 聊天员工项 height 38 / padding 8 10 / radius 10 / font 14/22.4 / gap 0 / 无 .dot .badge (功能以后要单开派单)
+   不动: dashboard / knowledge / patterns / tasks / talents 等模块的 .sb2-side-item .badge / .dot (保留三件套) */
+.sb2-side--module-messages .sb2-side-item .badge{ display:none; }
+.sb2-side--module-messages .sb2-side-item .dot{ display:none; }
 /* 〔fix/sb2-side-restore commit 22〕17 轮批注②补修: active 项改原型白卡样式
    老大 17:03 trace 实测证据: 16 轮 commit 13 只灰化了 badge, active 项本体未改,
      还是橙底 --sb2-brand-soft, 这就是老大说「太亮了」的根源.
@@ -12791,26 +12796,31 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
      — 不动 .app-main (其他模块 dashboard/talents 仍白底, 跟原版一致)
      — 内部子元素维持原背景: topbar (--sb2-s1 白), messages (--sb2-bg 灰), input (transparent 透灰)
        → 视觉跟原型 #s-chat card 内部一致 (topbar 白底, chatThread 灰底) */
-  /* 〔18 轮批注④ v3〕整白卡对齐原型 #s-chat card (规格 docs/design-spec/v1-18轮批注.md 批注④)
-     修前 v2: position absolute + top 38 + bottom 18 相对 .app-main → 底缝 ~46 ≠ 18 (因 .app-main 顶 48 + .app-main 高 759, 实际卡底距 viewport 48+759-18=789, 距 viewport 807=18 仅 mcp_browser; 老大视口 940 不一样)
-     修前 v1: height calc(100% - 56) + margin 38 auto 0 → flex calc 偏差 28 (老大 trace 实测底缝 46)
-     修后 v3: position fixed + top 86 + bottom 18 直接锚 viewport, 底缝 = 18 严格无差
-     - top 86 (顶栏 48 + 上缝 24 + 卡margin 14 = 86, 跟原型 #s-chat card y=86 同)
-     - bottom 18 (viewport h - 18, 卡底距 viewport 18, 跟原型 h=836+18=854 距 viewport 940 差 18+86 对齐)
-     - left 50% + translateX(-50%) 水平居中
-     - width calc(100vw - 60px) (扣左 rail 60)
-     - max-width 1240 (跟原型对齐)
-     z-index: 1 (高过 .sb2-side 等)
+  /* 〔18 轮批注④ v4〕整白卡对齐原型 #s-chat card (规格 docs/design-spec/v1-18轮批注.md 批注④)
+     〔18 轮批注④ 二打回 2026-10-06 01:53〕行级修法照抄:
+       修前 v3 (a9e9338): position fixed + left 50% + transform translateX(-50%) + z-index 1
+         → root cause 1: transform: translateX(-50%) 创建新的 stacking context
+         → root cause 2: z-index: 1 与 .sb2-side (fixed z-index:80) 同级层叠
+         → root cause 3: fixed 元素不受 .app-main position:relative 约束, 层叠规则异常
+         → 老大 940 视口实测: shell 仍压在 .sb2-side 上面 (达人库侧栏被压, 用户看不到)
+       修后 v4 (本次): position absolute + left 60px + right 0 + top 86 + bottom 18 + transform none
+         - position absolute: 走 .app-main 父容器层叠 (line 311 .app-main { position: relative }), 不创建新 stacking context
+         - left: 60 / right: 0: shell 完整让位 .sb2-side width 236px + rail 60px, 不压侧栏
+         - top: 86 + bottom: 18: 锚 .app-main 父容器上下, 卡底距 .app-main 底 18 (跟原型 #s-chat card y=86 + h=836 距 body h=940-86-836-18=0 一致)
+         - transform: none: 不创建新 stacking context, 不与 .sb2-side 抢层叠
+         - max-width: 1240 (跟原型对齐)
+     范围: 不动 .sb2-side (line 10220 fixed z-index:80 让位完成), 不动 .app-main (line 304 flex 父容器)
      不动: .sb2-chat-shell[hidden] { display: none !important } 仍生效 */
   display: flex;
   flex-direction: column;
-  position: fixed;
+  position: absolute;
   top: 86px;
   bottom: 18px;
-  left: 50%;
-  width: calc(100vw - 60px);
+  left: 60px;
+  right: 0;
+  width: auto;
   max-width: 1240px;
-  transform: translateX(-50%);
+  transform: none;
   margin: 0;
   padding: 0;
   background: var(--sb2-s1);
@@ -46691,6 +46701,16 @@ function renderSideFor(moduleId){
   html += '</div>';
   html += '<div class="sb2-side-foot"><span class="dot"></span><span id="sb2SideFootStatus">已连接</span></div>';
   side.innerHTML = html;
+  /* 〔18 轮批注③ 二打回 2026-10-06 01:53〕行级修法照抄: 设模块专属 class
+     修前: CSS 用 :has(.sb2-side-search-input) 限定 messages → 误杀 talents 评级/类目/状态 badge
+       (root cause: talents 模块 renderSideFor 也设了 searchInput='搜索达人…' line 46529,
+        :has() 匹配 talents 侧栏 → 评级的"金牌/银牌"dot + 类目/状态的 badge 全隐藏 → 老大 940 视口实测)
+     修法: 在 innerHTML 渲染后,设 side.className = 'sb2-side sb2-side--module-' + moduleId
+       - messages 模块: side.className = 'sb2-side sb2-side--module-messages' (CSS 选择器在 [] 里命中)
+       - talents 模块: side.className = 'sb2-side sb2-side--module-talents' (不影响评级/类目/状态 badge)
+       - dashboard / knowledge / patterns / products / tasks 等: 同样不打 .sb2-side--module-messages
+     行级严格: 只在 messages 模块生效, 其他模块侧栏 .badge/.dot 一律保留 */
+  side.className = 'sb2-side sb2-side--module-' + moduleId;
   SB2_CURRENT_MODULE = moduleId;
   /* 〔fix/sb2-side-restore commit 4〕同步挂 window (跨块访问)
      renderSideFor 是 IIFE 私有, 达人块访问不到 → window.* 同步 */
