@@ -45201,12 +45201,13 @@ var ICONS = {
 /* ---------- 导航定义(permission = 旧 hasModulePermission 模块名) ---------- */
 var MODULES = [
   { id:'dashboard', label:'工作台',      icon:ICONS.dash,   perm:null },
-  /* 〔fix/sb2-side-restore commit 9〕messages 模块 label 'AI 办公室' → '即时通讯' (12 轮热修)
-     - 老大纠偏: 既然主区是老 chat UI (顶栏+消息流+发送框), 名字必须诚实叫「即时通讯」
-     - 以前的龙虾办公室仍合并到工作台 (commit 6 思路对了一半), 但 rail 不再单独入口
+  /* 〔fix/sb2-side-restore commit 10〕messages label '即时通讯' → 'AI 办公室' (13 轮热修)
+     - 老大 16:04 拍板口径修正: 模块名改回 'AI 办公室', 但主区保持老 chat UI 不动
+     - 解释: 「AI 办公室」是 rail 标识符, 跟主区实际是聊天不矛盾 — 标识符代表
+       "员工对话总入口" 这个定位, 主区是 chat UI 实现这个定位
      - id 仍 'messages' (防 hideAllModuleMains / 权限清单大面积回归)
      - openLobsterOffice() 函数保留不删 (旧 left-nav navOffice 兜底, 防回归) */
-  { id:'messages',  label:'即时通讯',    icon:ICONS.chat,   perm:'messages' },
+  { id:'messages',  label:'AI 办公室',   icon:ICONS.chat,   perm:'messages' },
   { id:'knowledge', label:'知识库',      icon:ICONS.book,   perm:'knowledge' },
   { id:'patterns',  label:'规律库',      icon:ICONS.sigma,  perm:'patterns' },
   { id:'products',  label:'商品库',      icon:ICONS.box,    perm:'products' },
@@ -46076,9 +46077,10 @@ var SB2_SIDE_RENDERERS = {
     };
   },
   messages: function(){
-    /* 〔fix/sb2-side-restore commit 9〕title 'AI 办公室' → '即时通讯' (12 轮热修)
-       - 配合主区恢复老 chat UI, 名字必须诚实
-       - 侧栏保留: AI 员工列表 + 项目组群聊 (跟原版一致, 不跟 office-v3 iframe 嵌入了)
+    /* 〔fix/sb2-side-restore commit 10〕title '即时通讯' → 'AI 办公室' (13 轮热修)
+       - 老大 16:04 拍板口径修正: 模块名跟主区解耦, 'AI 办公室' 作为 rail 标识符表示
+         "员工对话总入口" 定位, 主区是 chat UI 实现这个定位
+       - 侧栏保留: AI 员工列表 + 项目组群聊 (跟原版一致)
        - 子项 onClick 全部用守卫写法 (&& fn), 防跨块 undefined 静默 */
     var list = (typeof window.emps !== 'undefined' && Array.isArray(window.emps)) ? window.emps : [];
     var groups = [];
@@ -46097,7 +46099,7 @@ var SB2_SIDE_RENDERERS = {
         return { name: (g.name || g.display_name || '-'), onClick:"openGroup && openGroup('"+g.id+"')" };
       })});
     }
-    return { title:'即时通讯', sub: list.length+' 员工 · '+onlineCount+' 在线', items:items };
+    return { title:'AI 办公室', sub: list.length+' 员工 · '+onlineCount+' 在线', items:items };
   },
   knowledge: function(){
     var cats = (typeof window.knowledgeCategories !== 'undefined' && Array.isArray(window.knowledgeCategories)) ? window.knowledgeCategories : [];
@@ -46366,16 +46368,14 @@ function updateCrumb(){
   var main = document.getElementById('sb2CrumbMain');
   if (!main) return;
   var m = SB2_CURRENT_MODULE;
-  /* 〔fix/sb2-side-restore commit 9〕12 轮热修:
-     - messages 'AI 办公室' → '即时通讯' (commit 9 配合主区恢复老 chat UI, 名字诚实)
+  /* 〔fix/sb2-side-restore commit 10〕13 轮热修:
+     - messages '即时通讯' → 'AI 办公室' (老大 16:04 拍板口径修正, 模块名改回)
      - influencers early return 清空 — 老大要求全页「达人库」三字只出现一次 (hero h1 line 13859)
        原型 line 567-588 达人库视图 hero 只有 h1, 没顶栏 crumb 也没侧栏标题
-       (注: 原型 talents renderer line 725 有 side-title '达人库' + side-sub '1,847 位在库',
-        但老大 hard rule 是 "全页只出现一次", 删)
      - 其他模块 map 不变 (工作台/规律库/商品库/任务/设置 顶栏仍显) */
   if (m === 'influencers'){ main.textContent = ''; return; }
   var map = {
-    dashboard:'工作台', messages:'即时通讯',
+    dashboard:'工作台', messages:'AI 办公室',
     knowledge:'知识库', patterns:'规律库',
     products:'商品库', tasks:'任务', settings:'设置'
   };
