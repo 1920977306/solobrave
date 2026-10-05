@@ -41482,10 +41482,14 @@ function sb2TalentsOnSideClick(dim, val){
   if (pop) pop.classList.remove('on');
   sb2TalentsUpdateFilterBtn();
   sb2TalentsLoad();
-  /* 〔fix/sb2-side-restore commit 3 D1c〕点击后侧栏 active 高亮迁移
+  /* 〔fix/sb2-side-restore commit 4 D1c 作用域墙〕守卫改 window.* + 强制重渲
      修前 bug: 点了「已合作」表格真过滤 (9 行 ✓), 但侧栏 active 不动
-     修法: load 完后重渲侧栏, 新 _sb2TalentsFilterStatus === 'cooperating' 会触发 active
-     (D1b 同模式, 但 D1c 是点击侧栏路径而非 sb2TalentsLoad 自身重渲) */
+     sb2TalentsLoad 末尾 D1b 重渲在 IIFE 私有作用域下恒跳过
+     修法: 这里显式同步触发 window.renderSideFor 重渲, 不依赖 D1b 异步触发
+     (commit 4 D1b 守卫已改 window.*, 但 D1c 是点击同步路径, 显式更稳) */
+  if (typeof window !== 'undefined' && typeof window.renderSideFor === 'function') {
+    window.renderSideFor('influencers');
+  }
 }
 
 /* ★ MVP1: 搜索 (debounce 300ms, 接 q 参数, name/douyin_id/bio LIKE)
@@ -41583,13 +41587,13 @@ async function sb2TalentsLoad(){
       categories: _sb2TalentsFacets.category || {},
       statuses: _sb2TalentsFacets.cooperation || {}
     } : null;
-    /* 〔fix/sb2-side-restore commit 3 D1b〕数据到了, 重渲侧栏
-       修前 bug: rail 点击达人库 → renderSideFor 同步渲染 (此时 fc=null 全「–」)
-                → sb2TalentsLoad 异步写完镜像但没人重渲 → 永远「–」
-       修法: 镜像写完后, 当前模块若是 influencers, 触发 renderSideFor 重渲 */
-    if (typeof SB2_CURRENT_MODULE !== 'undefined' && SB2_CURRENT_MODULE === 'influencers'
-        && typeof renderSideFor === 'function') {
-      renderSideFor('influencers');
+    /* 〔fix/sb2-side-restore commit 4 D1b 作用域墙〕守卫改 window.*
+       修前 bug: sb2-shell-js IIFE 内 renderSideFor / SB2_CURRENT_MODULE 私有,
+                typeof SB2_CURRENT_MODULE !== 'undefined' 恒 false 静默跳过
+       修法: 跨块访问走 window.* (commit 4 已挂 window, 见 line 46088 后注释) */
+    if (typeof window !== 'undefined' && window.SB2_CURRENT_MODULE === 'influencers'
+        && typeof window.renderSideFor === 'function') {
+      window.renderSideFor('influencers');
     }
     // 清掉不在当前页的选中
     var pageIds = {};
@@ -45754,6 +45758,9 @@ function showDash(){
   if (app) app.style.visibility = 'hidden';
   setActive('dashboard');
   SB2_CURRENT_MODULE = 'dashboard';
+  /* 〔fix/sb2-side-restore commit 4〕同步挂 window (跨块访问)
+     shell 块 IIFE 内赋值, 达人块访问不到 → window.* 同步 */
+  window.SB2_CURRENT_MODULE = SB2_CURRENT_MODULE;
   updateCrumb();
   loadKpis();
   // ★ fix/sb2-side-restore commit 2: 异步拉侧栏 badge 数据 (proposals/kbi3)
@@ -46056,11 +46063,17 @@ window.sb2RefreshDashboardBadges = function(){
               → n = 0 静默吞掉, badge 永远 0 (proposals 实测有 1 条 pending 但显 0)
      修法: safeParse 统一把 Response → JSON, 已经是对象就透传, 容错返 null */
   var safeParse = function(resp){
-    if (!resp) return Promise.resolve(null);
-    if (resp && typeof resp.json === 'function') {
-      return Promise.resolve(resp.json()).then(function(d){ return d; }).catch(function(){ return null; });
-    }
-    return Promise.resolve(resp);
+    /* 〔fix/sb2-side-restore commit 4 D3 二次踩坑〕apiFetch 是 async, 返回 Promise 不是 Response
+       commit 3 误判: safeParse 对 Promise 判 typeof resp.json === 'function' → false
+       把 Promise 原样当 data 透传 → data.proposals 全 undefined → n=0
+       修法: 第一行 Promise.resolve(resp) 展开 Promise → 拿 Response 对象 → 再判 .json */
+    return Promise.resolve(resp).then(function(r){
+      if (!r) return null;
+      if (r && typeof r.json === 'function') {
+        return r.json().then(function(d){ return d; }).catch(function(){ return null; });
+      }
+      return r;  // 已经是 plain object 就透传
+    });
   };
   var pProposals = safeParse(apiFetch('/api/proposals?status=pending&limit=1')).then(function(data){
     var n = 0;
@@ -46078,14 +46091,23 @@ window.sb2RefreshDashboardBadges = function(){
   return Promise.all([pProposals, pKpi]).then(function(rs){
     window._sb2PendingProposals = rs[0];
     window._sb2PendingKbReviews = rs[1];
-    if (typeof SB2_CURRENT_MODULE !== 'undefined' && SB2_CURRENT_MODULE === 'dashboard'
-        && typeof renderSideFor === 'function') {
-      renderSideFor('dashboard');
+    /* 〔fix/sb2-side-restore commit 4〕守卫改 window.* (跨 IIFE 作用域访问)
+       sb2-shell-js IIFE 内 renderSideFor / SB2_CURRENT_MODULE 私有, 跨块访问走 window */
+    if (typeof window !== 'undefined' && window.SB2_CURRENT_MODULE === 'dashboard'
+        && typeof window.renderSideFor === 'function') {
+      window.renderSideFor('dashboard');
     }
   });
 };
 
 var SB2_CURRENT_MODULE = 'messages';
+/* 〔fix/sb2-side-restore commit 4 D1b 作用域墙〕挂 window 给达人块 (line 39648-45014) 访问
+   修前 bug: sb2-shell-js 整块 (line 45068-46185) 包在 (function(){...})() IIFE 里,
+            renderSideFor / SB2_CURRENT_MODULE 是 IIFE 私有,
+            达人块 (前 IIFE) typeof SB2_CURRENT_MODULE !== 'undefined' 恒 false 静默跳过重渲
+   SEV1 老教训: 跨脚本块调用挂 window, 你守卫写法对了但作用域假设错了 (IIFE 私有 vs 全局)
+   修法: 同步挂 window, 后续赋值处 (showDash / renderSideFor 末尾) 也要同步 */
+window.SB2_CURRENT_MODULE = SB2_CURRENT_MODULE;
 
 function renderSideFor(moduleId){
   var side = document.getElementById('sb2Side');
@@ -46120,7 +46142,14 @@ function renderSideFor(moduleId){
   html += '<div class="sb2-side-foot"><span class="dot"></span><span id="sb2SideFootStatus">已连接</span></div>';
   side.innerHTML = html;
   SB2_CURRENT_MODULE = moduleId;
+  /* 〔fix/sb2-side-restore commit 4〕同步挂 window (跨块访问)
+     renderSideFor 是 IIFE 私有, 达人块访问不到 → window.* 同步 */
+  window.SB2_CURRENT_MODULE = SB2_CURRENT_MODULE;
 }
+/* 〔fix/sb2-side-restore commit 4〕挂 window, 达人块守卫才能访问
+   IIFE 内 renderSideFor 是私有, 达人块 (line 39648-45014) typeof renderSideFor === 'function' 恒 false
+   挂 window 后跨块调用生效 */
+window.renderSideFor = renderSideFor;
 
 function escHtml(s){ return String(s==null?'':s).replace(/[&<>\"']/g, function(c){ return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]; }); }
 function escAttr(s){ return String(s==null?'':s).replace(/[&<>\"']/g, function(c){ return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]; }); }
