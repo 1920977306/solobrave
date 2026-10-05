@@ -38157,17 +38157,6 @@ async function loadKnowledgePage(page) {
     renderKnowledgeList(_knowledgeData.docs);
     renderKnowledgePagination(_knowledgeData.total, _knowledgePage, _knowledgePageSize);
     var statsData = await statsRes.json();
-    /* 〔fix/sb2-side-restore commit 15〕16 轮打回修正 (批注③时序坑):
-       数据落位 (categories + docs + stats) 后调 renderSideFor('knowledge') 重渲侧栏
-       — 老大原话: 「数据到位后要重渲染侧栏, 在 loadKnowledge 数据落位后调一次侧栏重渲染,
-         函数名/调用方式你自己确认, 别造第二个渲染入口」
-       — 复用既有 window.renderSideFor (line 45979, 已挂 window 跨块访问)
-       — 触发条件: statsData 落位 + categories 落位 之后, _knowledgeInitialized=true 之前
-       — 避免造第二个渲染入口 (例如 _renderKnowledgeSide 这种) — 直接用既有 renderSideFor
-       — 守卫写法 (&& fn) 防 renderSideFor 跨块 undefined 静默 */
-    window._sb2KbStats = window._sb2KbStats || {};
-    window._sb2KbStats.byCategory = (statsData.stats && statsData.stats.byCategory) || [];
-    if (typeof window.renderSideFor === 'function') window.renderSideFor('knowledge');
     renderKnowledgeStats(statsData.stats || {});
     _updateKnowledgeNewButtonVisibility();
     _updateKnowledgeEditorProjectCategoryOptions();
@@ -40317,9 +40306,46 @@ async function sb2KbInit(){
     _sb2KbCats = (catsData && catsData.categories) || [];
     _sb2KbEntries = (entriesData && (entriesData.docs || entriesData.entries)) || [];
 
+    /* 〔fix/sb2-side-restore commit 16〕16 轮打回修正 (批注③真数据链路):
+       修前 bug: SB2_SIDE_RENDERERS.knowledge 接 _knowledgeData (legacy 老界面路径),
+       SB2 屏用 _sb2KbCats / _sb2KbEntries,两套数据不互通 → 侧栏永远「加载中…」
+       修法 (本 commit 整链路 trace, 老大 18:15 拍板):
+       - 分类树读 _sb2KbCats (line 40298, sb2 loader 真路径)
+       - 分类计数: 老大原话让加 apiFetch('/api/knowledge/categories/counts'),
+         但 server 端无此端点 (line 15025 仅 /api/knowledge/stats 真有 byCategory 字段),
+         改用 stats 接口 byCategory 数组 — 跟 sb2KbRenderHero 同 statsData (不另发请求)
+       - 文档总数: stats.total_entries (line 40324 sb2KbRenderHero 已用)
+       - chunks 总数: stats.total_chunks (server 真字段, 不用 byCategory 求和 — byCategory.count 是分类文档数不是 chunks)
+       - 副标 = total_entries + ' 条 · ' + total_chunks + ' chunks' (跟 sb2KbRenderHero line 40326 同文案)
+       - 时序重渲挂在 sb2KbInit 三个 render 调用之后, _sb2KbInit=true 前 (不是 loadKnowledge) */
+    var statsRoot = (statsData && statsData.stats) ? statsData.stats : statsData;
+    var totalEntries = (typeof statsRoot.total_entries === 'number') ? statsRoot.total_entries
+      : ((typeof statsRoot.total === 'number') ? statsRoot.total : _sb2KbEntries.length);
+    var totalChunks = (typeof statsRoot.total_chunks === 'number') ? statsRoot.total_chunks : 0;
+    var catCounts = {};
+    if (Array.isArray(statsRoot.byCategory)) {
+      statsRoot.byCategory.forEach(function(c){
+        if (c && typeof c.name === 'string') catCounts[String(c.name)] = Number(c.count) || 0;
+      });
+    }
+    /* 保留 byCategory 给 SB2_SIDE_RENDERERS.knowledge 副标「N 条 · M chunks」共享 */
+    window._sb2KbStats = window._sb2KbStats || {};
+    window._sb2KbStats.byCategory = statsRoot.byCategory || [];
+    window._sb2KbStats.total_entries = totalEntries;
+    window._sb2KbStats.total_chunks = totalChunks;
+    window._sb2KbCatCounts = catCounts;
+    window._sb2KbCatCountsTotal = totalEntries;
+
     sb2KbRenderHero(statsData || {}, _sb2KbEntries);
     sb2KbRenderChips(_sb2KbCats, _sb2KbEntries);
     sb2KbRenderList(_sb2KbEntries);
+
+    /* 〔fix/sb2-side-restore commit 16〕时序重渲 (不是 loadKnowledge, 是 sb2KbInit 三个 render 后):
+       — 复用既有 window.renderSideFor (line 45979, 已挂 window 跨块访问)
+       — 触发条件: _sb2KbCats/_sb2KbEntries/stats 三件后置 + 三个 render 调用后
+       — 不造第二个渲染入口 (老大红线: 别造第二个渲染入口)
+       — 守卫写法 (&& fn) 防跨块 undefined 静默 */
+    if (typeof window.renderSideFor === 'function') window.renderSideFor('knowledge');
   } catch (e) {
     console.error('[sb2-kb] init failed:', e);
     var list2 = document.getElementById('sb2KbList');
@@ -46155,39 +46181,42 @@ var SB2_SIDE_RENDERERS = {
     return { title:'AI 办公室', sub: list.length+' 员工 · '+onlineCount+' 在线', items:items, searchInput:'搜索员工…' };
   },
   knowledge: function(){
-    /* 〔fix/sb2-side-restore commit 15〕16 轮打回修正 (批注③数据源):
-       - 修前 bug: SB2_SIDE_RENDERERS.knowledge 读 window.knowledgeCategories — 那是
-         权限字段 (值 ['*'], line 16754), 不是分类数据 → 实测分类组永远显示「加载中…」,
-         副标「0 分类 · 全局可见」. 铁律第 3 条: 字段名假设没验证就用了.
-       - 真数据源 (老大 17:47 拍板):
-         分类树:    _knowledgeData.categories (line 37991, 含 id/name/children 树状)
-         分类计数:  _knowledgeCatCounts (line 38010, {categoryId: n})
-         文档总数:  _knowledgeCatCountsTotal (line 38011) / _knowledgeData.total (line 38158)
-         chunks 数: stats 接口 byCategory 数组各项 count 求和 (kb_entry_stats line 4024,
-                   renderKnowledgeStats line 38754 消费点; stats.total 是文档数不是 chunks)
-       修法:
-       - flatten _knowledgeData.categories 树状 (children 递归展开, 但保留层级缩进)
-       - 首项「全部条目」badge = _knowledgeCatCountsTotal (文档总数)
-       - 其后各分类 badge = _knowledgeCatCounts[String(cat.id)] (id 兜底 string)
-       - 副标: '_knowledgeCatCountsTotal 条 · byCategory count 求和 chunks' (真接口数据, 严禁硬编码)
-       - 时序坑 (老大原话): 分类数据异步加载, 数据落位后必须重渲染侧栏
-         — 调用点见 loadKnowledge line 38163 (statsData 落位后, _knowledgeInitialized=true 前)
-         — 重渲函数 window.renderSideFor('knowledge') 已存在 (line 45979), 不造第二个入口
-       - 范围组 / 底部规律库入口 / searchInput 全保留 (commit 13 已加)
-       - 不动: 标题 '知识库', 范围组, 底部「规律库入口 →」 */
-    var catsTree = (typeof window._knowledgeData === 'object' && window._knowledgeData && Array.isArray(window._knowledgeData.categories))
-      ? window._knowledgeData.categories : [];
-    var counts = (typeof window._knowledgeCatCounts === 'object' && window._knowledgeCatCounts) ? window._knowledgeCatCounts : null;
-    var totalDocs = (typeof window._knowledgeCatCountsTotal === 'number') ? window._knowledgeCatCountsTotal
-      : ((typeof window._knowledgeData === 'object' && window._knowledgeData && typeof window._knowledgeData.total === 'number') ? window._knowledgeData.total : 0);
-    /* chunks 数: stats.byCategory 各项 count 求和 (server 实际字段含义以 byCategory 数组为准)
-       kb_entry_stats 响应 schema: {total, byScope, byCategory: [{name, count}], pendingChunks}
-       stats.total 是 kb_entries 文档数, 不是 chunks; chunks 单独计算待 server 加 totalChunks 字段
-       暂用 byCategory 求和当 chunks 数近似 (老大原话), 标注 [P1 教训: 字段名假设] */
-    var chunksTotal = 0;
-    if (typeof window._sb2KbStats === 'object' && window._sb2KbStats && Array.isArray(window._sb2KbStats.byCategory)) {
-      chunksTotal = window._sb2KbStats.byCategory.reduce(function(s, c){ return s + (Number(c.count) || 0); }, 0);
-    }
+    /* 〔fix/sb2-side-restore commit 16〕16 轮第二次打回修正 (批注③真数据链路):
+       老大 18:15 trace 实测证据:
+       - _knowledgeData.categories = 0 / _knowledgeInitialized = false — loadKnowledge() 在 SB2 界面根本不会跑
+       - SB2 知识库模块用的是 sb2KbInit() (line 40305), 数据落在 _sb2KbCats / _sb2KbEntries
+       - 我接的 _knowledgeData 是 legacy 老界面数据路径, SB2 路径下永远空 → 侧栏永远「加载中…」
+       正确接法 (老大 18:15 拍板):
+       1. 分类树读 _sb2KbCats (line 40298, sb2 loader 真路径)
+       2. 分类计数: server 端没有 /api/knowledge/categories/counts 端点 (grep server.py 仅
+          /api/knowledge/stats 真有 byCategory 字段), 改用 stats 接口 byCategory 数组
+          — 跟 sb2KbRenderHero (line 1840+) 同 statsData (不另发请求)
+       3. chunks 总数不用求和: stats.total_chunks 真字段 (跟 sb2KbRenderHero line 1841 同源)
+       4. 副标 = total_entries + ' 条 · ' + total_chunks + ' chunks' (跟 sb2KbRenderHero line 1842 同文案)
+       5. 时序重渲挂在 sb2KbInit 三个 render 调用后, 不是 loadKnowledge (loadKnowledge 死路径)
+       6. 移除 loadKnowledge 的 legacy 钩子 (本 commit 第 5 项)
+       真实数据链路 (本 commit 整链路 trace):
+         sb2KbInit (line 40305)
+           ↓ apiFetch('/api/knowledge/categories') → _sb2KbCats
+           ↓ apiFetch('/api/knowledge/entries?limit=50') → _sb2KbEntries
+           ↓ apiFetch('/api/knowledge/stats') → statsData
+         sb2KbInit 末尾 (本 commit B+C 段):
+           → window._sb2KbCatCounts = byCategory Map (name→count)
+           → window._sb2KbCatCountsTotal = stats.total_entries
+           → window._sb2KbStats = {byCategory, total_entries, total_chunks}
+           → 三个 render 调用
+           → renderSideFor('knowledge') 重渲侧栏
+         SB2_SIDE_RENDERERS.knowledge (本 commit D 段):
+           → 读 _sb2KbCats 真树状
+           → 读 _sb2KbCatCounts 分类计数
+           → 读 _sb2KbStats.total_entries + total_chunks 副标
+       跟 legacy 路径彻底切断, 不互相污染 */
+    var catsTree = (Array.isArray(window._sb2KbCats)) ? window._sb2KbCats : [];
+    var counts = (window._sb2KbCatCounts && typeof window._sb2KbCatCounts === 'object') ? window._sb2KbCatCounts : null;
+    var totalDocs = (typeof window._sb2KbCatCountsTotal === 'number') ? window._sb2KbCatCountsTotal
+      : (window._sb2KbEntries ? window._sb2KbEntries.length : 0);
+    var chunksTotal = (window._sb2KbStats && typeof window._sb2KbStats.total_chunks === 'number')
+      ? window._sb2KbStats.total_chunks : 0;
     /* 副标: 'N 条 · M chunks' (原型 line 700 '287 条 · 531 chunks'), 真数据兜底 0 不编造
        没数据时显「加载中…」, 不写「0 分类 · 全局可见」(那是修前假数据兜底) */
     var dash = '–';
@@ -46207,13 +46236,20 @@ var SB2_SIDE_RENDERERS = {
         if (Array.isArray(c.children) && c.children.length) walk(c.children, depth + 1);
       });
     })(catsTree, 0);
-    /* 分类组: 首项「全部条目」 + 各分类 (扁平树 + 计数 + 兜底 dash) */
+    /* 分类组: 首项「全部条目」 + 各分类 (扁平树 + 计数 + 兜底 dash)
+       byCategory name 跟 kb_category_tree 返回的 name 是字符串 (sb2kb cats list 用字符串 id 但 byCategory 也用 name 作 key),
+       — counts map 的 key 是 byCategory name (字符串), 不是数字 id, 因为 byCategory 项无 id 字段
+       — 如果 byCategory 项用 catId 字符串, 用 counts[String(c.id)] 也兼容 */
     var catItems = [
       { name:'全部条目', badge: totalDocs > 0 ? String(totalDocs) : dash, active:false,
         onClick:"switchKnowledgeCategory && switchKnowledgeCategory('all')" }
     ];
     flatCats.slice(0, 30).forEach(function(c){
-      var cnt = (counts && typeof counts[String(c.id)] === 'number') ? counts[String(c.id)] : null;
+      var cnt = null;
+      if (counts) {
+        if (typeof counts[c.name] === 'number') cnt = counts[c.name];
+        else if (typeof counts[String(c.id)] === 'number') cnt = counts[String(c.id)];
+      }
       var prefix = c.depth > 0 ? new Array(c.depth + 1).join('— ') : '';
       catItems.push({
         name: prefix + c.name,
