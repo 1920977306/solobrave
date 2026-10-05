@@ -10263,9 +10263,29 @@ body.sb2-no-side .sb2-topbar{ left:60px; }
   padding:7px 10px; border-radius:var(--sb2-r-sm); margin:1px 0;
   font:400 13px/1.3 "PingFang SC",sans-serif; color:var(--sb2-t2); cursor:pointer;
   transition:all .12s;
+  /* 〔fix/sb2-side-restore commit 22〕17 轮批注②补修: ::before 定位前提
+     修前: 无 position:relative, ::before left:-8px 无法相对 .sb2-side-item 定位
+     修法: position:relative (跟原型 .side-item line 178 一致) */
+  position:relative;
 }
 .sb2-side-item:hover{ background:var(--sb2-s3); color:var(--sb2-t1); }
-.sb2-side-item.active{ background:var(--sb2-brand-soft); color:var(--sb2-brand); font-weight:500; }
+/* 〔fix/sb2-side-restore commit 22〕17 轮批注②补修: active 项改原型白卡样式
+   老大 17:03 trace 实测证据: 16 轮 commit 13 只灰化了 badge, active 项本体未改,
+     还是橙底 --sb2-brand-soft, 这就是老大说「太亮了」的根源.
+   修法 (派单对齐原型 .side-item.active line 180 + line 181-184 ::before):
+   - 背景: var(--sb2-brand-soft) 橙底 → var(--sb2-s1) 白卡 (跟原型 --surface-1 一致)
+   - 文字: var(--sb2-brand) 橙色 → var(--sb2-t1) 深色 (跟原型 --text-1 一致)
+   - 阴影: 无 → var(--sb2-sh1) 浅阴影 (token 已存在 line 9969, 跟原型 --sh-1 同语义)
+   - 加粗: font-weight:500 → 去掉 (原型 active 不加粗, 跟原型 line 180 严格一致)
+   - 新增 ::before 左橙条 (3px / left:-8px / top:20% / bottom:20% / 99px 圆角 / var(--sb2-brand))
+   不动:
+   - badge 灰字 (commit 13 修过, 派单要求保留)
+   - 其他模块 (knowledge/patterns) 也受这条 CSS 影响 (统一规则) */
+.sb2-side-item.active{ background:var(--sb2-s1); color:var(--sb2-t1); box-shadow:var(--sb2-sh1); }
+.sb2-side-item.active::before{
+  content:""; position:absolute; left:-8px; top:20%; bottom:20%; width:3px;
+  border-radius:99px; background:var(--sb2-brand);
+}
 .sb2-side-item .dot{
   width:7px; height:7px; border-radius:var(--sb2-r-full);
   background:var(--sb2-success); flex-shrink:0;
