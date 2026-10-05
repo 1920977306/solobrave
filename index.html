@@ -11887,11 +11887,26 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
 }
 .sb2-kb-hero-actions{ margin-left:auto; display:flex; gap:8px; }
 
-.sb2-kb-chips{ display:flex; flex-direction:column; gap:8px; margin-bottom:16px; }
+.sb2-kb-chips{
+  /* 〔fix/sb2-side-restore 19 轮批注②〕知识库 chips 改单行对齐原型 line 544
+     原型 line 544: display flex gap 8 margin-bottom 16px flex-wrap wrap 单行平铺
+     修前 (commit 13): flex-direction column 双行(分类行 + 范围行) — 行级不对齐
+     修后 (本轮): flex-direction row 单行(分类 chip 平铺到一行)
+     范围: 仅知识库 .sb2-kb-chips, 不影响 talents/patterns/products chips */
+  display:flex; flex-direction:row; gap:8px; margin-bottom:16px; flex-wrap:wrap;
+}
 .sb2-kb-chip-row{ display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
 .sb2-kb-chip-row-label{
   font:500 11px/1 "PingFang SC",sans-serif; color:var(--sb2-t3);
   padding:0 4px; min-width:32px;
+}
+.sb2-kb-chip-row-sep{
+  /* 〔fix/sb2-side-restore 19 轮批注②〕chips 单行 cat/scope 分组分隔符
+     原型无 (prototype line 765-766 5 tag 全平铺无分组), 我们保留 cat+scope 二维聚合
+     中间插灰阶分隔符 "·", 让视觉分组不破坏单行平铺 */
+  color:var(--sb2-t3); opacity:.6; font-size:14px;
+  user-select:none; pointer-events:none;
+  padding:0 4px;
 }
 .sb2-kb-chip{
   padding:6px 12px; border-radius:var(--sb2-r-full); border:1px solid var(--sb2-border);
@@ -40533,7 +40548,12 @@ function sb2KbRenderChips(cats, entries){
     scopeHtml += '<button class="sb2-kb-chip' + (_sb2KbActiveScope === s ? ' active' : '') + '" data-sb2-kb-scope="' + escapeAttr(s) + '">' + escapeHtml(_sb2ScopeLabel(s)) + ' · ' + scopeMap[s] + '</button>';
   });
 
-  el.innerHTML = '<div class="sb2-kb-chip-row">' + catHtml + '</div><div class="sb2-kb-chip-row">' + scopeHtml + '</div>';
+  /* 〔fix/sb2-side-restore 19 轮批注②〕chips 改单行对齐原型 line 544
+     修前 (commit 13): catHtml + scopeHtml 分两个 chip-row div → 双行布局
+     修后 (本轮): 合并到一个 chip-row div (中间加 separator "·" 灰阶 弱化视觉分组, 跟 prototype line 765-766 单行平铺一致) */
+  el.innerHTML = '<div class="sb2-kb-chip-row">' + catHtml
+               + '<span class="sb2-kb-chip-row-sep" aria-hidden="true">·</span>'
+               + scopeHtml + '</div>';
 
   if (!el._sb2KbBound) {
     el.addEventListener('click', function(ev){
