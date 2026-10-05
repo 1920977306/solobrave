@@ -4018,8 +4018,20 @@ def kb_entry_stats(allowed_categories=None, scope=None, team_id=None, user_id=No
             pending_sql += ' AND ' + ' AND '.join(where)
         pending_chunks = conn.execute(pending_sql, tuple(pending_params)).fetchone()[0]
 
+        # 〔fix/side-restore commit 17〕16 轮批注③第三次打回 — server 加 totalChunks 字段
+        # 修前 bug: client 读 stats.total_chunks (我 commit 16 凭印象写的字段名),
+        #   server kb_entry_stats 实际只返 total/byScope/byCategory/pendingChunks, 无 totalChunks
+        #   → 副标永远「0 chunks」. 铁律第 3 条: 不看字段 = 不写代码.
+        # 修法 (老大 18:25 拍板, server + client 一 commit 跨端小改):
+        #   - 子查询复用 sql_where + params (跟 total / byScope / byCategory 同 where 过滤口径),
+        #     避免 WHERE 子句歧义 (kb_entries.id 不能直接拿到, 必须 IN 子查询)
+        #   - 纯新增字段, 跨端兼容老客户端 (老 client 读 total / byScope / byCategory / pendingChunks 不受影响)
+        chunks_sql = 'SELECT COUNT(*) FROM kb_entry_chunks WHERE entry_id IN (SELECT id FROM kb_entries' + sql_where + ')'
+        total_chunks = conn.execute(chunks_sql, tuple(params)).fetchone()[0]
+
         return {
             'total': total,
+            'totalChunks': total_chunks,
             'byScope': scope_counts,
             'byCategory': by_category,
             'pendingChunks': pending_chunks,

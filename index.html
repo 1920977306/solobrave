@@ -40306,22 +40306,20 @@ async function sb2KbInit(){
     _sb2KbCats = (catsData && catsData.categories) || [];
     _sb2KbEntries = (entriesData && (entriesData.docs || entriesData.entries)) || [];
 
-    /* 〔fix/sb2-side-restore commit 16〕16 轮打回修正 (批注③真数据链路):
-       修前 bug: SB2_SIDE_RENDERERS.knowledge 接 _knowledgeData (legacy 老界面路径),
-       SB2 屏用 _sb2KbCats / _sb2KbEntries,两套数据不互通 → 侧栏永远「加载中…」
-       修法 (本 commit 整链路 trace, 老大 18:15 拍板):
-       - 分类树读 _sb2KbCats (line 40298, sb2 loader 真路径)
-       - 分类计数: 老大原话让加 apiFetch('/api/knowledge/categories/counts'),
-         但 server 端无此端点 (line 15025 仅 /api/knowledge/stats 真有 byCategory 字段),
-         改用 stats 接口 byCategory 数组 — 跟 sb2KbRenderHero 同 statsData (不另发请求)
-       - 文档总数: stats.total_entries (line 40324 sb2KbRenderHero 已用)
-       - chunks 总数: stats.total_chunks (server 真字段, 不用 byCategory 求和 — byCategory.count 是分类文档数不是 chunks)
-       - 副标 = total_entries + ' 条 · ' + total_chunks + ' chunks' (跟 sb2KbRenderHero line 40326 同文案)
-       - 时序重渲挂在 sb2KbInit 三个 render 调用之后, _sb2KbInit=true 前 (不是 loadKnowledge) */
+    /* 〔fix/sb2-side-restore commit 16+17〕16 轮批注③打回链修正 (真数据链路):
+       — commit 16 改接 _sb2KbCats (sb2 loader 真路径, 整链路 trace)
+       — commit 17 修正 server 字段名 (老大 18:25 trace 实测):
+         kb_entry_stats 实际只返 {total, byScope, byCategory, pendingChunks}, 无 total_entries / total_chunks
+         — 文档数: stats.total (server 真字段, 修前 fallback entries.length 是 50 样本有偏)
+         — chunks 数: stats.totalChunks (server 真字段, commit 17 加的, 不用 byCategory 求和)
+       副标 = total + ' 条 · ' + totalChunks + ' chunks' (跟 sb2KbRenderHero line 40361 同文案)
+       时序重渲挂在 sb2KbInit 三个 render 调用之后, _sb2KbInit=true 前 (不是 loadKnowledge) */
     var statsRoot = (statsData && statsData.stats) ? statsData.stats : statsData;
-    var totalEntries = (typeof statsRoot.total_entries === 'number') ? statsRoot.total_entries
-      : ((typeof statsRoot.total === 'number') ? statsRoot.total : _sb2KbEntries.length);
-    var totalChunks = (typeof statsRoot.total_chunks === 'number') ? statsRoot.total_chunks : 0;
+    /* 文档总数: stats.total (server kb_entry_stats 真字段, commit 17 server 加的跨端兼容老客户端) */
+    var totalEntries = (typeof statsRoot.total === 'number') ? statsRoot.total : _sb2KbEntries.length;
+    /* chunks 总数: stats.totalChunks (server kb_entry_stats 真字段, commit 17 加的,
+       不用 byCategory 求和 — byCategory.count 是分类文档数不是 chunks, P1 教训字段名假设) */
+    var totalChunks = (typeof statsRoot.totalChunks === 'number') ? statsRoot.totalChunks : 0;
     var catCounts = {};
     if (Array.isArray(statsRoot.byCategory)) {
       statsRoot.byCategory.forEach(function(c){
@@ -40331,8 +40329,8 @@ async function sb2KbInit(){
     /* 保留 byCategory 给 SB2_SIDE_RENDERERS.knowledge 副标「N 条 · M chunks」共享 */
     window._sb2KbStats = window._sb2KbStats || {};
     window._sb2KbStats.byCategory = statsRoot.byCategory || [];
-    window._sb2KbStats.total_entries = totalEntries;
-    window._sb2KbStats.total_chunks = totalChunks;
+    window._sb2KbStats.total = totalEntries;
+    window._sb2KbStats.totalChunks = totalChunks;
     window._sb2KbCatCounts = catCounts;
     window._sb2KbCatCountsTotal = totalEntries;
 
@@ -40354,10 +40352,18 @@ async function sb2KbInit(){
 }
 
 function sb2KbRenderHero(stats, entries){
+  /* 〔fix/sb2-side-restore commit 17〕16 轮批注③第三次打回 — 同款 bug 一起修:
+     修前 bug: 我 commit 16 凭印象写了 stats.total_entries / stats.total_chunks,
+       server kb_entry_stats 实际只返 total / totalChunks / byScope / byCategory / pendingChunks
+       → total 走 fallback entries.length (50 样本有偏), chunks 永远 0
+     修法 (老大 18:25 拍板):
+       — stats.total (server 真字段, 不是 total_entries)
+       — stats.totalChunks (server 真字段, commit 17 加的, 不是 total_chunks)
+       — fallback entries.length 保留 (极端 case server 字段缺失时仍能显示) */
   var sub = document.getElementById('sb2KbHeroSub');
   if (!sub) return;
-  var total = (stats && stats.total_entries) || entries.length || 0;
-  var chunks = (stats && stats.total_chunks) || 0;
+  var total = (stats && stats.total) || entries.length || 0;
+  var chunks = (stats && stats.totalChunks) || 0;
   sub.textContent = total + ' 条 · ' + chunks + ' chunks · 语义检索已切换';
 }
 
@@ -46181,42 +46187,51 @@ var SB2_SIDE_RENDERERS = {
     return { title:'AI 办公室', sub: list.length+' 员工 · '+onlineCount+' 在线', items:items, searchInput:'搜索员工…' };
   },
   knowledge: function(){
-    /* 〔fix/sb2-side-restore commit 16〕16 轮第二次打回修正 (批注③真数据链路):
-       老大 18:15 trace 实测证据:
-       - _knowledgeData.categories = 0 / _knowledgeInitialized = false — loadKnowledge() 在 SB2 界面根本不会跑
-       - SB2 知识库模块用的是 sb2KbInit() (line 40305), 数据落在 _sb2KbCats / _sb2KbEntries
-       - 我接的 _knowledgeData 是 legacy 老界面数据路径, SB2 路径下永远空 → 侧栏永远「加载中…」
-       正确接法 (老大 18:15 拍板):
-       1. 分类树读 _sb2KbCats (line 40298, sb2 loader 真路径)
-       2. 分类计数: server 端没有 /api/knowledge/categories/counts 端点 (grep server.py 仅
-          /api/knowledge/stats 真有 byCategory 字段), 改用 stats 接口 byCategory 数组
-          — 跟 sb2KbRenderHero (line 1840+) 同 statsData (不另发请求)
-       3. chunks 总数不用求和: stats.total_chunks 真字段 (跟 sb2KbRenderHero line 1841 同源)
-       4. 副标 = total_entries + ' 条 · ' + total_chunks + ' chunks' (跟 sb2KbRenderHero line 1842 同文案)
-       5. 时序重渲挂在 sb2KbInit 三个 render 调用后, 不是 loadKnowledge (loadKnowledge 死路径)
-       6. 移除 loadKnowledge 的 legacy 钩子 (本 commit 第 5 项)
-       真实数据链路 (本 commit 整链路 trace):
+    /* 〔fix/sb2-side-restore commit 16+17〕16 轮批注③打回链修正 (真数据链路):
+       — commit 16: 老大 18:15 trace 实测证据:
+         * _knowledgeData.categories = 0 / _knowledgeInitialized = false — loadKnowledge() 在 SB2 界面根本不会跑
+         * SB2 知识库模块用的是 sb2KbInit() (line 40305), 数据落在 _sb2KbCats / _sb2KbEntries
+         * 我接的 _knowledgeData 是 legacy 老界面数据路径, SB2 路径下永远空 → 侧栏永远「加载中…」
+         正确接法 (老大 18:15 拍板):
+         1. 分类树读 _sb2KbCats (sb2 loader 真路径)
+         2. 分类计数: server 端没有 /api/knowledge/categories/counts 端点, 改用 stats 接口 byCategory 数组
+            — 跟 sb2KbRenderHero 同 statsData (不另发请求)
+         3. 时序重渲挂在 sb2KbInit 三个 render 调用后, 不是 loadKnowledge (loadKnowledge 死路径)
+         4. 移除 loadKnowledge 的 legacy 钩子 (commit 16 第 5 项)
+       — commit 17: 老大 18:25 trace 实测证据:
+         * GET /api/knowledge/stats 实际只返 {total, byScope, byCategory, pendingChunks}
+           — 无 total_entries / total_chunks 字段! 我 commit 16 凭印象写的字段名错
+         * 文档数: stats.total (server 真字段, 不是 total_entries)
+         * chunks 数: stats.totalChunks (server 真字段, commit 17 加的, 不是 total_chunks)
+         修法 (server + client 跨端一 commit):
+         - server: kb_entry_stats return dict 加 totalChunks (子查询复用 sql_where + params, 纯新增字段, 跨端兼容)
+         - client 三处: sb2KbInit / sb2KbRenderHero / SB2_SIDE_RENDERERS.knowledge 改读真字段名
+       真实数据链路 (commit 16+17 整链路 trace):
          sb2KbInit (line 40305)
            ↓ apiFetch('/api/knowledge/categories') → _sb2KbCats
            ↓ apiFetch('/api/knowledge/entries?limit=50') → _sb2KbEntries
-           ↓ apiFetch('/api/knowledge/stats') → statsData
-         sb2KbInit 末尾 (本 commit B+C 段):
+           ↓ apiFetch('/api/knowledge/stats') → statsData {total, totalChunks, byScope, byCategory, pendingChunks}
+         sb2KbInit 末尾:
            → window._sb2KbCatCounts = byCategory Map (name→count)
-           → window._sb2KbCatCountsTotal = stats.total_entries
-           → window._sb2KbStats = {byCategory, total_entries, total_chunks}
+           → window._sb2KbCatCountsTotal = stats.total
+           → window._sb2KbStats = {byCategory, total, totalChunks}
            → 三个 render 调用
            → renderSideFor('knowledge') 重渲侧栏
-         SB2_SIDE_RENDERERS.knowledge (本 commit D 段):
+         SB2_SIDE_RENDERERS.knowledge:
            → 读 _sb2KbCats 真树状
            → 读 _sb2KbCatCounts 分类计数
-           → 读 _sb2KbStats.total_entries + total_chunks 副标
-       跟 legacy 路径彻底切断, 不互相污染 */
+           → 读 _sb2KbStats.total + totalChunks 副标
+       跟 legacy 路径彻底切断, 不互相污染
+       字段名铁律第 3 条: 不看字段 = 不写代码 (老大原话, 跨项目稳定偏好) */
     var catsTree = (Array.isArray(window._sb2KbCats)) ? window._sb2KbCats : [];
     var counts = (window._sb2KbCatCounts && typeof window._sb2KbCatCounts === 'object') ? window._sb2KbCatCounts : null;
     var totalDocs = (typeof window._sb2KbCatCountsTotal === 'number') ? window._sb2KbCatCountsTotal
       : (window._sb2KbEntries ? window._sb2KbEntries.length : 0);
-    var chunksTotal = (window._sb2KbStats && typeof window._sb2KbStats.total_chunks === 'number')
-      ? window._sb2KbStats.total_chunks : 0;
+    /* chunks 总数: _sb2KbStats.totalChunks (server kb_entry_stats 真字段, commit 17 加的)
+       — 修前读 total_chunks (我 commit 16 凭印象写的字段名), server 实际无此字段 → 永远 0
+       — 修后读 totalChunks (server 真字段, 跨端兼容老客户端) */
+    var chunksTotal = (window._sb2KbStats && typeof window._sb2KbStats.totalChunks === 'number')
+      ? window._sb2KbStats.totalChunks : 0;
     /* 副标: 'N 条 · M chunks' (原型 line 700 '287 条 · 531 chunks'), 真数据兜底 0 不编造
        没数据时显「加载中…」, 不写「0 分类 · 全局可见」(那是修前假数据兜底) */
     var dash = '–';
