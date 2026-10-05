@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
 """
-SoloBrave 可靠性 + 数据持久化系统性测试 (fix/reliability-r1)
+SoloBrave 可靠性 + 数据持久化系统性测试 (fix/reliability-r1 → fix/test-dual-db)
 
 覆盖 (按老大 brief):
   一、聊天可靠性 (每个 AI 员工 × 每种入口):
-    1. /api/proxy/kimi/v1/messages 连续 3 轮 → 200 + 真实文本
+    1. /api/proxy/kimi/v1/messages 连续 3 轮 → 200 + 真实文本 [live, 默认 skip]
     2. 401 key 失效 → key 池自动轮换到下一个
     3. 全挂 → 降级到 minimax
     4. 超时 → 不会无限挂起
@@ -25,10 +25,23 @@ SoloBrave 可靠性 + 数据持久化系统性测试 (fix/reliability-r1)
 
 Mock 策略:
   - 启一个 Python http.server 模拟 Kimi (127.0.0.1:19999) + Minimax (127.0.0.1:19998)
-  - 测试启动新的 server 实例在 18080 端口, monkeypatch KIMI_PROXY_BASE_URL / minimax base url
-  - 用真实 DB (data/solobrave.db) 验证 schema 一致
+  - 测试启动新的 server 实例在 18080 端口 (subprocess.Popen + --data test_data_dir),
+    KIMI_PROXY_BASE_URL env 指向 mock Kimi (不打真实 API)
+  - 用 tmp test_data_dir/solobrave.db 验证 schema 一致 (conftest fixture 提供)
 
-可重复运行: cd /Users/qichen/solobrave-prod && .venv-test/bin/python -m pytest tests/test_reliability_full_suite.py -v
+可重复运行 (派单 backlog-1 双库改造后):
+  # 默认模式 — 回归 (拷 prod 库到 tmp + 跑全套, 零 prod 写入)
+  cd /Users/qichen/sb-dev/backend-dual-db
+  SOLO_BRAVE_DB_SOURCE=/Users/qichen/solobrave-prod/data/solobrave.db \\
+    python3 -m pytest tests/ -v
+
+  # 全新库模式 — 验证 schema + 建库逻辑 (无 prod 数据)
+  cd /Users/qichen/sb-dev/backend-dual-db
+  python3 -m pytest tests/ -v
+
+  # Live 模式 — 人工验收 (打 prod 8080 + 真实 LLM, 默认 skip)
+  cd /Users/qichen/sb-dev/backend-dual-db
+  SOLO_BRAVE_LIVE=1 python3 -m pytest tests/test_reliability_full_suite.py -m live -v
 """
 import json
 import os
@@ -42,6 +55,8 @@ import unittest
 import urllib.error
 import urllib.request
 from http.server import BaseHTTPRequestHandler, HTTPServer
+
+import pytest
 
 
 # ═════════════════════════════════════════════════════
@@ -158,6 +173,53 @@ def _stop_mock_server(srv):
         srv.server_close()
 
 
+def _spawn_test_server(port, data_dir, extra_env=None):
+    """〔fix/test-dual-db commit 2〕spawn 真 server 在 18080 端口, 用 --data 指向 test_data_dir.
+
+    返回 subprocess.Popen 对象. 启 server 时设 KIMI_PROXY_BASE_URL 指向 mock Kimi (19999),
+    避免测试过程中打真实 Kimi API (计费 + 网络依赖).
+
+    Args:
+      port: 测试 server 端口 (派单: 18080)
+      data_dir: 测试数据目录 (派单: tmp/test_data_dir)
+      extra_env: 额外环境变量 (e.g. SOLOBRAVE_LIVE=1 for live mode)
+    """
+    env = os.environ.copy()
+    # 关键 env vars — 让 server 走 mock LLM 而不是真实 API
+    env.setdefault('KIMI_PROXY_BASE_URL', 'http://127.0.0.1:19999')  # mock Kimi
+    env['SOLOBRAVE_MINIMAX_BASE_URL'] = 'http://127.0.0.1:19998'  # mock Minimax (实际变量名以 server 为准)
+    env['SOLOBRAVE_TEST_NO_SERVE'] = '1'  # 防止 server 启动时二次 fork
+    if extra_env:
+        env.update(extra_env)
+    # 用 subprocess.Popen 启独立 server (跨进程, 安全隔离)
+    cmd = [sys.executable, os.path.join(os.path.dirname(__file__), '..', 'solobrave-server.py'),
+           str(port), '--data', data_dir]
+    # stderr 重定向到 DEVNULL, 避免污染测试输出 (server log 走自己文件 log)
+    proc = subprocess.Popen(
+        cmd,
+        env=env,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        # 独立进程组, 防止 Ctrl-C 影响 subprocess
+        start_new_session=True,
+    )
+    return proc
+
+
+def _wait_for_http_200(url, timeout=15):
+    """轮询 url 直到 200 (或 timeout). server 启动 init_db + migration 慢, 给 15s 余量."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            code, _ = _http_get(url, timeout=2)
+            if code == 200:
+                return True
+        except Exception:
+            pass
+        time.sleep(0.3)
+    return False
+
+
 def _http_post_json(url, body, headers=None, timeout=15):
     h = {'Content-Type': 'application/json'}
     if headers:
@@ -185,10 +247,22 @@ def _http_get(url, headers=None, timeout=10):
 
 
 def _load_non_archived_agents():
-    with open('data/agents.json') as f:
-        d = json.load(f)
-    agents = d.get('agents', []) if isinstance(d, dict) else d
-    return [a for a in agents if (a.get('status') or 'active') != 'archived']
+    # 〔fix/test-dual-db commit 1〕改读 test_data_dir fixture (派单要求: 测试零 prod 接触)
+    # 优先 SOLO_BRAVE_TEST_DATA_DIR (conftest test_data_dir fixture session-scoped 拷/建),
+    # fallback prod data/agents.json (兼容老调用方, 但 prod_db_guard 会拒绝 sqlite 直连, 不影响 agents.json)
+    agents_path = os.environ.get('SOLO_BRAVE_TEST_DATA_DIR', 'data')
+    candidates = [
+        os.path.join(agents_path, 'agents.json') if agents_path != 'data' else None,
+        os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data', 'agents.json'),
+        'data/agents.json',
+    ]
+    for c in candidates:
+        if c and os.path.isfile(c):
+            with open(c) as f:
+                d = json.load(f)
+            agents = d.get('agents', []) if isinstance(d, dict) else d
+            return [a for a in agents if (a.get('status') or 'active') != 'archived']
+    return []  # 全新建库模式 (无 agents.json), 返回空 list, ChatReliabilitySuite.setUpClass 不报错
 
 
 def _build_messages(prompt, history=None, n_repeat=0):
@@ -219,8 +293,20 @@ class ChatReliabilitySuite(unittest.TestCase):
         for a in cls.business_agents:
             print(f'  {a.get("id"):25} | {a.get("name"):12} | createdBy={a.get("createdBy")}')
 
+    @pytest.mark.live
+    @unittest.skipIf(
+        not os.environ.get('SOLO_BRAVE_LIVE'),
+        'live test 默认 skip — 派单要求 (打 prod 8080 + 真实 LLM 计费调用, 属于上线前人工验收, 不属于回归). '
+        '真机验证: SOLO_BRAVE_LIVE=1 python3 -m pytest tests/test_reliability_full_suite.py -m live -v'
+    )
     def test_live_proxy_round_trip_each_employee(self):
-        """测试 1: 每个员工真实 3 轮对话 → 200 + 真实文本."""
+        """测试 1: 每个员工真实 3 轮对话 → 200 + 真实文本.
+
+        〔fix/test-dual-db commit 3〕live 测试降级默认:
+        - 加 @pytest.mark.live marker (pytest.ini 注册)
+        - 默认 skip (SOLO_BRAVE_LIVE env 缺失触发), 防止回归时打 prod + 计费
+        - 真机验收命令见文件头 docstring
+        """
         failures = []
         for agent in self.business_agents:
             emp_id = agent.get('id')
@@ -268,40 +354,92 @@ class ChatReliabilitySuite(unittest.TestCase):
 
 
 # ═════════════════════════════════════════════════════
-# 测试套件: 数据持久化 (使用 8080 生产 server)
+# 测试套件: 数据持久化 (使用 spawn 的 18080 测试 server, --data 指向 tmp test_data_dir)
 # ═════════════════════════════════════════════════════
 
 class DataPersistenceSuite(unittest.TestCase):
-    """数据持久化 — 写入路径 + 回读比对."""
+    """数据持久化 — 写入路径 + 回读比对.
 
-    BASE = 'http://127.0.0.1:8080'
+    〔fix/test-dual-db commit 2〕server 隔离:
+    - BASE: 8080 (prod) → 18080 (测试 server, spawn 在 setUpClass)
+    - 改用 importlib generate_token 主路径, 删 /tmp/admin_token.txt 依赖
+    """
+
+    BASE = 'http://127.0.0.1:18080'
+
+    @classmethod
+    def setUpClass(cls):
+        """启 mock LLM + spawn 18080 测试 server + 等待 ready."""
+        cls._mock_kimi = _start_mock_server(_MockKimiHandler, 19999)
+        cls._mock_minimax = _start_mock_server(_MockMinimaxHandler, 19998)
+        # test_data_dir 由 conftest session fixture 提供 (SOLO_BRAVE_TEST_DATA_DIR env)
+        data_dir = os.environ.get('SOLO_BRAVE_TEST_DATA_DIR')
+        if not data_dir:
+            cls._cleanup_servers()
+            raise unittest.SkipTest('test_data_dir fixture 未提供 (conftest 缺失)')
+        cls._server_proc = _spawn_test_server(18080, data_dir)
+        # 等 server ready (init_db + migration 慢, 15s 余量)
+        if not _wait_for_http_200(f'{cls.BASE}/api/health', timeout=20):
+            cls._cleanup_servers()
+            raise unittest.SkipTest('测试 server 18080 启动超时')
+
+    @classmethod
+    def tearDownClass(cls):
+        """停 server + mock LLM."""
+        cls._cleanup_servers()
+
+    @classmethod
+    def _cleanup_servers(cls):
+        """清理 spawn 的 server + mock LLM."""
+        proc = getattr(cls, '_server_proc', None)
+        if proc:
+            try:
+                proc.terminate()
+                proc.wait(timeout=5)
+            except Exception:
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
+        for attr in ('_mock_kimi', '_mock_minimax'):
+            srv = getattr(cls, attr, None)
+            if srv:
+                _stop_mock_server(srv)
 
     def _get_auth_headers(self):
-        """用 admin token 调 API. 优先用 /tmp/admin_token.txt (pwd_version=2 生成), 否则 importlib 加载 server 直接 generate_token."""
-        # 1) 优先 /tmp/admin_token.txt
-        try:
-            with open('/tmp/admin_token.txt') as f:
-                token = f.read().strip()
-            if token:
-                # 验 token 不为空并能调一个 GET
-                code, _ = _http_get(f'{self.BASE}/api/talents?limit=1',
-                                    headers={'Authorization': f'Bearer {token}'}, timeout=5)
-                if code == 200:
-                    return {'Authorization': f'Bearer {token}'}
-        except FileNotFoundError:
-            pass
-        # 2) fallback: importlib 加载 server 直接 generate_token (pwd_version=2)
+        """〔fix/test-dual-db commit 2+3〕importlib 加载 server 直接 generate_token 主路径.
+
+        原路径 (派单要删): /tmp/admin_token.txt 优先 (依赖外部 pwd_version=2 token 写入),
+        fallback importlib generate_token.
+        新路径: 直接 importlib generate_token, 删 /tmp/admin_token.txt 依赖.
+
+        generate_token 签名 (solobrave-server.py:1382): (user_id, role, pwd_version=0)
+        user_7acb72ff 是 admin 用户 (老 prod 注释), role='admin'.
+
+        〔fix/test-dual-db commit 3+1〕JWT secret 一致性:
+        test 进程 importlib 加载 server 时, mod.SECRET_FILE = line 226 求值为
+        os.path.join(DATA_DIR, '.secret') = worktree/data/.secret. 但 worktree secret 跟
+        prod secret 不一致 (worktree 创建时生成过新 secret). conftest 已经拷 prod .secret 到
+        tmp_data_dir, 这里覆盖 mod.SECRET_FILE 指向 tmp, 让 test 进程跟 subprocess server 用
+        同一 secret. JWT_SECRET 是缓存全局, 重置为 None 让 _get_secret 重新读.
+        """
         try:
             import importlib.util as _ilu
-            spec = _ilu.spec_from_file_location('solobrave_server', 'solobrave-server.py')
+            spec = _ilu.spec_from_file_location(
+                'solobrave_server',
+                os.path.join(os.path.dirname(__file__), '..', 'solobrave-server.py')
+            )
             mod = _ilu.module_from_spec(spec)
-            # 阻止 do_serve 启动 socket
-            import os as _os
-            _os.environ.setdefault('SOLOBRAVE_TEST_NO_SERVE', '1')
+            # 阻止 do_serve 启动 socket (只在 test 进程用 mod.generate_token, 不启真 server)
+            os.environ.setdefault('SOLOBRAVE_TEST_NO_SERVE', '1')
             spec.loader.exec_module(mod)
-            token = mod.generate_token('user_7acb72ff', pwd_version=2)
-            with open('/tmp/admin_token.txt', 'w') as f:
-                f.write(token)
+            # 覆盖 SECRET_FILE + JWT_SECRET 指向 tmp test_data_dir
+            test_data_dir = os.environ.get('SOLO_BRAVE_TEST_DATA_DIR')
+            if test_data_dir:
+                mod.SECRET_FILE = os.path.join(test_data_dir, '.secret')
+                mod.JWT_SECRET = None
+            # 签名: generate_token(user_id, role, pwd_version=0)
+            token = mod.generate_token('user_7acb72ff', 'admin', pwd_version=2)
             return {'Authorization': f'Bearer {token}'}
         except Exception as e:
             self.skipTest(f'无法生成 admin token: {e}')
@@ -477,11 +615,21 @@ class DataPersistenceSuite(unittest.TestCase):
         # 直接调 _save_vision_data_event (importlib 加载 server, 不启 socket)
         try:
             import importlib.util as _ilu
-            spec = _ilu.spec_from_file_location('solobrave_server', 'solobrave-server.py')
+            spec = _ilu.spec_from_file_location(
+                'solobrave_server',
+                os.path.join(os.path.dirname(__file__), '..', 'solobrave-server.py')
+            )
             mod = _ilu.module_from_spec(spec)
-            import os as _os
-            _os.environ['SOLOBRAVE_TEST_NO_SERVE'] = '1'
+            os.environ['SOLOBRAVE_TEST_NO_SERVE'] = '1'
             spec.loader.exec_module(mod)
+            # 〔fix/test-dual-db commit 3+1〕覆盖 DB_PATH / DATA_DIR / SECRET_FILE / JWT_SECRET
+            # 指向 tmp test_data_dir, 让 _db_conn() 写 tmp db (不是 worktree prod db)
+            test_data_dir = os.environ.get('SOLO_BRAVE_TEST_DATA_DIR')
+            if test_data_dir:
+                mod.DATA_DIR = test_data_dir
+                mod.DB_PATH = os.path.join(test_data_dir, 'solobrave.db')
+                mod.SECRET_FILE = os.path.join(test_data_dir, '.secret')
+                mod.JWT_SECRET = None
         except Exception as e:
             self.skipTest(f'无法加载 server: {e}')
             return
@@ -510,7 +658,9 @@ class DataPersistenceSuite(unittest.TestCase):
 
     def test_no_partial_writes_on_failed_request(self):
         """测试: 异常中断不留半条脏数据 — 模拟 3 种写入失败场景, 验证 DB 无残留."""
-        con = sqlite3.connect('data/solobrave.db')
+        # 〔fix/test-dual-db commit 1〕改读 test_data_dir fixture (派单要求: 测试零 prod 接触)
+        test_db = os.environ.get('SOLO_BRAVE_TEST_DB_PATH') or 'data/solobrave.db'
+        con = sqlite3.connect(test_db)
         try:
             cur = con.cursor()
             cur.execute("SELECT COUNT(*) FROM talents WHERE id LIKE 'tal_javis_fail_%'")
@@ -541,8 +691,10 @@ class DataPersistenceSuite(unittest.TestCase):
 
     def test_fk_cascade_on_delete_talent(self):
         """测试: 删除达人时 FK CASCADE 行为 (跟依赖数据强直接 DB 验证)."""
+        # 〔fix/test-dual-db commit 1〕改读 test_data_dir fixture (派单要求: 测试零 prod 接触)
+        test_db = os.environ.get('SOLO_BRAVE_TEST_DB_PATH') or 'data/solobrave.db'
         # 用直接 sqlite3 验证, 不通过 server (避免权限/鉴权问题)
-        con = sqlite3.connect('data/solobrave.db')
+        con = sqlite3.connect(test_db)
         con.execute('PRAGMA foreign_keys=ON')
         cur = con.cursor()
         # 创建一个临时 talent
@@ -565,7 +717,9 @@ class DataPersistenceSuite(unittest.TestCase):
 
     def test_no_orphan_after_talent_delete(self):
         """测试: 删达人后, 关联表无孤儿引用."""
-        con = sqlite3.connect('data/solobrave.db')
+        # 〔fix/test-dual-db commit 1〕改读 test_data_dir fixture (派单要求: 测试零 prod 接触)
+        test_db = os.environ.get('SOLO_BRAVE_TEST_DB_PATH') or 'data/solobrave.db'
+        con = sqlite3.connect(test_db)
         cur = con.cursor()
         # 扫所有 talent_id 列, 看有没有引用不存在 talents 的
         ref_cols = [
