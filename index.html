@@ -10311,6 +10311,21 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
 .sb2-side--module-knowledge .sb2-side-label{
   font:500 11px/1.4 "PingFang SC",sans-serif; padding:12px 8px 4px;
 }
+/* 〔20 轮批注 2026-10-06 08:38 贾维斯执行〕规律库对照原版 (复用 r26.3 knowledge 模式换 selector)
+   侧栏-1 items gap 0 → 10px (跟原型 .side-item gap 10 一致)
+   侧栏-2 计数 badge → meta 样式 (透明底/padding0/11px 500/1.4/var(--sb2-t3))
+     原型 patterns 侧栏 dot=none (跟 knowledge 不同), 不加 dot 透明占位
+   侧栏-3 side-label 10px/1.4 → 11px/1.4, pad 左 10 → 8
+   严格限 patterns 作用域: knowledge/messages/talents/dashboard 不动
+   不碰主区 .sb2-patterns-main 之外的兄弟容器 */
+.sb2-side--module-patterns .sb2-side-item{ gap:10px; }
+.sb2-side--module-patterns .sb2-side-item .badge{
+  background:transparent; padding:0; color:var(--sb2-t3);
+  font:500 11px/1.4 "PingFang SC",sans-serif;
+}
+.sb2-side--module-patterns .sb2-side-label{
+  font:500 11px/1.4 "PingFang SC",sans-serif; padding:12px 8px 4px;
+}
 /* 〔fix/sb2-side-restore commit 22〕17 轮批注②补修: active 项改原型白卡样式
    老大 17:03 trace 实测证据: 16 轮 commit 13 只灰化了 badge, active 项本体未改,
      还是橙底 --sb2-brand-soft, 这就是老大说「太亮了」的根源.
@@ -10380,18 +10395,18 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
 .sb2-patterns-main{
   display:none; flex-direction:column; flex:1; height:100%;
   padding:20px 24px; overflow-y:auto;
-  font:400 13px/1.5 "PingFang SC",-apple-system,sans-serif;
+  font:400 14px/1.6 "PingFang SC",-apple-system,sans-serif;
   color:var(--sb2-t1); background:var(--sb2-bg);
 }
 .sb2-patterns-main.active{ display:flex; }
 
-.sb2-ptn-hero{ display:flex; align-items:center; gap:12px; margin-bottom:16px; }
+.sb2-ptn-hero{ display:flex; align-items:center; gap:12px; margin-bottom:16px; min-height:52px; }
 .sb2-ptn-hero-title{
-  font:600 24px/1.2 "PingFang SC",sans-serif; color:var(--sb2-ink);
+  font:600 24px/1.25 "PingFang SC",sans-serif; color:var(--sb2-ink);
   margin:0; letter-spacing:-0.01em;
 }
 .sb2-ptn-hero-sub{
-  font:400 12px/1.3 "PingFang SC",sans-serif; color:var(--sb2-t3); margin-top:4px;
+  font:400 13px/1.5 "PingFang SC",sans-serif; color:var(--sb2-t3); margin-top:2px;
 }
 .sb2-ptn-hero-actions{ margin-left:auto; display:flex; gap:8px; }
 
@@ -10416,7 +10431,7 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
   font:400 13px/1.5 "PingFang SC",sans-serif;
 }
 .sb2-ptn-card{
-  padding:14px 16px; border:1px solid var(--sb2-border); border-radius:var(--sb2-r-md);
+  padding:16px 24px; border:1px solid var(--sb2-border); border-radius:14px;
   background:var(--sb2-s1); transition:all .15s; cursor:pointer;
   display:flex; flex-direction:column; gap:8px;
 }
