@@ -46663,7 +46663,12 @@ window.sb2ViewportGuard = function(){
   } catch(e){}
 };
 window.addEventListener('resize', window.sb2ViewportGuard);
+window.addEventListener('load', window.sb2ViewportGuard);
 window.sb2ViewportGuard();
+/* 外层宿主 webview 时机坑: 脚本首轮执行时 window.outerHeight 可能还是 0 (实测 r39 刷新后轮询读 0,
+   上一轮 883), 无 resize 事件补发 → 守卫永远不触发。延迟补判两轮兜底 */
+setTimeout(window.sb2ViewportGuard, 800);
+setTimeout(window.sb2ViewportGuard, 3000);
 window.sb2Go = function(id){
   if (id === 'dashboard') { showDash(); renderSideFor('dashboard'); updateCrumb(); return; }
   hideDash();
