@@ -12018,8 +12018,10 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
      - 删 background + border-bottom (整宽白色横条, 跟表格卡连成一片白)
      - padding 改 0 左右 + 16px 0 12px (外包 max-width 1240 居中, 文字跟按钮组两端对齐)
      - display flex 保留 (H1/sub 左, 按钮组右 — 原型布局) */
-  display:flex; align-items:center; gap:12px; padding:16px 0 12px;
+  display:flex; align-items:center; gap:12px; padding:16px 20px 12px;
   background:transparent; border-bottom:0;
+  /* 〔r39-6 批注〕r36 去 1240 上限后左右 padding 归 0, 窄视口文字贴左边框 (老大: 太靠框框)
+     补 20px 左右呼吸, 对齐任务 hero (18px 22px 14px) 同节奏 */
   /* 〔r36 批注〕去 1240 上限 — 老大实测 1920 宽右边空 380px; 主区填满对齐商品库 26 轮② 全宽口径 */
   width:100%; margin:0 auto;
 }
