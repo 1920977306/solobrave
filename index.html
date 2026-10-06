@@ -11476,6 +11476,127 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
   font:500 11px/1 "PingFang SC",sans-serif; color:var(--sb2-t2);
   background:var(--sb2-s3); padding:4px 10px; border-radius:var(--sb2-r-full);
 }
+/* ★ r39.3-P0: 行操作 cell + 商品侧「找达人」弹窗 (仿 sb2-tln-aimatch precedent 反转,
+   命名空间 sb2-pds-findtalent-*, 跟 sb2-tln-aimatch-* / sb2-pds-detail-* 平行)
+   跟项 2 对称: 商品行 hover 操作区 cell + 居中 720 弹窗 + sb2-pds-rise 动画
+   0 hex / font 简写第二值带 1.x 乘数 / 跟 6 维体系 (5 哲学 + UI 文案铁律 + 实现层踩坑) 联动 */
+.sb2-pds-cell-action{
+  text-align:center; white-space:nowrap;
+}
+.sb2-pds-findtalent-btn{
+  font:500 11px/1 "PingFang SC",sans-serif; color:var(--sb2-brand);
+  background:transparent; border:1px solid var(--sb2-brand);
+  border-radius:var(--sb2-r-full); padding:4px 10px; cursor:pointer;
+  transition:background .12s, color .12s;
+}
+.sb2-pds-findtalent-btn:hover{
+  background:var(--sb2-brand); color:var(--sb2-s1);
+}
+.sb2-pds-findtalent-btn:disabled{
+  opacity:.4; cursor:not-allowed;
+}
+
+.sb2-pds-findtalent-overlay{
+  position:fixed; inset:0; background:rgba(0,0,0,0.45);
+  display:none; align-items:center; justify-content:center;
+  z-index:1100;
+}
+.sb2-pds-findtalent-overlay.open{ display:flex; }
+.sb2-pds-findtalent-panel{
+  width:720px; max-width:calc(100vw - 32px); max-height:80vh;
+  background:var(--sb2-s1); border-radius:var(--sb2-r-lg);
+  box-shadow:var(--sb2-sh3);
+  display:flex; flex-direction:column; overflow:hidden;
+  animation:sb2-pds-rise .18s ease;
+}
+.sb2-pds-findtalent-header{
+  display:flex; align-items:center; gap:12px;
+  padding:14px 20px; border-bottom:1px solid var(--sb2-border);
+  flex:0 0 auto;
+}
+.sb2-pds-findtalent-header h2{
+  flex:1; min-width:0; margin:0;
+  font:600 16px/1.3 "PingFang SC",sans-serif; color:var(--sb2-t1);
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+.sb2-pds-findtalent-sub{
+  font:400 11px/1.3 "PingFang SC",sans-serif; color:var(--sb2-t3);
+}
+.sb2-pds-findtalent-close{
+  font:400 18px/1 sans-serif; color:var(--sb2-t3);
+  background:transparent; border:0; cursor:pointer;
+  width:28px; height:28px; border-radius:var(--sb2-r-full);
+  display:flex; align-items:center; justify-content:center;
+  transition:background .12s, color .12s;
+}
+.sb2-pds-findtalent-close:hover{ background:var(--sb2-s3); color:var(--sb2-t1); }
+
+.sb2-pds-findtalent-degrade{
+  padding:10px 20px;
+  background:var(--sb2-warning-soft); color:var(--sb2-warning);
+  font:500 12px/1.5 "PingFang SC",sans-serif;
+  border-bottom:1px solid var(--sb2-border);
+  flex:0 0 auto;
+}
+.sb2-pds-findtalent-body{
+  flex:1 1 auto; overflow-y:auto; padding:14px 20px;
+  font:400 13px/1.6 "PingFang SC",sans-serif; color:var(--sb2-t1);
+}
+.sb2-pds-findtalent-loading{
+  padding:60px 20px; text-align:center; color:var(--sb2-t3);
+}
+.sb2-pds-findtalent-loading .spinner{
+  display:inline-block; width:18px; height:18px; margin-right:8px;
+  border:2px solid var(--sb2-border); border-top-color:var(--sb2-brand);
+  border-radius:var(--sb2-r-full);
+  animation:sb2-pds-rise-spin .8s linear infinite;
+  vertical-align:middle;
+}
+.sb2-pds-findtalent-empty{
+  padding:48px 20px; text-align:center; color:var(--sb2-t3);
+}
+.sb2-pds-findtalent-empty-icon{ font-size:36px; opacity:.5; display:block; margin-bottom:10px; }
+.sb2-pds-findtalent-list{ display:flex; flex-direction:column; gap:10px; }
+.sb2-pds-findtalent-card{
+  border:1px solid var(--sb2-border); border-radius:var(--sb2-r-md);
+  padding:12px 14px; background:var(--sb2-s1);
+  display:flex; flex-direction:column; gap:6px;
+}
+.sb2-pds-findtalent-card-head{
+  display:flex; align-items:center; gap:8px;
+}
+.sb2-pds-findtalent-card-name{
+  flex:1; min-width:0; font:600 13px/1.3 "PingFang SC",sans-serif; color:var(--sb2-t1);
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+.sb2-pds-findtalent-card-cat{
+  font:500 11px/1 "PingFang SC",sans-serif; color:var(--sb2-t2);
+  background:var(--sb2-s3); padding:3px 8px; border-radius:var(--sb2-r-full);
+}
+.sb2-pds-findtalent-scores{
+  display:flex; gap:12px; font:500 11px/1 "SF Mono",ui-monospace,monospace;
+  color:var(--sb2-t2);
+}
+.sb2-pds-findtalent-scores .score-rule{ color:var(--sb2-t1); }
+.sb2-pds-findtalent-scores .score-ai{ color:var(--sb2-brand); }
+.sb2-pds-findtalent-reasons{
+  font:400 12px/1.6 "PingFang SC",sans-serif; color:var(--sb2-t3);
+}
+.sb2-pds-findtalent-reasons li{ margin-left:14px; }
+.sb2-pds-findtalent-card-foot{
+  display:flex; gap:8px; justify-content:flex-end; margin-top:4px;
+}
+.sb2-pds-findtalent-card-foot button{
+  font:500 11px/1 "PingFang SC",sans-serif;
+  background:var(--sb2-s1); border:1px solid var(--sb2-border);
+  border-radius:var(--sb2-r-full); padding:5px 12px; cursor:pointer;
+  color:var(--sb2-t1); transition:background .12s, color .12s;
+}
+.sb2-pds-findtalent-card-foot button:hover{ background:var(--sb2-s3); }
+.sb2-pds-findtalent-card-foot button.primary{
+  background:var(--sb2-brand); border-color:var(--sb2-brand); color:var(--sb2-s1);
+}
+.sb2-pds-findtalent-card-foot button.primary:hover{ opacity:.85; }
 </style>
 
 <style id="sb2-tasks">
@@ -14630,10 +14751,11 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
           <th>带货达人</th>
           <th>库存</th>
           <th>状态</th>
+          <th style="width:84px">操作</th>
         </tr>
       </thead>
       <tbody id="sb2PdsTbody">
-        <tr><td colspan="7" class="sb2-pds-empty">载入中…</td></tr>
+        <tr><td colspan="8" class="sb2-pds-empty">载入中…</td></tr>
       </tbody>
     </table>
   </div>
@@ -14648,6 +14770,26 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
       <button class="sb2-pds-detail-close" id="sb2PdsDetailClose" aria-label="关闭">×</button>
     </div>
     <div class="sb2-pds-detail-body" id="sb2PdsDetailBody"></div>
+  </div>
+</div>
+
+<!-- ★ r39.3-P0: 商品侧「找达人」弹窗 (仿 sb2-tln-aimatch precedent 反转, 居中 720 + sb2-pds-rise 动画)
+     命名空间 sb2-pds-findtalent-*, 规格项 3 (商品侧 AI 匹配达人)
+     弹窗内容: POST /api/ai-match product-to-talent → TOP N 达人卡 (规则分 + AI 分 + 推荐理由)
+     三态齐全: 加载态 (含「最长约 1 分钟」提示, 冷启动 AI 45s+ 实测) / 空态 / 错误态 + degraded 提示条 -->
+<div class="sb2-pds-findtalent-overlay" id="sb2PdsFindtalentOverlay">
+  <div class="sb2-pds-findtalent-panel" id="sb2PdsFindtalentPanel">
+    <div class="sb2-pds-findtalent-header">
+      <div>
+        <h2 id="sb2PdsFindtalentTitle">找达人</h2>
+        <div class="sb2-pds-findtalent-sub" id="sb2PdsFindtalentSub">载入中…</div>
+      </div>
+      <button class="sb2-pds-findtalent-close" id="sb2PdsFindtalentClose" aria-label="关闭" onclick="sb2PdsCloseFindTalents()">×</button>
+    </div>
+    <div class="sb2-pds-findtalent-degrade" id="sb2PdsFindtalentDegrade" style="display:none"></div>
+    <div class="sb2-pds-findtalent-body" id="sb2PdsFindtalentBody">
+      <div class="sb2-pds-findtalent-loading"><div class="spinner"></div>AI 正在分析匹配…</div>
+    </div>
   </div>
 </div>
 
@@ -44044,7 +44186,7 @@ function sb2PdsRender(){
   if (heroSub) heroSub.textContent = '共 ' + _sb2PdsTotal + ' 商品 · ' + catCount + ' 类目 · 在售 ' + totalActive + ' · 缺货 ' + totalOos;
 
   if (filtered.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="7"><div class="sb2-pds-empty">'
+    tbody.innerHTML = '<tr><td colspan="8"><div class="sb2-pds-empty">'
       + '<div class="sb2-pds-empty-icon">📦</div>'
       + '<div class="sb2-pds-empty-text">暂无商品</div>'
       + '<button class="sb2-pds-empty-btn" onclick="createNewProduct()">录入商品</button>'
@@ -44109,6 +44251,10 @@ function sb2PdsRender(){
     html += '<td>' + infHtml + '</td>';
     html += '<td>' + stockHtml + '</td>';
     html += '<td>' + statusHtml + '</td>';
+    /* ★ r39.3-P0: 行操作 cell — 找达人弹窗入口 (规格项 3, 仿 r39.1 项 2 sb2TalentsOpenAiMatch precedent)
+       跟项 2 对称: 商品行 hover 操作区 cell + 居中 720 弹窗 + sb2-pds-rise 动画
+       r38 IIFE 踩坑: HTML onclick 必须 window.* 暴露 */
+    html += '<td class="sb2-pds-cell-action"><button class="sb2-pds-findtalent-btn" onclick="sb2PdsOpenFindTalents(\'' + escAttr(p.id) + '\')">找达人</button></td>';
     html += '</tr>';
   });
   tbody.innerHTML = html;
@@ -44267,6 +44413,194 @@ function _sb2PdsDetailRow(key, val){
     + '</div>';
 }
 
+/* ============================================================
+ * r39.3-P0: 商品侧「找达人」弹窗 (项 3, 仿 r39.1 项 2 sb2-tln-aimatch precedent 反转)
+ * 规格: docs/design-spec/r39-match-chain.md §二·项3
+ * 弹窗: 仿 sb2-pds-detail 居中 720 + sb2-pds-rise 动画 precedent (22 轮批注③ 口径)
+ * 调用: POST /api/ai-match direction=product-to-talent limit=10
+ * 字段真名 (字段名铁律, server line 20132-20141, 协调人实测响应驼峰):
+ *   matches[].talent + score + matchPercent + ruleScore + aiScore
+ *           + reasons (string[]) + aiReason (string) + is_ai_recommended (≥75)
+ * 响应顶层: matches + total + ai_scored + degraded (bool) + degrade_reason
+ * 加载态文案加「最长约 1 分钟」(r39.1 协调人实测: 冷启动 AI 45s+, 热后 8s)
+ * apply when: 任何「IIFE 内函数给 HTML onclick 用」= 主动 window.X = X 暴露 (r38 IIFE 踩坑)
+ * ============================================================ */
+
+/* 弹窗状态 (避免全局污染) */
+var _sb2PdsFindTalentsState = {
+  productId: null,
+  matches: [],
+  degraded: false,
+  degrade_reason: null,
+  inFlight: false
+};
+
+function sb2PdsOpenFindTalents(productId){
+  if (!productId) return;
+  var overlay = document.getElementById('sb2PdsFindtalentOverlay');
+  var title = document.getElementById('sb2PdsFindtalentTitle');
+  var sub = document.getElementById('sb2PdsFindtalentSub');
+  var body = document.getElementById('sb2PdsFindtalentBody');
+  var degrade = document.getElementById('sb2PdsFindtalentDegrade');
+  if (!overlay || !body) return;
+  /* 找商品名 (从 cache) */
+  var plist = (typeof _sb2PdsProducts !== 'undefined') ? _sb2PdsProducts : [];
+  var p = plist.find(function(x){ return x && x.id === productId; });
+  var pName = p ? (p.name || productId) : productId;
+  if (title) title.textContent = '找达人 · ' + pName;
+  if (sub) sub.textContent = 'POST /api/ai-match · product-to-talent · TOP 10';
+  if (degrade) degrade.style.display = 'none';
+  /* ★ 加载态文案加「最长约 1 分钟」提示 (协调人 r39.1 闭环实测: 冷启动 45s+, 热后 8s) */
+  body.innerHTML = '<div class="sb2-pds-findtalent-loading">'
+    + '<div class="spinner"></div>AI 正在分析匹配…'
+    + '<div style="margin-top:8px;font-size:11px;color:var(--sb2-t3);">最长约 1 分钟 (首次冷启动较慢, 热后约 8 秒)</div>'
+    + '</div>';
+  overlay.classList.add('open');
+  _sb2PdsFindTalentsState.productId = productId;
+  _sb2PdsFindTalentsState.matches = [];
+  _sb2PdsFindTalentsState.degraded = false;
+  _sb2PdsFindTalentsState.degrade_reason = null;
+  _sb2PdsFindTalentsState.inFlight = true;
+  sb2PdsFetchFindTalents(productId);
+}
+
+function sb2PdsCloseFindTalents(){
+  var overlay = document.getElementById('sb2PdsFindtalentOverlay');
+  if (overlay) overlay.classList.remove('open');
+  _sb2PdsFindTalentsState.productId = null;
+  _sb2PdsFindTalentsState.inFlight = false;
+}
+
+async function sb2PdsFetchFindTalents(productId){
+  var body = document.getElementById('sb2PdsFindtalentBody');
+  var degrade = document.getElementById('sb2PdsFindtalentDegrade');
+  try {
+    var resp = await apiFetch('/api/ai-match', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ direction: 'product-to-talent', productId: productId, limit: 10 })
+    });
+    if (!resp || !resp.ok) {
+      _sb2PdsFindTalentsState.inFlight = false;
+      if (body) body.innerHTML = '<div class="sb2-pds-findtalent-empty"><span class="sb2-pds-findtalent-empty-icon">⚠️</span>权限不足或网络错误, 请重试 (HTTP ' + (resp ? resp.status : 'no resp') + ')</div>';
+      return;
+    }
+    var data = await resp.json();
+    _sb2PdsFindTalentsState.matches = (data && Array.isArray(data.matches)) ? data.matches : [];
+    _sb2PdsFindTalentsState.degraded = !!(data && data.degraded);
+    _sb2PdsFindTalentsState.degrade_reason = (data && data.degrade_reason) || null;
+    _sb2PdsFindTalentsState.inFlight = false;
+    if (degrade && _sb2PdsFindTalentsState.degraded) {
+      degrade.textContent = '⚠️ AI 暂不可用, 已展示规则匹配结果 (' + _sb2PdsFindTalentsState.degrade_reason + ')';
+      degrade.style.display = '';
+    } else if (degrade) {
+      degrade.style.display = 'none';
+    }
+    sb2PdsRenderFindTalents();
+  } catch (e) {
+    _sb2PdsFindTalentsState.inFlight = false;
+    if (body) body.innerHTML = '<div class="sb2-pds-findtalent-empty"><span class="sb2-pds-findtalent-empty-icon">⚠️</span>网络错误: ' + (e && e.message || e) + '</div>';
+  }
+}
+
+function sb2PdsRenderFindTalents(){
+  var body = document.getElementById('sb2PdsFindtalentBody');
+  if (!body) return;
+  var matches = _sb2PdsFindTalentsState.matches || [];
+  if (matches.length === 0) {
+    body.innerHTML = '<div class="sb2-pds-findtalent-empty"><span class="sb2-pds-findtalent-empty-icon">🪺</span>暂无匹配达人</div>';
+    return;
+  }
+  var html = '<div class="sb2-pds-findtalent-list">';
+  for (var i = 0; i < matches.length; i++) {
+    var m = matches[i];
+    var t = m.talent || {};
+    var name = t.name || '-';
+    var cat = t.category || '';
+    var ruleScore = (typeof m.ruleScore === 'number') ? m.ruleScore : 0;
+    var aiScore = (typeof m.aiScore === 'number') ? m.aiScore : 0;
+    var finalScore = (typeof m.score === 'number') ? m.score : ruleScore;
+    var reasons = Array.isArray(m.reasons) ? m.reasons : [];
+    var aiReason = m.aiReason || '';
+    var allReasons = (aiReason ? [aiReason] : []).concat(reasons).slice(0, 4);
+    var reasonsHtml = allReasons.length > 0
+      ? '<ul class="sb2-pds-findtalent-reasons">' + allReasons.map(function(r){ return '<li>' + escAttr(r) + '</li>'; }).join('') + '</ul>'
+      : '<div class="sb2-pds-findtalent-reasons">无推荐理由</div>';
+    /* ★ 字段名铁律: matches[i].talent.id 是真 id, matches[i].talent.name 是真名
+       (server line 20099 / 20132-20141 真代码读源, 协调人实测响应驼峰) */
+    var talentId = t.id || '';
+    var productId = _sb2PdsFindTalentsState.productId || '';
+    var tEscId = escAttr(talentId);
+    var tEscName = escAttr(name);
+    var catEsc = escAttr(cat);
+    var isTop = (i === 0);
+    html += '<div class="sb2-pds-findtalent-card" data-tid="' + tEscId + '">'
+      + '<div class="sb2-pds-findtalent-card-head">'
+      +   '<div class="sb2-pds-findtalent-card-name">' + tEscName + '</div>'
+      +   (cat ? '<div class="sb2-pds-findtalent-card-cat">' + catEsc + '</div>' : '')
+      + '</div>'
+      + '<div class="sb2-pds-findtalent-scores">'
+      +   '<span class="score-rule">规则分 ' + ruleScore.toFixed(1) + '</span>'
+      +   '<span class="score-ai">AI 分 ' + aiScore.toFixed(1) + '</span>'
+      +   '<span>综合 ' + finalScore.toFixed(1) + '</span>'
+      + '</div>'
+      + reasonsHtml
+      + '<div class="sb2-pds-findtalent-card-foot">'
+      +   '<button onclick="sb2PdsSubmitFindTalentProposal(\'' + tEscId + '\')">生成合作方案</button>'
+      +   (isTop ? '<button class="primary" onclick="sb2PdsSubmitFindTalentProposal(\'' + tEscId + '\')">TOP 1 快速生成</button>' : '')
+      + '</div>'
+      + '</div>';
+  }
+  html += '</div>';
+  body.innerHTML = html;
+}
+
+/* 项 4 (产品→达人方向): 生成合作方案 → POST /api/proposals
+   跟 r39.1 项 4 同款: server line 18870-18873 强制 localhost_agent_id (X-Agent-Id),
+   远程 admin 用户 POST 会 403 — 带 X-Agent-Id 头, 失败兜底显「待协调人放宽鉴权」 */
+async function sb2PdsSubmitFindTalentProposal(talentId){
+  if (!talentId) return;
+  var productId = _sb2PdsFindTalentsState.productId;
+  if (!productId) {
+    if (typeof showToast === 'function') showToast('请先打开找达人弹窗', 'warn');
+    return;
+  }
+  /* 找商品名 (用于 proposal title) */
+  var plist = (typeof _sb2PdsProducts !== 'undefined') ? _sb2PdsProducts : [];
+  var p = plist.find(function(x){ return x && x.id === productId; });
+  var pName = p ? (p.name || productId) : productId;
+  var xid = (typeof SB2 !== 'undefined' && SB2.agentId) || localStorage.getItem('sb_agent_id') || '';
+  var headers = { 'Content-Type': 'application/json' };
+  if (xid) headers['X-Agent-Id'] = xid;
+  try {
+    var resp = await apiFetch('/api/proposals', {
+      method: 'POST',
+      headers: headers,
+      body: JSON.stringify({
+        type: 'task.create',
+        title: '商品合作方案 · 商品 ' + pName + ' ↔ 达人 ' + talentId,
+        summary: 'r39.3-P0 撮合链生成合作方案 (product→talent)',
+        options: [{
+          label: '接受合作',
+          payload: { productId: productId, talentId: talentId, action: 'product.collab.propose' }
+        }],
+        recommended: 0,
+        context: { source: 'r39.3-match-chain', productId: productId, talentId: talentId }
+      })
+    });
+    if (resp && resp.ok) {
+      if (typeof showToast === 'function') showToast('✅ 合作方案已生成, 待审批', 'success');
+      sb2PdsCloseFindTalents();
+    } else if (resp && resp.status === 403) {
+      if (typeof showToast === 'function') showToast('⚠️ 生成合作方案鉴权受限 (HTTP 403), 待协调人放宽 /api/proposals 鉴权或新增专用接口', 'warn');
+    } else {
+      if (typeof showToast === 'function') showToast('⚠️ 生成失败 (HTTP ' + (resp ? resp.status : '?') + ')', 'warn');
+    }
+  } catch (e) {
+    if (typeof showToast === 'function') showToast('⚠️ 网络错误: ' + (e && e.message || e), 'warn');
+  }
+}
+
 function sb2PdsRenderBrands(){
   var sel = document.getElementById('sb2PdsBrand');
   if (!sel) return;
@@ -44285,12 +44619,12 @@ async function sb2ProductsInit(){
     var heroSub = document.getElementById('sb2PdsHeroSub');
     if (heroSub) heroSub.textContent = '载入中…';
     var tbody = document.getElementById('sb2PdsTbody');
-    if (tbody) tbody.innerHTML = '<tr><td colspan="7" class="sb2-pds-empty">载入中…</td></tr>';
+    if (tbody) tbody.innerHTML = '<tr><td colspan="8" class="sb2-pds-empty">载入中…</td></tr>';
 
     var resp = await apiFetch('/api/products?limit=500');
     if (!resp || !resp.ok) {
       if (heroSub) heroSub.textContent = '加载失败 (HTTP ' + (resp ? resp.status : 'no response') + ')';
-      if (tbody) tbody.innerHTML = '<tr><td colspan="7"><div class="sb2-pds-empty"><div class="sb2-pds-empty-icon">📦</div><div class="sb2-pds-empty-text">加载失败，请刷新重试</div></div></td></tr>';
+      if (tbody) tbody.innerHTML = '<tr><td colspan="8"><div class="sb2-pds-empty"><div class="sb2-pds-empty-icon">📦</div><div class="sb2-pds-empty-text">加载失败，请刷新重试</div></div></td></tr>';
       return;
     }
     var data = await resp.json();
@@ -44344,6 +44678,12 @@ window.sb2PdsGoPage = sb2PdsGoPage;
 window.sb2PdsFilterStatus = sb2PdsFilterStatus;
 window.sb2PdsOpenDetail = sb2PdsOpenDetail;
 window.sb2PdsCloseDetail = sb2PdsCloseDetail;
+/* ★ r39.3-P0: 找达人弹窗配套函数挂 window (r38 IIFE 踩坑: HTML onclick 属性必走 window 暴露)
+   弹窗走 POST /api/ai-match (server 真字段: matches[].talent/product + score + ruleScore + aiScore + reasons + aiReason)
+   apply when: 任何「IIFE 内函数给 HTML onclick 用」必须 window.* 主动暴露 (r38 IIFE 跨域铁律) */
+window.sb2PdsOpenFindTalents = sb2PdsOpenFindTalents;
+window.sb2PdsCloseFindTalents = sb2PdsCloseFindTalents;
+window.sb2PdsSubmitFindTalentProposal = sb2PdsSubmitFindTalentProposal;
 async function sb2PatternsInit(){
   var heroSub = document.getElementById('sb2PtnHeroSub');
   var listEl = document.getElementById('sb2PtnList');
