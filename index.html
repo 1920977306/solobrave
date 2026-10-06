@@ -11966,6 +11966,27 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
   padding:80px 24px; text-align:center; color:var(--sb2-t3);
   font:400 13px/1.5 "PingFang SC",sans-serif;
 }
+/* 〔fix/sb2-side-restore 22 轮批注②〕前端分页条 (‹ 1 2 3 … N ›):
+   — 跟 chips 一致: 12px / 500 / r-sm / s1 底 / ink 选中
+   — 不引入新色, 全 token (var(--sb2-s1/s3/ink/border/r-sm/t1/t3))
+   — 总页 1 自动不渲染 (见 _sb2KbBuildPager), 不需 display 兜底 */
+.sb2-kb-pager{
+  display:flex; gap:4px; align-items:center; justify-content:center;
+  padding:14px 0 4px;
+}
+.sb2-kb-pager-btn{
+  min-width:28px; height:28px; padding:0 8px; border:1px solid var(--sb2-border);
+  border-radius:var(--sb2-r-sm); background:var(--sb2-s1); color:var(--sb2-t1);
+  font:500 12px/1 "PingFang SC",sans-serif; cursor:pointer;
+  transition:all .15s;
+}
+.sb2-kb-pager-btn:hover{ background:var(--sb2-s3); border-color:var(--sb2-border-strong); }
+.sb2-kb-pager-btn.active{ background:var(--sb2-ink); color:var(--sb2-s1); border-color:var(--sb2-ink); }
+.sb2-kb-pager-btn:disabled{ opacity:.4; cursor:not-allowed; }
+.sb2-kb-pager-btn:disabled:hover{ background:var(--sb2-s1); border-color:var(--sb2-border); }
+.sb2-kb-pager-ellipsis{
+  padding:0 4px; color:var(--sb2-t3); font:400 12px/1 "PingFang SC",sans-serif;
+}
 .sb2-kb-card{
   /* 〔fix/sb2-side-restore 19 轮批注①〕知识库卡片改水平对齐原型 line 768
      原型 line 768: card-pad + flex gap 14px align-items:center (title-meta 左, tags 右)
@@ -12095,21 +12116,33 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
 .sb2-kb-modal-footer .sb2-btn-danger{ margin-right:auto; }
 
 /* —— MVP4: 详情右滑面板 (只读先行) —— */
+/* 〔fix/sb2-side-restore 22 轮批注③〕详情抽屉改居中弹窗 720px:
+   — 修前 (MVP4): position fixed top:48 right:0 width:480px, 右滑抽屉
+   — 修后 (22 轮): 居中弹窗 left:50% top:50% + translate(-50%,-50%) + width:720px + max-height:80vh
+   — 边框改 1px 四边 (删 border-left 抽屉样式) + 圆角 r-lg + 阴影改居中弹窗款
+   — 层叠自检: 弹窗 z-90 > 侧栏 z-80 > 壳 1 (transform 建 stacking context 但 z-90 跟 z-80 不同级仍赢)
+   — DOM/JS 开/关 classList.add/remove('open') 不动, 纯 CSS 改
+   — 动画改 fade+scale (slide-in 抽屉专属动画已废, 不影响其他模块) */
 .sb2-kb-detail-panel{
-  position:fixed; top:48px; right:0; width:480px; max-width:90vw;
-  height:calc(100vh - 48px); z-index:90;
-  background:var(--sb2-s1); border-left:1px solid var(--sb2-border);
-  box-shadow:-8px 0 24px rgba(0,0,0,.04);
+  position:fixed; left:50%; top:50%; transform:translate(-50%,-50%);
+  width:720px; max-width:90vw; height:auto; max-height:80vh;
+  z-index:90;
+  background:var(--sb2-s1); border:1px solid var(--sb2-border);
+  border-radius:var(--sb2-r-lg);
+  box-shadow:0 12px 40px rgba(0,0,0,.12);
   display:none; flex-direction:column; overflow:hidden;
-  animation:sb2-kb-slide-in .25s ease;
+  animation:sb2-kb-fade-scale-in .25s ease;
 }
 .sb2-kb-detail-panel.open{ display:flex; }
-@keyframes sb2-kb-slide-in{
-  from{ transform:translateX(100%); }
-  to{ transform:translateX(0); }
+@keyframes sb2-kb-fade-scale-in{
+  from{ opacity:0; transform:translate(-50%,-50%) scale(.96); }
+  to{ opacity:1; transform:translate(-50%,-50%) scale(1); }
 }
 .sb2-kb-detail-overlay{
-  position:fixed; inset:48px 0 0 0; z-index:89;
+  /* 〔fix/sb2-side-restore 22 轮批注③〕遮罩改 inset:0 全屏 (含顶栏后方, 视觉吞掉整个 viewport):
+     — 修前 inset:48px 0 0 0 (顶栏位置不遮, 抽屉 slide 视觉配套)
+     — 修后 inset:0 (居中弹窗配套, 全屏遮罩更稳) */
+  position:fixed; inset:0; z-index:89;
   background:rgba(10,10,14,.3); display:none;
   animation:sb2-kb-fade-in .2s ease;
 }
@@ -12130,7 +12163,11 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
 }
 .sb2-kb-detail-close:hover{ background:var(--sb2-s3); color:var(--sb2-t1); }
 .sb2-kb-detail-body{
-  padding:20px; overflow-y:auto; flex:1; min-height:0;
+  /* 〔fix/sb2-side-restore 22 轮批注③〕正文 max-height 60vh + 内部滚动:
+     — 修前 (MVP4): flex:1 (占满抽屉剩余高度 ~calc(100vh-48-114)=viewport-162)
+     — 修后 (22 轮): flex:1 + max-height:60vh (跟面板 max-height:80vh 嵌套, 正文 ~75% 面板高, 留 20% 给 footer)
+     — 内容超长时 body 内部滚动, 面板不动 */
+  padding:20px; overflow-y:auto; flex:1; min-height:0; max-height:60vh;
   display:flex; flex-direction:column; gap:18px;
 }
 .sb2-kb-meta-grid{
@@ -13768,7 +13805,7 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
 <div class="sb2-knowledge-main" id="sb2KnowledgeMain">
   <div class="sb2-kb-hero">
     <div>
-      <h1 class="sb2-kb-hero-title">知识库</h1>
+      <h1 class="sb2-kb-hero-title" id="sb2KbHeroTitle">知识库</h1>
       <div class="sb2-kb-hero-sub" id="sb2KbHeroSub">载入中…</div>
     </div>
     <div class="sb2-kb-hero-actions">
@@ -40505,6 +40542,16 @@ var _sb2KbCats = null;
 var _sb2KbEntries = [];
 var _sb2KbActiveCat = 'all';
 var _sb2KbActiveScope = 'all';
+/* 〔fix/sb2-side-restore 22 轮批注②〕前端分页状态:
+   — _sb2KbPage = 当前页 (1-based, chips/scope/搜索变化回 1)
+   — _SB2_KB_PAGE_SIZE = 每页 20 (固定, 不暴露设置)
+   — 全量 _sb2KbEntries 已循环拉 limit=100&offset=N 至全, 无需服务端再做 */
+var _sb2KbPage = 1;
+var _SB2_KB_PAGE_SIZE = 20;
+/* 〔fix/sb2-side-restore 22 轮批注①〕init 标志位 (防 sb2KbSubmit/sb2KbDeleteEntry 调 sb2KbInit 重入时 hero 闪烁)
+   — 初始 false, sb2KbInit 末尾置 true
+   — 预留后续 hooks 守卫用 (现未消费, 文档先行) */
+var _sb2KbInit = false;
 
 async function sb2KbInit(){
   try {
@@ -40515,13 +40562,35 @@ async function sb2KbInit(){
 
     // ★ MVP3 撤硬编码: 走 apiFetch 纯 Bearer (admin token 在 prod 已验证返 migrated kbmig_* 全量数据)
     //   之前 X-Agent-Id: knowledge_admin 是工作库 DB 快照较旧导致的临时绕路, 硬编码 agent 身份换环境会埋雷
+    /* 〔fix/sb2-side-restore 22 轮批注②〕全量拉取 (前端分页前置):
+       — cats + stats 并行先跑 (stats.total 决定 entries 循环终止条件)
+       — entries 循环 limit=100&offset=N (server 硬顶 100, 接口契约零改动) 至累积 >= stats.total
+       — 兼容兜底: stats.total 缺失 → 返回条数 < 100 即停
+       — 合并 docs 进 _sb2KbEntries (跟 r19 卡片渲染 + r19 chips 现场聚合共用同一份全量, 不造第二份)
+       — 服务端契约零改动, 纯 client 循环 */
     var catsP = apiFetch('/api/knowledge/categories').then(function(r){return r.json();}).catch(function(){return {categories:[]};});
-    var entriesP = apiFetch('/api/knowledge/entries?limit=50&offset=0').then(function(r){return r.json();}).catch(function(){return {docs:[]};});
     var statsP = apiFetch('/api/knowledge/stats').then(function(r){return r.json();}).catch(function(){return {};});
-
-    var [catsData, entriesData, statsData] = await Promise.all([catsP, entriesP, statsP]);
+    var [catsData, statsData] = await Promise.all([catsP, statsP]);
     _sb2KbCats = (catsData && catsData.categories) || [];
-    _sb2KbEntries = (entriesData && (entriesData.docs || entriesData.entries)) || [];
+    var statsRoot = (statsData && statsData.stats) ? statsData.stats : statsData;
+    var _kbExpectedTotal = (typeof statsRoot.total === 'number') ? statsRoot.total : null;
+    var _kbFetchPageSize = 100;
+    var allDocs = [];
+    while (true) {
+      var _off = allDocs.length;
+      var _r = await apiFetch('/api/knowledge/entries?limit=' + _kbFetchPageSize + '&offset=' + _off).catch(function(){return null;});
+      var _b = _r ? await _r.json().catch(function(){return {};}) : {};
+      var _d = (_b && (_b.docs || _b.entries)) || [];
+      allDocs = allDocs.concat(_d);
+      if (_d.length < _kbFetchPageSize) break;
+      if (_kbExpectedTotal !== null && allDocs.length >= _kbExpectedTotal) break;
+      if (typeof _b.total === 'number' && allDocs.length >= _b.total) break;
+    }
+    _sb2KbEntries = allDocs;
+    /* 〔fix/sb2-side-restore 22 轮批注②〕拉取后重置分页状态: 新一轮全量后回第 1 页
+       — 跟 chips/scope 切换重置规则一致
+       — sb2KbInit 完整刷新 (新建/编辑/删除后调用) 用同一入口 */
+    _sb2KbPage = 1;
 
     /* 〔fix/sb2-side-restore commit 16+17〕16 轮批注③打回链修正 (真数据链路):
        — commit 16 改接 _sb2KbCats (sb2 loader 真路径, 整链路 trace)
@@ -40531,7 +40600,7 @@ async function sb2KbInit(){
          — chunks 数: stats.totalChunks (server 真字段, commit 17 加的, 不用 byCategory 求和)
        副标 = total + ' 条 · ' + totalChunks + ' chunks' (跟 sb2KbRenderHero line 40361 同文案)
        时序重渲挂在 sb2KbInit 三个 render 调用之后, _sb2KbInit=true 前 (不是 loadKnowledge) */
-    var statsRoot = (statsData && statsData.stats) ? statsData.stats : statsData;
+    /* statsRoot 已在 22 轮批注②循环拉取前置处定义 (line ~40523), 复用同 var 不重声明 */
     /* 文档总数: stats.total (server kb_entry_stats 真字段, commit 17 server 加的跨端兼容老客户端) */
     var totalEntries = (typeof statsRoot.total === 'number') ? statsRoot.total : _sb2KbEntries.length;
     /* chunks 总数: stats.totalChunks (server kb_entry_stats 真字段, commit 17 加的,
@@ -40558,6 +40627,11 @@ async function sb2KbInit(){
     sb2KbRenderHero(statsRoot || {}, _sb2KbEntries);
     sb2KbRenderChips(_sb2KbCats, _sb2KbEntries);
     sb2KbRenderList(_sb2KbEntries);
+    /* 〔fix/sb2-side-restore 22 轮批注①〕初始化 hero 标题 (默认态 = 「全部知识」)
+       — sb2KbInit 末尾 _sb2KbInit=true 前调一次 (spec line 16)
+       — _sb2KbInit 标志位: 防 init 重入 (现有 sb2KbSubmit / sb2KbDeleteEntry 调 sb2KbInit 重复触发时, 跳过 hero re-render 防闪烁) */
+    _sb2KbInit = true;
+    sb2KbUpdateHeroTitle();
 
     /* 〔fix/sb2-side-restore commit 16〕时序重渲 (不是 loadKnowledge, 是 sb2KbInit 三个 render 后):
        — 复用既有 window.renderSideFor (line 45979, 已挂 window 跨块访问)
@@ -40586,6 +40660,43 @@ function sb2KbRenderHero(stats, entries){
   var total = (stats && stats.total) || entries.length || 0;
   var chunks = (stats && stats.totalChunks) || 0;
   sub.textContent = total + ' 条 · ' + chunks + ' chunks · 语义检索已切换';
+}
+
+/* 〔fix/sb2-side-restore 22 轮批注①〕hero 标题动态化 (方案 A)
+   — 老大拍板: hero 跟随 _sb2KbActiveCat 动态变化 (侧栏 label「知识库」模块名 + hero 内容名 语义错开)
+   — 纯 DOM textContent 更新, 不造第二个渲染入口
+   — 复用点 (写明避免后人漏挂):
+     ① sb2KbInit 末尾 (初始化默认态 = 全部知识)
+     ② sb2KbRenderChips click handler (chips 选中切换后挂)
+     ③ 侧栏回调 SB2_SIDE_RENDERERS.knowledge 走到 switchKnowledgeCategory(...) 时也可调 (当前 switchKnowledgeCategory 未定义, 不阻塞)
+   — 标题规则:
+     * _sb2KbActiveCat === 'all' → '全部知识' (无英文 "All", 跟原版中文界面一致)
+     * 其他 → 取 _sb2KbCats 真字段 name (扁平树走 c.name, 树状递归 children.name 同样拿到)
+     * 兜底: _sb2KbActiveCat 原值 (避免分类被删除后 hero 显示 undefined) */
+function sb2KbUpdateHeroTitle(){
+  var hero = document.getElementById('sb2KbHeroTitle');
+  if (!hero) return;
+  if (_sb2KbActiveCat === 'all') {
+    hero.textContent = '全部知识';
+    return;
+  }
+  /* 兼容 chips / 侧栏两路传入:
+     — chips 选中后 _sb2KbActiveCat = data-sb2-kb-cat attribute (catMap 的 cname 字符串)
+     — 侧栏传入的是 c.id (kb_category_tree 真字段, 字符串/数字混合, 见 line 46535)
+     — 用 catId → name 反查: _sb2KbCats 树状递归找 c.id === catId, 取 c.name */
+  var name = null;
+  var _cats = (Array.isArray(_sb2KbCats)) ? _sb2KbCats : null;
+  function _walk(arr){
+    (arr || []).forEach(function(c){
+      if (name) return;
+      if (c && (String(c.id) === String(_sb2KbActiveCat) || (c.name && c.name === _sb2KbActiveCat))) {
+        name = (c.name || c.display_name || '').trim();
+      }
+      if (Array.isArray(c && c.children) && c.children.length) _walk(c.children);
+    });
+  }
+  if (_cats) _walk(_cats);
+  hero.textContent = name || _sb2KbActiveCat || '全部知识';
 }
 
 function sb2KbRenderChips(cats, entries){
@@ -40631,6 +40742,10 @@ function sb2KbRenderChips(cats, entries){
         el.querySelectorAll('[data-sb2-kb-cat]').forEach(function(b){ b.classList.remove('active'); });
         catBtn.classList.add('active');
         sb2KbFilterList();
+        /* 〔fix/sb2-side-restore 22 轮批注①〕hero 标题跟随选中分类动态化
+           — 复用既有 chips click handler (不造第二个渲染入口)
+           — sb2KbUpdateHeroTitle 读 _sb2KbActiveCat 真值 → 反查 _sb2KbCats name */
+        sb2KbUpdateHeroTitle();
       } else if (scopeBtn) {
         _sb2KbActiveScope = scopeBtn.getAttribute('data-sb2-kb-scope') || 'all';
         el.querySelectorAll('[data-sb2-kb-scope]').forEach(function(b){ b.classList.remove('active'); });
@@ -40640,9 +40755,46 @@ function sb2KbRenderChips(cats, entries){
     });
     el._sb2KbBound = true;
   }
+  /* 〔fix/sb2-side-restore 22 轮批注②〕分页按钮委托:
+     — 修法: 委托到 #sb2KbList 容器 (pager 渲染在容器内), 不放 chips 容器 (chips 容器是 #sb2KbChips, 隔离)
+     — 修前 bug (撤回): 写错挂到 chips 容器, 点击 pager 无效
+     — _sb2KbPagerBound flag 防重绑
+     — 切页走 sb2KbFilterList 重渲列表 (不动 _sb2KbEntries 全量) */
+  var listEl = document.getElementById('sb2KbList');
+  if (listEl && !listEl._sb2KbPagerBound) {
+    listEl.addEventListener('click', function(ev){
+      var btn = ev.target.closest('[data-sb2-kb-page-go]');
+      if (!btn || btn.disabled) return;
+      var go = btn.getAttribute('data-sb2-kb-page-go');
+      var target = _sb2KbPage;
+      if (go === 'prev') target = _sb2KbPage - 1;
+      else if (go === 'next') target = _sb2KbPage + 1;
+      else target = parseInt(go, 10) || 1;
+      if (target === _sb2KbPage) return;
+      _sb2KbPage = target;
+      /* 〔fix/sb2-side-restore 22 轮批注②〕修前 bug 撤回:
+         — sb2KbFilterList 头一行 _sb2KbPage = 1 (chips/scope 重置规则), 跟 pager 冲突
+         — 修法: 直接 _sb2KbDoFilter() 跳过重置 (重置只在 chips/scope 切换时需要)
+         — pager 走当前 _sb2KbPage 不变, renderList 内部 cur 兜底 clamp 到 valid range */
+      _sb2KbDoFilter();
+    });
+    listEl._sb2KbPagerBound = true;
+  }
 }
 
 function sb2KbFilterList(){
+  /* 〔fix/sb2-side-restore 22 轮批注②〕chips / scope 切换 → 重置分页回第 1 页
+     — 跟 spec 重置规则一致 (chips 筛选 / scope 切换 / 搜索变化 → 回第 1 页再渲染)
+     — 搜索: 现行无 knowledge 专属搜索 (走顶栏 ⌘K), 无需 reset 钩入点
+     — pager 切页走 _sb2KbDoFilter() 跳过重置 (不回到第 1 页) */
+  _sb2KbPage = 1;
+  _sb2KbDoFilter();
+}
+
+/* 〔fix/sb2-side-restore 22 轮批注②〕pager 切页专用 filter (不重置 page):
+   — 走 _sb2KbActiveCat/_sb2KbActiveScope 当前值过滤 → sb2KbRenderList 渲染
+   — 抽出来防 sb2KbFilterList 重置覆盖 pager 设的 page (修前 bug: pager 切页被 filter 重置回 1) */
+function _sb2KbDoFilter(){
   var byCat = (_sb2KbActiveCat === 'all') ? _sb2KbEntries : _sb2KbEntries.filter(function(e){
     return (e.category || e.category_name || '') === _sb2KbActiveCat;
   });
@@ -40652,6 +40804,53 @@ function sb2KbFilterList(){
   sb2KbRenderList(byScope);
 }
 
+/* 〔fix/sb2-side-restore 22 轮批注②〕前端分页: 把 _sb2KbPage 转成「‹ 1 2 3 … N ›」HTML 段
+   — 规则 (spec line 28):
+     * 总页 ≤ 7 全显
+     * 超出 → 首 (1) + 尾 (N) + 当前 (current) + 当前左右各 1 + 省略号
+   — 风格 token: var(--sb2-s1) 底 / var(--sb2-ink) 选中 / var(--sb2-r-sm) 圆角 / 12px 字号 (跟 chips 一致)
+   — onclick: 走 .sb2-kb-pager-btn [data-sb2-kb-page] 属性拿目标页, 委托 .sb2-kb-list 容器 (pager 在容器内)
+   — 总页 1: 不渲染 (避免单页多此一举) */
+function _sb2KbBuildPager(totalItems){
+  var totalPages = Math.max(1, Math.ceil(totalItems / _SB2_KB_PAGE_SIZE));
+  if (totalPages <= 1) return '';
+  var cur = Math.min(Math.max(1, _sb2KbPage || 1), totalPages);
+  var pages = [];
+  if (totalPages <= 7) {
+    for (var i = 1; i <= totalPages; i++) pages.push(i);
+  } else {
+    var set = {};
+    [1, totalPages, cur - 1, cur, cur + 1].forEach(function(p){
+      if (p >= 1 && p <= totalPages) set[p] = true;
+    });
+    var prev = 0;
+    Object.keys(set).map(Number).sort(function(a,b){return a-b;}).forEach(function(p){
+      if (prev && p - prev > 1) pages.push('…');
+      pages.push(p);
+      prev = p;
+    });
+  }
+  var prevDisabled = cur <= 1 ? ' disabled' : '';
+  var nextDisabled = cur >= totalPages ? ' disabled' : '';
+  var html = '<nav class="sb2-kb-pager" aria-label="知识库分页">';
+  html += '<button class="sb2-kb-pager-btn" data-sb2-kb-page-go="prev"' + prevDisabled + ' aria-label="上一页">‹</button>';
+  pages.forEach(function(p){
+    if (p === '…') {
+      html += '<span class="sb2-kb-pager-ellipsis" aria-hidden="true">…</span>';
+    } else {
+      var activeCls = (p === cur) ? ' active' : '';
+      html += '<button class="sb2-kb-pager-btn' + activeCls + '" data-sb2-kb-page-go="' + p + '" aria-label="第 ' + p + ' 页" aria-current="' + (p === cur ? 'page' : 'false') + '">' + p + '</button>';
+    }
+  });
+  html += '<button class="sb2-kb-pager-btn" data-sb2-kb-page-go="next"' + nextDisabled + ' aria-label="下一页">›</button>';
+  html += '</nav>';
+  return html;
+}
+
+/* 〔fix/sb2-side-restore 22 轮批注②〕sb2KbRenderList 改渲染当前页切片 + pager
+   — 筛选后数组 entries 先按 _sb2KbPage 切片, 再走既有 .sb2-kb-card 模板 (DOM 跟 r19 水平布局一致, 不动)
+   — 切完追加 _sb2KbBuildPager(entries.length) 段 (总页 1 自动不渲染)
+   — 函数签名/调用处不改 (spec line 27 红线) */
 function sb2KbRenderList(entries){
   var el = document.getElementById('sb2KbList');
   if (!el) return;
@@ -40659,7 +40858,11 @@ function sb2KbRenderList(entries){
     el.innerHTML = '<div class="sb2-kb-empty">知识库当前为空, 点击右上「+ 新建知识」开始录入</div>';
     return;
   }
-  el.innerHTML = entries.map(function(e){
+  var cur = Math.min(Math.max(1, _sb2KbPage || 1), Math.max(1, Math.ceil(entries.length / _SB2_KB_PAGE_SIZE)));
+  if (_sb2KbPage !== cur) _sb2KbPage = cur;
+  var start = (cur - 1) * _SB2_KB_PAGE_SIZE;
+  var pageSlice = entries.slice(start, start + _SB2_KB_PAGE_SIZE);
+  var cardsHtml = pageSlice.map(function(e){
     var title = e.title || '(无标题)';
     var id = e.id || '';
     var chunks = ((e.chunk_count != null ? e.chunk_count : 0)) + ' chunks';
@@ -40694,6 +40897,9 @@ function sb2KbRenderList(entries){
       '</div>' +
     '</article>';
   }).join('');
+  /* 〔fix/sb2-side-restore 22 轮批注②〕分页条追加 (总页 1 自动不渲染, 见 _sb2KbBuildPager)
+     — pager 在 .sb2-kb-list 容器底部, 委托 [data-sb2-kb-page-go] 走 chips click handler 同源容器 */
+  el.innerHTML = cardsHtml + _sb2KbBuildPager(entries.length);
 }
 
 function _sb2ScopeLabel(s){
