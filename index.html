@@ -10163,6 +10163,16 @@ body.sb2-no-side .sb2-dash{ left:60px; }
   display:flex; align-items:center; padding:0 18px; gap:14px;
 }
 body.sb2-no-side .sb2-topbar{ left:60px; }
+/* 〔26 轮批注① 2026-10-06〕无 #side 模块 (lobster/tasks) 的 .app-container 还原 60px
+   修前: 全局 .app-container{ margin-left:296px } (line 10154) 只给有侧栏模块用,
+     lobster/tasks 隐藏 #sb2Side + body.sb2-no-side, 但 .app-container 缺 no-side 还原规则
+     → 内容区仍从 x=296 起, 轨旁空 236px 大空白 (老大批注「这个旁边留那么大空干嘛」)
+   修后: min-width:769px 时 no-side 模块 margin-left:60px, 跟 sb2-dash/sb2-topbar 同模式;
+     ≤768 走既有 .app-container{ margin-left:0 } (line 10137) 移动端回退不动
+   范围: 仅 body.sb2-no-side (lobster/tasks); 有侧栏模块 body 无此类, 选择器不命中零影响 */
+@media (min-width:769px){
+  body.sb2-no-side .app-container{ margin-left:60px; }
+}
 /* 〔18 轮批注②〕有侧栏模块 crumb display:none (lobster/tasks 无侧栏保留, 守卫 sb2-no-side) */
 .sb2-topbar-crumb{
   display:none; align-items:center; gap:6px;
