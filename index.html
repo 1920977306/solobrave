@@ -12075,7 +12075,10 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
   border:1px solid var(--sb2-border-strong);
   box-shadow:0 1px 3px rgba(24,24,27,.06), 0 1px 2px rgba(24,24,27,.04);
   /* 〔r36 批注〕去 1240 上限, 表格卡全宽 (对齐商品库全宽口径) */
-  width:100%; margin:0 auto;
+  /* 〔r39-8 批注〕表卡四边贴框 (老大: 也挨着框了/下面稍微长点别挨着下面)
+     补呼吸边距: 上 8 左右 20 (对齐 hero padding 20px 节奏), 下 20 (比上长, 不贴分页条)
+     width 必须 auto — 100% + 左右 margin 会横向溢出 */
+  width:auto; margin:8px 20px 20px;
 }
 .sb2-talents-table{
   width:100%; border-collapse:separate; border-spacing:0;
@@ -12963,6 +12966,8 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
   border-radius: var(--sb2-r-lg);
   background: var(--sb2-s1);
   box-shadow: var(--sb2-sh1);
+  /* 〔r39-8 批注〕后块与前块 (line 12064) 同选择器, 后定义赢;
+     margin 只在前块写一份生效, 此处不写避免双份漂移 */
 }
 .sb2-talents-table {
   width: 100%;
