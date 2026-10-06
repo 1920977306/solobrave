@@ -13476,7 +13476,8 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
   align-items: center;
   font: 500 var(--sb2-chat-injection-font-size)/1.4 "PingFang SC", sans-serif;
   padding: 3px 8px;
-  border-radius: var(--sb2-r-sm);
+  /* 〔r35〕21 轮批注③-1 规格: 照原型 tag r999 (原 r-sm 改 999px) */
+  border-radius: 999px;
   white-space: nowrap;
 }
 .sb2-chat-injection-chip.accent {
@@ -48273,10 +48274,22 @@ else init();
     }
 
     // 注入标签 chips (数据驱动, 禁止写死数字)
-    // 唯一真实字段: msg.citations (RAG 召回知识数组, 长度取自 sources)
-    // 记忆/规律字段后端未透传, 不渲染以免编造
+    // 〔r35 后端透传立项落地〕三色 pill 真数据源: msg.injectionTags (后端 commit 透传 + 落库,
+    //   历史消息刷新仍可见). 记忆 = core+daily+archive 合计 / 知识 = kb_entries 召回 / 规律 = patterns 命中
+    //   老消息无 injectionTags → 不渲染 (只丢不造); 0 条不渲染 (避免满屏零 pill)
     var chipsHtml = '';
-    if (!isUser && msg && Array.isArray(msg.citations) && msg.citations.length > 0) {
+    if (!isUser && msg && msg.injectionTags && typeof msg.injectionTags === 'object') {
+      var _it = msg.injectionTags;
+      var _mem = (_it.memory && typeof _it.memory === 'object') ? _it.memory : {};
+      var _memTotal = (_mem.core || 0) + (_mem.daily || 0) + (_mem.archive || 0);
+      var _itHtml = '';
+      if (_memTotal > 0) _itHtml += '<span class="sb2-chat-injection-chip accent">🧠 记忆 ' + _memTotal + ' 条</span>';
+      if ((_it.knowledge || 0) > 0) _itHtml += '<span class="sb2-chat-injection-chip brand">📄 知识 ' + _it.knowledge + ' 条</span>';
+      if ((_it.pattern || 0) > 0) _itHtml += '<span class="sb2-chat-injection-chip gold">🧩 规律 ' + _it.pattern + ' 条</span>';
+      if (_itHtml) chipsHtml = '<div class="sb2-chat-injection-chips">' + _itHtml + '</div>';
+    }
+    // 老链路兼容: citations (RAG 召回数组) — 仅在无 injectionTags 时兜底, 不双渲染
+    if (!chipsHtml && !isUser && msg && Array.isArray(msg.citations) && msg.citations.length > 0) {
       chipsHtml = '<div class="sb2-chat-injection-chips">'
         + '<span class="sb2-chat-injection-chip brand">📄 召回 ' + msg.citations.length + ' 条知识</span>'
         + '</div>';
@@ -48520,11 +48533,18 @@ else init();
         placeholderEl.textContent = replyText;
         placeholderEl.classList.remove('sb2-chat-bubble-cursor');
       }
-      _sb2Chat.messages.push({
+      // 〔r35〕透传 injectionTags 进内存消息: 本轮 pill 立即渲染; 历史刷新走服务端落库字段
+      var _pushMsg = {
         role: 'assistant',
         content: replyText,
         timestamp: new Date().toISOString()
-      });
+      };
+      if (reply && reply.aiMessage && reply.aiMessage.injectionTags) {
+        _pushMsg.injectionTags = reply.aiMessage.injectionTags;
+      } else if (reply && reply.injectionTags) {
+        _pushMsg.injectionTags = reply.injectionTags;
+      }
+      _sb2Chat.messages.push(_pushMsg);
     } catch (e) {
       console.error('[sb2_doSend]', e);
       if (placeholderEl) placeholderEl.textContent = '-';
