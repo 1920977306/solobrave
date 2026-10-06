@@ -9985,6 +9985,19 @@ window.doLogin = function () {
   --sb2-sh2:0 1px 3px rgba(0,0,0,.35),0 4px 12px rgba(0,0,0,.25);
   --sb2-sh3:0 8px 30px rgba(0,0,0,.5);
 }
+/* 〔r39-3 暗黑修复〕老模块变量暗黑板 (AI 办公室老 chat UI / 设置 / 用户管理等用 --bg-primary 家族,
+   值对齐 sb2 暗黑板 + 飞书暗黑习惯色; 存量 [data-theme="dark"] 规则如聊天气泡自动生效) */
+[data-theme="dark"]{
+  --bg:#101013; --surface:#17171B; --border:#2A2A31;
+  --text-primary:#F4F4F5; --text-muted:#A7A7B3;
+  --bg-primary:#17171B; --bg-secondary:#1C1C21; --bg-tertiary:#232329; --bg-sidebar:#101013;
+  --text-secondary:#A7A7B3; --text-tertiary:#63636E;
+  --separator:#2A2A31;
+  --accent-light:rgba(59,91,253,.15);
+  --card-shadow:0 1px 3px rgba(0,0,0,.3);
+  --shadow-card:0 1px 3px rgba(0,0,0,.3);
+  --shadow-modal:0 10px 40px rgba(0,0,0,.5);
+}
 
 /* —— 图标轨 (通顶: 18 轮批注①, 顶部 y=0 h=940 对齐原型) —— */
 .sb2-rail{
@@ -26237,13 +26250,21 @@ function toggleTheme() {
 }
 function applyTheme() {
   const root = document.documentElement;
-  if (themeScheme === 'dark') {
+  /* 〔r39-3 暗黑修复〕根因: sb2 暗黑色板挂在 [data-sb2-theme="dark"] (index.html:9974),
+     本函数只写 data-theme → 暗黑板永远不命中, 按钮空转。
+     修法: 按最终生效主题 (auto 解析系统偏好) 双属性同步:
+     - data-sb2-theme="dark" → sb2 壳 (--sb2-* 全套)
+     - data-theme="dark"     → 老模块变量 + 聊天气泡等存量 [data-theme="dark"] 规则 */
+  let effective = themeScheme;
+  if (themeScheme === 'auto') {
+    effective = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  }
+  if (effective === 'dark') {
     root.setAttribute('data-theme', 'dark');
-  } else if (themeScheme === 'auto') {
-    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-    root.setAttribute('data-theme', prefersDark ? 'dark' : 'light');
+    root.setAttribute('data-sb2-theme', 'dark');
   } else {
     root.removeAttribute('data-theme');
+    root.removeAttribute('data-sb2-theme');
   }
 }
 function initTheme() {
