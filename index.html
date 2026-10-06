@@ -43428,20 +43428,33 @@ var _sb2PdsProducts = []; var _sb2PdsTotal = 0;
 var _sb2PdsCat = ''; var _sb2PdsStatus = ''; var _sb2PdsBrand = '';
 var _sb2PdsQ = ''; var _sb2PdsSort = 'default'; var _sb2PdsPage = 1;
 var _sb2PdsBrands = [];
+var _sb2PdsShrink = 0; /* r34.3 一次性收缩锁: 实测行高超预期溢出时减一页重渲, 防递归 */
 
 function _sb2PdsPageSize(){
+  /* 〔fix/sb2-side-restore r34.3 协调人代补〕直接量几何, 取代 magic number 预留:
+     24 轮 v2 口径「每页装满视口不滚动」— 旧版 reserved 常数 12+56 与真实 pager/行高错位,
+     实测 10 行 617px > wrap 579px (溢 38px)。现按 hero/filter/pager 真实 rect 量剩余高度 */
+  if (_sb2PdsShrink) return _sb2PdsShrink;
   var main = document.getElementById('sb2ProductsMain');
   if (!main) return 10;
   var mcs = getComputedStyle(main);
-  var padV = (parseFloat(mcs.paddingTop) || 0) + (parseFloat(mcs.paddingBottom) || 0);
-  var hero = main.querySelector('.sb2-pds-hero');
-  var filter = main.querySelector('.sb2-pds-filter');
+  var borderT = parseFloat(mcs.borderTopWidth) || 0;
+  var padB = parseFloat(mcs.paddingBottom) || 0;
+  var wrap = main.querySelector('.sb2-pds-table-wrap');
+  var pager = main.querySelector('.sb2-pds-pager');
   var sampleRow = main.querySelector('.sb2-pds-table tbody tr');
   var rowH = sampleRow ? sampleRow.offsetHeight : 44;
   var pitch = rowH + 1;
-  var reserved = padV + (hero ? hero.offsetHeight : 52) + (filter ? filter.offsetHeight : 48) + 12 + 56;
-  var avail = main.clientHeight - reserved;
-  return Math.max(10, Math.floor(avail / pitch));
+  var mainTop = main.getBoundingClientRect().top;
+  var wrapTop = wrap ? (wrap.getBoundingClientRect().top - mainTop - borderT) : 112;
+  var wrapMt = wrap ? (parseFloat(getComputedStyle(wrap).marginTop) || 0) : 0;
+  var pagerH = 44;
+  if (pager) {
+    var pcs = getComputedStyle(pager);
+    pagerH = pager.getBoundingClientRect().height + (parseFloat(pcs.marginTop) || 0) + (parseFloat(pcs.marginBottom) || 0) + 8;
+  }
+  var avail = main.clientHeight - wrapTop - wrapMt - pagerH - padB - 4;
+  return Math.max(5, Math.floor(avail / pitch));
 }
 
 function sb2PdsUpdateHeroTitle(){
@@ -43581,6 +43594,26 @@ function sb2PdsRender(){
   });
 
   sb2PdsBuildPager(filtered.length, pageSize, pager);
+  /* 〔r34.3〕行高实测收敛: 渲染后若表格溢出 (首渲无样本行, fallback 44px 常低估双行名称行高),
+     一次性减一页重渲; _sb2PdsShrink 锁防递归, 重渲后归零 */
+  var wrapEl = main.querySelector('.sb2-pds-table-wrap');
+  if (wrapEl && _sb2PdsShrink === 0 && wrapEl.scrollHeight > wrapEl.clientHeight && pageSize > 5) {
+    _sb2PdsShrink = pageSize - 1;
+    sb2PdsRender();
+    _sb2PdsShrink = 0;
+  }
+  /* 〔r34.3〕resize 200ms 防抖重算页尺寸 (对齐 knowledge 24 轮 v2 口径, 不重拉数据) */
+  if (!window._sb2PdsResizeBound) {
+    window._sb2PdsResizeBound = true;
+    var _sb2PdsRsT = null;
+    window.addEventListener('resize', function(){
+      clearTimeout(_sb2PdsRsT);
+      _sb2PdsRsT = setTimeout(function(){
+        var m = document.getElementById('sb2ProductsMain');
+        if (m && m.classList.contains('active') && _sb2PdsProducts.length) sb2PdsRender();
+      }, 200);
+    });
+  }
 }
 
 function _sb2PdsSparkPath(seed){
