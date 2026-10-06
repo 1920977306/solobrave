@@ -34488,7 +34488,7 @@ function renderProductPanelDetail(p) {
     html += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px;">';
     videos.forEach(function(v){
       var hasUrl = v.url && /^https?:\/\//.test(v.url);
-      html += '<div style="border:1px solid #EBEBEB;border-radius:10px;overflow:hidden;background:#fff;' + (hasUrl ? 'cursor:pointer;' : '') + '"' + (hasUrl ? ' onclick="window.open(\'' + escapeAttr(v.url) + '\',\'_blank\')"' : '') + '>';
+      html += '<div style="border:1px solid var(--sb2-border,#EBEBEB);border-radius:10px;overflow:hidden;background:var(--sb2-s1,#fff);' + (hasUrl ? 'cursor:pointer;' : '') + '"' + (hasUrl ? ' onclick="window.open(\'' + escapeAttr(v.url) + '\',\'_blank\')"' : '') + '>';
       if (v.cover) {
         html += '<div style="width:100%;aspect-ratio:16/9;background:#F5F5F5;"><img src="' + escapeAttr(v.cover) + '" style="width:100%;height:100%;object-fit:cover;" onerror="this.parentNode.style.display=\'none\';"></div>';
       } else {
@@ -40276,7 +40276,7 @@ function closeMatchModal() {
 </div>
 
 <!-- Bottom Connection Status Bar -->
-<div id="connectionStatusBar" style="position:fixed;bottom:0;left:56px;right:0;height:28px;background:#ffffff;border-top:1px solid var(--separator);display:flex;align-items:center;justify-content:flex-start;padding:0 16px;font-size:12px;color:#86909c;z-index:100;">
+<div id="connectionStatusBar" style="position:fixed;bottom:0;left:56px;right:0;height:28px;background:var(--sb2-s1,#ffffff);border-top:1px solid var(--sb2-border,var(--separator,#e5e6eb));display:flex;align-items:center;justify-content:flex-start;padding:0 16px;font-size:12px;color:var(--sb2-t3,#86909c);z-index:100;">
   <span id="connStatusText">⟳ 服务连接中…</span>
 </div>
 
@@ -45377,7 +45377,7 @@ function renderCreditDashboard(balances, quotas, todayRecords, summary) {
       var pct = Math.min(Math.round(todayUsed / denom * 100), 100);
       var lowBalance = (acc.balance || 0) <= 0;
       var safeName = String(a.name).replace(/'/g, "\\'");
-      html += '<div style="border:0.5px solid rgba(0,0,0,0.08);border-radius:12px;padding:14px;background:#fff;">';
+      html += '<div style="border:0.5px solid var(--sb2-border,rgba(0,0,0,0.08));border-radius:12px;padding:14px;background:var(--sb2-s1,#fff);">';
       html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">';
       html += '<div style="font-size:14px;font-weight:600;color:var(--text-primary);">' + escapeHtml(a.name) + '</div>';
       if (admin) {
