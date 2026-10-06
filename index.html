@@ -13396,7 +13396,9 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
   flex-direction: column;
   position: absolute;
   top: 38px;
-  bottom: 18px;
+  /* 〔r39-9 批注〕壳底缝 18 → 40 (老大对照原版: 输入条没有挨着底部)
+     原版 .content 底 padding sp-7 48px, 卡悬空; 底缝加大后输入条整体离屏底更远 */
+  bottom: 40px;
   /* 〔21 轮批注③-4 2026-10-06 协调人代改〕left: 60px → 0 (18 轮批注④ v4 遗留锚点解除)
      探针实测: .sb2-side fixed left:60 w:236 (60..296), .app-main 起于 x=296 (左缘 60px 区域空置无元素)
      → left:60 锚点已无对象可让, 纯制造左 71px / 右 11px 不对称灰缝
