@@ -46790,6 +46790,13 @@ function sb2RailUserMenu(){
     + '<div class="sb2-rail-menu-item" data-act="profile">个人信息</div>'
     + '<div class="sb2-rail-menu-item" data-act="ai">切换 AI</div>'
     + '<div class="sb2-rail-menu-item" data-act="search">全局搜索</div>'
+    /* 〔r39-2 老系统功能保留〕对齐老用户菜单 (legacy #userDropdown line 14018):
+       新建对话全员可见; 用户管理/安全工具 admin-only (isAdmin 门控, 跟 legacy 一致) */
+    + '<div class="sb2-rail-menu-item" data-act="newchat">新建对话</div>'
+    + (typeof isAdmin === 'function' && isAdmin()
+        ? '<div class="sb2-rail-menu-item" data-act="usermgmt">用户管理</div>'
+        + '<div class="sb2-rail-menu-item" data-act="security">安全工具</div>'
+        : '')
     + '<div class="sb2-rail-menu-item" data-act="settings">设置</div>'
     + '<div class="sb2-rail-menu-div"></div>'
     + '<div class="sb2-rail-menu-item danger" data-act="logout">退出登录</div>';
@@ -46803,6 +46810,9 @@ function sb2RailUserMenu(){
     if (act === 'profile' && typeof showUserProfile === 'function') showUserProfile();
     else if (act === 'ai' && typeof showAISwitcher === 'function') showAISwitcher();
     else if (act === 'search' && typeof openGlobalSearch === 'function') openGlobalSearch();
+    else if (act === 'newchat' && typeof startNewChat === 'function') startNewChat();
+    else if (act === 'usermgmt' && typeof showUserManagement === 'function') showUserManagement();
+    else if (act === 'security' && typeof showSecurityTools === 'function') showSecurityTools();
     else if (act === 'settings') sb2Go('settings');
     else if (act === 'logout' && typeof confirmLogout === 'function') confirmLogout();
   });
