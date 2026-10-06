@@ -11893,13 +11893,18 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
 #talentsMainItems,
 #navInfluencers{ display:none !important; }
 
+/* 〔fix/sb2-side-restore 20 轮批注③〕知识库 hero 副标对照原型 line 533-538
+   修前: 标题 lh1.2 + 副标 12px/lh1.3/mt4px (与主区 13px 字体混同, 副标样式不独立)
+   修后: 标题 600 24px/lh1.25 + 副标 400 13px/lh1.5/var(--sb2-t3)/mt2px (对照原型)
+   范围: 仅 .sb2-kb-hero-title + .sb2-kb-hero-sub, 不动 .sb2-kb-hero / .sb2-kb-hero-actions / chips / 卡片 / 侧栏
+   副标文案保留 prod 现「N 条 · M chunks · 语义检索已切换」(用 stats.total + stats.totalChunks 真字段, 不搬原型演示文案「新表 kb_entries」) */
 .sb2-kb-hero{ display:flex; align-items:center; gap:12px; margin-bottom:16px; }
 .sb2-kb-hero-title{
-  font:600 24px/1.2 "PingFang SC",sans-serif; color:var(--sb2-ink);
+  font:600 24px/1.25 "PingFang SC",sans-serif; color:var(--sb2-ink);
   margin:0; letter-spacing:-0.01em;
 }
 .sb2-kb-hero-sub{
-  font:400 12px/1.3 "PingFang SC",sans-serif; color:var(--sb2-t3); margin-top:4px;
+  font:400 13px/1.5 "PingFang SC",sans-serif; color:var(--sb2-t3); margin-top:2px;
 }
 .sb2-kb-hero-actions{ margin-left:auto; display:flex; gap:8px; }
 
