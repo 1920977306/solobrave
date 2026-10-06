@@ -11973,6 +11973,12 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
 .sb2-kb-pager{
   display:flex; gap:4px; align-items:center; justify-content:center;
   padding:14px 0 4px;
+  /* 〔23 轮批注④ 2026-10-06 协调人代改〕分页器吸底 (老大 10:42「没有下一页啊」)
+     修前: pager 在 .sb2-kb-list 流尾 — 容器 scrollH 1833 / 视高 484 (prod 探针实测),
+     要滚 1300px+ 过全部 20 卡才见 → 老大以为没有下一页
+     修法: sticky bottom:0 钉在容器可视底 (最近滚动祖先 .sb2-knowledge-main overflow-y:auto);
+     底色 --sb2-bg 不透明, 卡片滚到下面被遮住不穿越 */
+  position:sticky; bottom:0; background:var(--sb2-bg);
 }
 .sb2-kb-pager-btn{
   min-width:28px; height:28px; padding:0 8px; border:1px solid var(--sb2-border);
