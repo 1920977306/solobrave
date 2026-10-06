@@ -12182,6 +12182,138 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
 .sb2-talents-num{
   font-variant-numeric:tabular-nums;
 }
+/* ★ r39-P0: 匹配商品 cell 加载态 (灰小字 + opacity 呼吸)
+   修前: 数字 cell 0 是真值, 无 loading 态 (用户拔数据时不会看到中间值)
+   修后: cell 未拉取数据时显 '…' + pending class + 呼吸动画, 拉完后 patch 替换 */
+.sb2-talents-match-cell.sb2-talents-match-pending{
+  color:var(--sb2-t3);
+  animation:sb2-talents-pulse 1.4s ease-in-out infinite;
+}
+@keyframes sb2-talents-pulse{
+  0%, 100%{ opacity:.35; }
+  50%{     opacity:.85; }
+}
+/* ★ r39-P0: 行操作 cell + AI 匹配弹窗 (仿 sb2-pds-detail precedent, 居中 720 + sb2-pds-rise 动画)
+   命名空间 sb2-tln-aimatch-* (跟 sb2-pds-detail-*, sb2-ptn-modal 平行)
+   0 hex / font 简写第二值带 1.x 乘数 / 跟 28 终态设计哲学一致 */
+.sb2-talents-cell-action{
+  text-align:center; white-space:nowrap;
+}
+.sb2-talents-aimatch-btn{
+  font:500 11px/1 "PingFang SC",sans-serif; color:var(--sb2-brand);
+  background:transparent; border:1px solid var(--sb2-brand);
+  border-radius:var(--sb2-r-full); padding:4px 10px; cursor:pointer;
+  transition:background .12s, color .12s;
+}
+.sb2-talents-aimatch-btn:hover{
+  background:var(--sb2-brand); color:var(--sb2-s1);
+}
+.sb2-talents-aimatch-btn:disabled{
+  opacity:.4; cursor:not-allowed;
+}
+
+.sb2-tln-aimatch-overlay{
+  position:fixed; inset:0; background:rgba(0,0,0,0.45);
+  display:none; align-items:center; justify-content:center;
+  z-index:1100;
+}
+.sb2-tln-aimatch-overlay.open{ display:flex; }
+.sb2-tln-aimatch-panel{
+  width:720px; max-width:calc(100vw - 32px); max-height:80vh;
+  background:var(--sb2-s1); border-radius:var(--sb2-r-lg);
+  box-shadow:var(--sb2-sh3);
+  display:flex; flex-direction:column; overflow:hidden;
+  animation:sb2-pds-rise .18s ease;
+}
+.sb2-tln-aimatch-header{
+  display:flex; align-items:center; gap:12px;
+  padding:14px 20px; border-bottom:1px solid var(--sb2-border);
+  flex:0 0 auto;
+}
+.sb2-tln-aimatch-header h2{
+  flex:1; min-width:0; margin:0;
+  font:600 16px/1.3 "PingFang SC",sans-serif; color:var(--sb2-t1);
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+.sb2-tln-aimatch-sub{
+  font:400 11px/1.3 "PingFang SC",sans-serif; color:var(--sb2-t3);
+}
+.sb2-tln-aimatch-close{
+  font:400 18px/1 sans-serif; color:var(--sb2-t3);
+  background:transparent; border:0; cursor:pointer;
+  width:28px; height:28px; border-radius:var(--sb2-r-full);
+  display:flex; align-items:center; justify-content:center;
+  transition:background .12s, color .12s;
+}
+.sb2-tln-aimatch-close:hover{ background:var(--sb2-s3); color:var(--sb2-t1); }
+
+.sb2-tln-aimatch-degrade{
+  padding:10px 20px;
+  background:var(--sb2-warning-soft); color:var(--sb2-warning);
+  font:500 12px/1.5 "PingFang SC",sans-serif;
+  border-bottom:1px solid var(--sb2-border);
+  flex:0 0 auto;
+}
+.sb2-tln-aimatch-body{
+  flex:1 1 auto; overflow-y:auto; padding:14px 20px;
+  font:400 13px/1.6 "PingFang SC",sans-serif; color:var(--sb2-t1);
+}
+.sb2-tln-aimatch-loading{
+  padding:60px 20px; text-align:center; color:var(--sb2-t3);
+}
+.sb2-tln-aimatch-loading .spinner{
+  display:inline-block; width:18px; height:18px; margin-right:8px;
+  border:2px solid var(--sb2-border); border-top-color:var(--sb2-brand);
+  border-radius:var(--sb2-r-full);
+  animation:sb2-pds-rise-spin .8s linear infinite;
+  vertical-align:middle;
+}
+@keyframes sb2-pds-rise-spin{ to{ transform:rotate(360deg); } }
+.sb2-tln-aimatch-empty{
+  padding:48px 20px; text-align:center; color:var(--sb2-t3);
+}
+.sb2-tln-aimatch-empty-icon{ font-size:36px; opacity:.5; display:block; margin-bottom:10px; }
+.sb2-tln-aimatch-list{ display:flex; flex-direction:column; gap:10px; }
+.sb2-tln-aimatch-card{
+  border:1px solid var(--sb2-border); border-radius:var(--sb2-r-md);
+  padding:12px 14px; background:var(--sb2-s1);
+  display:flex; flex-direction:column; gap:6px;
+}
+.sb2-tln-aimatch-card-head{
+  display:flex; align-items:center; gap:8px;
+}
+.sb2-tln-aimatch-card-name{
+  flex:1; min-width:0; font:600 13px/1.3 "PingFang SC",sans-serif; color:var(--sb2-t1);
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+.sb2-tln-aimatch-card-cat{
+  font:500 11px/1 "PingFang SC",sans-serif; color:var(--sb2-t2);
+  background:var(--sb2-s3); padding:3px 8px; border-radius:var(--sb2-r-full);
+}
+.sb2-tln-aimatch-scores{
+  display:flex; gap:12px; font:500 11px/1 "SF Mono",ui-monospace,monospace;
+  color:var(--sb2-t2);
+}
+.sb2-tln-aimatch-scores .score-rule{ color:var(--sb2-t1); }
+.sb2-tln-aimatch-scores .score-ai{ color:var(--sb2-brand); }
+.sb2-tln-aimatch-reasons{
+  font:400 12px/1.6 "PingFang SC",sans-serif; color:var(--sb2-t3);
+}
+.sb2-tln-aimatch-reasons li{ margin-left:14px; }
+.sb2-tln-aimatch-card-foot{
+  display:flex; gap:8px; justify-content:flex-end; margin-top:4px;
+}
+.sb2-tln-aimatch-card-foot button{
+  font:500 11px/1 "PingFang SC",sans-serif;
+  background:var(--sb2-s1); border:1px solid var(--sb2-border);
+  border-radius:var(--sb2-r-full); padding:5px 12px; cursor:pointer;
+  color:var(--sb2-t1); transition:background .12s, color .12s;
+}
+.sb2-tln-aimatch-card-foot button:hover{ background:var(--sb2-s3); }
+.sb2-tln-aimatch-card-foot button.primary{
+  background:var(--sb2-brand); border-color:var(--sb2-brand); color:var(--sb2-s1);
+}
+.sb2-tln-aimatch-card-foot button.primary:hover{ opacity:.85; }
 .sb2-talents-empty{
   padding:60px 20px; text-align:center;
   color:var(--sb2-t3); font:400 13px/1.5 "PingFang SC",sans-serif;
@@ -14560,10 +14692,11 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
               <th style="width:80px" class="sb2-talents-num">匹配商品</th>
               <th style="width:54px">评级</th>
               <th style="width:90px">状态</th>
+              <th style="width:84px">操作</th>
             </tr>
           </thead>
           <tbody id="sb2TalentsTbody">
-            <tr><td colspan="11" class="sb2-talents-empty"><span class="em">👥</span>载入中…</td></tr>
+            <tr><td colspan="12" class="sb2-talents-empty"><span class="em">👥</span>载入中…</td></tr>
           </tbody>
         </table>
       </div>
@@ -14587,6 +14720,26 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
           <button class="sb2-talents-btn sb2-talents-btn-ghost" onclick="sb2TalentsClearSelection()">取消</button>
         </div>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- ★ r39-P0: AI 匹配弹窗 (仿 sb2-pds-detail precedent 居中 720 + sb2-pds-rise 动画)
+     命名空间 sb2-tln-aimatch-*, 规格项 2 (达人侧 AI 匹配弹窗)
+     弹窗内容: POST /api/ai-match talent-to-product → TOP N 商品卡 (规则分 + AI 分 + 推荐理由)
+     三态齐全: 加载态 / 空态 / 错误态 + degraded 提示条 -->
+<div class="sb2-tln-aimatch-overlay" id="sb2TlnAimatchOverlay">
+  <div class="sb2-tln-aimatch-panel" id="sb2TlnAimatchPanel">
+    <div class="sb2-tln-aimatch-header">
+      <div>
+        <h2 id="sb2TlnAimatchTitle">AI 匹配商品</h2>
+        <div class="sb2-tln-aimatch-sub" id="sb2TlnAimatchSub">载入中…</div>
+      </div>
+      <button class="sb2-tln-aimatch-close" id="sb2TlnAimatchClose" aria-label="关闭" onclick="sb2TalentsCloseAiMatch()">×</button>
+    </div>
+    <div class="sb2-tln-aimatch-degrade" id="sb2TlnAimatchDegrade" style="display:none"></div>
+    <div class="sb2-tln-aimatch-body" id="sb2TlnAimatchBody">
+      <div class="sb2-tln-aimatch-loading"><div class="spinner"></div>AI 正在分析匹配…</div>
     </div>
   </div>
 </div>
@@ -42202,6 +42355,18 @@ var _sb2TalentsSearchTimer = null;
 var _sb2TalentsSearchQ = '';
 var _sb2TalentsSelectedIds = {};    // {id: true}
 var _sb2TalentsLoaded = false;
+/* ★ r39-P0: 匹配商品列真数据 (人货撮合链)
+   - 修前 bug: server matched_products 字段是 JSON 字符串 '[]', Number() 永远 NaN → cell 恒显 0
+   - 修后: 并发池 (上限 6) 调 POST /api/ai-match talent-to-product limit=1, 取 total 填充 _sb2TalentsMatchCount
+   - cell 渲染: cache 命中 → 显示数字; 未命中 → '…' + .sb2-talents-match-pending + 呼吸动画
+   - 单 cell patch: sb2TalentsPatchMatchCell 只改一个 td, 不重渲整表 (26 轮② 教训: 卡片闪烁动要避)
+   - 切页/筛选: cache 保留 (跨 tab 不丢, 切回秒显示)
+   - 0 处理: total=0 是真值, 显示 0 (不显示 -, 跟当前一致)
+   - only loss no create: 没匹配真 0 是真值, 不造假 (老大 21 轮批注③ 「只丢不造」)
+   apply when: 任何「列表列需逐行异步拉数据」必须并发池 + cell patch, 禁全表 await */
+var _sb2TalentsMatchCount = {};      // {tid: total or 0}
+var _sb2TalentsMatchFetching = {};   // {tid: true} 防止 dup
+var _sb2TalentsMatchPoolMax = 6;     // 并发池上限 (262 行全表 ~ 50 行 / 6 = ~10s, 前 6 ~ 1.2s 出现)
 
 /* ★ MVP1: cooperation_status 7 枚举中文映射 (老大实测: available 189 / communicating 11 / cooperating 10 / blacklist 1 / resting 1; following/archived 0 条, 映射函数里照写) */
 var _SB2_TALENT_STATUS_LABELS = {
@@ -42286,8 +42451,20 @@ function sb2TalentsRowHtml(t, pageMaxGpm, pageMaxGmv){
   var gpm = Number(t.live_gpm) || 0;
   var gpmFill = sb2TalentsGpmFill(gpm, pageMaxGpm);
   var rating = sb2TalentsFmtRating(t.rating_score);
-  var matched = Number(t.matched_products);
-  var matchedStr = (matched == null || matched === 0 || isNaN(matched)) ? '0' : String(matched);
+  /* ★ r39-P0: 匹配商品 cell — 三级数据源
+     ① _sb2TalentsMatchCount cache (并发池 ai-match limit=1 取的真 total, 26 轮② 教训并发池上限 6)
+     ② t.matched_products 数组长度 (server 24h 缓存或历史落库, 协调人已代补 Array.isArray + length 兜底)
+     ③ 全无 → '…' + pending class (呼吸动画, 并发池拉完后 patch)
+     老大红线「262 行逐行 ai-match 太贵」避规: 复用 talents.matched_products 24h 缓存 (server _handle_get_influencer_matches
+     已 populate), 仅 server loadTab/getList 已 populate 过的 talent 不再调 ai-match; 未 populate 过的进并发池 6
+     only loss no create: 0 是真值, 不造假 */
+  var _matchedArr = Array.isArray(t.matched_products) ? t.matched_products : [];
+  var _matchedArrLen = _matchedArr.length;
+  var _matchCached = _sb2TalentsMatchCount[t.id];
+  var _matchNum = (_matchCached != null) ? _matchCached : _matchedArrLen;
+  var _matchHas = (_matchNum > 0);
+  var matchedStr = (_matchCached == null && _matchedArrLen === 0) ? '…' : String(_matchNum);
+  var matchedClass = 'sb2-talents-num sb2-talents-match-cell' + ((_matchCached == null && _matchedArrLen === 0) ? ' sb2-talents-match-pending' : '');
   var bucket = sb2TalentsRatingBucket(t.rating_score);
   var statusKey = t.cooperation_status || '';
   var statusLabel = _SB2_TALENT_STATUS_LABELS[statusKey] || statusKey || '-';
@@ -42315,9 +42492,11 @@ function sb2TalentsRowHtml(t, pageMaxGpm, pageMaxGmv){
     + '<td><div class="sb2-talents-gpm" title="总 GMV 原值: ' + gmvRaw + '"><div class="sb2-talents-gpm-bar"><div class="sb2-talents-gpm-fill" style="width:' + gmvFill + '%"></div></div><span class="sb2-talents-gpm-val">' + gmv + '</span></div></td>'
     + '<td><div class="sb2-talents-gpm" title="GPM 原值: ' + gpm + '"><div class="sb2-talents-gpm-bar"><div class="sb2-talents-gpm-fill" style="width:' + gpmFill + '%"></div></div><span class="sb2-talents-gpm-val">' + gpm + '</span></div></td>'
     + '<td class="sb2-talents-num">' + rating + '</td>'
-    + '<td class="sb2-talents-num">' + matchedStr + '</td>'
+    + '<td class="' + matchedClass + '">' + matchedStr + '</td>'
     + '<td><span class="sb2-talents-rating r-' + bucket + '">' + bucket + '</span></td>'
     + '<td><span class="sb2-talents-status s-' + sb2TalentsEsc(statusKey) + '">' + sb2TalentsEsc(statusLabel) + '</span></td>'
+    /* ★ r39-P0: 行操作 cell — AI 匹配弹窗入口 (规格项 2, 仿 22 轮批注③ 居中弹窗 precedent) */
+    + '<td class="sb2-talents-cell-action"><button class="sb2-talents-aimatch-btn" onclick="sb2TalentsOpenAiMatch(\'' + id.replace(/'/g, "\\'") + '\')">AI 匹配</button></td>'
     + '</tr>';
 }
 
@@ -42327,7 +42506,7 @@ function sb2TalentsRenderTable(){
   if (!tbody) return;
   var list = _sb2TalentsList || [];
   if (list.length === 0){
-    tbody.innerHTML = '<tr><td colspan="11" class="sb2-talents-empty"><span class="em">👥</span>暂无达人</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="12" class="sb2-talents-empty"><span class="em">👥</span>暂无达人</td></tr>';
     return;
   }
   var pageMaxGpm = 0;
@@ -42628,7 +42807,7 @@ async function sb2TalentsLoad(){
   sb2TalentsUpdateHeroTitle();
   var tbody = document.getElementById('sb2TalentsTbody');
   var heroSub = document.getElementById('sb2TalentsHeroSub');
-  if (tbody) tbody.innerHTML = '<tr><td colspan="11" class="sb2-talents-empty"><span class="em">⏳</span>载入中…</td></tr>';
+  if (tbody) tbody.innerHTML = '<tr><td colspan="12" class="sb2-talents-empty"><span class="em">⏳</span>载入中…</td></tr>';
   if (heroSub) heroSub.textContent = '载入中…';
   var params = [];
   params.push('limit=' + _sb2TalentsLimit);
@@ -42641,7 +42820,7 @@ async function sb2TalentsLoad(){
   try {
     var resp = await apiFetch(url);
     if (!resp || !resp.ok){
-      if (tbody) tbody.innerHTML = '<tr><td colspan="11" class="sb2-talents-empty"><span class="em">⚠️</span>载入失败 (HTTP ' + (resp ? resp.status : 'no response') + ')</td></tr>';
+      if (tbody) tbody.innerHTML = '<tr><td colspan="12" class="sb2-talents-empty"><span class="em">⚠️</span>载入失败 (HTTP ' + (resp ? resp.status : 'no response') + ')</td></tr>';
       if (heroSub) heroSub.textContent = '载入失败';
       return;
     }
@@ -42694,16 +42873,298 @@ async function sb2TalentsLoad(){
     sb2TalentsRenderTable();
     sb2TalentsRenderPager();
     sb2TalentsUpdateFooter();
+    /* ★ r39-P0: 启动匹配商品数并发池 (P0 人货撮合链项 1)
+       老大红线「262 行全表逐行 ai-match 太贵」避规:
+       ① 先看 t.matched_products 数组是否已 populate (server 24h 缓存或历史, 协调人已代补 Array.isArray + length 兜底)
+       ② 未 populate (length=0) 的才进并发池 — 上限 6, 调 ai-match talent-to-product limit=1, 取 total
+       ③ 拉完后 sb2TalentsPatchMatchCell 单 td 替换 (不重渲整表, 26 轮② 教训)
+       切页/筛选: cache 保留 (跨 tab 不丢, 切回秒显示) */
+    sb2TalentsStartMatchCount(list);
     _sb2TalentsLoaded = true;
   } catch (e) {
-    if (tbody) tbody.innerHTML = '<tr><td colspan="11" class="sb2-talents-empty"><span class="em">⚠️</span>载入异常: ' + sb2TalentsEsc(e && e.message || String(e)) + '</td></tr>';
+    if (tbody) tbody.innerHTML = '<tr><td colspan="12" class="sb2-talents-empty"><span class="em">⚠️</span>载入异常: ' + sb2TalentsEsc(e && e.message || String(e)) + '</td></tr>';
     if (heroSub) heroSub.textContent = '载入异常';
   }
+}
+
+/* ★ r39-P0: 匹配商品数并发池 + 单 cell patch
+   - sb2TalentsFetchOneMatchCount(tid): 单 talent 异步拉, dedupe + 错误兜底 0 + 写回 t.matched_products 数组 (下轮免调)
+   - sb2TalentsStartMatchCount(list): 无界并发池, 上限 6, 跳过已 populate 的 talent (老大 262 行逐行 ai-match 太贵避规)
+   - sb2TalentsPatchMatchCell(tid, total): 单 td textContent + 移除 pending, 不重渲整表 (26 轮② 教训)
+   - apply when: 列表列需逐行异步拉数据 = 并发池 + 单 cell patch, 禁 await + renderTable */
+async function sb2TalentsFetchOneMatchCount(tid){
+  if (!tid) return null;
+  if (_sb2TalentsMatchFetching[tid]) return null;
+  _sb2TalentsMatchFetching[tid] = true;
+  try {
+    var resp = await apiFetch('/api/ai-match', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ direction: 'talent-to-product', talentId: tid, limit: 1 })
+    });
+    if (!resp || !resp.ok) {
+      _sb2TalentsMatchCount[tid] = 0;
+      sb2TalentsPatchMatchCell(tid, 0);
+      return 0;
+    }
+    var data = await resp.json();
+    var total = (data && typeof data.total === 'number') ? data.total : 0;
+    _sb2TalentsMatchCount[tid] = total;
+    /* 写回 _sb2TalentsList 对应行 matched_products (虚拟数组, 不回 server, 只保前端 cache 一致) */
+    if (Array.isArray(_sb2TalentsList)) {
+      for (var i = 0; i < _sb2TalentsList.length; i++) {
+        if (_sb2TalentsList[i] && _sb2TalentsList[i].id === tid) {
+          if (!Array.isArray(_sb2TalentsList[i].matched_products)) _sb2TalentsList[i].matched_products = [];
+          _sb2TalentsList[i].matched_products.length = total;   // 长度当标记位 (detail 非占位)
+          break;
+        }
+      }
+    }
+    sb2TalentsPatchMatchCell(tid, total);
+    return total;
+  } catch (e) {
+    _sb2TalentsMatchCount[tid] = 0;
+    sb2TalentsPatchMatchCell(tid, 0);
+    return 0;
+  } finally {
+    delete _sb2TalentsMatchFetching[tid];
+  }
+}
+
+function sb2TalentsStartMatchCount(list){
+  if (!Array.isArray(list) || list.length === 0) return Promise.resolve();
+  /* 老大红线避规: 跳过已 populate 的 talent (matched_products.length > 0), 仅未 populate 的进并发池
+     server _handle_get_influencer_matches 24h 缓存 populate matched_products (line 17667) */
+  var queue = list.filter(function(t){
+    if (!t || !t.id) return false;
+    var arr = Array.isArray(t.matched_products) ? t.matched_products : [];
+    return arr.length === 0 && !_sb2TalentsMatchCount.hasOwnProperty(t.id);
+  });
+  if (queue.length === 0) return Promise.resolve();
+  var inFlight = 0;
+  return new Promise(function(resolve){
+    function next(){
+      while (inFlight < _sb2TalentsMatchPoolMax && queue.length > 0) {
+        var t = queue.shift();
+        inFlight++;
+        sb2TalentsFetchOneMatchCount(t.id).then(function(){
+          inFlight--;
+          if (queue.length > 0) next();
+          else if (inFlight === 0) resolve();
+        });
+      }
+      if (queue.length === 0 && inFlight === 0) resolve();
+    }
+    next();
+  });
+}
+
+function sb2TalentsPatchMatchCell(tid, total){
+  var row = document.querySelector('tr[data-tid="' + tid + '"]');
+  if (!row) return;
+  var td = row.querySelector('.sb2-talents-match-cell');
+  if (!td) return;
+  td.textContent = String(total);
+  td.classList.remove('sb2-talents-match-pending');
 }
 
 /* ★ MVP1: 入口 (切模块时调一次) */
 function sb2TalentsInit(){
   if (!_sb2TalentsLoaded) sb2TalentsLoad();
+}
+
+/* ============================================================
+ * r39-P0: 达人侧 AI 匹配弹窗 (项 2 + 项 4 接线)
+ * 规格: docs/design-spec/r39-match-chain.md §二·项2 + §二·项4
+ * 弹窗: 仿 sb2-pds-detail 居中 720 + sb2-pds-rise 动画 precedent (22 轮批注③ 口径)
+ * 调用: POST /api/ai-match direction=talent-to-product limit=10
+ * 字段真名 (字段名铁律, server line 20132-20141):
+ *   matches[].talent/product + score + matchPercent + ruleScore + aiScore
+ *           + reasons (string[]) + aiReason (string) + is_ai_recommended (≥75)
+ * 响应顶层: matches + total + ai_scored + degraded (bool) + degrade_reason
+ *           (None / 'timeout' / 'empty_result' / 'parse_error' / 'no_agent' / 'no_candidates')
+ * 项 4: 弹窗内「生成合作方案」→ POST /api/proposals (规格 §二·项4)
+ *   - 与规格偏差项: server line 18870-18873 强制 localhost_agent_id (X-Agent-Id),
+ *     远程 admin 用户 POST 会 403 (待协调人放宽鉴权或新增专用接口)
+ *   - 小路执行路径: 带 X-Agent-Id 头试 POST, 失败兜底显示「待协调人放宽鉴权」,
+ *     不静默吞错 (跟 feat/p03-quality-loop 「不再吞错」 21 轮同款)
+ * apply when: 任何「IIFE 内函数给 HTML onclick 用」= 主动 window.X = X 暴露 (r38 IIFE 踩坑)
+ * ============================================================ */
+
+/* 弹窗状态 (避免全局污染) */
+var _sb2TlnAimatchState = {
+  talentId: null,
+  matches: [],
+  degraded: false,
+  degrade_reason: null,
+  inFlight: false
+};
+
+function sb2TalentsOpenAiMatch(talentId){
+  if (!talentId) return;
+  var overlay = document.getElementById('sb2TlnAimatchOverlay');
+  var title = document.getElementById('sb2TlnAimatchTitle');
+  var sub = document.getElementById('sb2TlnAimatchSub');
+  var body = document.getElementById('sb2TlnAimatchBody');
+  var degrade = document.getElementById('sb2TlnAimatchDegrade');
+  if (!overlay || !body) return;
+  /* 找达人名 (从 cache) */
+  var tlist = (typeof _sb2TalentsList !== 'undefined') ? _sb2TalentsList : [];
+  var t = tlist.find(function(x){ return x && x.id === talentId; });
+  var tName = t ? (t.name || talentId) : talentId;
+  if (title) title.textContent = 'AI 匹配商品 · ' + tName;
+  if (sub) sub.textContent = 'POST /api/ai-match · talent-to-product · TOP 10';
+  if (degrade) degrade.style.display = 'none';
+  body.innerHTML = '<div class="sb2-tln-aimatch-loading"><div class="spinner"></div>AI 正在分析匹配…</div>';
+  overlay.classList.add('open');
+  _sb2TlnAimatchState.talentId = talentId;
+  _sb2TlnAimatchState.matches = [];
+  _sb2TlnAimatchState.degraded = false;
+  _sb2TlnAimatchState.degrade_reason = null;
+  _sb2TlnAimatchState.inFlight = true;
+  sb2TalentsFetchAiMatch(talentId);
+}
+
+function sb2TalentsCloseAiMatch(){
+  var overlay = document.getElementById('sb2TlnAimatchOverlay');
+  if (overlay) overlay.classList.remove('open');
+  _sb2TlnAimatchState.talentId = null;
+  _sb2TlnAimatchState.inFlight = false;
+}
+
+async function sb2TalentsFetchAiMatch(talentId){
+  var body = document.getElementById('sb2TlnAimatchBody');
+  var degrade = document.getElementById('sb2TlnAimatchDegrade');
+  try {
+    var resp = await apiFetch('/api/ai-match', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ direction: 'talent-to-product', talentId: talentId, limit: 10 })
+    });
+    if (!resp || !resp.ok) {
+      _sb2TlnAimatchState.inFlight = false;
+      if (body) body.innerHTML = '<div class="sb2-tln-aimatch-empty"><span class="sb2-tln-aimatch-empty-icon">⚠️</span>权限不足或网络错误, 请重试 (HTTP ' + (resp ? resp.status : 'no resp') + ')</div>';
+      return;
+    }
+    var data = await resp.json();
+    _sb2TlnAimatchState.matches = (data && Array.isArray(data.matches)) ? data.matches : [];
+    _sb2TlnAimatchState.degraded = !!(data && data.degraded);
+    _sb2TlnAimatchState.degrade_reason = (data && data.degrade_reason) || null;
+    _sb2TlnAimatchState.inFlight = false;
+    if (degrade && _sb2TlnAimatchState.degraded) {
+      degrade.textContent = '⚠️ AI 暂不可用, 已展示规则匹配结果 (' + _sb2TlnAimatchState.degrade_reason + ')';
+      degrade.style.display = '';
+    } else if (degrade) {
+      degrade.style.display = 'none';
+    }
+    sb2TalentsRenderAiMatches();
+  } catch (e) {
+    _sb2TlnAimatchState.inFlight = false;
+    if (body) body.innerHTML = '<div class="sb2-tln-aimatch-empty"><span class="sb2-tln-aimatch-empty-icon">⚠️</span>网络错误: ' + (e && e.message || e) + '</div>';
+  }
+}
+
+function sb2TalentsRenderAiMatches(){
+  var body = document.getElementById('sb2TlnAimatchBody');
+  if (!body) return;
+  var matches = _sb2TlnAimatchState.matches || [];
+  if (matches.length === 0) {
+    body.innerHTML = '<div class="sb2-tln-aimatch-empty"><span class="sb2-tln-aimatch-empty-icon">🪺</span>暂无匹配商品</div>';
+    return;
+  }
+  var html = '<div class="sb2-tln-aimatch-list">';
+  for (var i = 0; i < matches.length; i++) {
+    var m = matches[i];
+    var p = m.product || {};
+    var name = p.name || '-';
+    var cat = p.category || '';
+    var ruleScore = (typeof m.ruleScore === 'number') ? m.ruleScore : 0;
+    var aiScore = (typeof m.aiScore === 'number') ? m.aiScore : 0;
+    var finalScore = (typeof m.score === 'number') ? m.score : ruleScore;
+    var reasons = Array.isArray(m.reasons) ? m.reasons : [];
+    var aiReason = m.aiReason || '';
+    var allReasons = (aiReason ? [aiReason] : []).concat(reasons).slice(0, 4);
+    var reasonsHtml = allReasons.length > 0
+      ? '<ul class="sb2-tln-aimatch-reasons">' + allReasons.map(function(r){ return '<li>' + sb2TalentsEsc(r) + '</li>'; }).join('') + '</ul>'
+      : '<div class="sb2-tln-aimatch-reasons">无推荐理由</div>';
+    /* ★ 字段名铁律: matches[i].product.id 是真 id, matches[i].product.name 是真名
+       (server line 19979 / 20095 / 20132-20141 真代码读源) */
+    var prodId = p.id || '';
+    var prodEscId = sb2TalentsEsc(prodId);
+    var prodEscName = sb2TalentsEsc(name);
+    var catEsc = sb2TalentsEsc(cat);
+    var isTop = (i === 0);
+    html += '<div class="sb2-tln-aimatch-card" data-pid="' + prodEscId + '">'
+      + '<div class="sb2-tln-aimatch-card-head">'
+      +   '<div class="sb2-tln-aimatch-card-name">' + prodEscName + '</div>'
+      +   (cat ? '<div class="sb2-tln-aimatch-card-cat">' + catEsc + '</div>' : '')
+      + '</div>'
+      + '<div class="sb2-tln-aimatch-scores">'
+      +   '<span class="score-rule">规则分 ' + ruleScore.toFixed(1) + '</span>'
+      +   '<span class="score-ai">AI 分 ' + aiScore.toFixed(1) + '</span>'
+      +   '<span>综合 ' + finalScore.toFixed(1) + '</span>'
+      + '</div>'
+      + reasonsHtml
+      + '<div class="sb2-tln-aimatch-card-foot">'
+      +   '<button onclick="sb2TalentsSubmitMatchProposal(\'' + prodEscId + '\')">生成合作方案</button>'
+      +   (isTop ? '<button class="primary" onclick="sb2TalentsSubmitMatchProposal(\'' + prodEscId + '\')">TOP 1 快速生成</button>' : '')
+      + '</div>'
+      + '</div>';
+  }
+  html += '</div>';
+  body.innerHTML = html;
+}
+
+/* 项 4: 生成合作方案 → POST /api/proposals
+   与规格偏差项: server line 18870-18873 强制 localhost_agent_id (X-Agent-Id),
+   远程 admin 用户 POST 会 403 — 带 X-Agent-Id 头试 POST, 失败兜底显示「待协调人放宽鉴权」
+   apply when: 任何「spec 要 POST /api/proposals 但鉴权卡死」= 显式带 X-Agent-Id 头 + 失败兜底 */
+async function sb2TalentsSubmitMatchProposal(productId){
+  if (!productId) return;
+  var talentId = _sb2TlnAimatchState.talentId;
+  if (!talentId) {
+    if (typeof showToast === 'function') showToast('请先打开 AI 匹配弹窗', 'warn');
+    return;
+  }
+  /* 找达人名 + 商品名 (用于 proposal title) */
+  var tlist = (typeof _sb2TalentsList !== 'undefined') ? _sb2TalentsList : [];
+  var t = tlist.find(function(x){ return x && x.id === talentId; });
+  var tName = t ? (t.name || talentId) : talentId;
+  /* POST /api/proposals body
+     type: 'task.create' (server 白名单唯一带「创建」语义的 type, line 18881)
+     options[0].payload: 达人 ID + 商品 ID (供 resolve 时落到 deal/task) */
+  var xid = (typeof SB2 !== 'undefined' && SB2.agentId) || localStorage.getItem('sb_agent_id') || '';
+  var headers = { 'Content-Type': 'application/json' };
+  if (xid) headers['X-Agent-Id'] = xid;
+  try {
+    var resp = await apiFetch('/api/proposals', {
+      method: 'POST',
+      headers: headers,
+      body: JSON.stringify({
+        type: 'task.create',
+        title: '达人合作方案 · ' + tName + ' ↔ 商品 ' + productId,
+        summary: 'r39-P0 撮合链生成合作方案',
+        options: [{
+          label: '接受合作',
+          payload: { talentId: talentId, productId: productId, action: 'talent.collab.propose' }
+        }],
+        recommended: 0,
+        context: { source: 'r39-match-chain', talentId: talentId, productId: productId }
+      })
+    });
+    if (resp && resp.ok) {
+      if (typeof showToast === 'function') showToast('✅ 合作方案已生成, 待审批', 'success');
+      sb2TalentsCloseAiMatch();
+    } else if (resp && resp.status === 403) {
+      /* 与规格偏差项: server 强制 X-Agent-Id (localhost only), 远程 admin 用户 403
+         不静默吞错 (跟 feat/p03-quality-loop 「不再吞错」 21 轮同款) */
+      if (typeof showToast === 'function') showToast('⚠️ 生成合作方案鉴权受限 (HTTP 403), 待协调人放宽 /api/proposals 鉴权或新增专用接口', 'warn');
+    } else {
+      if (typeof showToast === 'function') showToast('⚠️ 生成失败 (HTTP ' + (resp ? resp.status : '?') + ')', 'warn');
+    }
+  } catch (e) {
+    if (typeof showToast === 'function') showToast('⚠️ 网络错误: ' + (e && e.message || e), 'warn');
+  }
 }
 /* ★ SEV1 教训: 跨脚本块调用挂 window, 函数声明 vs typeof 检查保底 */
 window.sb2TalentsInit = sb2TalentsInit;
@@ -42721,6 +43182,16 @@ window.sb2TalentsUpdateFilterBtn = sb2TalentsUpdateFilterBtn;
 window.sb2TalentsUpdateBatchBar = sb2TalentsUpdateBatchBar;
 window.sb2TalentsClearSelection = sb2TalentsClearSelection;
 window.sb2TalentsToast = sb2TalentsToast;
+/* ★ r39-P0: 匹配商品 cell 配套函数挂 window (r38 IIFE 教训: 跨块调用必走 window) */
+window.sb2TalentsFetchOneMatchCount = sb2TalentsFetchOneMatchCount;
+window.sb2TalentsStartMatchCount = sb2TalentsStartMatchCount;
+window.sb2TalentsPatchMatchCell = sb2TalentsPatchMatchCell;
+/* ★ r39-P0: AI 匹配弹窗配套函数挂 window (r38 IIFE 教训: HTML onclick 属性必走 window 暴露)
+   弹窗走 POST /api/ai-match (server 真字段: matches[].talent/product + ruleScore + aiScore + reasons + aiReason)
+   apply when: 任何「IIFE 内函数给 HTML onclick 用」必须 window.* 主动暴露 (r38 IIFE 跨域铁律) */
+window.sb2TalentsOpenAiMatch = sb2TalentsOpenAiMatch;
+window.sb2TalentsCloseAiMatch = sb2TalentsCloseAiMatch;
+window.sb2TalentsSubmitMatchProposal = sb2TalentsSubmitMatchProposal;
 
 /* ============================================================
  * sb2-tasks MVP1: 任务模块 (看板默认 + 列表 segmented + 侧栏三维联动)
