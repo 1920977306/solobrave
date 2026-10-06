@@ -47263,12 +47263,27 @@ else init();
         ? window.sb2PropRenderPlaceholder(_propTokenMatch[1]) : '';
     }
 
+    /* 〔fix/sb2-side-restore 21 轮批注③-2〕附件渲染 bug 修复
+       修前 bug: var src = _sb2EscapeHtml(images[j]) → 对象 .toString() = '[object Object]'
+         → 历史消息附件 <img src="[object Object]"> ×4 (无图片显示)
+       修法: 兼容字符串 + 对象两种形态
+         - 字符串: 原 base64 data URL, 直接用
+         - 对象 {base64|url|dataUrl|src}: 取字段 (前端上传返回 {base64, filename}, 见 compressImageToBase64 line 17284)
+       范围: 仅 .sb2-chat-bubble-images 渲染逻辑, 不动上传链路 (pendingImages 结构不变) */
     var imgHtml = '';
     if (images.length > 0) {
       imgHtml = '<div class="sb2-chat-bubble-images">';
       for (var j = 0; j < images.length; j++) {
-        var src = _sb2EscapeHtml(images[j]);
-        imgHtml += '<img class="sb2-chat-bubble-image" src="' + src + '" alt="attachment-' + j + '" />';
+        var _img = images[j];
+        var _src = '';
+        if (typeof _img === 'string') {
+          _src = _img;
+        } else if (_img && typeof _img === 'object') {
+          _src = _img.base64 || _img.url || _img.dataUrl || _img.src || '';
+        }
+        if (_src) {
+          imgHtml += '<img class="sb2-chat-bubble-image" src="' + _sb2EscapeHtml(_src) + '" alt="attachment-' + j + '" />';
+        }
       }
       imgHtml += '</div>';
     }
