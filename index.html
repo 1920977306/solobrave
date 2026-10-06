@@ -10163,6 +10163,14 @@ body.sb2-no-side .sb2-dash{ left:60px; }
   display:flex; align-items:center; padding:0 18px; gap:14px;
 }
 body.sb2-no-side .sb2-topbar{ left:60px; }
+/* 〔29 轮视口守卫 2026-10-06〕宿主窗口装不下布局视口时壳高锚 outerHeight
+   背景: 老大实测「消息界面没有输入框」— innerHeight 940 > window.outerHeight 883 (几何不合理,
+     宿主裁剪页面底部 ~57px+, 聊天输入框 (壳底 y=908) 落在可视面之外, 且 app 100vh overflow hidden
+     不可滚动 → 输入框永久不可见 (非启动瞬态, 25 轮「瞬态」判定被本证据推翻)
+   修法: JS 检测 outerHeight < innerHeight 时 body 加 sb2-vp-guard + --sb2-vh=outerHeight,
+     壳高 calc(var(--sb2-vh) - 48px), 输入框随壳底回移进可视区;
+     几何正常 (outerHeight ≥ innerHeight, 全平台桌面浏览器常态) 类名不挂, 零影响 */
+body.sb2-vp-guard .app-container{ height: calc(var(--sb2-vh, 100vh) - 48px); }
 /* 〔26 轮批注① 2026-10-06〕无 #side 模块 (lobster/tasks) 的 .app-container 还原 60px
    修前: 全局 .app-container{ margin-left:296px } (line 10154) 只给有侧栏模块用,
      lobster/tasks 隐藏 #sb2Side + body.sb2-no-side, 但 .app-container 缺 no-side 还原规则
@@ -46640,6 +46648,22 @@ function setActive(id){
 }
 
 /* ---------- 全局导出入口 ---------- */
+/* 〔29 轮视口守卫 2026-10-06〕innerHeight > outerHeight = 宿主窗口物理装不下布局视口,
+   页面底部被裁剪 (老大实测消息输入框不可见)。几何不合理时把壳高锚到 outerHeight。
+   resize 监听 (宿主窗口尺寸变化时重判) + 启动即跑一次 */
+window.sb2ViewportGuard = function(){
+  try {
+    var oh = window.outerHeight, ih = window.innerHeight;
+    var on = !!(oh && oh > 400 && oh < ih);
+    if (document.body) {
+      document.body.classList.toggle('sb2-vp-guard', on);
+      if (on) document.body.style.setProperty('--sb2-vh', oh + 'px');
+      else document.body.style.removeProperty('--sb2-vh');
+    }
+  } catch(e){}
+};
+window.addEventListener('resize', window.sb2ViewportGuard);
+window.sb2ViewportGuard();
 window.sb2Go = function(id){
   if (id === 'dashboard') { showDash(); renderSideFor('dashboard'); updateCrumb(); return; }
   hideDash();
