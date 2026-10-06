@@ -20800,12 +20800,20 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             else:
                 user_payload = content
             allowed_cats = _allowed_knowledge_categories(auth)
-            api_reply = _call_ai_api(
+            # 〔21 轮批注③-1 透传〕return_stats=True 拿注入条数；早期 return 路径（校验失败/无 key）
+            # 可能返回非 tuple，这里统一归一化，零条数也是真值不编造
+            _api_result = _call_ai_api(
                 agent, user_payload, auth.user_info, include_history=not is_extract,
                 allowed_knowledge_categories=allowed_cats,
                 requester_id=auth.user_id, is_admin=auth.is_admin, team_ids=auth.team_ids,
-                group_ids=auth.group_ids
+                group_ids=auth.group_ids,
+                return_stats=True
             )
+            _zero_tags = {'memory': {'core': 0, 'daily': 0, 'archive': 0}, 'knowledge': 0, 'pattern': 0}
+            if isinstance(_api_result, tuple):
+                api_reply, inj_tags = _api_result
+            else:
+                api_reply, inj_tags = _api_result, dict(_zero_tags)
             if api_reply:
                 logger.info(f'  [ChatPOST] {agent_id} api_reply_len={len(api_reply)} preview={repr(api_reply[:200])}')
                 # 解析并应用 AI 自修改标记，移除后保存到聊天记录
@@ -20868,6 +20876,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                     'content': cleaned_reply,
                     'timestamp': datetime.now().isoformat()
                 }
+                # 〔21 轮批注③-1 透传〕注入条数落库：历史消息刷新后 tag pill 仍可从 msg.injectionTags 读
+                if not is_extract:
+                    ai_message['injectionTags'] = inj_tags
                 if _emp_id:
                     ai_message['empId'] = _emp_id
                 # AI 回复落盘：锁内仅 reload+append+save（reload 防止锁外 AI 调用期间的新消息被覆盖；
@@ -20921,6 +20932,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                     agent_id
                 )
                 resp_data = {'userMessage': msg, 'aiMessage': ai_message, 'archived': archived_count}
+                # 〔21 轮批注③-1 透传〕响应级 injectionTags（前端 assistant 气泡三色 pill 数据源）
+                if not is_extract:
+                    resp_data['injectionTags'] = inj_tags
                 if credit_info:
                     resp_data['credit'] = credit_info
                 self._send_json(200, resp_data)
@@ -25483,15 +25497,24 @@ def _retrieve_entity_report_context(user_text, max_events=4, max_chars=6000, rec
         return ''
 
 
-def _retrieve_knowledge_context(user_text, agent_id='', auth=None):
+def _retrieve_knowledge_context(user_text, agent_id='', auth=None, return_stats=False):
     """检索 knowledge_events 中与本次提问相关的历史分析结论，格式化为注入文本。
     策略优先级：同实体历史 > 同类目相似分析 > embedding 语义兜底。
-    无匹配或异常时返回 ''（不注入任何内容）。"""
+    无匹配或异常时返回 ''（不注入任何内容）。
+    return_stats=True 时返回 (context, stats)，stats = {
+        'pattern': N,            # knowledge_patterns 真实注入条数
+        'knowledge_events': N,   # knowledge_events 真实注入条数
+    }（21 轮批注③-1 后端透传立项，条数按截断后实际注入计，不编造）"""
+    _empty_stats = {'pattern': 0, 'knowledge_events': 0}
+    def _wrap(ret, stats=None):
+        if return_stats:
+            return ret, (stats or _empty_stats)
+        return ret
     try:
         if not user_text or not isinstance(user_text, str):
-            return ''
+            return _wrap('')
         if not any(k in user_text.upper() for k in _KE_INJECT_KEYWORDS):
-            return ''
+            return _wrap('')
         entities = _extract_entities_from_text(user_text)
         picked = []        # [(event_row, label_prefix)]
         seen_ids = set()
@@ -25626,14 +25649,14 @@ def _retrieve_knowledge_context(user_text, agent_id='', auth=None):
                 plines.append(f"▶ {mark}{p['pattern_text']}（置信度: {conf:.0f}%）")
             parts.append('\n'.join(plines))
         if not parts:
-            return ''
+            return _wrap('')
         result = '\n\n'.join(parts)
         if len(result) > _KE_CONTEXT_MAX_LEN:
             result = result[:_KE_CONTEXT_MAX_LEN - 3] + '...'
-        return result
+        return _wrap(result, {'pattern': len(patterns), 'knowledge_events': (len(blocks) if blocks else 0)})
     except Exception as e:
         logger.error(f'  [KnowledgeInject] 检索失败: {e}')
-        return ''
+        return _wrap('')
 
 
 def _ke_event_to_list_item(r, score=None):
@@ -27140,8 +27163,17 @@ def _call_ai_for_json(prompt, agent, system_prompt=None, capture_reason=False):
 
 def _call_ai_api(agent, user_message, user_info=None, include_history=True, group_id=None,
                  allowed_knowledge_categories=None, requester_id=None, is_admin=False, team_ids=None,
-                 group_ids=None):
-    """通过代理调用 AI API（带记忆和上下文注入）"""
+                 group_ids=None, return_stats=False):
+    """通过代理调用 AI API（带记忆和上下文注入）
+    return_stats=True 时返回 (reply, injection_stats)，stats = {
+        'memory': {'core': N, 'daily': N, 'archive': N},
+        'knowledge': N,   # kb_entries 语义检索注入条数
+        'pattern': N,     # knowledge_patterns 命中条数
+    }（21 轮批注③-1 后端透传立项；注入失败/无命中时对应项为 0，不编造）"""
+    # 注入条数统计（透传前端三色 pill 数据源；全程累加，任一步失败保持已得值）
+    inj_stats = {'memory': {'core': 0, 'daily': 0, 'archive': 0}, 'knowledge': 0, 'pattern': 0}
+    def _wrap_reply(r):
+        return (r, inj_stats) if return_stats else r
     # AI 调用前校验：员工状态 + systemPrompt 身份约束
     ok, ai_err = _validate_agent_for_ai(agent)
     if not ok:
@@ -27194,7 +27226,9 @@ def _call_ai_api(agent, user_message, user_info=None, include_history=True, grou
             inject_config = dict(agent) if agent else None
             if inject_config and emb_cfg.get('model'):
                 inject_config['embeddingModel'] = emb_cfg['model']
-            system_prompt = ms3.inject_memories(
+            # 〔21 轮批注③-1 透传〕return_stats=True 拿真实注入条数（截断后计，不编造）；
+            # 失败时 inj_stats 保持已得值（core/daily/archive/knowledge 全 0 也是真值）
+            system_prompt, _mem_stats = ms3.inject_memories(
                 agent_id, system_prompt,
                 user_message=user_text,
                 api_key=emb_cfg['apiKey'] or api_key,
@@ -27203,7 +27237,13 @@ def _call_ai_api(agent, user_message, user_info=None, include_history=True, grou
                 allowed_knowledge_categories=allowed_knowledge_categories,
                 model=emb_cfg.get('model'),
                 base_url=emb_cfg.get('baseUrl'),
+                return_stats=True,
             )
+            try:
+                inj_stats['memory'] = _mem_stats.get('memory', inj_stats['memory'])
+                inj_stats['knowledge'] = _mem_stats.get('knowledge', 0)
+            except Exception:
+                pass
         except Exception as e:
             logger.error(f'  [MemoryInject] {agent_id} 注入失败: {e}')
 
@@ -27252,10 +27292,14 @@ def _call_ai_api(agent, user_message, user_info=None, include_history=True, grou
         # 注入知识事件检索结果（分析档案历史结论召回）
         if include_history:
             try:
-                ke_context = _retrieve_knowledge_context(user_text, agent_id, None)
+                ke_context, _ke_stats = _retrieve_knowledge_context(user_text, agent_id, None, return_stats=True)
                 if ke_context:
                     system_prompt += f'\n\n{ke_context}'
                     logger.info(f'  [KnowledgeInject] {agent_id} 注入知识事件上下文 {len(ke_context)} 字')
+                try:
+                    inj_stats['pattern'] = _ke_stats.get('pattern', 0)
+                except Exception:
+                    pass
             except Exception as e:
                 logger.error(f'  [KnowledgeInject] {agent_id} 注入失败: {e}')
 
@@ -27398,7 +27442,7 @@ def _call_ai_api(agent, user_message, user_info=None, include_history=True, grou
             f'双重 fallback 均失败（agent 配置 + settings.json 列表）'
         )
         return '⚠️ AI 服务暂时不可用，请稍后重试。如果问题持续，请联系管理员检查 API key 和网络。'
-    return result
+    return _wrap_reply(result)
 
 def _handle_delete_chat_message(self, agent_id, msg_id):
     """DELETE /api/chat/:agentId/:msgId?type=..."""

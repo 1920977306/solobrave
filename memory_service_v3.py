@@ -1968,7 +1968,7 @@ def inject_group_memories(group_id, system_prompt=''):
 
 def inject_memories(emp_id, system_prompt='', user_message='', api_key=None, provider='openai',
                     agent_config=None, allowed_knowledge_categories=None,
-                    model=None, base_url=None):
+                    model=None, base_url=None, return_stats=False):
     """
     为 AI 对话注入记忆，返回更新后的 system_prompt
     注入优先级：core（按priority+accessCount排序）→ daily（按时间倒序）→ archive（补充）→ knowledge（语义检索）
@@ -1976,6 +1976,10 @@ def inject_memories(emp_id, system_prompt='', user_message='', api_key=None, pro
     user_message: 当前用户消息，用于知识库语义检索
     api_key/provider/agent_config/model/base_url: 已废弃，保留签名兼容；实际使用全局 embedding 配置
     allowed_knowledge_categories: 知识库分类权限过滤（None 表示不限制）
+    return_stats: True 时返回 (system_prompt, stats) tuple，stats = {
+        'memory': {'core': N, 'daily': N, 'archive': N},  # 截断后真实注入条数
+        'knowledge': N,  # kb_entries 语义检索真实注入条数
+    }（21 轮批注③-1 后端透传立项；条数按截断后实际注入计，不编造）
     """
     cfg = MEMORY_V3_CONFIG
     data = load_memory(emp_id)
@@ -2062,25 +2066,29 @@ def inject_memories(emp_id, system_prompt='', user_message='', api_key=None, pro
         pass  # 降级：静默忽略知识库注入失败
 
     # 总注入量控制：不超过 3000 字符，超出按优先级截断（core > daily > archive > knowledge）
-    # 先构建所有 section，然后从低优先级开始截断
+    # 先构建所有 section（带原始条数），然后从低优先级开始截断
     sections = []
     if core_lines:
-        sections.append(('core', '【关于用户的记忆】\n' + '\n'.join(core_lines)))
+        sections.append(('core', '【关于用户的记忆】\n' + '\n'.join(core_lines), len(core_lines)))
     if daily_lines:
-        sections.append(('daily', '\n'.join(daily_lines)))
+        sections.append(('daily', '\n'.join(daily_lines), len(daily_lines)))
     if archive_lines:
-        sections.append(('archive', '\n'.join(archive_lines)))
+        sections.append(('archive', '\n'.join(archive_lines), len(archive_lines)))
     if kb_lines:
-        sections.append(('knowledge', '【相关知识库】\n' + '\n'.join(kb_lines)))
+        sections.append(('knowledge', '【相关知识库】\n' + '\n'.join(kb_lines), len(kb_lines)))
 
     # 计算总字符数，从低优先级开始截断
+    # injected_counts: 按截断后「真实注入行数」统计（含 section 头判定），供 return_stats 透传
+    _SEC_HAS_HEADER = ('core', 'knowledge')
+    injected_counts = {'core': 0, 'daily': 0, 'archive': 0, 'knowledge': 0}
     final_texts = []
     total_chars = 0
-    for sec_type, sec_text in sections:
+    for sec_type, sec_text, sec_count in sections:
         sec_len = len(sec_text)
         if total_chars + sec_len <= MAX_TOTAL_CHARS:
             final_texts.append(sec_text)
             total_chars += sec_len
+            injected_counts[sec_type] = sec_count
         else:
             # 超出限制，截断该 section 的行
             lines = sec_text.split('\n')
@@ -2093,6 +2101,8 @@ def inject_memories(emp_id, system_prompt='', user_message='', api_key=None, pro
                     break
             if keep_lines:
                 final_texts.append('\n'.join(keep_lines))
+                _hdr = 1 if (sec_type in _SEC_HAS_HEADER and keep_lines[0].startswith('【')) else 0
+                injected_counts[sec_type] = max(0, len(keep_lines) - _hdr)
             break  # 低优先级 section 直接丢弃
 
     if final_texts:
@@ -2105,6 +2115,16 @@ def inject_memories(emp_id, system_prompt='', user_message='', api_key=None, pro
         except Exception as e:
             print(f'  [MemoryInject] {emp_id} accessCount 写回失败: {e}', flush=True)
 
+    if return_stats:
+        stats = {
+            'memory': {
+                'core': injected_counts['core'],
+                'daily': injected_counts['daily'],
+                'archive': injected_counts['archive'],
+            },
+            'knowledge': injected_counts['knowledge'],
+        }
+        return system_prompt, stats
     return system_prompt
 
 
