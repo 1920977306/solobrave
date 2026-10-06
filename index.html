@@ -43596,7 +43596,7 @@ function sb2PdsRender(){
   sb2PdsBuildPager(filtered.length, pageSize, pager);
   /* 〔r34.3〕行高实测收敛: 渲染后若表格溢出 (首渲无样本行, fallback 44px 常低估双行名称行高),
      一次性减一页重渲; _sb2PdsShrink 锁防递归, 重渲后归零 */
-  var wrapEl = main.querySelector('.sb2-pds-table-wrap');
+  var wrapEl = document.querySelector('.sb2-pds-table-wrap');
   if (wrapEl && _sb2PdsShrink === 0 && wrapEl.scrollHeight > wrapEl.clientHeight && pageSize > 5) {
     _sb2PdsShrink = pageSize - 1;
     sb2PdsRender();
