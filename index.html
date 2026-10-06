@@ -47796,8 +47796,11 @@ var SB2_SIDE_RENDERERS = {
          ② 底部加「📚 返回知识库 →」入口 (写法对齐 line 47747 knowledge 侧栏「规律库入口 →」, label:' ' + 单 item)
          ③ 类目渲染保持 window.productCategories 数据源 (loadProductCategories 已有, 不动) */
     var cats = (typeof window.productCategories !== 'undefined' && Array.isArray(window.productCategories)) ? window.productCategories : [];
+    /* 〔fix/sb2-side-restore r34.1 协调人代补〕28 终态口径: sub 用 facet 总数真字段 (对标达人库「位在库」),
+       不用 cats.length (类目数是结构维度不是库存维度). 数据源 productCategories[].count 全库 limit=500 聚合, 无时序坑 */
+    var _pdsTotal = cats.reduce(function(s, c){ return s + (c.count || 0); }, 0);
     return {
-      title:'商品库', sub:cats.length + ' 类目',
+      title:'商品库', sub:(_pdsTotal > 0 ? String(_pdsTotal) : '–') + ' 件在库',
       items:[
         { label:'类目', items: (cats.length ? cats : [{name:'加载中…'}]).slice(0, 30).map(function(c){
           return { name:(c.name || c.display_name || '-'), onClick:"switchProductsCategory && switchProductsCategory('"+(c.id || c.name)+"')" };
