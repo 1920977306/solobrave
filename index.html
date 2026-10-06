@@ -43598,8 +43598,14 @@ function sb2PdsRender(){
      一次性减一页重渲; _sb2PdsShrink 锁防递归, 重渲后归零 */
   var wrapEl = document.querySelector('.sb2-pds-table-wrap');
   if (wrapEl && _sb2PdsShrink === 0 && wrapEl.scrollHeight > wrapEl.clientHeight && pageSize > 5) {
-    _sb2PdsShrink = pageSize - 1;
-    sb2PdsRender();
+    /* 用刚渲染的真实行高反推精确 fit, 一次收敛 (减一页迭代在 fallback 44 vs 实际 58 行高时要跑多轮) */
+    var _r0 = wrapEl.querySelector('tbody tr');
+    var _pitch = _r0 ? (_r0.offsetHeight + 1) : 59;
+    var _fit = Math.max(5, Math.floor((wrapEl.clientHeight - 2) / _pitch));
+    if (_fit < pageSize) {
+      _sb2PdsShrink = _fit;
+      sb2PdsRender();
+    }
     _sb2PdsShrink = 0;
   }
   /* 〔r34.3〕resize 200ms 防抖重算页尺寸 (对齐 knowledge 24 轮 v2 口径, 不重拉数据) */
