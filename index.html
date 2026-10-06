@@ -10294,7 +10294,13 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
    范围: 聊天员工项 height 38 / padding 8 10 / radius 10 / font 14/22.4 / gap 0 / 无 .dot .badge (功能以后要单开派单)
    不动: dashboard / knowledge / patterns / tasks / talents 等模块的 .sb2-side-item .badge / .dot (保留三件套) */
 .sb2-side--module-messages .sb2-side-item .badge{ display:none; }
-.sb2-side--module-messages .sb2-side-item .dot{ display:none; }
+/* 〔21 轮批注①-1 2026-10-06〕messages 侧栏 dot 不再隐藏 (三色 online 绿/busy 橙/offline 灰)
+   badge 仍隐藏 (messages items 没数字) */
+.sb2-side-item .dot.busy{ background:var(--sb2-warning); }
+.sb2-side-item .sb2-side-item-role{
+  color:var(--sb2-t3); font-size:11px; font-weight:400; margin-left:6px;
+  white-space:nowrap; font-family:"PingFang SC",sans-serif;
+}
 /* 〔19 轮批注②-1..4 2026-10-06 03:20〕协调人代改 (两次角色纠正仍被推回, 按 r25.3 先例)
    知识库侧栏对照原版 (规格 docs/design-spec/v2-19轮知识库.md 批注②):
    ②-1 item gap 0 → 10px (跟原型 .side-item gap 10 一致)
@@ -12769,7 +12775,8 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
   --sb2-chat-topbar-team-dot-off: var(--sb2-t3);
   /* Topbar 扩展 (布局对齐原型: 头像 + 姓名·角色 + 状态行 + 右侧 ghost 按钮) */
   --sb2-chat-topbar-padding: 14px 20px;
-  --sb2-chat-topbar-avatar-size: 28px;
+  /* 〔fix/sb2-side-restore 21 轮批注②-1〕顶栏头像 28 → 32 (原型 32px, prod 实测 28px) */
+  --sb2-chat-topbar-avatar-size: 32px;
   --sb2-chat-topbar-avatar-font-size: 12px;
   --sb2-chat-topbar-avatar-font-weight: 800;
   --sb2-chat-topbar-info-gap: 12px;
@@ -12938,8 +12945,9 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
   gap: 2px;
   min-width: 0;
 }
+/* 〔fix/sb2-side-restore 21 轮批注②-2〕顶栏名字 font-weight 600 → 400 (原型 400, prod 实测 600) */
 .sb2-chat-topbar-name {
-  font-weight: 600;
+  font-weight: 400;
   font-size: var(--sb2-chat-topbar-name-font-size);
   color: var(--sb2-t1);
   line-height: 1.2;
@@ -13133,15 +13141,20 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
   color: var(--sb2-gold);
 }
 /* Bubble 本身 (在 col 内, max-width 由 row 控制, 此处不重复) */
+/* 〔fix/sb2-side-restore 21 轮批注③-3〕气泡布局还原:
+   修前 padding:10px 14px / radius 尾巴角 (14px 14px 14px 4px) / lh 1.55 (=21.7px)
+   修后 padding:16px 24px / radius 四角对称 14px (原型 line 514 圆角卡片) / lh 22.4px (用 px 避开 font 简写第二值裸数字坑)
+   范围: 仅 .sb2-chat-bubble + .sb2-chat-bubble[data-role=user|assistant] (user/assistant 改, system 不动)
+   删 user/assistant 的 border-bottom-X-radius 尾巴角覆盖 — 继承 .sb2-chat-bubble 的 border-radius: var(--sb2-r-lg) = 14px 四角对称 */
 .sb2-chat-bubble {
   display: flex;
   flex-direction: column;
-  padding: 10px 14px;
+  padding: 16px 24px;
   border-radius: var(--sb2-chat-bubble-radius);
   word-break: break-word;
   white-space: pre-wrap;
   position: relative;
-  line-height: 1.55;
+  line-height: 22.4px;
 }
 .sb2-chat-bubble[data-role="user"] {
   /* 〔fix/sb2-side-restore commit 11〕14 轮热修: 删 box-shadow 冗余 (line 13093+ token 已 none)
@@ -13149,14 +13162,12 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
      CSS 里再 box-shadow: var(...); 是冗余, 删后跟原型语义对齐 (「气泡无阴影」是设计意图, 不是配置开关) */
   background: var(--sb2-chat-bubble-user-bg);
   color: var(--sb2-chat-bubble-user-fg);
-  border-bottom-right-radius: var(--sb2-chat-bubble-radius-self);
   align-self: flex-end;  /* 用户气泡在 col 内右对齐 */
   max-width: 100%;
 }
 .sb2-chat-bubble[data-role="assistant"] {
   background: var(--sb2-chat-bubble-assistant-bg);
   color: var(--sb2-chat-bubble-assistant-fg);
-  border-bottom-left-radius: var(--sb2-chat-bubble-radius-self);
   align-self: flex-start;
   max-width: 100%;
 }
@@ -46395,8 +46406,18 @@ var SB2_SIDE_RENDERERS = {
     var items = [
       { label:'AI 员工 ('+list.length+' · '+onlineCount+' 在线)', items:list.slice(0, 20).map(function(e){
         var isOnline = e.status === 'online';
+        var isBusy = e.status === 'busy';
         var initials = (e.display_name || e.name || '?').slice(0,1);
-        return { name: (e.display_name || e.name || '-'), dot:isOnline, onClick:"startNewChat && startNewChat('"+e.id+"')" };
+        /* 〔21 轮批注①-1〕messages 侧栏员工项补 role + dot 三色 (online=绿/busy=橙/offline=灰)
+           dot 模板支持 boolean 兼容 (true=online/绿, false=offline/灰) + 显式 'busy' 三色 */
+        var dotState = isBusy ? 'busy' : (isOnline ? 'online' : 'offline');
+        var roleDisplay = (typeof getEmpRoleDisplay === 'function') ? getEmpRoleDisplay(e) : (e.role || '');
+        return {
+          name: (e.display_name || e.name || '-'),
+          dot: dotState,
+          role: roleDisplay,
+          onClick:"startNewChat && startNewChat('"+e.id+"')"
+        };
       })}
     ];
     if (groups.length) {
@@ -46762,10 +46783,18 @@ function renderSideFor(moduleId){
   (data.items || []).forEach(function(group){
     if (group.label) html += '<div class="sb2-side-label">'+escHtml(group.label)+'</div>';
     (group.items || []).forEach(function(it){
-      var dot = it.dot === true ? '<span class="dot"></span>' : (it.dot === false ? '<span class="dot offline"></span>' : '');
+      /* 〔21 轮批注①-1〕dot 模板支持三色 (online 绿/busy 橙/offline 灰) + 兼容 boolean
+         boolean true = online (默认绿) / false = offline (灰) / 字符串 'busy' = 橙 */
+      var dotClass = '';
+      if (it.dot === true || it.dot === 'online') dotClass = 'dot';
+      else if (it.dot === false || it.dot === 'offline') dotClass = 'dot offline';
+      else if (it.dot === 'busy') dotClass = 'dot busy';
+      var dot = dotClass ? '<span class="'+dotClass+'"></span>' : '';
       var badge = it.badge ? '<span class="badge">'+escHtml(it.badge)+'</span>' : '';
+      /* 〔21 轮批注①-1〕name 后补「· 角色」span (micro 灰 t3) — 复用 .sb2-side-item-role class */
+      var roleSpan = it.role ? '<span class="sb2-side-item-role">· '+escHtml(it.role)+'</span>' : '';
       html += '<div class="sb2-side-item'+(it.active ? ' active' : '')+'" onclick="'+escAttr(it.onClick || '')+'">'
-              + dot+'<span class="name">'+escHtml(it.name || '-')+'</span>'+badge+'</div>';
+              + dot+'<span class="name">'+escHtml(it.name || '-')+roleSpan+'</span>'+badge+'</div>';
     });
   });
   html += '</div>';
