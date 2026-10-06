@@ -10473,7 +10473,8 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
  * ============================================================ */
 .sb2-patterns-main{
   display:none; flex-direction:column; flex:1; height:100%;
-  padding:20px 24px; overflow-y:auto;
+  padding:20px; overflow-y:auto;
+  /* 〔r39-14〕padding 20px 24px → 20px 四边 (老大: 间距上下左右都一样) */
   font:400 14px/1.6 "PingFang SC",-apple-system,sans-serif;
   color:var(--sb2-t1); background:var(--sb2-bg);
 }
@@ -11224,8 +11225,9 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
  * ============================================================ */
 
 .sb2-products-main{
-  display:none; flex-direction:column; padding:24px 32px; min-height:0;
+  display:none; flex-direction:column; padding:20px; min-height:0;
   background:var(--sb2-bg); flex:1; overflow:hidden;
+  /* 〔r39-14〕padding 24px 32px → 20px 四边 (老大: 间距上下左右都一样, 对齐达人库 20 节奏) */
 }
 .sb2-products-main.active{ display:flex; }
 @media (max-width:1100px){
@@ -11234,7 +11236,8 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
 
 .sb2-pds-hero{
   display:flex; align-items:center; gap:12px;
-  min-height:52px; margin-bottom:16px; flex:0 0 auto;
+  min-height:52px; margin-bottom:0; flex:0 0 auto;
+  /* 〔r39-14〕margin-bottom 16 → 0 (main padding 20 即卡上缘呼吸, 对齐达人库 20 节奏) */
 }
 .sb2-pds-hero-title{
   font:600 24px/1.25 "PingFang SC",sans-serif;
@@ -11384,7 +11387,8 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
 
 .sb2-pds-pager{
   display:flex; align-items:center; justify-content:center; gap:4px;
-  padding:12px 0; margin-top:12px; flex:0 0 auto;
+  padding:12px 0 0; margin-top:8px; flex:0 0 auto;
+  /* 〔r39-14〕margin-top 12 → 8 + padding-bottom 0 (卡→pager 内容 20 = 8+12, 底缘 = main padding 20) */
 }
 .sb2-pds-pager button{
   font:500 12px/1 "PingFang SC",sans-serif; color:var(--sb2-t2);
@@ -12074,7 +12078,8 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
 
 .sb2-knowledge-main{
   display:none; flex-direction:column; flex:1; height:100%;
-  padding:20px 24px; overflow-y:auto;
+  padding:20px; overflow-y:auto;
+  /* 〔r39-14〕padding 20px 24px → 20px 四边 (老大: 间距上下左右都一样) */
   font:400 13px/1.5 "PingFang SC",-apple-system,sans-serif;
   color:var(--sb2-t1); background:var(--sb2-bg);
 }
