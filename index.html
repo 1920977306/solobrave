@@ -14139,7 +14139,7 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
     <div class="sb2-talents-main-pane">
       <div class="sb2-talents-hero">
         <div>
-          <h1 class="sb2-talents-hero-title">达人库</h1>
+          <h1 class="sb2-talents-hero-title" id="sb2TalentsHeroTitle">全部达人</h1>
           <div class="sb2-talents-hero-sub" id="sb2TalentsHeroSub">载入中…</div>
         </div>
         <div class="sb2-talents-hero-acts">
@@ -14246,7 +14246,7 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
     <div class="sb2-tasks-pane">
       <div class="sb2-tasks-hero">
         <div class="sb2-tasks-hero-info">
-          <h1 class="sb2-tasks-hero-title">任务</h1>
+          <h1 class="sb2-tasks-hero-title" id="sb2TasksHeroTitle">全部任务</h1>
           <div class="sb2-tasks-hero-sub" id="sb2TasksHeroSub">载入中…</div>
         </div>
         <div class="sb2-tasks-hero-search">
@@ -42216,8 +42216,30 @@ function sb2TalentsToast(msg){
   else { try { console.log('[sb2-talents]', msg); } catch(e){} }
 }
 
+/* 〔28 轮 2026-10-06〕hero 标题动态化 (老大「达人库的hero 标题也弄成动态化」)
+   修前: hero h1 静态「达人库」, 跟侧栏标题重复 (22/27 轮知识库/规律库同款问题)
+   修后: 类目 > 状态 > 评级, 全不选 → 「全部达人」; 标签口径跟侧栏一致
+   调用点: sb2TalentsLoad 顶部 (侧栏点击/筛选面板/搜索全经过, 不造第二个入口) */
+function sb2TalentsUpdateHeroTitle(){
+  var hero = document.getElementById('sb2TalentsHeroTitle');
+  if (!hero) return;
+  if (_sb2TalentsFilterCategory) { hero.textContent = _sb2TalentsFilterCategory; return; }
+  if (_sb2TalentsFilterStatus) {
+    var _sl = (typeof _SB2_TALENT_STATUS_LABELS === 'object' && _SB2_TALENT_STATUS_LABELS) || {};
+    hero.textContent = _sl[_sb2TalentsFilterStatus] || _sb2TalentsFilterStatus;
+    return;
+  }
+  if (_sb2TalentsFilterRating) {
+    var _rl = { 'A':'A 级 (优先)', 'B':'B 级', 'C':'C 级', 'D':'D 级 (未评)', 'NONE':'未评' };
+    hero.textContent = _rl[_sb2TalentsFilterRating] || _sb2TalentsFilterRating;
+    return;
+  }
+  hero.textContent = '全部达人';
+}
+
 /* ★ MVP1: 主加载 — 端点契约 GET /api/talents?xxx */
 async function sb2TalentsLoad(){
+  sb2TalentsUpdateHeroTitle();
   var tbody = document.getElementById('sb2TalentsTbody');
   var heroSub = document.getElementById('sb2TalentsHeroSub');
   if (tbody) tbody.innerHTML = '<tr><td colspan="11" class="sb2-talents-empty"><span class="em">⏳</span>载入中…</td></tr>';
@@ -42439,6 +42461,24 @@ function sb2TasksProjectChip(p){
 
 // ★ MVP1: 渲染分发 — 看板 + 列表 + 侧栏
 function sb2TasksRender(){
+  /* 〔28 轮 2026-10-06〕hero 标题动态化 (老大「让所有界面都是侧边栏为主标题」统一口径)
+     修前: hero h1 静态「任务」, 跟内置侧栏 h1「任务」重复
+     修后: 状态 > 优先级 > 项目 > 负责人, 全不选 → 「全部任务」; 标签用现有 sb2TasksStatusLabel/PriorityLabel
+     调用点: sb2TasksRender 顶部 (4 维筛选 + 搜索全经过) */
+  (function(){
+    var hero = document.getElementById('sb2TasksHeroTitle');
+    if (!hero) return;
+    if (_sb2TasksFilterStatus) { hero.textContent = sb2TasksStatusLabel(_sb2TasksFilterStatus); return; }
+    if (_sb2TasksFilterPriority) { hero.textContent = sb2TasksPriorityLabel(_sb2TasksFilterPriority); return; }
+    if (_sb2TasksFilterProject) { hero.textContent = _sb2TasksFilterProject === '未指定' ? '未指定项目' : _sb2TasksFilterProject; return; }
+    if (_sb2TasksFilterAssignee) {
+      if (_sb2TasksFilterAssignee === '__none__') { hero.textContent = '未指定负责人'; return; }
+      var _emp = (typeof emps !== 'undefined' && Array.isArray(emps)) ? emps.find(function(e){ return e && e.id === _sb2TasksFilterAssignee; }) : null;
+      hero.textContent = (_emp && (_emp.name || _emp.title)) ? ('负责人 · ' + (_emp.name || _emp.title)) : '按负责人筛选';
+      return;
+    }
+    hero.textContent = '全部任务';
+  })();
   var heroSub = document.getElementById('sb2TasksHeroSub');
   var sideSub = document.getElementById('sb2TasksSideSub');
   if (heroSub) heroSub.textContent = '共 ' + _sb2TasksList.length + ' 项 · 按状态流转看板';
@@ -46989,14 +47029,14 @@ var SB2_SIDE_RENDERERS = {
         onClick: "sb2TalentsOnSideClick && sb2TalentsOnSideClick('status','" + k + "')"
       });
     });
-    /* 〔fix/sb2-side-restore commit 9〕侧栏 title '达人库' + sub '位在库' 清空 (12 轮热修)
-       老大 hard rule: 全页「达人库」三字只出现一次 (hero h1 line 13859)
-       原型 talents renderer line 725 有 side-title '达人库' + side-sub '1,847 位在库',
-       但老大说 "原型有的照留、没有的就删, 最终全页只出现一次 (hero h1)" → 删
-       renderSideFor 渲染时 title/sub = '' → .side-title 空 div 不显字, .side-sub if(data.sub) 不进 dom */
+    /* 〔28 轮 2026-10-06〕侧栏标题恢复「达人库」(老大「把侧边栏标题恢复,让所有界面都是侧边栏为主标题」)
+       历史: commit 9 (12 轮) 按当时「全页达人库三字只出现一次 (hero h1)」清空 title/sub;
+       现口径反转: 侧边栏 = 全页主标题 (模块名稳定), hero 标题已动态化 (默认「全部达人」),
+       两处不再重复, 跟知识库 (侧栏「知识库」+ hero 动态) / 规律库同款结构
+       sub 真字段: total 位在库 (facets 服务端全量聚合, 跟侧栏计数同源) */
     return {
-      title:'',
-      sub:'',
+      title:'达人库',
+      sub:(total > 0 ? String(total) : dash) + ' 位在库',
       /* 〔fix/sb2-side-restore commit 13〕16 轮批注②: 达人库侧栏恢复「搜索达人...」输入
          14 轮 commit 11 全删了 .sb2-side-search (line 46328), 但 talents 侧栏原版有 (line 724-735 区域)
          老大截图标注①确认侧栏以原版为准, 现在恢复: 仅 talents 模块 searchInput
