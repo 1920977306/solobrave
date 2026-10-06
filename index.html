@@ -10297,10 +10297,19 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
 /* 〔21 轮批注①-1 2026-10-06〕messages 侧栏 dot 不再隐藏 (三色 online 绿/busy 橙/offline 灰)
    badge 仍隐藏 (messages items 没数字) */
 .sb2-side-item .dot.busy{ background:var(--sb2-warning); }
+/* 〔23 轮批注②〕role CSS 删 margin-left:6px (line 10300 原版), 让排版走 inline 自然空格
+   修前: margin-left:6px (与 .role 前导空格双重间距, 排版不齐)
+   修后: 无 margin (跟原版 .role 排版一致, 间距来自 span 文本前导空格) */
 .sb2-side-item .sb2-side-item-role{
-  color:var(--sb2-t3); font-size:11px; font-weight:400; margin-left:6px;
+  color:var(--sb2-t3); font-size:11px; font-weight:400;
   white-space:nowrap; font-family:"PingFang SC",sans-serif;
 }
+/* 〔23 轮批注②〕新增 .sb2-side-item.active 白底墨色 (原版 active 项 rgb(24,24,27) 墨色 + 白底)
+   修前: 全仓无 .sb2-side-item.active CSS, renderer 也从不设 active → 选中员工无任何高亮
+   修后: active 项 background:var(--sb2-s1) (白) + color:var(--sb2-t1) (墨 rgb(24,24,27))
+   作用域: 通用类, 但全仓只有 messages renderer (line 46641) 会设 active=true
+     → knowledge/patterns/talents 侧栏无 active 输入, 零影响 (探针回归确认) */
+.sb2-side-item.active{ background:var(--sb2-s1); color:var(--sb2-t1); }
 /* 〔19 轮批注②-1..4 2026-10-06 03:20〕协调人代改 (两次角色纠正仍被推回, 按 r25.3 先例)
    知识库侧栏对照原版 (规格 docs/design-spec/v2-19轮知识库.md 批注②):
    ②-1 item gap 0 → 10px (跟原型 .side-item gap 10 一致)
@@ -46644,11 +46653,27 @@ var SB2_SIDE_RENDERERS = {
            dot 模板支持 boolean 兼容 (true=online/绿, false=offline/灰) + 显式 'busy' 三色 */
         var dotState = isBusy ? 'busy' : (isOnline ? 'online' : 'offline');
         var roleDisplay = (typeof getEmpRoleDisplay === 'function') ? getEmpRoleDisplay(e) : (e.role || '');
+        /* 〔23 轮批注③〕修 startNewChat shim 丢 empId 真 bug (line 32613 function startNewChat() 无参 → 完整 no-op)
+           修前: onClick:"startNewChat && startNewChat('"+e.id+"')" → startNewChat 丢参, 啥也不发生
+           修法: IIFE 走真链路
+             1. localStorage.setItem('sb_current_emp', id) — 写选中态 (active 字段同帧可读)
+             2. openChat(id) — 真源 (内部已写 sb_current_emp + 清群聊态 + legacy DOM 同步)
+             3. window.renderChatMain() — 重读 sb_current_emp → 刷 topbar + 重载历史 (line 47623 已挂 window)
+             4. window.renderSideFor('messages') — 重渲侧栏 → active 高亮落到新选中项 (line 47047 已挂 window)
+           全部 try/catch 守卫, 单步失败不阻塞其他步 (规格 v6 修法 2 行级照抄)
+           〔23 轮批注③ 修法 3〕active 字段: 读 localStorage 真值, 不造 — 与批注② .active 白底墨色联动 */
+        var _curEmp = (function(){ try { return localStorage.getItem('sb_current_emp') || ''; } catch(e) { return ''; } })();
         return {
           name: (e.display_name || e.name || '-'),
           dot: dotState,
           role: roleDisplay,
-          onClick:"startNewChat && startNewChat('"+e.id+"')"
+          active: (_curEmp === e.id),
+          onClick: "(function(id){"
+                 + "try{localStorage.setItem('sb_current_emp',id);}catch(e){}"
+                 + "if(typeof openChat==='function'){try{openChat(id);}catch(e){}}"
+                 + "if(typeof window.renderChatMain==='function'){try{window.renderChatMain();}catch(e){}}"
+                 + "if(typeof window.renderSideFor==='function'){try{window.renderSideFor('messages');}catch(e){}}"
+                 + "})('"+e.id+"')"
         };
       })}
     ];
@@ -47023,8 +47048,11 @@ function renderSideFor(moduleId){
       else if (it.dot === 'busy') dotClass = 'dot busy';
       var dot = dotClass ? '<span class="'+dotClass+'"></span>' : '';
       var badge = it.badge ? '<span class="badge">'+escHtml(it.badge)+'</span>' : '';
-      /* 〔21 轮批注①-1〕name 后补「· 角色」span (micro 灰 t3) — 复用 .sb2-side-item-role class */
-      var roleSpan = it.role ? '<span class="sb2-side-item-role">· '+escHtml(it.role)+'</span>' : '';
+      /* 〔23 轮批注②〕role 文本补前导空格 (原版 "Helen · 商务" 有空格, prod 现 "Ray· AI拍板助手" 无空格, 排版不齐)
+         修前: '· '+escHtml(it.role) — 无前导空格
+         修后: ' · '+escHtml(it.role) — 与原版对齐 "Helen · 商务"
+         配套: 删 .sb2-side-item-role margin-left:6px (line 10300), 让排版走 inline 自然空格 */
+      var roleSpan = it.role ? '<span class="sb2-side-item-role"> · '+escHtml(it.role)+'</span>' : '';
       html += '<div class="sb2-side-item'+(it.active ? ' active' : '')+'" onclick="'+escAttr(it.onClick || '')+'">'
               + dot+'<span class="name">'+escHtml(it.name || '-')+roleSpan+'</span>'+badge+'</div>';
     });
