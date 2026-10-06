@@ -10294,6 +10294,12 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
    范围: 聊天员工项 height 38 / padding 8 10 / radius 10 / font 14/22.4 / gap 0 / 无 .dot .badge (功能以后要单开派单)
    不动: dashboard / knowledge / patterns / tasks / talents 等模块的 .sb2-side-item .badge / .dot (保留三件套) */
 .sb2-side--module-messages .sb2-side-item .badge{ display:none; }
+/* 〔25 轮批注② 2026-10-06〕messages 员工项 dot↔name 间距 (老大「能不能往左边移点,太靠近名字了」)
+   修前: messages item gap 0 (18 轮批注③ v4 规格, 当时侧栏无 dot) → 21 轮批注①-1 加 dot 后圆点贴名字
+   修后: gap 10px, 跟原型 .side-item gap 10 (solobrave-redesign/index.html line 175) +
+     knowledge/patterns 侧栏同款 (19 轮批注②-1)
+   范围: 仅 messages 模块, knowledge/patterns/talents 侧栏不动 */
+.sb2-side--module-messages .sb2-side-item{ gap:10px; }
 /* 〔21 轮批注①-1 2026-10-06〕messages 侧栏 dot 不再隐藏 (三色 online 绿/busy 橙/offline 灰)
    badge 仍隐藏 (messages items 没数字) */
 .sb2-side-item .dot.busy{ background:var(--sb2-warning); }
