@@ -14316,7 +14316,7 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
 <div class="sb2-settings-main" id="sb2SettingsMain">
   <div class="sb2-settings-hero">
     <h1>设置</h1>
-    <p>后台功能入口。MVP6 接入语义搜索 / 大脑知识 / RAG 三个关键词入口, 不含前后端。</p>
+    <p>系统维护工具：知识搜索测试、AI 大脑调度、向量索引重建、知识事件查询。面向管理员，日常办公用不到这个页面。</p>
   </div>
   <div class="sb2-settings-grid">
     <!-- 卡 1: 语义搜索 -->
@@ -14325,7 +14325,7 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
         <div class="sb2-settings-feature-card-icon">🔍</div>
         <h3 class="sb2-settings-feature-card-title">语义搜索</h3>
       </div>
-      <p class="sb2-settings-feature-card-desc">POST /api/knowledge/search — 按语义向量召回 kb_entries, 走新版 embedding 索引。</p>
+      <p class="sb2-settings-feature-card-desc">用一句话搜索知识库，测试语义召回效果（向量索引）。</p>
       <div class="sb2-settings-feature-card-status">
         <span>状态</span><span class="status-value" id="sb2FeatSearchStatus">-</span>
       </div>
@@ -14341,7 +14341,7 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
         <div class="sb2-settings-feature-card-icon">🧠</div>
         <h3 class="sb2-settings-feature-card-title">大脑知识</h3>
       </div>
-      <p class="sb2-settings-feature-card-desc">GET /api/brain/status · POST /api/brain/trigger-manual — 大脑调度器统计 + 手动触发全量处理。</p>
+      <p class="sb2-settings-feature-card-desc">AI 大脑的调度器：查看运行统计，必要时手动触发一次全量处理。</p>
       <div class="sb2-settings-feature-card-status">
         <span>状态</span><span class="status-value" id="sb2FeatBrainStatus">-</span>
       </div>
@@ -14357,7 +14357,7 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
         <div class="sb2-settings-feature-card-icon">🧬</div>
         <h3 class="sb2-settings-feature-card-title">RAG 索引重建</h3>
       </div>
-      <p class="sb2-settings-feature-card-desc">POST /api/rag/build · /api/rag/retrieve — 批量重建 embedding 索引 / 向量检索 (知识库 + 产品库)。</p>
+      <p class="sb2-settings-feature-card-desc">批量重建知识库和商品库的向量索引；「测试检索」先试搜不改库。</p>
       <div class="sb2-settings-feature-card-status">
         <span>状态</span><span class="status-value" id="sb2FeatRagStatus">-</span>
       </div>
@@ -14373,7 +14373,7 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
         <div class="sb2-settings-feature-card-icon">🔖</div>
         <h3 class="sb2-settings-feature-card-title">知识事件</h3>
       </div>
-      <p class="sb2-settings-feature-card-desc">GET /api/knowledge-events · /stats — 实体级 (entity_type / entity_id) 事件列表 + 总数统计, 来自 knowledge_events 表。</p>
+      <p class="sb2-settings-feature-card-desc">按实体（达人/商品/知识）查询变更事件和总数统计。</p>
       <div class="sb2-settings-feature-card-status">
         <span>状态</span><span class="status-value" id="sb2FeatEventsStatus">-</span>
       </div>
@@ -48002,10 +48002,10 @@ var SB2_SIDE_RENDERERS = {
     };
   },
   tasks: function(){
-    return { title:'任务', sub:'原型未展开 · 只套新壳', items:[] };
+    return { title:'任务', sub:'看板 · 列表双视图', items:[] };
   },
   settings: function(){
-    return { title:'设置', sub:'原型未展开 · 只套新壳', items:[] };
+    return { title:'设置', sub:'4 项系统工具', items:[] };
   }
 };
 
