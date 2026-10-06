@@ -14118,7 +14118,7 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
 <div class="sb2-patterns-main" id="sb2PatternsMain">
   <div class="sb2-ptn-hero">
     <div>
-      <h1 class="sb2-ptn-hero-title">规律库</h1>
+      <h1 class="sb2-ptn-hero-title" id="sb2PtnHeroTitle">全部规律</h1>
       <div class="sb2-ptn-hero-sub" id="sb2PtnHeroSub">载入中…</div>
     </div>
     <div class="sb2-ptn-hero-actions">
@@ -43081,6 +43081,23 @@ async function sb2PatternsInit(){
   }
 }
 
+/* 〔27 轮批注③ 2026-10-06〕hero 标题动态化 (老大「这个得改,又是跟知识库一样的问题」)
+   修前: hero h1 静态「规律库」, 跟侧栏标题重复, 且不反映当前筛选
+     (22 轮批注① 知识库 hero 同款问题, 修法同 sb2KbUpdateHeroTitle 方案A)
+   修后: 类目选中 → 类目名; 状态选中 → 状态中文; 等级 chip 选中 → 等级名; 全不选 → 「全部规律」
+   调用点: 收拢在 sb2PtnRender 顶部 (三条筛选路 + init 全经过它), 不造第二个入口 */
+function sb2PtnUpdateHeroTitle(){
+  var hero = document.getElementById('sb2PtnHeroTitle');
+  if (!hero) return;
+  if (_sb2PtnCat) { hero.textContent = _sb2PtnCat; return; }
+  if (_sb2PtnStatus) {
+    var _sm = { draft:'待确认', confirmed:'已确认', deprecated:'已废弃' };
+    hero.textContent = _sm[_sb2PtnStatus] || _sb2PtnStatus;
+    return;
+  }
+  if (_sb2PtnLevel) { hero.textContent = _sb2PtnLevel; return; }
+  hero.textContent = '全部规律';
+}
 function sb2PtnFilter(level){
   _sb2PtnLevel = level || '';
   document.querySelectorAll('.sb2-ptn-chip').forEach(function(c){
@@ -43129,6 +43146,7 @@ function sb2PtnPromotionExplain(){
 }
 
 function sb2PtnRender(){
+  sb2PtnUpdateHeroTitle();
   var heroSub = document.getElementById('sb2PtnHeroSub');
   var listEl = document.getElementById('sb2PtnList');
   if (!listEl) return;
@@ -46896,6 +46914,12 @@ var SB2_SIDE_RENDERERS = {
           { name:'待确认',   onClick:"switchPtnSideStatus && switchPtnSideStatus('draft')" },
           { name:'已确认',   onClick:"switchPtnSideStatus && switchPtnSideStatus('confirmed')" },
           { name:'已废弃',   onClick:"switchPtnSideStatus && switchPtnSideStatus('deprecated')" }
+        ]},
+        /* 〔27 轮批注① 2026-10-06〕「返回知识库 →」入口 (老大「规律库没做这个」)
+           原型 patterns 侧栏底部同款 (solobrave-redesign line 721-722, hr + accent dot + 返回知识库 →)
+           写法对齐 knowledge 侧栏「规律库入口 →」(line 46880 同款 label:' ' + 单 item) */
+        { label:' ', items:[
+          { name:'返回知识库 →', onClick:"sb2Go && sb2Go('knowledge')" }
         ]}
       ]
     };
