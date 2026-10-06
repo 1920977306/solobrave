@@ -12196,10 +12196,10 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
   border:1px solid var(--sb2-border-strong);
   box-shadow:0 1px 3px rgba(24,24,27,.06), 0 1px 2px rgba(24,24,27,.04);
   /* 〔r36 批注〕去 1240 上限, 表格卡全宽 (对齐商品库全宽口径) */
-  /* 〔r39-8 批注〕表卡四边贴框 (老大: 也挨着框了/下面稍微长点别挨着下面)
-     补呼吸边距: 上 8 左右 20 (对齐 hero padding 20px 节奏), 下 20 (比上长, 不贴分页条)
+  /* 〔r39-12 批注〕间距上下左右统一 20 (老大: 全都挨着框了, 间距开 —
+     覆盖 r39-8「下面稍长」口径, 四边等距)
      width 必须 auto — 100% + 左右 margin 会横向溢出 */
-  width:auto; margin:8px 20px 20px;
+  width:auto; margin:20px;
 }
 .sb2-talents-table{
   width:100%; border-collapse:separate; border-spacing:0;
@@ -12452,10 +12452,12 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
      - padding 改 0 左右 + 10px 0 (外包 max-width 1240 居中)
      - 保留 font 11px t3 微字 (老大之前批过, 对齐原型 line 596-600)
      - margin-top:10px 让底栏跟表格卡有间距 */
-  display:flex; align-items:center; gap:12px; padding:10px 0;
+  display:flex; align-items:center; gap:12px; padding:0;
   border-top:0; background:transparent;
   font:400 11px/1.4 "PingFang SC",sans-serif; color:var(--sb2-t3);
-  margin:10px auto 0; width:100%;
+  /* 〔r39-12 批注〕底栏四边对齐表格卡 (老大: 全都挨着框了, 间距开)
+     卡 margin-bottom 20 = 卡底栏间距, 底栏下 20 = 主区底缝 */
+  margin:0 20px 20px; width:auto;
   flex-shrink:0;
 }
 .sb2-talents-footer-left{ display:flex; align-items:center; gap:8px; }
@@ -13805,7 +13807,8 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
 .sb2-chat-bubble {
   display: flex;
   flex-direction: column;
-  padding: 16px 24px;
+  /* 〔r39-13〕padding 16px 24px → 16px 20px (对齐原型 .card-pad = sp-4 sp-5) */
+  padding: 16px 20px;
   border-radius: var(--sb2-chat-bubble-radius);
   word-break: break-word;
   white-space: pre-wrap;
@@ -13815,17 +13818,24 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
 .sb2-chat-bubble[data-role="user"] {
   /* 〔fix/sb2-side-restore commit 11〕14 轮热修: 删 box-shadow 冗余 (line 13093+ token 已 none)
      原型 line 514 气泡 box-shadow:none — token var(--sb2-chat-bubble-shadow-user) 已是 none,
-     CSS 里再 box-shadow: var(...); 是冗余, 删后跟原型语义对齐 (「气泡无阴影」是设计意图, 不是配置开关) */
+     CSS 里再 box-shadow: var(...); 是冗余, 删后跟原型语义对齐 (「气泡无阴影」是设计意图, 不是配置开关)
+     〔r39-13〕补 border:none (原型 line 499 用户气泡 border:none, 橙底实心) */
   background: var(--sb2-chat-bubble-user-bg);
   color: var(--sb2-chat-bubble-user-fg);
   align-self: flex-end;  /* 用户气泡在 col 内右对齐 */
   max-width: 100%;
+  border: none;
 }
 .sb2-chat-bubble[data-role="assistant"] {
+  /* 〔r39-13〕对齐原版 .card 视觉 (老大: 气泡对齐原版) — 修前 assistant 气泡
+     s2 #FAFAFB 底无描边, 在白消息区里边界不可见, 长文看着像裸文本
+     原型 line 221 .card: background surface-2 + border 1px + shadow sh-1 */
   background: var(--sb2-chat-bubble-assistant-bg);
   color: var(--sb2-chat-bubble-assistant-fg);
   align-self: flex-start;
   max-width: 100%;
+  border: 1px solid var(--sb2-border);
+  box-shadow: var(--sb2-sh1);
 }
 .sb2-chat-bubble[data-role="system"] {
   align-self: center;
