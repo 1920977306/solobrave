@@ -14890,7 +14890,7 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
     </div>
     <div class="sb2-tln-aimatch-degrade" id="sb2TlnAimatchDegrade" style="display:none"></div>
     <div class="sb2-tln-aimatch-body" id="sb2TlnAimatchBody">
-      <div class="sb2-tln-aimatch-loading"><div class="spinner"></div>AI 正在分析匹配…</div>
+      <div class="sb2-tln-aimatch-loading"><div class="spinner"></div>AI 正在分析匹配…（最长约 1 分钟）</div>
     </div>
   </div>
 </div>
@@ -43166,7 +43166,7 @@ function sb2TalentsOpenAiMatch(talentId){
   if (title) title.textContent = 'AI 匹配商品 · ' + tName;
   if (sub) sub.textContent = 'POST /api/ai-match · talent-to-product · TOP 10';
   if (degrade) degrade.style.display = 'none';
-  body.innerHTML = '<div class="sb2-tln-aimatch-loading"><div class="spinner"></div>AI 正在分析匹配…</div>';
+  body.innerHTML = '<div class="sb2-tln-aimatch-loading"><div class="spinner"></div>AI 正在分析匹配…（最长约 1 分钟）</div>';
   overlay.classList.add('open');
   _sb2TlnAimatchState.talentId = talentId;
   _sb2TlnAimatchState.matches = [];
