@@ -44716,6 +44716,9 @@ function switchModule(module) {
     var sb2pds = document.getElementById('sb2ProductsMain');
     if (sb2pds) {
       sb2pds.classList.add('active');
+      /* 〔fix/sb2-side-restore r34.2 协调人代补〕26 轮② 接入点漏调 loadProductCategories —
+         侧栏类目/「N 件在库」sub 数据源是全仓唯一调用点 (legacy switchModule line 44013 同款), 漏调则类目永「加载中…」 */
+      try { if (typeof loadProductCategories === 'function') loadProductCategories(); } catch(e) {}
       if (typeof sb2ProductsInit === 'function') sb2ProductsInit();
     }
   }
