@@ -11175,6 +11175,269 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
 }
 </style>
 
+<style id="sb2-products">
+/* ============================================================
+ * sb2-products MVP1: 商品库屏 (hero 动态 + 筛选行 + 全宽高密度表格 + 720 弹窗 + 动态页尺寸)
+ * 设计基准: docs/design-spec/v3-26轮商品库主区.md
+ * 命名空间 sb2Pds* (跟 sb2Kb* / sb2Ptn* / sb2Tk* 平行)
+ * 0 hex 铁律 / font 简写第二值必带单位或 1.x 乘数
+ * ============================================================ */
+
+.sb2-products-main{
+  display:none; flex-direction:column; padding:24px 32px; min-height:0;
+  background:var(--sb2-bg); flex:1; overflow:hidden;
+}
+.sb2-products-main.active{ display:flex; }
+@media (max-width:1100px){
+  .sb2-products-main{ padding:16px 20px; }
+}
+
+.sb2-pds-hero{
+  display:flex; align-items:center; gap:12px;
+  min-height:52px; margin-bottom:16px; flex:0 0 auto;
+}
+.sb2-pds-hero-title{
+  font:600 24px/1.25 "PingFang SC",sans-serif;
+  color:var(--sb2-ink); margin:0; letter-spacing:-0.01em;
+}
+.sb2-pds-hero-sub{
+  font:400 12px/1.3 "PingFang SC",sans-serif;
+  color:var(--sb2-t3); margin-top:4px;
+}
+.sb2-pds-hero-actions{ margin-left:auto; display:flex; gap:8px; align-items:center; }
+.sb2-pds-sort{
+  font:400 12px/1 "PingFang SC",sans-serif; color:var(--sb2-t1);
+  background:var(--sb2-s1); border:1px solid var(--sb2-border);
+  border-radius:var(--sb2-r-md); padding:6px 10px; cursor:pointer;
+}
+
+.sb2-pds-filter{
+  display:flex; gap:8px; align-items:center;
+  margin-bottom:16px; flex:0 0 auto; flex-wrap:wrap;
+}
+.sb2-pds-search{
+  flex:0 1 220px; min-width:160px; height:32px;
+  font:400 13px/1 "PingFang SC",sans-serif; color:var(--sb2-t1);
+  background:var(--sb2-s1); border:1px solid var(--sb2-border);
+  border-radius:var(--sb2-r-md); padding:0 10px; outline:none;
+}
+.sb2-pds-search:focus{ border-color:var(--sb2-brand); }
+.sb2-pds-brand{
+  height:32px; font:400 13px/1 "PingFang SC",sans-serif; color:var(--sb2-t1);
+  background:var(--sb2-s1); border:1px solid var(--sb2-border);
+  border-radius:var(--sb2-r-md); padding:0 10px; cursor:pointer;
+}
+.sb2-pds-chips{
+  display:flex; gap:6px; align-items:center;
+  padding:3px; background:var(--sb2-s3);
+  border-radius:var(--sb2-r-full);
+}
+.sb2-pds-chip{
+  font:500 11px/1 "PingFang SC",sans-serif; color:var(--sb2-t2);
+  background:transparent; border:0; cursor:pointer;
+  padding:5px 12px; border-radius:var(--sb2-r-full);
+  transition:background .12s, color .12s;
+}
+.sb2-pds-chip:hover{ background:var(--sb2-s2); color:var(--sb2-t1); }
+.sb2-pds-chip.active{
+  background:var(--sb2-s1); color:var(--sb2-t1);
+  box-shadow:var(--sb2-sh1);
+}
+
+.sb2-pds-table-wrap{
+  flex:1 1 auto; overflow:auto; min-height:0;
+  border:1px solid var(--sb2-border); border-radius:var(--sb2-r-lg);
+  background:var(--sb2-s1);
+}
+.sb2-pds-table{
+  width:100%; border-collapse:collapse; font-family:"PingFang SC",sans-serif;
+  font-size:13px; color:var(--sb2-t1);
+}
+.sb2-pds-table thead th{
+  position:sticky; top:0; z-index:1;
+  background:var(--sb2-s1); color:var(--sb2-t3);
+  font:500 11px/1.4 "PingFang SC",sans-serif;
+  text-align:left; padding:10px 12px;
+  border-bottom:1px solid var(--sb2-border);
+  white-space:nowrap;
+}
+.sb2-pds-table tbody td{
+  padding:12px; border-bottom:1px solid var(--sb2-border);
+  vertical-align:middle;
+}
+.sb2-pds-table tbody tr{
+  cursor:pointer; transition:background .12s;
+}
+.sb2-pds-table tbody tr:hover{ background:var(--sb2-s3); }
+.sb2-pds-table tbody tr:last-child td{ border-bottom:0; }
+.sb2-pds-cell-img{
+  width:32px; height:32px; border-radius:var(--sb2-r-sm);
+  background:var(--sb2-s3); color:var(--sb2-t3);
+  display:flex; align-items:center; justify-content:center;
+  font:500 11px/1 "PingFang SC",sans-serif; flex-shrink:0;
+  overflow:hidden;
+}
+.sb2-pds-cell-img img{ width:100%; height:100%; object-fit:cover; }
+.sb2-pds-cell-name{
+  display:flex; flex-direction:column; gap:2px; min-width:0;
+}
+.sb2-pds-cell-name-main{
+  font:600 13px/1.3 "PingFang SC",sans-serif;
+  color:var(--sb2-t1); overflow:hidden; text-overflow:ellipsis;
+  white-space:nowrap; max-width:240px;
+}
+.sb2-pds-cell-name-sub{
+  font:400 11px/1.3 "PingFang SC",sans-serif; color:var(--sb2-t3);
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  max-width:240px;
+}
+.sb2-pds-cell-name-admin{
+  font:400 10px/1.3 "PingFang SC",sans-serif; color:var(--sb2-t3);
+  margin-left:4px;
+}
+.sb2-pds-cell-price{
+  font:600 14px/1.2 "SF Mono",ui-monospace,monospace;
+  color:var(--sb2-t1);
+}
+.sb2-pds-cell-commission{
+  font:400 12px/1.3 "SF Mono",ui-monospace,monospace; color:var(--sb2-t2);
+}
+.sb2-pds-cell-commission-empty{ color:var(--sb2-t3); font-style:italic; }
+.sb2-pds-cell-sales{ display:flex; align-items:center; gap:8px; }
+.sb2-pds-spark{
+  width:48px; height:18px; flex-shrink:0; color:var(--sb2-t3);
+}
+.sb2-pds-trend{
+  font:500 11px/1 "SF Mono",ui-monospace,monospace;
+  display:inline-flex; align-items:center; gap:2px;
+}
+.sb2-pds-trend.up{ color:var(--sb2-success); }
+.sb2-pds-trend.down{ color:var(--sb2-danger); }
+.sb2-pds-trend.flat{ color:var(--sb2-t3); }
+.sb2-pds-badge{
+  display:inline-block; font:500 11px/1 "PingFang SC",sans-serif;
+  padding:3px 8px; border-radius:var(--sb2-r-full);
+}
+.sb2-pds-badge.active{
+  background:var(--sb2-success-soft); color:var(--sb2-success);
+}
+.sb2-pds-badge.out_of_stock{
+  background:var(--sb2-warning-soft); color:var(--sb2-warning);
+}
+.sb2-pds-badge.discontinued{
+  background:var(--sb2-s3); color:var(--sb2-t3);
+}
+
+.sb2-pds-empty{
+  padding:48px 24px; text-align:center; color:var(--sb2-t3);
+}
+.sb2-pds-empty-icon{ font-size:48px; margin-bottom:12px; opacity:0.6; }
+.sb2-pds-empty-text{
+  font:400 14px/1.5 "PingFang SC",sans-serif;
+  margin-bottom:16px; color:var(--sb2-t3);
+}
+.sb2-pds-empty-btn{
+  font:500 13px/1 "PingFang SC",sans-serif; color:var(--sb2-s1);
+  background:var(--sb2-brand); border:0; cursor:pointer;
+  padding:8px 16px; border-radius:var(--sb2-r-md);
+}
+
+.sb2-pds-pager{
+  display:flex; align-items:center; justify-content:center; gap:4px;
+  padding:12px 0; margin-top:12px; flex:0 0 auto;
+}
+.sb2-pds-pager button{
+  font:500 12px/1 "PingFang SC",sans-serif; color:var(--sb2-t2);
+  background:var(--sb2-s1); border:1px solid var(--sb2-border);
+  border-radius:var(--sb2-r-md); padding:6px 10px; cursor:pointer;
+  min-width:32px; transition:background .12s, color .12s;
+}
+.sb2-pds-pager button:hover:not(:disabled){ background:var(--sb2-s3); color:var(--sb2-t1); }
+.sb2-pds-pager button.active{
+  background:var(--sb2-brand); color:var(--sb2-s1); border-color:var(--sb2-brand);
+}
+.sb2-pds-pager button:disabled{ opacity:0.4; cursor:not-allowed; }
+.sb2-pds-pager-info{
+  font:400 11px/1 "PingFang SC",sans-serif; color:var(--sb2-t3);
+  margin-left:12px;
+}
+
+.sb2-pds-detail-overlay{
+  position:fixed; inset:0; background:rgba(0,0,0,0.45);
+  display:none; align-items:center; justify-content:center;
+  z-index:1100;
+}
+.sb2-pds-detail-overlay.open{ display:flex; }
+.sb2-pds-detail-panel{
+  width:720px; max-width:calc(100vw - 32px); max-height:80vh;
+  background:var(--sb2-s1); border-radius:var(--sb2-r-lg);
+  box-shadow:var(--sb2-sh3);
+  display:flex; flex-direction:column; overflow:hidden;
+  animation:sb2-pds-rise .18s ease;
+}
+@keyframes sb2-pds-rise{
+  from{ transform:translateY(8px); opacity:0; }
+  to{ transform:translateY(0); opacity:1; }
+}
+.sb2-pds-detail-header{
+  display:flex; align-items:center; gap:12px;
+  padding:14px 20px; border-bottom:1px solid var(--sb2-border);
+  flex:0 0 auto;
+}
+.sb2-pds-detail-header h2{
+  flex:1; min-width:0; margin:0;
+  font:600 16px/1.3 "PingFang SC",sans-serif; color:var(--sb2-t1);
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+.sb2-pds-detail-close{
+  font:400 18px/1 sans-serif; color:var(--sb2-t3);
+  background:transparent; border:0; cursor:pointer;
+  width:28px; height:28px; border-radius:var(--sb2-r-full);
+  display:flex; align-items:center; justify-content:center;
+  transition:background .12s, color .12s;
+}
+.sb2-pds-detail-close:hover{ background:var(--sb2-s3); color:var(--sb2-t1); }
+.sb2-pds-detail-body{
+  flex:1 1 auto; overflow-y:auto; padding:20px;
+  font:400 13px/1.6 "PingFang SC",sans-serif; color:var(--sb2-t1);
+}
+.sb2-pds-detail-section{ margin-bottom:20px; }
+.sb2-pds-detail-section:last-child{ margin-bottom:0; }
+.sb2-pds-detail-section-title{
+  font:600 12px/1.3 "PingFang SC",sans-serif; color:var(--sb2-t3);
+  text-transform:uppercase; letter-spacing:0.04em;
+  margin-bottom:8px;
+}
+.sb2-pds-detail-row{
+  display:flex; gap:8px; padding:4px 0; align-items:baseline;
+}
+.sb2-pds-detail-row-key{
+  flex:0 0 80px; font:500 12px/1.4 "PingFang SC",sans-serif;
+  color:var(--sb2-t3); flex-shrink:0;
+}
+.sb2-pds-detail-row-val{
+  flex:1; min-width:0; font:400 13px/1.5 "PingFang SC",sans-serif;
+  color:var(--sb2-t1); word-break:break-word;
+}
+.sb2-pds-detail-hero-img{
+  width:100%; max-height:200px; object-fit:cover; border-radius:var(--sb2-r-md);
+  background:var(--sb2-s3); margin-bottom:12px;
+}
+.sb2-pds-detail-hero-img-empty{
+  width:100%; height:120px; border-radius:var(--sb2-r-md);
+  background:var(--sb2-s3); color:var(--sb2-t3);
+  display:flex; align-items:center; justify-content:center;
+  font:500 12px/1 "PingFang SC",sans-serif; margin-bottom:12px;
+}
+.sb2-pds-detail-tags{
+  display:flex; gap:6px; flex-wrap:wrap;
+}
+.sb2-pds-detail-tag{
+  font:500 11px/1 "PingFang SC",sans-serif; color:var(--sb2-t2);
+  background:var(--sb2-s3); padding:4px 10px; border-radius:var(--sb2-r-full);
+}
+</style>
+
 <style id="sb2-tasks">
 /* ============================================================
  * sb2-tasks MVP1: 任务模块屏 (看板默认 + 列表 segmented + 侧栏三维联动)
@@ -14137,6 +14400,70 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
   <div class="sb2-ptn-chips" id="sb2PtnChips"></div>
   <div class="sb2-ptn-list" id="sb2PtnList">
     <div class="sb2-ptn-empty">载入中…</div>
+  </div>
+</div>
+
+<!-- ★ sb2-products MVP1: 商品库屏 (hero 动态 + 筛选行 + 全宽高密度表格 + 720 弹窗 + 动态页尺寸)
+     设计 docs/design-spec/v3-26轮商品库主区.md, 旧 #productsMidList/#productsRight DOM 保留 CSS 兜底隐藏 -->
+<div class="sb2-products-main" id="sb2ProductsMain">
+  <div class="sb2-pds-hero">
+    <div>
+      <h1 class="sb2-pds-hero-title" id="sb2PdsHeroTitle">全部商品</h1>
+      <div class="sb2-pds-hero-sub" id="sb2PdsHeroSub">载入中…</div>
+    </div>
+    <div class="sb2-pds-hero-actions">
+      <select class="sb2-pds-sort" id="sb2PdsSort">
+        <option value="default">默认排序</option>
+        <option value="price_asc">价格升序</option>
+        <option value="price_desc">价格降序</option>
+        <option value="sales_desc">月销降序</option>
+        <option value="commission_desc">佣金率降序</option>
+        <option value="influencer_desc">带货达人降序</option>
+      </select>
+      <button class="sb2-btn sb2-btn-ink" onclick="createNewProduct()">+ 录入商品</button>
+    </div>
+  </div>
+  <div class="sb2-pds-filter">
+    <input class="sb2-pds-search" id="sb2PdsSearch" type="text" placeholder="搜索商品…" />
+    <select class="sb2-pds-brand" id="sb2PdsBrand">
+      <option value="">全部品牌</option>
+    </select>
+    <div class="sb2-pds-chips" id="sb2PdsStatusChips">
+      <button class="sb2-pds-chip active" data-status="">全部</button>
+      <button class="sb2-pds-chip" data-status="active">在售</button>
+      <button class="sb2-pds-chip" data-status="out_of_stock">缺货</button>
+      <button class="sb2-pds-chip" data-status="discontinued">停售</button>
+    </div>
+  </div>
+  <div class="sb2-pds-table-wrap">
+    <table class="sb2-pds-table" id="sb2PdsTable">
+      <thead>
+        <tr>
+          <th>商品</th>
+          <th>价格</th>
+          <th>佣金</th>
+          <th>月销</th>
+          <th>带货达人</th>
+          <th>库存</th>
+          <th>状态</th>
+        </tr>
+      </thead>
+      <tbody id="sb2PdsTbody">
+        <tr><td colspan="7" class="sb2-pds-empty">载入中…</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="sb2-pds-pager" id="sb2PdsPager"></div>
+</div>
+
+<!-- ★ 详情弹窗 (仿 22 轮 kb 弹窗 precedent, 居中 720 + 遮罩) -->
+<div class="sb2-pds-detail-overlay" id="sb2PdsDetailOverlay">
+  <div class="sb2-pds-detail-panel" id="sb2PdsDetailPanel">
+    <div class="sb2-pds-detail-header">
+      <h2 id="sb2PdsDetailTitle">商品详情</h2>
+      <button class="sb2-pds-detail-close" id="sb2PdsDetailClose" aria-label="关闭">×</button>
+    </div>
+    <div class="sb2-pds-detail-body" id="sb2PdsDetailBody"></div>
   </div>
 </div>
 
@@ -43084,7 +43411,377 @@ window.sb2TasksOnDragLeave = sb2TasksOnDragLeave;
 window.sb2TasksOnDragEnd = sb2TasksOnDragEnd;
 window.sb2TasksOnDrop = sb2TasksOnDrop;
 window.sb2TasksToast = sb2TasksToast;
+/* ============================================================
+ * sb2-products MVP1: 商品库屏 JS (协调人设计定稿, 小路执行)
+ * 仿 sb2-patterns precedent — hero 动态 + 全宽表格 + 720 弹窗 + 动态页尺寸
+ * 数据源: GET /api/products?limit=500 (全量一次拉, 实测 87 条)
+ * server 零改动; 不动旧 products 函数; 不动其他模块
+ *
+ * escHtml/escAttr 在内层 IIFE 私有, 跨 IIFE 不可访问 → 本块自带副本
+ * ============================================================ */
 
+function escHtml(s){ return String(s==null?'':s).replace(/[&<>"\x27]/g, function(c){ return ({'&amp;':'&amp;','&lt;':'&lt;','&gt;':'&gt;','&quot;':'&quot;',"&#39;":'&#39;'})[c]; }); }
+function escAttr(s){ return String(s==null?'':s).replace(/[&<>"\x27]/g, function(c){ return ({'&amp;':'&amp;','&lt;':'&lt;','&gt;':'&gt;','&quot;':'&quot;',"&#39;":'&#39;'})[c]; }); }
+
+var _sb2PdsStatusLabel = { active:'在售', out_of_stock:'缺货', discontinued:'停售' };
+var _sb2PdsProducts = []; var _sb2PdsTotal = 0;
+var _sb2PdsCat = ''; var _sb2PdsStatus = ''; var _sb2PdsBrand = '';
+var _sb2PdsQ = ''; var _sb2PdsSort = 'default'; var _sb2PdsPage = 1;
+var _sb2PdsBrands = [];
+
+function _sb2PdsPageSize(){
+  var main = document.getElementById('sb2ProductsMain');
+  if (!main) return 10;
+  var mcs = getComputedStyle(main);
+  var padV = (parseFloat(mcs.paddingTop) || 0) + (parseFloat(mcs.paddingBottom) || 0);
+  var hero = main.querySelector('.sb2-pds-hero');
+  var filter = main.querySelector('.sb2-pds-filter');
+  var sampleRow = main.querySelector('.sb2-pds-table tbody tr');
+  var rowH = sampleRow ? sampleRow.offsetHeight : 44;
+  var pitch = rowH + 1;
+  var reserved = padV + (hero ? hero.offsetHeight : 52) + (filter ? filter.offsetHeight : 48) + 12 + 56;
+  var avail = main.clientHeight - reserved;
+  return Math.max(10, Math.floor(avail / pitch));
+}
+
+function sb2PdsUpdateHeroTitle(){
+  var hero = document.getElementById('sb2PdsHeroTitle');
+  if (!hero) return;
+  if (_sb2PdsCat) { hero.textContent = _sb2PdsCat; return; }
+  if (_sb2PdsStatus) { hero.textContent = _sb2PdsStatusLabel[_sb2PdsStatus] || _sb2PdsStatus; return; }
+  hero.textContent = '全部商品';
+}
+
+function switchProductsCategory(cat){
+  _sb2PdsCat = (_sb2PdsCat === (cat || '')) ? '' : (cat || '');
+  document.querySelectorAll('.sb2-side--module-products .sb2-side-item').forEach(function(it){
+    var _oc = it.getAttribute('onclick') || '';
+    it.classList.toggle('active', _sb2PdsCat !== '' && _oc.indexOf("switchProductsCategory('" + _sb2PdsCat + "')") >= 0);
+  });
+  _sb2PdsPage = 1;
+  sb2PdsRender();
+}
+
+function sb2PdsFilterStatus(status){
+  _sb2PdsStatus = status || '';
+  document.querySelectorAll('.sb2-pds-chip').forEach(function(c){ c.classList.toggle('active', (c.dataset.status || '') === _sb2PdsStatus); });
+  _sb2PdsPage = 1;
+  sb2PdsRender();
+}
+
+function sb2PdsOnSearch(q){ _sb2PdsQ = String(q || '').trim().toLowerCase(); _sb2PdsPage = 1; sb2PdsRender(); }
+function sb2PdsOnBrandChange(brand){ _sb2PdsBrand = brand || ''; _sb2PdsPage = 1; sb2PdsRender(); }
+function sb2PdsOnSortChange(sort){ _sb2PdsSort = sort || 'default'; _sb2PdsPage = 1; sb2PdsRender(); }
+
+function _sb2PdsFilteredSorted(){
+  var q = _sb2PdsQ, brand = _sb2PdsBrand, cat = _sb2PdsCat, status = _sb2PdsStatus;
+  var arr = _sb2PdsProducts.filter(function(p){
+    if (cat && (p.category || '') !== cat) return false;
+    if (brand && (p.brand || '') !== brand) return false;
+    if (status && (p.status || '') !== status) return false;
+    if (q) { var hay = ((p.name || '') + ' ' + (p.subtitle || '') + ' ' + (p.brand || '')).toLowerCase(); if (hay.indexOf(q) === -1) return false; }
+    return true;
+  });
+  if (typeof sortProductsLocally === 'function' && _sb2PdsSort) { try { arr = sortProductsLocally(arr, _sb2PdsSort); } catch(e) {} }
+  return arr;
+}
+
+function sb2PdsRender(){
+  sb2PdsUpdateHeroTitle();
+  var heroSub = document.getElementById('sb2PdsHeroSub');
+  var tbody = document.getElementById('sb2PdsTbody');
+  var pager = document.getElementById('sb2PdsPager');
+  if (!tbody) return;
+
+  var filtered = _sb2PdsFilteredSorted();
+  var totalActive = 0, totalOos = 0;
+  _sb2PdsProducts.forEach(function(p){
+    var s = p.status || '';
+    if (s === 'active') totalActive++;
+    else if (s === 'out_of_stock') totalOos++;
+  });
+  var catCount = 0; var _cats = {};
+  _sb2PdsProducts.forEach(function(p){
+    var c = p.category || '';
+    if (c && !_cats[c]) { _cats[c] = 1; catCount++; }
+  });
+  if (heroSub) heroSub.textContent = '共 ' + _sb2PdsTotal + ' 商品 · ' + catCount + ' 类目 · 在售 ' + totalActive + ' · 缺货 ' + totalOos;
+
+  if (filtered.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="7"><div class="sb2-pds-empty">'
+      + '<div class="sb2-pds-empty-icon">📦</div>'
+      + '<div class="sb2-pds-empty-text">暂无商品</div>'
+      + '<button class="sb2-pds-empty-btn" onclick="createNewProduct()">录入商品</button>'
+      + '</div></td></tr>';
+    if (pager) pager.innerHTML = '';
+    return;
+  }
+
+  var pageSize = _sb2PdsPageSize();
+  var totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  if (_sb2PdsPage > totalPages) _sb2PdsPage = totalPages;
+  var startIdx = (_sb2PdsPage - 1) * pageSize;
+  var slice = filtered.slice(startIdx, startIdx + pageSize);
+
+  var html = '';
+  slice.forEach(function(p){
+    var imgHtml;
+    if (p.main_image) imgHtml = '<div class="sb2-pds-cell-img"><img src="' + escAttr(p.main_image) + '" alt="" /></div>';
+    else { var initial = escHtml((p.name || '?').charAt(0).toUpperCase()); imgHtml = '<div class="sb2-pds-cell-img">' + initial + '</div>'; }
+    var nameMain = escHtml(p.name || '-');
+    var nameSubParts = [];
+    if (p.brand) nameSubParts.push(escHtml(p.brand));
+    if (p.category) nameSubParts.push(escHtml(p.category));
+    var nameSub = nameSubParts.join(' · ');
+    var adminPart = '';
+    if (p.createdByName) adminPart = '<span class="sb2-pds-cell-name-admin">· 👤 ' + escHtml(p.createdByName) + '</span>';
+
+    var priceHtml = '<span class="sb2-pds-cell-price">¥=' + (typeof p.price === 'number' ? p.price.toFixed(2) : escHtml(String(p.price || '-'))) + '</span>';
+
+    var commHtml;
+    if (p.commission_rates && typeof p.commission_rates === 'object' && Object.keys(p.commission_rates).length > 0) {
+      var keys = Object.keys(p.commission_rates);
+      commHtml = '<span class="sb2-pds-cell-commission">' + keys.length + ' 档</span>';
+    } else if (p.commission_rate && typeof p.commission_rate === 'number' && p.commission_rate > 0) {
+      commHtml = '<span class="sb2-pds-cell-commission">' + p.commission_rate + '%</span>';
+    } else {
+      commHtml = '<span class="sb2-pds-cell-commission sb2-pds-cell-commission-empty">待设置</span>';
+    }
+
+    var sales = typeof p.monthly_sales === 'number' ? p.monthly_sales : 0;
+    var salesHtml = '<span class="sb2-pds-cell-sales">'
+      + '<svg class="sb2-pds-spark" viewBox="0 0 48 18" preserveAspectRatio="none">'
+      + _sb2PdsSparkPath(p.id || sales) + '</svg>'
+      + '<span class="sb2-pds-trend flat">' + sales + '</span></span>';
+
+    var infHtml = '<span>' + (p.influencer_count || 0) + '</span>';
+    var stockHtml = '<span>' + (typeof p.stock === 'number' ? p.stock : 0) + '</span>';
+
+    var statusKey = p.status || 'active';
+    var statusLabel = _sb2PdsStatusLabel[statusKey] || statusKey;
+    var statusHtml = '<span class="sb2-pds-badge ' + escAttr(statusKey) + '">' + escHtml(statusLabel) + '</span>';
+
+    html += '<tr data-id="' + escAttr(p.id) + '">';
+    html += '<td><div style="display:flex;gap:10px;align-items:center;">' + imgHtml
+      + '<div class="sb2-pds-cell-name">'
+      + '<div class="sb2-pds-cell-name-main">' + nameMain + adminPart + '</div>'
+      + (nameSub ? '<div class="sb2-pds-cell-name-sub">' + nameSub + '</div>' : '')
+      + '</div></div></td>';
+    html += '<td>' + priceHtml + '</td>';
+    html += '<td>' + commHtml + '</td>';
+    html += '<td>' + salesHtml + '</td>';
+    html += '<td>' + infHtml + '</td>';
+    html += '<td>' + stockHtml + '</td>';
+    html += '<td>' + statusHtml + '</td>';
+    html += '</tr>';
+  });
+  tbody.innerHTML = html;
+  Array.from(tbody.querySelectorAll('tr[data-id]')).forEach(function(tr){
+    tr.addEventListener('click', function(){ var id = tr.getAttribute('data-id'); sb2PdsOpenDetail(id); });
+  });
+
+  sb2PdsBuildPager(filtered.length, pageSize, pager);
+}
+
+function _sb2PdsSparkPath(seed){
+  var h = 0; var s = String(seed || '');
+  for (var i = 0; i < s.length; i++) h = ((h << 5) - h + s.charCodeAt(i)) | 0;
+  var pts = [];
+  for (var k = 0; k < 5; k++){ h = ((h << 5) - h + k) | 0; var y = 2 + Math.abs(h % 13); pts.push((k * 12) + ',' + y); }
+  return '<polyline points="' + pts.join(' ') + '" fill="none" stroke="currentColor" stroke-width="1.2" />';
+}
+
+function sb2PdsBuildPager(totalItems, pageSize, container){
+  if (!container) return;
+  var totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+  var cur = _sb2PdsPage;
+  var html = '';
+  html += '<button ' + (cur <= 1 ? 'disabled' : '') + ' onclick="sb2PdsGoPage(' + (cur - 1) + ')">‹</button>';
+  var showPages = [];
+  for (var p = 1; p <= totalPages; p++){
+    if (p === 1 || p === totalPages || (p >= cur - 1 && p <= cur + 1)) showPages.push(p);
+    else if (showPages[showPages.length - 1] !== '…') showPages.push('…');
+  }
+  showPages.forEach(function(p){
+    if (p === '…') html += '<span style="padding:0 4px;color:var(--sb2-t3);">…</span>';
+    else html += '<button class="' + (p === cur ? 'active' : '') + '" onclick="sb2PdsGoPage(' + p + ')">' + p + '</button>';
+  });
+  html += '<button ' + (cur >= totalPages ? 'disabled' : '') + ' onclick="sb2PdsGoPage(' + (cur + 1) + ')">›</button>';
+  html += '<span class="sb2-pds-pager-info">第 ' + cur + ' / ' + totalPages + ' 页 · 共 ' + totalItems + ' 条</span>';
+  container.innerHTML = html;
+}
+
+function sb2PdsGoPage(p){
+  var totalPages = Math.max(1, Math.ceil(_sb2PdsFilteredSorted().length / _sb2PdsPageSize()));
+  _sb2PdsPage = Math.max(1, Math.min(totalPages, p));
+  sb2PdsRender();
+}
+
+function sb2PdsOpenDetail(id){
+  var p = _sb2PdsProducts.find(function(x){ return x.id === id; });
+  var overlay = document.getElementById('sb2PdsDetailOverlay');
+  var titleEl = document.getElementById('sb2PdsDetailTitle');
+  var bodyEl = document.getElementById('sb2PdsDetailBody');
+  if (!overlay || !bodyEl) return;
+  if (!p) { showToast('商品不存在或已删除', 'warning'); return; }
+  titleEl.textContent = p.name || '-';
+  bodyEl.innerHTML = _sb2PdsDetailHtml(p);
+  overlay.classList.add('open');
+}
+
+function sb2PdsCloseDetail(){
+  var overlay = document.getElementById('sb2PdsDetailOverlay');
+  if (overlay) overlay.classList.remove('open');
+}
+
+function _sb2PdsDetailHtml(p){
+  var h = '';
+  if (p.main_image) h += '<img class="sb2-pds-detail-hero-img" src="' + escAttr(p.main_image) + '" alt="" />';
+  else h += '<div class="sb2-pds-detail-hero-img-empty">暂无图片</div>';
+
+  h += '<div class="sb2-pds-detail-section">';
+  h += '<div class="sb2-pds-detail-section-title">基础信息</div>';
+  h += _sb2PdsDetailRow('名称', p.name);
+  h += _sb2PdsDetailRow('副标', p.subtitle);
+  h += _sb2PdsDetailRow('品牌', p.brand);
+  h += _sb2PdsDetailRow('类目', p.category);
+  h += _sb2PdsDetailRow('状态', _sb2PdsStatusLabel[p.status] || p.status);
+  h += _sb2PdsDetailRow('库存', (typeof p.stock === 'number') ? String(p.stock) : '0');
+  if (p.createdByName) h += _sb2PdsDetailRow('创建人', p.createdByName);
+  h += '</div>';
+
+  h += '<div class="sb2-pds-detail-section">';
+  h += '<div class="sb2-pds-detail-section-title">价格 · 佣金</div>';
+  h += _sb2PdsDetailRow('价格', '¥=' + (typeof p.price === 'number' ? p.price.toFixed(2) : '-'));
+  if (p.original_price && p.original_price > 0) h += _sb2PdsDetailRow('原价', '¥=' + p.original_price.toFixed(2));
+  if (p.commission_rates && Object.keys(p.commission_rates).length) {
+    var ratesStr = Object.keys(p.commission_rates).map(function(k){ return k + ': ' + p.commission_rates[k] + '%'; }).join(' · ');
+    h += _sb2PdsDetailRow('佣金档', ratesStr);
+  } else if (p.commission_rate) h += _sb2PdsDetailRow('佣金率', p.commission_rate + '%');
+  else h += _sb2PdsDetailRow('佣金率', '待设置');
+  if (p.commission_amount) h += _sb2PdsDetailRow('佣金金额', '¥=' + p.commission_amount.toFixed(2));
+  h += '</div>';
+
+  h += '<div class="sb2-pds-detail-section">';
+  h += '<div class="sb2-pds-detail-section-title">销售数据</div>';
+  h += _sb2PdsDetailRow('月销', String(p.monthly_sales || 0));
+  h += _sb2PdsDetailRow('月 GMV', p.monthly_gmv ? '¥=' + p.monthly_gmv.toFixed(2) : '-');
+  if (p.conversion_rate) h += _sb2PdsDetailRow('转化率', p.conversion_rate + '%');
+  if (p.avg_order_value) h += _sb2PdsDetailRow('客单价', '¥=' + p.avg_order_value.toFixed(2));
+  h += '</div>';
+
+  h += '<div class="sb2-pds-detail-section">';
+  h += '<div class="sb2-pds-detail-section-title">带货</div>';
+  h += _sb2PdsDetailRow('带货达人', String(p.influencer_count || 0) + ' 人');
+  h += _sb2PdsDetailRow('关联视频', String(p.video_count || p.talent_count || 0) + ' 条');
+  h += '</div>';
+
+  if (p.selling_points) {
+    h += '<div class="sb2-pds-detail-section">';
+    h += '<div class="sb2-pds-detail-section-title">卖点</div>';
+    h += '<div class="sb2-pds-detail-row-val" style="padding:4px 0;">' + escHtml(p.selling_points) + '</div>';
+    h += '</div>';
+  }
+  if (Array.isArray(p.tags) && p.tags.length) {
+    h += '<div class="sb2-pds-detail-section">';
+    h += '<div class="sb2-pds-detail-section-title">标签</div>';
+    h += '<div class="sb2-pds-detail-tags">';
+    p.tags.forEach(function(t){ h += '<span class="sb2-pds-detail-tag">' + escHtml(String(t)) + '</span>'; });
+    h += '</div></div>';
+  }
+  if (p.description) {
+    h += '<div class="sb2-pds-detail-section">';
+    h += '<div class="sb2-pds-detail-section-title">描述</div>';
+    h += '<div class="sb2-pds-detail-row-val" style="padding:4px 0;white-space:pre-wrap;">' + escHtml(p.description) + '</div>';
+    h += '</div>';
+  }
+  return h;
+}
+
+function _sb2PdsDetailRow(key, val){
+  return '<div class="sb2-pds-detail-row">'
+    + '<div class="sb2-pds-detail-row-key">' + escHtml(key) + '</div>'
+    + '<div class="sb2-pds-detail-row-val">' + escHtml(val == null ? '-' : String(val)) + '</div>'
+    + '</div>';
+}
+
+function sb2PdsRenderBrands(){
+  var sel = document.getElementById('sb2PdsBrand');
+  if (!sel) return;
+  var brands = (Array.isArray(window.productBrands) ? window.productBrands : [])
+    .concat(Array.isArray(_sb2PdsBrands) ? _sb2PdsBrands : []);
+  var seen = {}; var uniq = [];
+  brands.forEach(function(b){ var name = (b && (b.name || b)) || ''; if (name && !seen[name]) { seen[name] = 1; uniq.push(name); } });
+  _sb2PdsProducts.forEach(function(p){ var b = p.brand || ''; if (b && !seen[b]) { seen[b] = 1; uniq.push(b); } });
+  var html = '<option value="">全部品牌</option>';
+  uniq.forEach(function(n){ html += '<option value="' + escAttr(n) + '">' + escHtml(n) + '</option>'; });
+  sel.innerHTML = html;
+}
+
+async function sb2ProductsInit(){
+  try {
+    var heroSub = document.getElementById('sb2PdsHeroSub');
+    if (heroSub) heroSub.textContent = '载入中…';
+    var tbody = document.getElementById('sb2PdsTbody');
+    if (tbody) tbody.innerHTML = '<tr><td colspan="7" class="sb2-pds-empty">载入中…</td></tr>';
+
+    var resp = await apiFetch('/api/products?limit=500');
+    if (!resp || !resp.ok) {
+      if (heroSub) heroSub.textContent = '加载失败 (HTTP ' + (resp ? resp.status : 'no response') + ')';
+      if (tbody) tbody.innerHTML = '<tr><td colspan="7"><div class="sb2-pds-empty"><div class="sb2-pds-empty-icon">📦</div><div class="sb2-pds-empty-text">加载失败，请刷新重试</div></div></td></tr>';
+      return;
+    }
+    var data = await resp.json();
+    _sb2PdsProducts = (data && Array.isArray(data.products)) ? data.products : [];
+    _sb2PdsTotal = (data && typeof data.total === 'number') ? data.total : _sb2PdsProducts.length;
+    try { if (typeof loadProductBrands === 'function') loadProductBrands(); } catch(e) {}
+    sb2PdsRenderBrands();
+    _sb2PdsPage = 1;
+    sb2PdsRender();
+  } catch (e) {
+    console.error('[sb2-products] init error:', e);
+    showToast('❌ 商品库加载失败: ' + (e.message || e), 'error');
+  }
+}
+
+(function _sb2PdsResizeWatch(){
+  var timer = null;
+  window.addEventListener('resize', function(){
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(function(){
+      var main = document.getElementById('sb2ProductsMain');
+      if (main && main.classList.contains('active')) sb2PdsRender();
+    }, 200);
+  });
+})();
+
+(function _sb2PdsDetailEvents(){
+  function _close(){ sb2PdsCloseDetail(); }
+  if (document.readyState === 'loading') { document.addEventListener('DOMContentLoaded', _bind); } else { _bind(); }
+  function _bind(){
+    var overlay = document.getElementById('sb2PdsDetailOverlay');
+    var closeBtn = document.getElementById('sb2PdsDetailClose');
+    if (overlay) overlay.addEventListener('click', function(e){ if (e.target === overlay) _close(); });
+    if (closeBtn) closeBtn.addEventListener('click', _close);
+    document.addEventListener('keydown', function(e){ if (e.key === 'Escape') _close(); });
+    var chipsEl = document.getElementById('sb2PdsStatusChips');
+    if (chipsEl) chipsEl.addEventListener('click', function(e){ var btn = e.target.closest('.sb2-pds-chip'); if (!btn) return; sb2PdsFilterStatus(btn.dataset.status || ''); });
+    var searchEl = document.getElementById('sb2PdsSearch');
+    var searchTimer = null;
+    if (searchEl) searchEl.addEventListener('input', function(){ if (searchTimer) clearTimeout(searchTimer); var v = searchEl.value; searchTimer = setTimeout(function(){ sb2PdsOnSearch(v); }, 200); });
+    var brandEl = document.getElementById('sb2PdsBrand');
+    if (brandEl) brandEl.addEventListener('change', function(){ sb2PdsOnBrandChange(brandEl.value); });
+    var sortEl = document.getElementById('sb2PdsSort');
+    if (sortEl) sortEl.addEventListener('change', function(){ sb2PdsOnSortChange(sortEl.value); });
+  }
+})();
+
+window.sb2ProductsInit = sb2ProductsInit;
+window.switchProductsCategory = switchProductsCategory;
+window.sb2PdsGoPage = sb2PdsGoPage;
+window.sb2PdsFilterStatus = sb2PdsFilterStatus;
+window.sb2PdsOpenDetail = sb2PdsOpenDetail;
+window.sb2PdsCloseDetail = sb2PdsCloseDetail;
 async function sb2PatternsInit(){
   var heroSub = document.getElementById('sb2PtnHeroSub');
   var listEl = document.getElementById('sb2PtnList');
@@ -43966,13 +44663,14 @@ function switchModule(module) {
   var moduleMidMap = {
     knowledge: ['knowledgeMid', 'knowledgeMidList'],
     patterns: ['patternsMid'],
-    products: ['productsMidList'],
+    /* 〔fix/sb2-side-restore 26 轮②〕products 改 [] — 旧 #productsMidList 不再激活 (CSS 兜底隐藏, 函数保留不删) */
+    products: [],
     influencers: ['influencersMid'],
     settings: ['settingsMid'],
     tasks: ['tasksMidList']
   };
   var moduleRightMap = {
-    products: 'productsRight',
+    /* 〔fix/sb2-side-restore 26 轮②〕products 删 — 旧 #productsRight 不再激活 (CSS 兜底隐藏) */
     influencers: 'influencersRight',
     settings: 'settingsRight',
     tasks: 'tasksRight'
@@ -44010,7 +44708,17 @@ function switchModule(module) {
       if (typeof sb2PatternsInit === 'function') sb2PatternsInit();
     }
   }
-  else if (module === 'products') { loadProductBrands(); loadProductCategories(); loadProducts(); }
+  else if (module === 'products') {
+    /* 〔fix/sb2-side-restore 26 轮②〕商品库主区还原 — sb2-products MVP1 接入点
+       修前: loadProductBrands + loadProductCategories + loadProducts (旧 module-mid/right 双栏, 唯一未收进 sb2 体系的模块主区)
+       修后: 仿 sb2-patterns/sb2-knowledge precedent — add .sb2-products-main.active + sb2ProductsInit()
+       兜底: 旧 loadProductBrands/loadProductCategories/loadProducts 仍保留 (CSS 兜底隐藏旧 DOM, 但函数不删, 回归失败可切回) */
+    var sb2pds = document.getElementById('sb2ProductsMain');
+    if (sb2pds) {
+      sb2pds.classList.add('active');
+      if (typeof sb2ProductsInit === 'function') sb2ProductsInit();
+    }
+  }
   else if (module === 'influencers') {
     // ★ sb2-talents MVP1: 显示新屏, 旧 #influencersMid / #influencersRight CSS 兜底 display:none (旧 DOM 不退役仅兜底)
     var sb2t = document.getElementById('sb2TalentsMain');
@@ -46698,7 +47406,7 @@ window.sb2Go = function(id){
 // 通用策略: .active 走 removeClass, chat 走 hidden 属性, dashboard 不动
 window.sb2_hideAllModuleMains = function(){
   // 1. .active class 控制容器 (knowledge/settings/patterns/talents/tasks)
-  document.querySelectorAll('.sb2-knowledge-main.active, .sb2-settings-main.active, .sb2-patterns-main.active, .sb2-talents-main.active, .sb2-tasks-main.active')
+  document.querySelectorAll('.sb2-knowledge-main.active, .sb2-settings-main.active, .sb2-patterns-main.active, .sb2-talents-main.active, .sb2-tasks-main.active, .sb2-products-main.active')
     .forEach(function(el){ el.classList.remove('active'); });
   // 2. hidden 属性控制容器 (chat)
   var chatEl = document.getElementById('sb2ChatMain');
@@ -47081,13 +47789,22 @@ var SB2_SIDE_RENDERERS = {
     };
   },
   products: function(){
+    /* 〔fix/sb2-side-restore 26 轮②〕商品库侧栏 — 类目 onClick 真链路 + 返回知识库入口
+       修前: 侧栏类目 onClick 调 switchProductsCategory — 全仓无此函数定义 (旧 selectProductCategory 只驱动已下线 legacy DOM) → 静默 no-op (同规律库 24 轮批注④ 病根)
+       修法:
+         ① 类目 onClick 改调 switchProductsCategory(name) — toggle 语义 (再点取消), hero 标题联动 sb2PdsUpdateHeroTitle 已在 sb2PdsRender 顶部
+         ② 底部加「📚 返回知识库 →」入口 (写法对齐 line 47747 knowledge 侧栏「规律库入口 →」, label:' ' + 单 item)
+         ③ 类目渲染保持 window.productCategories 数据源 (loadProductCategories 已有, 不动) */
     var cats = (typeof window.productCategories !== 'undefined' && Array.isArray(window.productCategories)) ? window.productCategories : [];
     return {
       title:'商品库', sub:cats.length + ' 类目',
       items:[
         { label:'类目', items: (cats.length ? cats : [{name:'加载中…'}]).slice(0, 30).map(function(c){
           return { name:(c.name || c.display_name || '-'), onClick:"switchProductsCategory && switchProductsCategory('"+(c.id || c.name)+"')" };
-        })}
+        })},
+        { label:' ', items:[
+          { name:'📚 返回知识库 →', onClick:"sb2Go && sb2Go('knowledge')" }
+        ]}
       ]
     };
   },
