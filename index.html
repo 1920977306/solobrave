@@ -48545,6 +48545,18 @@ else init();
         _pushMsg.injectionTags = reply.injectionTags;
       }
       _sb2Chat.messages.push(_pushMsg);
+      /* 〔r35.1b〕占位气泡渲染时 injectionTags 还没回来 → pill 渲染不出。
+         用带 tags 的完整 bubble 替换占位 row (含 chips), 保持滚动 + 提议卡挂载 */
+      var _mc = document.getElementById('sb2ChatMessages');
+      var _rows = _mc ? _mc.querySelectorAll('.sb2-chat-msg-row') : [];
+      var _lastRow = _rows[_rows.length - 1];
+      if (_lastRow) {
+        var _tmpWrap = document.createElement('div');
+        _tmpWrap.innerHTML = sb2_renderBubble(_pushMsg);
+        if (_tmpWrap.firstChild) _lastRow.parentNode.replaceChild(_tmpWrap.firstChild, _lastRow);
+        if (_mc) _mc.scrollTop = _mc.scrollHeight;
+        if (typeof window.sb2PropMountCards === 'function') window.sb2PropMountCards(_mc);
+      }
     } catch (e) {
       console.error('[sb2_doSend]', e);
       if (placeholderEl) placeholderEl.textContent = '-';
