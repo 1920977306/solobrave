@@ -43128,39 +43128,31 @@ async function sb2TalentsSubmitMatchProposal(productId){
     if (typeof showToast === 'function') showToast('请先打开 AI 匹配弹窗', 'warn');
     return;
   }
-  /* 找达人名 + 商品名 (用于 proposal title) */
-  var tlist = (typeof _sb2TalentsList !== 'undefined') ? _sb2TalentsList : [];
-  var t = tlist.find(function(x){ return x && x.id === talentId; });
-  var tName = t ? (t.name || talentId) : talentId;
-  /* POST /api/proposals body
-     type: 'task.create' (server 白名单唯一带「创建」语义的 type, line 18881)
-     options[0].payload: 达人 ID + 商品 ID (供 resolve 时落到 deal/task) */
-  var xid = (typeof SB2 !== 'undefined' && SB2.agentId) || localStorage.getItem('sb_agent_id') || '';
-  var headers = { 'Content-Type': 'application/json' };
-  if (xid) headers['X-Agent-Id'] = xid;
+  /* r39-7 智能派单中继 (老大拍板 B): /api/proposals 保持 AI 专属硬闸,
+     真人走 /api/collaboration-propose, 服务端挑 AI 员工(优先商务)代建方案 */
+  var match = (_sb2TlnAimatchState.matches || []).find(function(x){
+    return x && x.product && x.product.id === productId;
+  });
+  var score = match ? (match.matchPercent || match.score || '') : '';
   try {
-    var resp = await apiFetch('/api/proposals', {
+    var resp = await apiFetch('/api/collaboration-propose', {
       method: 'POST',
-      headers: headers,
-      body: JSON.stringify({
-        type: 'task.create',
-        title: '达人合作方案 · ' + tName + ' ↔ 商品 ' + productId,
-        summary: 'r39-P0 撮合链生成合作方案',
-        options: [{
-          label: '接受合作',
-          payload: { talentId: talentId, productId: productId, action: 'talent.collab.propose' }
-        }],
-        recommended: 0,
-        context: { source: 'r39-match-chain', talentId: talentId, productId: productId }
-      })
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ talentId: talentId, productId: productId, score: score })
     });
     if (resp && resp.ok) {
-      if (typeof showToast === 'function') showToast('✅ 合作方案已生成, 待审批', 'success');
+      var data = null;
+      try { data = await resp.json(); } catch (e) { data = null; }
+      var agentName = (data && data.dispatched_agent) ? data.dispatched_agent : 'AI 员工';
+      if (data && data.duplicate) {
+        if (typeof showToast === 'function') showToast('该合作方案已存在, 未重复创建', 'info');
+      } else {
+        if (typeof showToast === 'function') showToast('✅ 已派给 ' + agentName + ' 生成方案, 待审批', 'success');
+      }
       sb2TalentsCloseAiMatch();
-    } else if (resp && resp.status === 403) {
-      /* 与规格偏差项: server 强制 X-Agent-Id (localhost only), 远程 admin 用户 403
-         不静默吞错 (跟 feat/p03-quality-loop 「不再吞错」 21 轮同款) */
-      if (typeof showToast === 'function') showToast('⚠️ 生成合作方案鉴权受限 (HTTP 403), 待协调人放宽 /api/proposals 鉴权或新增专用接口', 'warn');
+    } else if (resp && (resp.status === 403 || resp.status === 401)) {
+      /* 不静默吞错 (跟 feat/p03-quality-loop 「不再吞错」 21 轮同款) */
+      if (typeof showToast === 'function') showToast('⚠️ 请先登录后再生成合作方案 (HTTP ' + resp.status + ')', 'warn');
     } else {
       if (typeof showToast === 'function') showToast('⚠️ 生成失败 (HTTP ' + (resp ? resp.status : '?') + ')', 'warn');
     }

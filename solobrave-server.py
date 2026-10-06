@@ -1867,6 +1867,10 @@ def _load_agents(include_archived=False):
     return cleaned
 
 
+# r39-7 智能派单 round-robin 游标 (模块级, 进程内轮询挑 AI 员工代建合作方案)
+_collab_agent_idx = 0
+
+
 def _get_agent_by_id(agent_id):
     """根据 ID 获取单个 Agent"""
     agents = _load_agents()
@@ -8256,6 +8260,12 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             if len(parts) == 2 and parts[1] == 'resolve':
                 self._handle_post_proposal_resolve(parts[0])
                 return
+
+        # r39-7 智能派单中继: 真人「生成合作方案」入口, 服务端挑 AI 员工代建 proposal
+        #   (proposals 保持 AI 专属硬闸不放宽, 老大拍板 B)
+        if path == '/api/collaboration-propose':
+            self._handle_post_collaboration_propose()
+            return
 
         # Brand API
         if path == '/api/brands':
@@ -18917,6 +18927,108 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         finally:
             conn.close()
         self._send_json(201, _proposal_row_to_dict(row))
+
+    def _handle_post_collaboration_propose(self):
+        """POST /api/collaboration-propose — r39-7 智能派单中继 (老大拍板 B)
+
+        /api/proposals 保持 AI 员工专属硬闸不放宽; 真人(管理员)走本中继,
+        服务端 round-robin 挑一个 AI 员工(优先商务角色)代建 task.create proposal,
+        并用该 AI 员工起草方案摘要 (best-effort, 失败不阻塞派单)。
+        幂等口径: 按「达人+商品」去重且前置拦截 (与 AI 直建的 agent 维度 key 不同,
+        详见 handler 内注释), 重试/重放不产生两张单, 也不白跑 AI 起草。"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status); return
+        # 真人入口: 必须是已登录人类用户 (拒绝 AI agent 身份绕中继, 避免双写)
+        if getattr(auth, 'localhost_agent_id', None):
+            self._send_json_error(403, 'AI 员工请直接走 /api/proposals'); return
+        body = self._read_body() or {}
+        talent_id = body.get('talentId') or body.get('talent_id')
+        product_id = body.get('productId') or body.get('product_id')
+        if not talent_id or not product_id:
+            self._send_json_error(400, 'talentId 和 productId 必填'); return
+        conn = _db_conn()
+        try:
+            trow = conn.execute('SELECT name FROM talents WHERE id = ?', (talent_id,)).fetchone()
+            prow = conn.execute('SELECT name FROM products WHERE id = ?', (product_id,)).fetchone()
+        finally:
+            conn.close()
+        if not trow or not prow:
+            self._send_json_error(404, '达人或商品不存在'); return
+        tname = trow['name'] or talent_id
+        pname = prow['name'] or product_id
+        # 幂等前置: 同人同货已派过单直接返已有单 (避免重试白跑一次 AI 起草 + 推进轮询游标)
+        import hashlib, json as _json
+        payload = {'talentId': talent_id, 'productId': product_id, 'action': 'talent.collab.propose'}
+        canonical = _json.dumps(payload, sort_keys=True, separators=(',', ':'))
+        # ★ key 与 AI 直建不同口径: AI 直建重试同 agent 同 key (agent 维度去重, line 18889);
+        #   真人中继重试会轮转到不同 agent — key 若含 agent_id 连点两次就产生两张单。
+        #   中继按「达人+商品」维度去重: 同人同货 = 同一张单。
+        idem_key = hashlib.sha1(f'r39-7-collab-propose|{canonical}'.encode('utf-8')).hexdigest()
+        conn = _db_conn()
+        try:
+            existing = conn.execute('SELECT * FROM proposals WHERE idempotency_key = ?', (idem_key,)).fetchone()
+        finally:
+            conn.close()
+        if existing:
+            self._send_json(200, {**_proposal_row_to_dict(existing), 'duplicate': True,
+                                  'dispatched_agent': existing['agent_name'] or ''}); return
+        # 智能派单: 优先商务角色, round-robin, 无商务则全员兜底
+        global _collab_agent_idx
+        agents = _load_agents()
+        if not isinstance(agents, list):
+            agents = []
+        biz = [a for a in agents if '商务' in str(a.get('role', '')) + str(a.get('name', ''))]
+        pool = biz or agents
+        if not pool:
+            self._send_json_error(503, '暂无可用 AI 员工, 请稍后再试'); return
+        agent = pool[_collab_agent_idx % len(pool)]
+        _collab_agent_idx += 1
+        agent_id = agent.get('id')
+        agent_name = agent.get('name') or agent_id
+        score = body.get('score', '')
+        # AI 起草方案摘要 (best-effort, 失败/超时走模板兜底, 不阻塞派单)
+        summary = ''
+        try:
+            prompt = (f'达人「{tname}」与商品「{pname}」匹配度 {score}。'
+                      '用 2-3 句话写抖音带货合作方案要点(受众契合点+带货形式建议)。只输出 JSON {"summary":"..."}')
+            ai_json = _call_ai_for_json(prompt, agent,
+                system_prompt='你是抖音电商撮合专家, 只输出 JSON {"summary":"..."}')
+            if isinstance(ai_json, dict) and ai_json.get('summary'):
+                summary = str(ai_json['summary'])[:500]
+        except Exception as e:
+            logger.info(f'  [CollabPropose] AI 摘要起草失败 (走模板兜底): {e}')
+        if not summary:
+            summary = f'达人「{tname}」× 商品「{pname}」，匹配分 {score}。待 AI 员工补充执行细节。'
+        # 代建 proposal (落库逻辑同 _handle_post_proposals, 幂等已在上方前置拦截)
+        now_ms = int(time.time() * 1000)
+        user_info = getattr(auth, 'user_info', None) or {}
+        conn = _db_conn()
+        try:
+            proposal_id = 'prp_' + uuid.uuid4().hex[:12]
+            conn.execute('''INSERT INTO proposals (id, type, agent_id, agent_name, title, summary, options, recommended, status, context, idempotency_key, created_at, expires_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''', (
+                proposal_id,
+                'task.create',
+                agent_id,
+                agent_name,
+                f'合作方案：{tname} × {pname}',
+                summary,
+                _json.dumps([{'label': '接受合作', 'payload': payload}], ensure_ascii=False),
+                0,
+                'pending',
+                _json.dumps({'source': 'r39-7-collab-propose',
+                             'requested_by': user_info.get('displayName') or user_info.get('userId') or ''},
+                            ensure_ascii=False),
+                idem_key,
+                now_ms,
+                now_ms + 24 * 60 * 60 * 1000
+            ))
+            conn.commit()
+            row = conn.execute('SELECT * FROM proposals WHERE id = ?', (proposal_id,)).fetchone()
+        finally:
+            conn.close()
+        self._send_json(201, {**_proposal_row_to_dict(row), 'dispatched_agent': agent_name})
 
     def _handle_get_proposals(self):
         """GET /api/proposals — 列表 (审批中心), admin-only 收窄 (老大拍板)
