@@ -10473,7 +10473,9 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
  * ============================================================ */
 .sb2-patterns-main{
   display:none; flex-direction:column; flex:1; height:100%;
-  padding:20px; overflow-y:auto;
+  /* 〔r39-16 批注③〕整页滚动 → 内部分页: 容器不再滚, 列表区内部滚 + 底部钉分页条
+     (老大: 为什么没有下一页这样的, 不要滑动的 — 对齐达人库分页交互) */
+  padding:20px; overflow:hidden;
   /* 〔r39-14〕padding 20px 24px → 20px 四边 (老大: 间距上下左右都一样) */
   font:400 14px/1.6 "PingFang SC",-apple-system,sans-serif;
   color:var(--sb2-t1); background:var(--sb2-bg);
@@ -10502,7 +10504,17 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
 }
 .sb2-ptn-chip-icon{ display:inline-block; margin-right:4px; }
 
-.sb2-ptn-list{ display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+.sb2-ptn-list{
+  display:grid; grid-template-columns:1fr 1fr; gap:12px;
+  /* 〔r39-16 批注③〕列表区吃掉剩余高度 + 内部滚动 (分页条钉底部不被滚走) */
+  flex:1; min-height:0; overflow-y:auto; align-content:start;
+}
+/* 〔r39-16 批注③〕底栏分页条: 对齐达人库 .sb2-talents-footer 样式 (四边 20 口径) */
+.sb2-ptn-footer{
+  display:flex; align-items:center; gap:12px; flex-shrink:0;
+  margin:16px 0 0; padding-top:12px; border-top:1px solid var(--sb2-border);
+  font:400 11px/1.4 "PingFang SC",sans-serif; color:var(--sb2-t3);
+}
 @media (max-width: 900px){
   .sb2-ptn-list{ grid-template-columns:1fr; }
 }
@@ -13096,6 +13108,12 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
   box-shadow: var(--sb2-sh1);
   /* 〔r39-8 批注〕后块与前块 (line 12064) 同选择器, 后定义赢;
      margin 只在前块写一份生效, 此处不写避免双份漂移 */
+  /* 〔r39-16 批注④〕表格卡往下延伸填满主区 (老大: 我说了往下延伸点)
+     覆盖 14 轮 commit 11「随内容收缩」口径 (当时嫌下半截大白空, 现口径反转:
+     卡要延伸, 行数不足时卡内底部留白但有边框圈住, 分页条仍钉在模块底部)
+     父 .sb2-talents-main-pane 是 flex column, flex:1 吃掉 hero/footer 之外的剩余高度 */
+  flex: 1 1 auto;
+  min-height: 0;
 }
 .sb2-talents-table {
   width: 100%;
@@ -13523,10 +13541,13 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
   display: flex;
   flex-direction: column;
   position: absolute;
-  top: 38px;
+  /* 〔r39-16 批注①〕四边缝统一: top 38 / bottom 40 → 41 (老大: 间距没改, 上下左右都一样)
+     水平缝 = (.app-main 宽 − 1240) / 2 ≈ 41px @1618 视口; 垂直对齐同一值, 真机量完可 ±2 微调 */
+  top: 41px;
   /* 〔r39-9 批注〕壳底缝 18 → 40 (老大对照原版: 输入条没有挨着底部)
-     原版 .content 底 padding sp-7 48px, 卡悬空; 底缝加大后输入条整体离屏底更远 */
-  bottom: 40px;
+     原版 .content 底 padding sp-7 48px, 卡悬空; 底缝加大后输入条整体离屏底更远
+     〔r39-16 批注①〕40 → 41, 跟 top 对齐四边等距 */
+  bottom: 41px;
   /* 〔21 轮批注③-4 2026-10-06 协调人代改〕left: 60px → 0 (18 轮批注④ v4 遗留锚点解除)
      探针实测: .sb2-side fixed left:60 w:236 (60..296), .app-main 起于 x=296 (左缘 60px 区域空置无元素)
      → left:60 锚点已无对象可让, 纯制造左 71px / 右 11px 不对称灰缝
@@ -14720,6 +14741,12 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
   <div class="sb2-ptn-chips" id="sb2PtnChips"></div>
   <div class="sb2-ptn-list" id="sb2PtnList">
     <div class="sb2-ptn-empty">载入中…</div>
+  </div>
+  <!-- 〔r39-16 批注③〕底栏分页: < 1 2 … N > + 共 N 条 (复用达人库 pager 样式) -->
+  <div class="sb2-ptn-footer" id="sb2PtnFooter">
+    <div id="sb2PtnFooterLeft">共 0 条</div>
+    <div style="flex:1"></div>
+    <div class="sb2-talents-pager" id="sb2PtnPager"></div>
   </div>
 </div>
 
@@ -22444,6 +22471,12 @@ function updateConnectionStatus() {
   else if (isMockMode) statusText = '⚠ Mock 模式（WS 不可达）';
   else statusText = '⚠ 服务未连接';
   if (statusEl) statusEl.textContent = statusText;
+
+  // 〔r39-16 批注②〕底部状态栏平时隐藏, 仅异常态显示 (老大: 这个是什么)
+  // 原版无此常驻条; 已连接/API 模式 (健康态) 隐藏, Mock/未连接/连接中显示
+  // 顶栏 chatTopbarWs 同步逻辑 (下方) 保留不动 — 功能不丢, 入口不无中生有
+  var connBar = document.getElementById('connectionStatusBar');
+  if (connBar) connBar.style.display = (isOpenClawConnected || hasAPIKey) ? 'none' : '';
 
   // ★ ui/chat-main-v21-polish: 同步顶部状态条 WS + 模型
   var topbarWs = document.getElementById('chatTopbarWs');
@@ -42490,6 +42523,11 @@ var _sb2PtnPatterns = [];
 var _sb2PtnLevel = ''; // '', 'hypothesis', 'candidate', 'verified'
 var _sb2PtnCat = '';   // 〔24 轮批注④〕'' = 全部类目, 否则 = category 名字符串 (sb2PatternsInit catMap 同源)
 var _sb2PtnStatus = ''; // 〔24 轮批注④ 二阶段 老大 12:54 授权映射〕'' = 全部, 否则 = status (draft/confirmed/deprecated, API 实证字段)
+/* 〔r39-16 批注③〕前端切片分页状态: _sb2PtnPatterns 已全量在手 (API limit=100),
+   筛选组合过滤后按 20/页切片渲染, 底栏分页条钉底部 (老大: 不要滑动的) */
+var _sb2PtnPage = 1;
+var _sb2PtnLimit = 20;
+var _sb2PtnFilteredTotal = 0; // sb2PtnRender 每次刷新, sb2PtnGoPage 翻页上限用
 
 /* ============================================================
  * sb2-talents MVP1: 端点契约 / 三维筛选现场聚合 / 评级分档 / 状态映射 / GPM 归一 / 表格 + 分页
@@ -44760,6 +44798,7 @@ function sb2PtnUpdateHeroTitle(){
 }
 function sb2PtnFilter(level){
   _sb2PtnLevel = level || '';
+  _sb2PtnPage = 1; // 〔r39-16 批注③〕切筛选回第 1 页
   document.querySelectorAll('.sb2-ptn-chip').forEach(function(c){
     c.classList.toggle('active', c.dataset.level === _sb2PtnLevel);
   });
@@ -44777,6 +44816,7 @@ function sb2PtnFilter(level){
        不是同一词典, 不在本次范围, 待老大拍板 */
 function switchPatternsCategory(cat){
   _sb2PtnCat = (_sb2PtnCat === (cat || '')) ? '' : (cat || '');
+  _sb2PtnPage = 1; // 〔r39-16 批注③〕切筛选回第 1 页
   document.querySelectorAll('.sb2-side--module-patterns .sb2-side-item').forEach(function(it){
     var _oc = it.getAttribute('onclick') || '';
     it.classList.toggle('active', _sb2PtnCat !== '' && _oc.indexOf("switchPatternsCategory('" + _sb2PtnCat + "')") >= 0);
@@ -44793,6 +44833,7 @@ function switchPatternsCategory(cat){
    — 纯前端过滤 (_sb2PtnPatterns 已全量在手), server 零改动 */
 function switchPtnSideStatus(status){
   _sb2PtnStatus = (_sb2PtnStatus === (status || '')) ? '' : (status || '');
+  _sb2PtnPage = 1; // 〔r39-16 批注③〕切筛选回第 1 页
   document.querySelectorAll('.sb2-side--module-patterns .sb2-side-item').forEach(function(it){
     var _oc = it.getAttribute('onclick') || '';
     it.classList.toggle('active', _oc.indexOf("switchPtnSideStatus('" + (_sb2PtnStatus || '') + "')") >= 0 && _sb2PtnStatus !== '');
@@ -44858,11 +44899,18 @@ function sb2PtnRender(){
   });
   if (filtered.length === 0) {
     listEl.innerHTML = '<div class="sb2-ptn-empty">' + ((_sb2PtnLevel || _sb2PtnCat || _sb2PtnStatus) ? '当前筛选下暂无规律' : '暂无规律记录') + '</div>';
+    _sb2PtnRenderPagerUI(0, 1);
     return;
   }
+  /* 〔r39-16 批注③〕前端切片分页: 筛选结果按 _sb2PtnLimit 分页, 只渲染当前页 */
+  var totalPages = Math.max(1, Math.ceil(filtered.length / _sb2PtnLimit));
+  if (_sb2PtnPage > totalPages) _sb2PtnPage = totalPages;
+  _sb2PtnFilteredTotal = filtered.length;
+  _sb2PtnRenderPagerUI(filtered.length, totalPages);
+  var pageItems = filtered.slice((_sb2PtnPage - 1) * _sb2PtnLimit, _sb2PtnPage * _sb2PtnLimit);
   // render cards
   var html = '';
-  filtered.forEach(function(p){
+  pageItems.forEach(function(p){
     var lv = p.verification_level || 'hypothesis';
     var confScore = p.confidence_score != null ? p.confidence_score : (p.confidence != null ? Math.round(p.confidence * 100) : 0);
     var confCls = confScore >= 80 ? '' : (confScore >= 50 ? 'mid' : 'low');
@@ -44886,6 +44934,45 @@ function sb2PtnRender(){
     html += '</div>';
   });
   listEl.innerHTML = html;
+}
+
+/* 〔r39-16 批注③〕规律库底栏分页: 翻页 + 页码渲染
+   页码序列省略逻辑跟 sb2TalentsRenderPager 同款 (≤7 全显, 否则 1 … 窗口 … N)
+   sb2PtnGoPage 被 pager 按钮 HTML onclick 调用 — 本 script 块顶层作用域, 直接可达 */
+function sb2PtnGoPage(p){
+  var totalPages = Math.max(1, Math.ceil((_sb2PtnFilteredTotal || 0) / _sb2PtnLimit));
+  if (p < 1 || p > totalPages) return;
+  _sb2PtnPage = p;
+  sb2PtnRender();
+}
+
+function _sb2PtnRenderPagerUI(total, totalPages){
+  var left = document.getElementById('sb2PtnFooterLeft');
+  var pager = document.getElementById('sb2PtnPager');
+  if (left) left.textContent = '共 ' + total + ' 条';
+  if (!pager) return;
+  var page = _sb2PtnPage;
+  if (totalPages <= 1){ pager.innerHTML = ''; return; }
+  var html = '';
+  html += '<button ' + (page <= 1 ? 'disabled' : '') + ' onclick="sb2PtnGoPage(' + (page - 1) + ')">‹</button>';
+  var pages = [];
+  if (totalPages <= 7){
+    for (var p = 1; p <= totalPages; p++) pages.push(p);
+  } else {
+    pages.push(1);
+    if (page > 4) pages.push('…');
+    var start = Math.max(2, page - 1);
+    var end = Math.min(totalPages - 1, page + 1);
+    for (var p2 = start; p2 <= end; p2++) pages.push(p2);
+    if (page < totalPages - 3) pages.push('…');
+    pages.push(totalPages);
+  }
+  pages.forEach(function(x){
+    if (x === '…') html += '<span class="ellipsis">…</span>';
+    else html += '<button class="' + (x === page ? 'active' : '') + '" onclick="sb2PtnGoPage(' + x + ')">' + x + '</button>';
+  });
+  html += '<button ' + (page >= totalPages ? 'disabled' : '') + ' onclick="sb2PtnGoPage(' + (page + 1) + ')">›</button>';
+  pager.innerHTML = html;
 }
 
 function sb2PtnOpenDetail(pid){
