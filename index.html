@@ -13127,29 +13127,19 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
   display: flex;
   flex-direction: column;
   position: absolute;
-  /* 〔r62 批注① 2026-10-07〕顶缝 0 → 20, 对齐全模块 20px 节奏 (r39-12/14 商品/知识/规律库/达人库统一 20)
-     复盘: r39-16 误读「间距没改」为四边 41; r61 又误读为贴顶 0; 老大 13:06 「怎么贴着顶部框了」确认
-     真实诉求 = 跟其他模块一致的 20px 呼吸缝, 不是等距 41 也不是贴顶 */
-  top: 20px;
-  /* 〔r62 批注① 2026-10-07〕底缝保持 48 (r39-9 老大批准「输入条不挨屏底」+ r61 对齐原版几何, 两次均无异议) */
-  bottom: 48px;
-  /* 〔21 轮批注③-4 2026-10-06 协调人代改〕left: 60px → 0 (18 轮批注④ v4 遗留锚点解除)
-     探针实测: .sb2-side fixed left:60 w:236 (60..296), .app-main 起于 x=296 (左缘 60px 区域空置无元素)
-     → left:60 锚点已无对象可让, 纯制造左 71px / 右 11px 不对称灰缝
-     改 left:0 + right:0 + margin auto → 卡严格 .app-main 内居中 (1322-1240)/2 = 41px 双侧对称灰缝
-     侧栏扩宽/收窄: .app-main margin 自适应, 卡始终居中 (max-width 1240 上限不变) */
-  left: 0;
-  right: 0;
+  /* 〔r64 批注① 2026-10-07〕四边统一 28px 等距呼吸缝, 弃 max-width 1240 满宽居中模式
+     老大 13:12 原话三诉求: ①缩窗不贴框 ②卡往下移一点 ③上下间距一致
+     病根: max-width 1240 + margin auto 居中 → 水平缝 = 剩余空间, 窄屏归零贴框, 且上下由 top/bottom
+     独立决定永远对不上水平缝。改 inset 28 固定四边缝后: 任何视口四边严格等距, 缩窗永不贴框
+     (28 = 20 再往下一档, 响应「再往下移一点」; 底缝 48 让位给等距诉求) */
+  top: 28px;
+  bottom: 28px;
+  left: 28px;
+  right: 28px;
   width: auto;
-  max-width: 1240px;
+  max-width: none;
   transform: none;
-  /* 〔21 轮批注③-4 2026-10-06 协调人代改〕壳白卡 1240 水平居中 (老大 09:11 批注①②)
-     修前: margin 0 → absolute left:60+right:0 下卡贴左 60 起全宽铺 (1240 上限失效), 白卡盖住全部灰底
-     修后: margin 0 auto → left+right 双锚 + auto margin 自由空间均分, 卡水平居中
-     原理: 绝对定位 left/right 同设 + width 受限时 auto margin 吸自由空间 — 无 transform, 无新 stacking context
-     (对照 18 轮批注④ v3 教训: transform translateX(-50%) + z-index 与 .sb2-side 层叠异常, 本修法避开)
-     垂直不动: top 38 / bottom 18 (18 轮批注④验收 y86 底缝 18 保持) */
-  margin: 0 auto;
+  margin: 0;
   padding: 0;
   background: var(--sb2-s1);
   border-radius: 14px;
