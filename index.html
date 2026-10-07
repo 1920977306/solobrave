@@ -5609,6 +5609,10 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .emp-detail-header-v3 .emp-detail-role{ display:inline; font-size:12px; color:var(--sb2-t3,#8E8E93); margin-bottom:0; }
 .emp-detail-header-v3 .emp-detail-status{ display:inline-flex; font-size:12px; margin-left:10px; }
 .emp-detail-header-v3 .emp-action-btn{ padding:8px 14px; font-size:13px; }
+/* 〔r77 补刀 老大 21:14 批注② follow-up〕按钮文字强制单行
+   — 根因: 基类 .emp-action-btn 是 white-space:normal, 「查看 systemPro…」换行 → 按钮 54px 高 → header 被撑到 100px (期望 ~64)
+   — 修法: nowrap, 两按钮回到 36px 一行 */
+.emp-detail-header-v3 .emp-action-btn{ white-space:nowrap; }
 /* 〔r75 批注② 老大 19:22「详情页右边是蓝色的,去掉」: 删 v3 header 蓝紫光晕伪元素
    — 根因: r73 只删了 header 背景渐变 (#EEF0FF), 漏了 ::before 装饰光晕
    — 该伪元素 absolute 50%宽 200%高, 从 header (y77) 溢出覆盖整个面板右下 (实测像素 #EDEDFB = rgba(94,92,230,0.12) over 白)
