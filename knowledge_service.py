@@ -975,7 +975,13 @@ def init_db():
     conn = _db_conn()
     try:
         # 主表（先创建基础结构）
-        conn.execute('''
+        # ★ 2026-10-08 归档改造：旧表已改名 knowledge_archive + view 承接旧名。
+        #   CREATE TABLE IF NOT EXISTS 遇同名 view 会 OperationalError，探测到 view 则整段跳过。
+        _legacy_is_view = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE name = 'knowledge' AND type = 'view'"
+        ).fetchone()
+        if not _legacy_is_view:
+            conn.execute('''
             CREATE TABLE IF NOT EXISTS knowledge (
                 id TEXT PRIMARY KEY,
                 title TEXT NOT NULL,
