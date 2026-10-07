@@ -13491,6 +13491,77 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
 @media (max-width: 700px){
   .sb2-settings-grid{ grid-template-columns:1fr; }
 }
+/* ============ 待办 A 2026-10-08: 项目组主导航屏 ============
+ * - 结构仿 .sb2-settings-main: display:none + .active{display:flex}, hero + 卡片网格
+ * - 复用 --sb2-* token, 0 硬编码颜色 */
+.sb2-groups-main{
+  display:none; flex-direction:column;
+  padding:32px 40px; max-width:960px; margin:0 auto; width:100%;
+  font:400 13px/1.5 "PingFang SC",sans-serif; color:var(--sb2-t1);
+}
+.sb2-groups-main.active{ display:flex; }
+.sb2-groups-hero{ margin-bottom:24px; }
+.sb2-groups-hero h1{
+  margin:0 0 4px 0;
+  font:600 22px/1.3 "PingFang SC",sans-serif; color:var(--sb2-ink);
+}
+.sb2-groups-hero p{
+  margin:0;
+  font:400 13px/1.5 "PingFang SC",sans-serif; color:var(--sb2-t3);
+}
+.sb2-groups-grid{
+  display:grid; grid-template-columns:1fr 1fr; gap:16px;
+}
+@media (max-width: 1100px){
+  .sb2-groups-grid{ grid-template-columns:1fr; }
+}
+.sb2-group-card{
+  background:var(--sb2-s1); border:1px solid var(--sb2-border);
+  border-radius:12px; padding:16px 18px;
+  display:flex; flex-direction:column; gap:12px;
+}
+.sb2-group-card-head{ display:flex; align-items:center; gap:12px; }
+.sb2-group-card-emoji{
+  width:40px; height:40px; border-radius:10px; flex:none;
+  display:flex; align-items:center; justify-content:center; font-size:20px;
+}
+.sb2-group-card-name{
+  font:600 14px/1.4 "PingFang SC",sans-serif; color:var(--sb2-ink);
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+.sb2-group-card-sub{
+  font:400 12px/1.4 "PingFang SC",sans-serif; color:var(--sb2-t3);
+}
+.sb2-group-card-members{ display:flex; align-items:center; }
+.sb2-group-card-members .mini-avatar{
+  width:24px; height:24px; border-radius:50%; font-size:11px;
+  display:flex; align-items:center; justify-content:center;
+  color:#fff; border:2px solid var(--sb2-s1); margin-left:-6px;
+}
+.sb2-group-card-members .mini-avatar:first-child{ margin-left:0; }
+.sb2-group-card-members .mini-more{ background:var(--sb2-s2); color:var(--sb2-t3); }
+.sb2-group-card-feed{
+  display:flex; flex-direction:column; gap:4px;
+  border-top:1px solid var(--sb2-border); padding-top:10px;
+  min-height:52px;
+}
+.sb2-group-card-feed-item{
+  font:400 12px/1.5 "PingFang SC",sans-serif; color:var(--sb2-t3);
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+.sb2-group-card-feed-empty{
+  font:400 12px/1.5 "PingFang SC",sans-serif; color:var(--sb2-t3); opacity:.7;
+}
+.sb2-group-card-actions{ display:flex; gap:8px; margin-top:auto; }
+.sb2-groups-empty{
+  background:var(--sb2-s1); border:1px dashed var(--sb2-border);
+  border-radius:12px; padding:40px 24px; text-align:center;
+  color:var(--sb2-t3); display:flex; flex-direction:column; gap:12px; align-items:center;
+}
+.sb2-groups-loading{
+  padding:40px 0; text-align:center; color:var(--sb2-t3);
+  font:400 13px/1.5 "PingFang SC",sans-serif;
+}
 .sb2-settings-feature-card{
   background:var(--sb2-s1); border:1px solid var(--sb2-border);
   border-radius:var(--sb2-r-lg); padding:18px 20px;
@@ -15375,6 +15446,17 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
       <div class="sb2-settings-feature-card-result" id="sb2FeatEventsResult"></div>
     </div>
   </div>
+</div>
+
+<!-- ★ 待办 A 2026-10-08: 项目组主导航屏 — rail 图标 + 群列表/群动态卡片网格
+     结构仿 .sb2-settings-main (hero + grid), 显隐由 .active 控制 (switchModule groups 分支)
+     零编造红线: 卡片全部来自 GET /api/groups 真数据, 最近动态来自 /api/groups/:id/history -->
+<div class="sb2-groups-main" id="sb2GroupsMain">
+  <div class="sb2-groups-hero">
+    <h1>项目组</h1>
+    <p>按项目组织的 AI 员工群聊。点卡片进入群聊，或查看最近动态。</p>
+  </div>
+  <div class="sb2-groups-grid" id="sb2GroupsGrid"></div>
 </div>
 
 <!-- Knowledge Middle List -->
@@ -18975,7 +19057,7 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
      v2 (202609241444): 初始破缓存 + skip-device 守卫
      v3 (202609241420): probe 误导文案澄清 (fingerprint fallback → token-only) -->
 <script src="openclaw-client.js?v=202609301548"></script>
-<script src="js/inline-07.js?v=credcheckin1a20261008"></script>
+<script src="js/inline-07.js?v=groupsnav1a20261008"></script>
 
 <!-- Match Result Modal -->
 <div class="product-modal-overlay" id="matchModalOverlay" onclick="closeMatchModal()">
@@ -19020,7 +19102,7 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
 </div>
 
 <script src="js/inline-08.js?v=f2d73f6b57"></script>
-<script src="js/inline-09.js?v=dashopt3a20261008"></script>
+<script src="js/inline-09.js?v=groupsnav1a20261008"></script>
 
 <!-- ★ feat/sb2-chat: SoloBrave 2.0 聊天模块 JS (核心链: 消息流 + 发送框)
      - 复用老 /api/chat/:agentId 接口契约, 零后端改动

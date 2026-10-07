@@ -5917,11 +5917,124 @@ function switchModule(module) {
       if (typeof sb2SettingsShow === 'function') sb2SettingsShow();
     }
   }
+  else if (module === 'groups') {
+    /* ★ 待办 A 2026-10-08: 项目组主导航屏 — sb2-groups-main.active + sb2GroupsInit()
+       (rail 新图标入口, 卡片网格来自 GET /api/groups 真数据) */
+    var sb2grp = document.getElementById('sb2GroupsMain');
+    if (sb2grp) {
+      sb2grp.classList.add('active');
+      if (typeof sb2GroupsInit === 'function') sb2GroupsInit();
+    }
+    // 顺带刷新群数据缓存 (window.projects), 侧栏/工作台 renderer 共享
+    try { if (typeof loadGroups === 'function') loadGroups(); } catch(e) {}
+  }
   applySidebarWidth(getSidebarWidth());
   // fix/responsive-shell-collapse-r3: 模块切换也重排(防止 inline style 被覆盖/不同
   // 模块里 .app-main 子节点的 layout 改变影响 .left-nav 视觉)
   if (typeof forceResponsiveShell === 'function') forceResponsiveShell();
 }
+
+/* ============================================================
+ * ★ 待办 A 2026-10-08: 项目组主导航屏 (老大 02:40「可以」)
+ * - sb2GroupsInit: fetch /api/groups → 卡片网格 (emoji+群名+成员数+前4头像,
+ *   异步拉 /api/groups/:id/history 显示最近 3 条动态)
+ * - sb2GroupsOpenChat: 进 messages 模块后调 legacy openGroupChat(id)
+ *   ⚠️ 既有缺口: sb2 聊天面板目前没有群聊模式, openGroupChat 渲染在 legacy
+ *   聊天区 — sb2 壳下可能不可见, 如实观察再报老大
+ * 零编造红线: 卡片/动态全部真数据, 无数据给空态/加载态, 不渲染假内容
+ * ============================================================ */
+function sb2GroupsInit(){
+  var grid = document.getElementById('sb2GroupsGrid');
+  if (!grid) return;
+  grid.innerHTML = '<div class="sb2-groups-loading">加载项目组…</div>';
+  var finish = function(list){
+    if (!Array.isArray(list)) list = [];
+    if (!list.length) {
+      grid.innerHTML = '<div class="sb2-groups-empty">'
+        + '<div>还没有项目组。创建一个，把相关 AI 员工拉到一个群里协作。</div>'
+        + '<button class="sb2-btn sb2-btn-ink" onclick="(typeof openGroupWizard===\'function\'?openGroupWizard():(typeof showToast===\'function\'?showToast(\'创建群组 — 后续版本开放\'):null))">创建群组</button>'
+        + '</div>';
+      return;
+    }
+    grid.innerHTML = list.map(function(g){
+      var members = Array.isArray(g.members) ? g.members : [];
+      var avatars = '';
+      members.slice(0, 4).forEach(function(m){
+        var name = (m && (m.name || m.display_name)) || '?';
+        var bg = (m && m.bg) || '#8E8E93';
+        avatars += '<div class="mini-avatar" style="background:' + bg + ';">' + name.slice(0,1) + '</div>';
+      });
+      if (members.length > 4) avatars += '<div class="mini-avatar mini-more">+' + (members.length - 4) + '</div>';
+      var gid = (g.id || '').replace(/'/g, '');
+      return '<div class="sb2-group-card" data-group-id="' + gid + '">'
+        + '<div class="sb2-group-card-head">'
+        +   '<div class="sb2-group-card-emoji" style="background:linear-gradient(135deg,' + (g.bg || '#5856D6') + ',' + (g.bg || '#5856D6') + 'dd);">' + (g.emoji || '👥') + '</div>'
+        +   '<div style="flex:1;min-width:0;">'
+        +     '<div class="sb2-group-card-name">' + (g.name || '-') + '</div>'
+        +     '<div class="sb2-group-card-sub">' + members.length + ' 名成员 · 群聊</div>'
+        +   '</div>'
+        + '</div>'
+        + (avatars ? '<div class="sb2-group-card-members">' + avatars + '</div>' : '')
+        + '<div class="sb2-group-card-feed" data-feed="' + gid + '"><div class="sb2-group-card-feed-empty">动态加载中…</div></div>'
+        + '<div class="sb2-group-card-actions">'
+        +   '<button class="sb2-btn sb2-btn-ink" onclick="sb2GroupsOpenChat(\'' + gid + '\')">进入群聊</button>'
+        +   '<button class="sb2-btn sb2-btn-ghost" onclick="(typeof openGroupDetail===\'function\'?openGroupDetail(\'' + gid + '\'):(typeof showToast===\'function\'?showToast(\'群详情 — 后续版本开放\'):null))">群详情</button>'
+        + '</div>'
+        + '</div>';
+    }).join('');
+    // 异步拉每个群最近动态 (fire-and-forget, 单群失败不阻塞其他群)
+    list.forEach(function(g){
+      if (!g.id || typeof apiFetch !== 'function') return;
+      (function(gid){
+        apiFetch('/api/groups/' + gid + '/history').then(function(r){
+          return (r && r.ok) ? r.json() : null;
+        }).then(function(data){
+          var feed = document.querySelector('[data-feed="' + gid + '"]');
+          if (!feed || !data) return;
+          var msgs = Array.isArray(data.messages) ? data.messages : [];
+          if (!msgs.length) {
+            feed.innerHTML = '<div class="sb2-group-card-feed-empty">暂无动态，去群里说第一句吧</div>';
+            return;
+          }
+          feed.innerHTML = msgs.slice(-3).map(function(m){
+            var who = (m && (m.agent_name || m.agent_id)) || '成员';
+            var what = (m && m.content) || '';
+            return '<div class="sb2-group-card-feed-item">' + who + '：' + what + '</div>';
+          }).join('');
+        }).catch(function(){ /* 动态拉取失败保留加载态文案, 不阻塞 */ });
+      })(g.id);
+    });
+  };
+  if (typeof apiFetch === 'function') {
+    apiFetch('/api/groups').then(function(r){
+      return (r && r.ok) ? r.json() : null;
+    }).then(function(data){
+      if (Array.isArray(data)) {
+        try { window.projects = data.slice(); } catch(e) {}
+        finish(data);
+        if (typeof window.renderSideFor === 'function') { try { window.renderSideFor('groups'); } catch(e){} }
+      } else {
+        finish([]);
+      }
+    }).catch(function(){ finish([]); });
+  } else {
+    finish(typeof window.projects !== 'undefined' ? window.projects : []);
+  }
+}
+
+function sb2GroupsOpenChat(groupId){
+  try {
+    if (typeof switchModule === 'function') switchModule('messages');
+    setTimeout(function(){
+      try { if (typeof openGroupChat === 'function') openGroupChat(groupId); }
+      catch(e){ if (typeof showToast === 'function') showToast('打开群聊失败'); }
+    }, 300);
+  } catch(e){
+    if (typeof showToast === 'function') showToast('打开群聊失败');
+  }
+}
+window.sb2GroupsInit = sb2GroupsInit;
+window.sb2GroupsOpenChat = sb2GroupsOpenChat;
 
 function getDefaultGlobalSearchScope(module) {
   return module === 'knowledge' ? 'knowledge' : 'all';

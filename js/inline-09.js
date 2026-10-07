@@ -25,7 +25,9 @@ var ICONS = {
   task:   icon('<path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>'),
   gear:   icon('<circle cx="12" cy="12" r="3"/><path d="M12 1v4m0 14v4M4.2 4.2l2.8 2.8m9.9 9.9 2.8 2.8M1 12h4m14 0h4M4.2 19.8l2.8-2.8m9.9-9.9 2.8-2.8"/>'),
   search: icon('<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>'),
-  bell:   icon('<path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>')
+  bell:   icon('<path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>'),
+  /* ★ 待办 A 2026-10-08: 项目组 rail 图标 (users-round 风格, lucide 三人头) */
+  groups: icon('<path d="M18 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>')
 };
 
 /* ---------- 导航定义(permission = 旧 hasModulePermission 模块名) ---------- */
@@ -38,6 +40,8 @@ var MODULES = [
      - id 仍 'messages' (防 hideAllModuleMains / 权限清单大面积回归)
      - openLobsterOffice() 函数保留不删 (旧 left-nav navOffice 兜底, 防回归) */
   { id:'messages',  label:'AI 办公室',   icon:ICONS.chat,   perm:'messages' },
+  /* ★ 待办 A 2026-10-08: 项目组主导航入口 (老大 02:40「可以」) — 权限键 'groups' 模块体系有效 */
+  { id:'groups',    label:'项目组',      icon:ICONS.groups, perm:'groups' },
   { id:'knowledge', label:'知识库',      icon:ICONS.book,   perm:'knowledge' },
   { id:'patterns',  label:'规律库',      icon:ICONS.sigma,  perm:'patterns' },
   /* 〔r38 批注〕rail 模块顺序对齐原版 (原型 line 296-324: 工作台/聊天/知识库/规律库/达人库/商品库/任务)
@@ -1177,7 +1181,7 @@ window.sb2Go = function(id){
 // 通用策略: .active 走 removeClass, chat 走 hidden 属性, dashboard 不动
 window.sb2_hideAllModuleMains = function(){
   // 1. .active class 控制容器 (knowledge/settings/patterns/talents/tasks)
-  document.querySelectorAll('.sb2-knowledge-main.active, .sb2-settings-main.active, .sb2-patterns-main.active, .sb2-talents-main.active, .sb2-tasks-main.active, .sb2-products-main.active')
+  document.querySelectorAll('.sb2-knowledge-main.active, .sb2-settings-main.active, .sb2-patterns-main.active, .sb2-talents-main.active, .sb2-tasks-main.active, .sb2-products-main.active, .sb2-groups-main.active')
     .forEach(function(el){ el.classList.remove('active'); });
   // 2. hidden 属性控制容器 (chat)
   var chatEl = document.getElementById('sb2ChatMain');
@@ -1266,6 +1270,26 @@ function _sb2GetHolidayLabel(d){
   return '';
 }
 var SB2_SIDE_RENDERERS = {
+  /* ★ 待办 A 2026-10-08: 项目组侧栏 — 群列表, 点项进 sb2GroupsOpenChat (守卫失败 toast) */
+  groups: function(){
+    var groups = [];
+    try { groups = (typeof window.projects !== 'undefined' && Array.isArray(window.projects)) ? window.projects : []; } catch(e){}
+    return {
+      title:'项目组', sub: groups.length ? groups.length+' 个群组' : '按项目组织的群聊',
+      items:[
+        { label:'我的群组 ('+groups.length+')', items: groups.length ? groups.slice(0, 20).map(function(g){
+          return { name: (g.emoji ? g.emoji+' ' : '') + (g.name || g.display_name || '-'),
+                   role: ((g.members || []).length) + ' 人',
+                   onClick:"(typeof sb2GroupsOpenChat==='function' ? sb2GroupsOpenChat('"+(g.id||'')+"') : (typeof showToast==='function' ? showToast('群聊打开失败') : null))" };
+        }) : [{ name:'暂无群组', onClick:"(typeof sb2GroupsInit==='function' ? sb2GroupsInit() : null)" }] },
+        { label:'快捷入口', items:[
+          { name:'<i class=sb2-ico-chart></i> 创建群组',
+            onClick:"(typeof openGroupWizard==='function' ? openGroupWizard() : (typeof showToast==='function' ? showToast('创建群组 — 后续版本开放') : null))" }
+        ]}
+      ],
+      searchInput:'搜索群组…'
+    };
+  },
   dashboard: function(){
     /* 〔fix/sb2-side-restore commit 2〕工作台侧栏还原原型 (line 678-687)
        - 快捷入口: 今日概览 (active) / 紧急待办 [badge=_sb2PendingProposals] / 数据看板 (toast) / 审核队列 [badge=_sb2PendingKbReviews]
