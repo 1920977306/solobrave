@@ -5599,16 +5599,10 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   /* 〔r73 反馈 Comment 2〕header 渐变从浅蓝 (#EEF0FF) 删,改为纯白 (跟 .sb2-* 系统对齐) */
   background: #ffffff;
 }
-.emp-detail-header.emp-detail-header-v3::before {
-  content: "";
-  position: absolute;
-  top: -50%;
-  right: -10%;
-  width: 50%;
-  height: 200%;
-  background: radial-gradient(circle, rgba(94, 92, 230, 0.12) 0%, transparent 60%);
-  pointer-events: none;
-}
+/* 〔r75 批注② 老大 19:22「详情页右边是蓝色的,去掉」: 删 v3 header 蓝紫光晕伪元素
+   — 根因: r73 只删了 header 背景渐变 (#EEF0FF), 漏了 ::before 装饰光晕
+   — 该伪元素 absolute 50%宽 200%高, 从 header (y77) 溢出覆盖整个面板右下 (实测像素 #EDEDFB = rgba(94,92,230,0.12) over 白)
+   — 修法: 整块删除, header 纯白 (跟 .sb2-* 系统对齐) */
 .emp-detail-header-v3 .emp-detail-info { position: relative; z-index: 1; flex: 1; min-width: 0; }
 .emp-detail-header-v3 .emp-detail-actions {
   display: flex; gap: 8px; align-items: center; position: relative; z-index: 1; flex-shrink: 0;
@@ -9934,9 +9928,14 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
    — 源顺序纪律: 改完基础定义 (line 10206) 仍在 1100 media 之前, 同优先级后定义赢规则保持
    — 验收: rail 点 AI 办公室/达人库 (有侧栏模块), 侧栏标题 y≈0-24 贴顶, 无白条纹 */
 .sb2-side{
+  /* 〔r75 批注③ 老大 19:22「侧栏要跟右边对齐」: 加 padding-top/bottom 20px
+     — 修前: 侧栏头卡贴 y0, 主区内容在 topbar(48)+20=y68 → 两侧节奏断层, 视觉怪
+     — 修后: 两侧统一「区域顶 + 20px」节奏 (主区 = topbar 48 + 20, 侧栏 = 0 + 20)
+     — 注: 严格 y 对齐需侧栏 padding-top 67px, 顶部大留白更难看, 采节奏对齐 */
   position:fixed; top:0; left:60px; bottom:0; width:236px; z-index:80;
   background:var(--sb2-s2); border-right:1px solid var(--sb2-border);
   display:flex; flex-direction:column; overflow:hidden;
+  padding:20px 0;
 }
 
 /* 〔fix/sb2-side-restore commit 8 R1 回归修正〕中等屏 <1100 让位, 断点对齐原型
@@ -10240,7 +10239,10 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
  * - footer: MVP2 仅「关闭」, 编辑/删除转 MVP3, 投票转 MVP4
  * ============================================================ */
 .sb2-ptn-detail-overlay{
-  position:fixed; inset:0; z-index:89;
+  /* 〔r75 批注④ 老大 19:22「弹窗周围两个地方没模糊」: z 89→120
+     — 根因: .sb2-rail z90 / .sb2-topbar z95 压在 overlay(z89) 之上 → 左侧轨+顶栏不被遮罩模糊
+     — 修后: overlay 盖过 rail/topbar, 全屏统一模糊+暗化 */
+  position:fixed; inset:0; z-index:120;
   background:rgba(10,10,14,.55); backdrop-filter:blur(4px); -webkit-backdrop-filter:blur(4px);
   display:none;
   animation:sb2-ptn-fade-in .2s ease;
@@ -10254,7 +10256,7 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
   background:var(--sb2-s1); border-radius:var(--sb2-r-lg);
   border:1px solid var(--sb2-border);
   box-shadow:0 12px 40px rgba(0,0,0,.18);
-  display:none; flex-direction:column; z-index:90;
+  display:none; flex-direction:column; z-index:121;
   animation:sb2-rise-in .22s ease;
 }
 .sb2-ptn-detail-panel.open{ display:flex; }
@@ -11626,14 +11628,18 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
      — 28 终态铁律: 侧栏内容由 group (顶部 4 个) + footer (底部 summary) 撑满 layout */
   width:236px; flex-shrink:0; background:var(--sb2-s1);
   border-right:1px solid var(--sb2-border);
-  padding:16px 14px; overflow-y:auto;
+  /* 〔r75 批注① 老大 19:22「侧边栏没有连到底部,底部留空」: padding-bottom 16px→0
+     — 修前: footer (margin-top:auto) 推到的底是 padding-box 底, 跟边框底隔 16px → 视觉断底
+     — 修后: footer 内边距自带 16px, 贴边框底 */
+  padding:16px 14px 0; overflow-y:auto;
   display:flex; flex-direction:column;
 }
 .sb2-tasks-side-footer{
   /* 〔r71〕侧栏底部 summary 锚点 (margin-top:auto 推到底)
      — 显示总任务数 / 已逾期数, 跟 .sb2-tasks-side .sub (顶部) 共享信息但视觉占位
-     — 颜色弱化 (t3) 不喧宾夺主, 跟 group label 同款色阶 */
-  margin-top:auto; padding:14px 0 0;
+     — 颜色弱化 (t3) 不喧宾夺主, 跟 group label 同款色阶
+     〔r75 批注①〕padding-bottom 0→16px (侧栏 padding-bottom 移交 footer, footer 贴底) */
+  margin-top:auto; padding:14px 0 16px;
   border-top:1px solid var(--sb2-border);
   font:400 11px/1.4 "PingFang SC",sans-serif;
   color:var(--sb2-t3);
@@ -12778,7 +12784,8 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
 .sb2-kb-detail-panel{
   position:fixed; left:50%; top:50%; transform:translate(-50%,-50%);
   width:720px; max-width:90vw; height:auto; max-height:80vh;
-  z-index:90;
+  /* 〔r75 批注④ 同源〕z 90→121: rail z90/topbar z95 不得压在知识详情浮层遮罩上 */
+  z-index:121;
   background:var(--sb2-s1); border:1px solid var(--sb2-border);
   border-radius:var(--sb2-r-lg);
   box-shadow:0 12px 40px rgba(0,0,0,.12);
@@ -12797,7 +12804,7 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
      〔r71 反馈 Comment 3 老大 17:08「上面搜索/新建为什么不变淡」: 遮罩加深 + 模糊背景
      — 修前 background:rgba(10,10,14,.3) (遮罩太弱, 上面工具栏视觉穿透明显)
      — 修后 rgba(10,10,14,.55) + backdrop-filter:blur(4px) (真暗, 配套 28 终态「dim 衬托浮层」原则) */
-  position:fixed; inset:0; z-index:89;
+  position:fixed; inset:0; z-index:120;
   background:rgba(10,10,14,.55); backdrop-filter:blur(4px); -webkit-backdrop-filter:blur(4px);
   display:none;
   animation:sb2-kb-fade-in .2s ease;
