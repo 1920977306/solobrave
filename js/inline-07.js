@@ -45,7 +45,7 @@ function _applyRenderEmployeePatch() {
     // 全空时不再渲染空 span 假装没事，直接显"创建者"占位，避免 admin 列表看到空白行像 bug）
     if (showCreator && (isAdmin() || isLeader()) && e.createdBy && e.createdBy !== (currentUser && currentUser.id)) {
       var creatorName = e.createdByName || e._createdByName || e.role || '创建者';
-      creatorTag = '<span style="display:inline-flex;align-items:center;margin-left:6px;padding:1px 6px;background:#E8E8E8;border-radius:4px;font-size:11px;color:#999999;vertical-align:middle;font-weight:500;">👤 ' + escapeHtml(creatorName) + '</span>';
+      creatorTag = '<span style="display:inline-flex;align-items:center;margin-left:6px;padding:1px 6px;background:#E8E8E8;border-radius:4px;font-size:11px;color:#999999;vertical-align:middle;font-weight:500;"><i class=sb2-ico-user></i> ' + escapeHtml(creatorName) + '</span>';
     }
 
     // 新版 Badge
@@ -145,7 +145,7 @@ function handleUrgingSnooze(id, empId, taskName, deadline) {
 
 // 渲染督促聊天气泡
 function renderUrgeBubble(taskName, deadline) {
-  return '<div class="urge-header"><span class="urge-icon">⚡</span> 催促处理</div>' + '<div class="urge-body">' + '<div class="urge-task">' + escapeHtml(taskName || '任务') + '</div>' + '<div class="urge-time">截止：' + escapeHtml(deadline || '未设置') + '</div>' + '</div>';
+  return '<div class="urge-header"><span class="urge-icon"><i class=sb2-ico-zap></i></span> 催促处理</div>' + '<div class="urge-body">' + '<div class="urge-task">' + escapeHtml(taskName || '任务') + '</div>' + '<div class="urge-time">截止：' + escapeHtml(deadline || '未设置') + '</div>' + '</div>';
 }
 
 // ★ fix/render-employee-monkey-patch-v2: Monkey Patch 公共降级器
@@ -249,7 +249,7 @@ function triggerUrgeNotification(empId, taskName, deadline) {
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({
           type: 'group_urge',
-          title: '⚡ ' + emp.name + ' 催你处理任务',
+          title: '<i class=sb2-ico-zap></i> ' + emp.name + ' 催你处理任务',
           content: '任务「' + (taskName || '') + '」截止时间：' + (deadline || '未设置'),
           agent_id: empId
         })
@@ -269,7 +269,7 @@ function showTokenStats() {
     panel = document.createElement('div');
     panel.id = 'tokenStatsPanel';
     panel.className = 'modal-overlay';
-    panel.innerHTML = '<div class="modal" style="width:90%;max-width:600px;max-height:80vh;overflow:auto;">' + '<div class="modal-header">' + '<h3>📊 Token 统计</h3>' + '<button class="modal-close" onclick="closeTokenStats()">×</button>' + '</div>' + '<div id="tokenStatsContent" style="padding:16px;"></div>' + '</div>';
+    panel.innerHTML = '<div class="modal" style="width:90%;max-width:600px;max-height:80vh;overflow:auto;">' + '<div class="modal-header">' + '<h3><i class=sb2-ico-chart></i> Token 统计</h3>' + '<button class="modal-close" onclick="closeTokenStats()">×</button>' + '</div>' + '<div id="tokenStatsContent" style="padding:16px;"></div>' + '</div>';
     document.body.appendChild(panel);
   }
   renderTokenStats();
@@ -1118,7 +1118,7 @@ function sb2KbRenderDetail(doc){
       var chipsHtml = '';
       chipsHtml += '<span class="sb2-kb-detail-chip scope">' + escapeHtml(_sb2KbScopeLabel(doc.scope || 'global')) + '</span>';
       chipsHtml += '<span class="sb2-kb-detail-chip status">' + escapeHtml(_sb2KbOrDash(doc.status)) + '</span>';
-      if (doc.category) chipsHtml += '<span class="sb2-kb-detail-chip category">📁 ' + escapeHtml(doc.category || doc.category_name || '') + '</span>';
+      if (doc.category) chipsHtml += '<span class="sb2-kb-detail-chip category"><i class=sb2-ico-folder></i> ' + escapeHtml(doc.category || doc.category_name || '') + '</span>';
       heroChips.innerHTML = chipsHtml;
     }
 
@@ -1691,7 +1691,7 @@ async function sb2SettingsRagBuild(){
     _sb2SettingsSetStatus(null, 'sb2FeatRagStatus', '任务已提交');
     var summary = JSON.stringify(data, null, 2);
     if (summary.length > 400) summary = summary.slice(0, 400) + '\n...';
-    _sb2SettingsSetResult('sb2FeatRagResult', '✅ 重建任务已提交\n' + summary, true);
+    _sb2SettingsSetResult('sb2FeatRagResult', '<i class=sb2-ico-check></i> 重建任务已提交\n' + summary, true);
     showToast('RAG 重建任务已提交', 'success');
     console.log('[sb2-settings] rag build OK:', data);
   } catch (e) {
@@ -2017,7 +2017,7 @@ function sb2TalentsRenderTable(){
   if (!tbody) return;
   var list = _sb2TalentsList || [];
   if (list.length === 0){
-    tbody.innerHTML = '<tr><td colspan="12" class="sb2-talents-empty"><span class="em">👥</span>暂无达人</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="12" class="sb2-talents-empty"><span class="em"><i class=sb2-ico-users></i></span>暂无达人</td></tr>';
     return;
   }
   var pageMaxGpm = 0;
@@ -2346,7 +2346,7 @@ async function sb2TalentsLoad(){
   try {
     var resp = await apiFetch(url);
     if (!resp || !resp.ok){
-      if (tbody) tbody.innerHTML = '<tr><td colspan="12" class="sb2-talents-empty"><span class="em">⚠️</span>载入失败 (HTTP ' + (resp ? resp.status : 'no response') + ')</td></tr>';
+      if (tbody) tbody.innerHTML = '<tr><td colspan="12" class="sb2-talents-empty"><span class="em"><i class=sb2-ico-alert></i></span>载入失败 (HTTP ' + (resp ? resp.status : 'no response') + ')</td></tr>';
       if (heroSub) heroSub.textContent = '载入失败';
       return;
     }
@@ -2408,7 +2408,7 @@ async function sb2TalentsLoad(){
     sb2TalentsStartMatchCount(list);
     _sb2TalentsLoaded = true;
   } catch (e) {
-    if (tbody) tbody.innerHTML = '<tr><td colspan="12" class="sb2-talents-empty"><span class="em">⚠️</span>载入异常: ' + sb2TalentsEsc(e && e.message || String(e)) + '</td></tr>';
+    if (tbody) tbody.innerHTML = '<tr><td colspan="12" class="sb2-talents-empty"><span class="em"><i class=sb2-ico-alert></i></span>载入异常: ' + sb2TalentsEsc(e && e.message || String(e)) + '</td></tr>';
     if (heroSub) heroSub.textContent = '载入异常';
   }
 }
@@ -2569,7 +2569,7 @@ async function sb2TalentsFetchAiMatch(talentId){
     });
     if (!resp || !resp.ok) {
       _sb2TlnAimatchState.inFlight = false;
-      if (body) body.innerHTML = '<div class="sb2-tln-aimatch-empty"><span class="sb2-tln-aimatch-empty-icon">⚠️</span>权限不足或网络错误, 请重试 (HTTP ' + (resp ? resp.status : 'no resp') + ')</div>';
+      if (body) body.innerHTML = '<div class="sb2-tln-aimatch-empty"><span class="sb2-tln-aimatch-empty-icon"><i class=sb2-ico-alert></i></span>权限不足或网络错误, 请重试 (HTTP ' + (resp ? resp.status : 'no resp') + ')</div>';
       return;
     }
     var data = await resp.json();
@@ -2586,7 +2586,7 @@ async function sb2TalentsFetchAiMatch(talentId){
     sb2TalentsRenderAiMatches();
   } catch (e) {
     _sb2TlnAimatchState.inFlight = false;
-    if (body) body.innerHTML = '<div class="sb2-tln-aimatch-empty"><span class="sb2-tln-aimatch-empty-icon">⚠️</span>网络错误: ' + (e && e.message || e) + '</div>';
+    if (body) body.innerHTML = '<div class="sb2-tln-aimatch-empty"><span class="sb2-tln-aimatch-empty-icon"><i class=sb2-ico-alert></i></span>网络错误: ' + (e && e.message || e) + '</div>';
   }
 }
 
@@ -2884,12 +2884,12 @@ function sb2TlnRenderPanelOverview(t){
   // AI 分析摘要 (有 ai_analysis 显示, 无显示「待 AI 分析」)
   if (t.ai_analysis) {
     html += '<div class="sb2-tln-section">';
-    html += '<div class="sb2-tln-section-title">🤖 AI 综合分析</div>';
+    html += '<div class="sb2-tln-section-title"><i class=sb2-ico-robot></i> AI 综合分析</div>';
     html += '<div class="sb2-tln-ai-card">' + sb2TlnEsc(t.ai_analysis).substring(0, 800) + (t.ai_analysis.length > 800 ? '…' : '') + '</div>';
     html += '</div>';
   } else {
     html += '<div class="sb2-tln-section">';
-    html += '<div class="sb2-tln-section-title">🤖 AI 综合分析</div>';
+    html += '<div class="sb2-tln-section-title"><i class=sb2-ico-robot></i> AI 综合分析</div>';
     html += '<div class="sb2-tln-empty">点击「+ 录入达人」旁的 AI 分析生成达人综合评估。</div>';
     html += '</div>';
   }
@@ -3888,7 +3888,7 @@ function sb2PdsRender(){
 
   if (filtered.length === 0) {
     tbody.innerHTML = '<tr><td colspan="8"><div class="sb2-pds-empty">'
-      + '<div class="sb2-pds-empty-icon">📦</div>'
+      + '<div class="sb2-pds-empty-icon"><i class=sb2-ico-box></i></div>'
       + '<div class="sb2-pds-empty-text">暂无商品</div>'
       + '<button class="sb2-pds-empty-btn" onclick="createNewProduct()">录入商品</button>'
       + '</div></td></tr>';
@@ -3913,7 +3913,7 @@ function sb2PdsRender(){
     if (p.category) nameSubParts.push(escHtml(p.category));
     var nameSub = nameSubParts.join(' · ');
     var adminPart = '';
-    if (p.createdByName) adminPart = '<span class="sb2-pds-cell-name-admin">· 👤 ' + escHtml(p.createdByName) + '</span>';
+    if (p.createdByName) adminPart = '<span class="sb2-pds-cell-name-admin">· <i class=sb2-ico-user></i> ' + escHtml(p.createdByName) + '</span>';
 
     /* 〔r70 批注⑤ 老大 15:22「价格有点丑,设计需要优化」: 价格排版重做
        — ¥ 符号缩小 + 整数主体放大 + 小数降格, 品牌橙强调 (电商惯例)
@@ -4224,7 +4224,7 @@ async function sb2PdsFetchFindTalents(productId){
     });
     if (!resp || !resp.ok) {
       _sb2PdsFindTalentsState.inFlight = false;
-      if (body) body.innerHTML = '<div class="sb2-pds-findtalent-empty"><span class="sb2-pds-findtalent-empty-icon">⚠️</span>权限不足或网络错误, 请重试 (HTTP ' + (resp ? resp.status : 'no resp') + ')</div>';
+      if (body) body.innerHTML = '<div class="sb2-pds-findtalent-empty"><span class="sb2-pds-findtalent-empty-icon"><i class=sb2-ico-alert></i></span>权限不足或网络错误, 请重试 (HTTP ' + (resp ? resp.status : 'no resp') + ')</div>';
       return;
     }
     var data = await resp.json();
@@ -4241,7 +4241,7 @@ async function sb2PdsFetchFindTalents(productId){
     sb2PdsRenderFindTalents();
   } catch (e) {
     _sb2PdsFindTalentsState.inFlight = false;
-    if (body) body.innerHTML = '<div class="sb2-pds-findtalent-empty"><span class="sb2-pds-findtalent-empty-icon">⚠️</span>网络错误: ' + (e && e.message || e) + '</div>';
+    if (body) body.innerHTML = '<div class="sb2-pds-findtalent-empty"><span class="sb2-pds-findtalent-empty-icon"><i class=sb2-ico-alert></i></span>网络错误: ' + (e && e.message || e) + '</div>';
   }
 }
 
@@ -4364,7 +4364,7 @@ async function sb2ProductsInit(){
     var resp = await apiFetch('/api/products?limit=500');
     if (!resp || !resp.ok) {
       if (heroSub) heroSub.textContent = '加载失败 (HTTP ' + (resp ? resp.status : 'no response') + ')';
-      if (tbody) tbody.innerHTML = '<tr><td colspan="8"><div class="sb2-pds-empty"><div class="sb2-pds-empty-icon">📦</div><div class="sb2-pds-empty-text">加载失败，请刷新重试</div></div></td></tr>';
+      if (tbody) tbody.innerHTML = '<tr><td colspan="8"><div class="sb2-pds-empty"><div class="sb2-pds-empty-icon"><i class=sb2-ico-box></i></div><div class="sb2-pds-empty-text">加载失败，请刷新重试</div></div></td></tr>';
       return;
     }
     var data = await resp.json();
@@ -4574,19 +4574,19 @@ function _sb2PtnPromoRenderStages(){
   /* ★ 跟 r66 项⑤⑥ 映射一致: hypothesis→假设, candidate→候选, verified→已验证, proven→成熟 */
   return [
     {
-      icon: '🧪', cls: 'hypothesis', name: '假设',
+      icon: '<i class=sb2-ico-flask></i>', cls: 'hypothesis', name: '假设',
       desc: 'AI 归纳出来的新规律, 等待人工确认',
-      trigger: '触发: AI 归纳 (⚡触发归纳 按钮)',
+      trigger: '触发: AI 归纳 (<i class=sb2-ico-zap></i>触发归纳 按钮)',
       arrow: '↑ 人工确认 ↓ 弃用'
     },
     {
-      icon: '🔬', cls: 'candidate', name: '候选',
+      icon: '<i class=sb2-ico-microscope></i>', cls: 'candidate', name: '候选',
       desc: '已确认可用, 但证据数不够晋升',
       trigger: '晋升: 人工点 ✓ 确认 (从假设)',
       arrow: '↑ 证据 ≥ 30 + 置信度 ≥ 80 ↓'
     },
     {
-      icon: '📐', cls: 'verified', name: '已验证',
+      icon: '<i class=sb2-ico-ruler></i>', cls: 'verified', name: '已验证',
       desc: '证据数达标 + 置信度高, 自动晋升',
       trigger: '晋升: evidence ≥ 30 且 confidence ≥ 80 (自动)',
       arrow: '↑ 持续命中率高 ↓'
@@ -4598,7 +4598,7 @@ function _sb2PtnPromoRenderStages(){
       arrow: '↓ 长期不用 ↓'
     },
     {
-      icon: '🗑️', cls: 'deprecated', name: '已废弃',
+      icon: '<i class=sb2-ico-trash></i>', cls: 'deprecated', name: '已废弃',
       desc: '不再使用或被新规律替代',
       trigger: '触发: 人工点 ✗ 弃用 或 长期不用',
       arrow: '(终点)'
@@ -4627,9 +4627,9 @@ function sb2PtnRender(){
   var chipsEl = document.getElementById('sb2PtnChips');
   var chipsData = [
     { level: '', label: '全部', icon: '', count: total },
-    { level: 'verified', label: '已验证', icon: '📐', count: lvCount.verified },
-    { level: 'candidate', label: '候选', icon: '🔬', count: lvCount.candidate },
-    { level: 'hypothesis', label: '假设', icon: '🧪', count: lvCount.hypothesis }
+    { level: 'verified', label: '已验证', icon: '<i class=sb2-ico-ruler></i>', count: lvCount.verified },
+    { level: 'candidate', label: '候选', icon: '<i class=sb2-ico-microscope></i>', count: lvCount.candidate },
+    { level: 'hypothesis', label: '假设', icon: '<i class=sb2-ico-flask></i>', count: lvCount.hypothesis }
   ];
   if (chipsEl) {
     if (!chipsEl.dataset.rendered) {
@@ -4686,7 +4686,7 @@ function sb2PtnRender(){
     var hits = p.hit_count || 0;
     var evCount = p.evidence_count || 0;
     var time = p.created_at ? formatRelativeTime(p.created_at * 1000) : '-';
-    var lvIcon = lv === 'verified' ? '📐' : (lv === 'candidate' ? '🔬' : '🧪');
+    var lvIcon = lv === 'verified' ? '<i class=sb2-ico-ruler></i>' : (lv === 'candidate' ? '<i class=sb2-ico-microscope></i>' : '<i class=sb2-ico-flask></i>');
     /* ★ r70 批注⑥ 老大 16:25「你看看好多英文」: card level label 英文 → 中文 */
     var lvLabel = lv === 'verified' ? '已验证' : (lv === 'candidate' ? '候选' : '假设');
     html += '<div class="sb2-ptn-card" data-pid="' + escapeAttr(p.id) + '" onclick="sb2PtnOpenDetail(\'' + escapeAttr(p.id).replace(/'/g, "\\'") + '\')">';
@@ -4811,7 +4811,7 @@ function _sb2PtnDetailRender(p){
   if (patternText) patternText.textContent = val(ptext, '-');
   // meta grid (8 项, 2 列布局)
   var lv = p.verification_level || 'hypothesis';
-  var lvIcon = lv === 'verified' ? '📐' : (lv === 'candidate' ? '🔬' : '🧪');
+  var lvIcon = lv === 'verified' ? '<i class=sb2-ico-ruler></i>' : (lv === 'candidate' ? '<i class=sb2-ico-microscope></i>' : '<i class=sb2-ico-flask></i>');
   /* ★ r70 批注⑤ 老大 16:25「你自己看看, 好多英文」: 规律详情浮层 level label 英文 → 中文
      (跟 hero / chips / card 同款映射, 跨 4 处一致) */
   var lvLabel = lv === 'verified' ? '已验证' : (lv === 'candidate' ? '候选' : '假设');
@@ -4917,7 +4917,7 @@ function _sb2PtnRenderDetailFooter(p){
   var misses = p.miss_count || 0;
   var html = '';
   // 1. 删除按钮 (左侧)
-  html += '<button class="sb2-btn sb2-btn-ghost sb2-btn-danger" onclick="sb2PtnDelete(\'' + pid.replace(/'/g, "\\'") + '\')">🗑 删除</button>';
+  html += '<button class="sb2-btn sb2-btn-ghost sb2-btn-danger" onclick="sb2PtnDelete(\'' + pid.replace(/'/g, "\\'") + '\')"><i class=sb2-ico-trash></i> 删除</button>';
   // 2. MVP4: 投票按钮 (仅 confirmed 状态, 旧逻辑一致)
   if (status === 'confirmed') {
     html += '<button class="sb2-ptn-fb-btn up" id="sb2PtnFbUpBtn" onclick="sb2PtnFeedback(\'' + pid.replace(/'/g, "\\'") + '\', \'up\')">👍 <span class="sb2-ptn-fb-count" id="sb2PtnFbUpCount">' + hits + '</span></button>';
@@ -4946,7 +4946,7 @@ function _sb2PtnRenderDetailTags(p){
   var tagsEl = document.getElementById('sb2PtnDetailTags');
   if (!tagsEl) return;
   var lv = p.verification_level || 'hypothesis';
-  var lvIcon = lv === 'verified' ? '📐' : (lv === 'candidate' ? '🔬' : '🧪');
+  var lvIcon = lv === 'verified' ? '<i class=sb2-ico-ruler></i>' : (lv === 'candidate' ? '<i class=sb2-ico-microscope></i>' : '<i class=sb2-ico-flask></i>');
   /* ★ r71 反馈 Comment 6 老大 17:08「这是英文」: _sb2PtnRenderDetailTags header 双大标签漏改
      (跟 r70 项⑤ 同款 lvLabel 跨处映射, 当时 4 处改了一处漏了一处)
      修法: lvLabel 跟 _sb2PtnDetailRender (line 4771) + _sb2PtnRenderList (line 4645) + 晋升链路 (line 4495) 同源
@@ -5003,7 +5003,7 @@ function _sb2PtnRenderProgress(prog){
   var body = document.getElementById('sb2PtnProgressBody');
   if (!wrap || !body) return;
   var lvIcon = function(lv){
-    return lv === 'verified' ? '📐' : (lv === 'candidate' ? '🔬' : (lv === 'proven' ? '🏆' : '🧪'));
+    return lv === 'verified' ? '<i class=sb2-ico-ruler></i>' : (lv === 'candidate' ? '<i class=sb2-ico-microscope></i>' : (lv === 'proven' ? '🏆' : '<i class=sb2-ico-flask></i>'));
   };
   // 终态 (deprecated / proven 无下一级)
   if (!prog.next_level) {
@@ -5326,7 +5326,7 @@ async function sb2PtnConfirmInduce(){
       lines.push('新增草稿: ' + (data.induced != null ? data.induced + ' 条' : '-'));
       if (data.message) lines.push('说明: ' + data.message);
     } else {
-      lines.push('⚠ 归纳未成功');
+      lines.push('<i class=sb2-ico-alert></i> 归纳未成功');
       if (data.error) lines.push('原因: ' + data.error);
       else if (data.message) lines.push('说明: ' + data.message);
     }
@@ -5344,7 +5344,7 @@ async function sb2PtnConfirmInduce(){
           var ptext = p.pattern_text || '(无文本)';
           var pcat = p.category || '-';
           var plv = p.verification_level || 'hypothesis';
-          var plvIcon = plv === 'verified' ? '📐' : (plv === 'candidate' ? '🔬' : '🧪');
+          var plvIcon = plv === 'verified' ? '<i class=sb2-ico-ruler></i>' : (plv === 'candidate' ? '<i class=sb2-ico-microscope></i>' : '<i class=sb2-ico-flask></i>');
           var pscore = p.confidence_score != null ? Math.round(p.confidence_score) : '-';
           var pevCount = p.evidence_count != null ? p.evidence_count : '-';
           var pidSafe = escapeAttr(p.id || '').replace(/'/g, "\\'");
@@ -5746,7 +5746,7 @@ function renderGlobalSearchItem(type, item, q) {
     desc = escapeHtml(item.role || 'AI员工');
     action = 'openGlobalSearchResult(&quot;employee&quot;,' + JSON.stringify(item.id || '').replace(/"/g, '&quot;') + ')';
   } else if (type === 'groups') {
-    iconHtml = '<div class="global-search-icon">' + escapeHtml(item.avatar || '👥') + '</div>';
+    iconHtml = '<div class="global-search-icon">' + escapeHtml(item.avatar || '<i class=sb2-ico-users></i>') + '</div>';
     name = highlightText(item.name, q);
     desc = '项目组';
     count = (item.memberCount || 0) + ' 人';
@@ -6028,7 +6028,7 @@ async function loadComputeStats() {
   } catch (e) {
     console.warn('[loadComputeStats] 获取积分数据失败', e);
     area.innerHTML = '<div class="settings-card">' + renderEmptyState({
-      icon: '⚠️',
+      icon: '<i class=sb2-ico-alert></i>',
       title: '加载失败',
       desc: '积分数据获取失败,请稍后重试',
       tone: 'danger',
@@ -6330,7 +6330,7 @@ async function renderNotificationHistory() {
   _notificationHistoryCache = data.items || [];
   if (!_notificationHistoryCache.length) {
     area.innerHTML = renderEmptyState({
-      icon: '🔔',
+      icon: '<i class=sb2-ico-bell></i>',
       title: '暂无通知',
       desc: '还没有收到任何通知,新事件到来时会显示在这里'
     });
@@ -6416,7 +6416,7 @@ function renderNotificationPanelBody() {
     // 拉完后刷新一下未读数(可能刚标记的变成已读)
     if (typeof refreshUnreadBadge === 'function') refreshUnreadBadge();
   }).catch(function () {
-    body.innerHTML = '<div class="notification-panel-empty"><div class="notification-panel-empty-icon">⚠️</div><div>加载失败</div></div>';
+    body.innerHTML = '<div class="notification-panel-empty"><div class="notification-panel-empty-icon"><i class=sb2-ico-alert></i></div><div>加载失败</div></div>';
   });
 }
 // 切换左侧面板 text 展开/收起
@@ -6430,7 +6430,7 @@ function toggleNotifTextExpand(toggleEl) {
 
 // ⑤ 通知类型 → emoji(C3 也会复用, 提前放这里)
 function _getNotificationTypeEmoji(t) {
-  var map = { info: 'ℹ️', success: '✅', warning: '⚠️', error: '❌', urge: '⏰', message: '💬' };
+  var map = { info: 'ℹ', success: '<i class=sb2-ico-check></i>', warning: '<i class=sb2-ico-alert></i>', error: '<i class=sb2-ico-xcircle></i>', urge: '⏰', message: '💬' };
   return map[t] || '💬';
 }
 
@@ -6942,7 +6942,7 @@ function renderForbiddenWordsUI() {
   html += '<div class="settings-card-title">违禁词列表</div>';
   html += '<div class="settings-list-searchbar" style="display:flex;gap:8px;">';
   html += '<input type="text" id="forbiddenSearchInput" class="form-input" placeholder="搜索违禁词..." oninput="filterForbiddenWords()">';
-  html += '<button class="module-action-btn primary" onclick="showAddForbiddenWordModal()">➕ 添加</button>';
+  html += '<button class="module-action-btn primary" onclick="showAddForbiddenWordModal()"><i class=sb2-ico-plus></i> 添加</button>';
   html += '<button class="module-action-btn" onclick="showBatchForbiddenWordModal()">批量添加</button>';
   html += '</div>';
   html += '<div id="forbiddenList"></div>';
@@ -7090,7 +7090,7 @@ function renderSettingsRight() {
   }[_settingsSelectedCategory] || '设置';
   if (actionsEl) actionsEl.innerHTML = '';
   if (_settingsSelectedCategory === 'compute' && actionsEl && isAdmin()) {
-    actionsEl.innerHTML = '<button class="module-action-btn" onclick="syncTokenUsage()">🔄 同步 Token 数据</button>';
+    actionsEl.innerHTML = '<button class="module-action-btn" onclick="syncTokenUsage()"><i class=sb2-ico-refresh></i> 同步 Token 数据</button>';
   }
   if (!contentEl) return;
   var html = '';
@@ -7159,8 +7159,8 @@ function renderSettingsRight() {
     html += '<div class="settings-form-row"><label class="form-label">商品表 Table ID</label><input type="text" id="feishuProductTableId" class="form-input" placeholder="商品表 ID (tbl_xxx)，留空则用达人表"></div>';
     html += '<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px;">';
     html += '<button class="module-action-btn primary" onclick="saveFeishuConfig()">保存配置</button>';
-    html += '<button class="module-action-btn" onclick="syncFeishuTalentsFromSettings()">🔄 同步达人</button>';
-    html += '<button class="module-action-btn" onclick="syncFeishuProductsFromSettings()">📦 同步商品</button>';
+    html += '<button class="module-action-btn" onclick="syncFeishuTalentsFromSettings()"><i class=sb2-ico-refresh></i> 同步达人</button>';
+    html += '<button class="module-action-btn" onclick="syncFeishuProductsFromSettings()"><i class=sb2-ico-box></i> 同步商品</button>';
     html += '</div>';
     html += '</div>';
     html += '<div class="settings-card">';

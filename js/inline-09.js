@@ -618,7 +618,7 @@ function sb2_renderFocus(events, patterns, pendingKb){
         if (!prog.next_level || prog.hits_remaining === undefined) return;
         var nextLabel = ({candidate:'待验证', verified:'已验证', proven:'已证明'})[prog.next_level] || prog.next_level;
         var promoteHtml = '<div class="sb2-dash2-focus-item" onclick="sb2Go(\'patterns\')">'
-                        + '<div class="sb2-dash2-focus-item-icon kind-promote">⚠</div>'
+                        + '<div class="sb2-dash2-focus-item-icon kind-promote"><i class=sb2-ico-alert></i></div>'
                         + '<div class="sb2-dash2-focus-item-body">'
                         +   '<div class="sb2-dash2-focus-item-t">规律「' + escapeHtml((cand.pattern_text || '').slice(0, 32)) + '」达到晋升阈值</div>'
                         +   '<div class="sb2-dash2-focus-item-d">evidence ' + (cand.evidence_count || 0) + '/' + prog.hit_required + ' · 已连续命中 ' + (cand.hit_count || 0) + ' 次 · 建议晋升为 ' + escapeHtml(nextLabel) + '</div>'
@@ -640,7 +640,7 @@ function sb2_renderFocus(events, patterns, pendingKb){
   }
   el.innerHTML = items.slice(0, 8).map(function(it){
     return '<div class="sb2-dash2-focus-item" onclick="sb2Go(\''+it.target+'\')">'
-         + '<div class="sb2-dash2-focus-item-icon kind-'+it.kind+'">'+(it.kind==='promote'?'⚠':it.kind==='review'?'📋':it.kind==='talent'?'👤':'⚡')+'</div>'
+         + '<div class="sb2-dash2-focus-item-icon kind-'+it.kind+'">'+(it.kind==='promote'?'<i class=sb2-ico-alert></i>':it.kind==='review'?'<i class=sb2-ico-copy></i>':it.kind==='talent'?'<i class=sb2-ico-user></i>':'<i class=sb2-ico-zap></i>')+'</div>'
          + '<div class="sb2-dash2-focus-item-body">'
          +   '<div class="sb2-dash2-focus-item-t">'+escapeHtml(it.title)+'</div>'
          +   '<div class="sb2-dash2-focus-item-d">'+escapeHtml(it.sub)+'</div>'
@@ -661,7 +661,7 @@ function sb2_renderInsights(patterns){
     return s !== 'rejected' && s !== 'deprecated';
   });
   if (arr.length === 0){
-    el.innerHTML = '<div class="sb2-dash2-feed-empty"><span class="em">📐</span>暂无活跃规律</div>';
+    el.innerHTML = '<div class="sb2-dash2-feed-empty"><span class="em"><i class=sb2-ico-ruler></i></span>暂无活跃规律</div>';
     return;
   }
   arr.sort(function(a, b){
@@ -1009,12 +1009,12 @@ var SB2_SIDE_RENDERERS = {
       title:'工作台', sub:'每天先看这里',
       items:[
         { label:'快捷入口', items:[
-          { name:'📊 今日概览', active: true },
-          { name:'🔥 紧急待办', badge: pending > 0 ? String(pending) : '',
+          { name:'<i class=sb2-ico-chart></i> 今日概览', active: true },
+          { name:'<i class=sb2-ico-flame></i> 紧急待办', badge: pending > 0 ? String(pending) : '',
             onClick:"sb2Go('messages')" },
-          { name:'📈 数据看板',
+          { name:'<i class=sb2-ico-trend></i> 数据看板',
             onClick:"(typeof sb2SideScrollKpi==='function' ? sb2SideScrollKpi() : (typeof showToast==='function' ? showToast('数据看板 — 后续版本开放') : null))" },
-          { name:'🧾 审核队列', badge: kbPending > 0 ? String(kbPending) : '',
+          { name:'<i class=sb2-ico-receipt></i> 审核队列', badge: kbPending > 0 ? String(kbPending) : '',
             onClick:"sb2Go('knowledge')" }
         ]},
         { label:'我的项目组', items: groups.length ? groups.slice(0, 10).map(function(g){
@@ -1174,7 +1174,7 @@ var SB2_SIDE_RENDERERS = {
           { name:'项目组共享', onClick:"switchKnowledgeScope && switchKnowledgeScope('group')" }
         ]},
         { label:' ', items:[
-          { name:'📐 规律库入口 →', onClick:"sb2Go && sb2Go('patterns')" }
+          { name:'<i class=sb2-ico-ruler></i> 规律库入口 →', onClick:"sb2Go && sb2Go('patterns')" }
         ]}
       ]
     };
@@ -1294,7 +1294,7 @@ var SB2_SIDE_RENDERERS = {
        修前: 侧栏类目 onClick 调 switchProductsCategory — 全仓无此函数定义 (旧 selectProductCategory 只驱动已下线 legacy DOM) → 静默 no-op (同规律库 24 轮批注④ 病根)
        修法:
          ① 类目 onClick 改调 switchProductsCategory(name) — toggle 语义 (再点取消), hero 标题联动 sb2PdsUpdateHeroTitle 已在 sb2PdsRender 顶部
-         ② 底部加「📚 返回知识库 →」入口 (写法对齐 line 47747 knowledge 侧栏「规律库入口 →」, label:' ' + 单 item)
+         ② 底部加「<i class=sb2-ico-book></i> 返回知识库 →」入口 (写法对齐 line 47747 knowledge 侧栏「规律库入口 →」, label:' ' + 单 item)
          ③ 类目渲染保持 window.productCategories 数据源 (loadProductCategories 已有, 不动) */
     var cats = (typeof window.productCategories !== 'undefined' && Array.isArray(window.productCategories)) ? window.productCategories : [];
     /* 〔fix/sb2-side-restore r34.1 协调人代补〕28 终态口径: sub 用 facet 总数真字段 (对标达人库「位在库」),
@@ -1307,7 +1307,7 @@ var SB2_SIDE_RENDERERS = {
           return { name:(c.name || c.display_name || '-'), onClick:"switchProductsCategory && switchProductsCategory('"+(c.id || c.name)+"')" };
         })},
         { label:' ', items:[
-          { name:'📚 返回知识库 →', onClick:"sb2Go && sb2Go('knowledge')" }
+          { name:'<i class=sb2-ico-book></i> 返回知识库 →', onClick:"sb2Go && sb2Go('knowledge')" }
         ]}
       ]
     };
@@ -1438,7 +1438,7 @@ function renderSideFor(moduleId){
          跟 line 46543/46546 的赋值对称. 其他模块不走 early return, 本来就 line 46543 设值.
        同步后 sb2Go('tasks') 流程:
          renderSideFor('tasks') → early return 但 SB2_CURRENT_MODULE='tasks' 已设
-         updateCrumb() → 读 'tasks' → map.['tasks'] = '任务' ✅
+         updateCrumb() → 读 'tasks' → map.['tasks'] = '任务' <i class=sb2-ico-check></i>
          switchModule wrapper (line 46096) → renderSideFor('tasks') → 同样早退但 SB2_CURRENT_MODULE 保持 'tasks' */
     SB2_CURRENT_MODULE = moduleId;
     window.SB2_CURRENT_MODULE = SB2_CURRENT_MODULE;
