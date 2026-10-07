@@ -12326,7 +12326,11 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
   background:var(--sb2-ink); color:var(--sb2-s1); border-color:var(--sb2-ink);
 }
 
-.sb2-kb-list{ display:flex; flex-direction:column; gap:10px; }
+.sb2-kb-list{ display:flex; flex-direction:column; gap:10px; flex:1; min-height:0; }
+/* 〔r67 批注① 2026-10-07〕底部白条修复: list flex:1 填满模块 — 老大「底部怎么有片白的」
+   修前: 模块 flex column 但 list 不伸展, 5 卡片后 pager 悬浮在半空, 下方露 70px 空底
+   修后: list 伸展吃满剩余高度, pager (sticky bottom:0) 真正吸到模块底缘, 空底消除
+   滚动场景不受影响: 内容超出时模块 overflow-y:auto 照常滚动, pager 吸底逻辑 (24 轮) 不变 */
 .sb2-kb-empty{
   padding:80px 24px; text-align:center; color:var(--sb2-t3);
   font:400 13px/1.5 "PingFang SC",sans-serif;
