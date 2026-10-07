@@ -9909,7 +9909,9 @@ body.sb2-vp-guard .app-container{ height: calc(var(--sb2-vh, 100vh) - 48px); }
   display:none; align-items:center; gap:6px;
   font:500 13px/1 "PingFang SC",sans-serif; color:var(--sb2-t3);
 }
-body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
+/* 〔r78 批注① 老大 22:23「这个去掉」(#sb2CrumbMain 顶栏面包屑)〕crumb 整块不再显示
+   — 保留 DOM 和 JS 文本更新 (inline-09.js:1563 写 textContent 不报错), 只杀显示 */
+body.sb2-no-side .sb2-topbar-crumb{ display:none; }
 .sb2-topbar-crumb b{ /* 〔fix/sb2-side-restore commit 5〕crumb b 字号 14→13 对齐原型 fs-small */
   font:600 13px/1 "PingFang SC",sans-serif; color:var(--sb2-t1); font-weight:600;
 }
