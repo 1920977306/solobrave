@@ -9954,6 +9954,15 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 self._send_json(200, existing)
                 return
 
+        # ★ r76 派单 老大 10-08 createGroup 防重守卫 (并发重名/重复组, 一行事务检查):
+        # — 同 createdBy + 同 name 重名返回 409, 避免双击/并发重名重复建组
+        # — JSON 存储 + _write_json 内 _get_memory_file_lock file lock 同进程 atomic, 跨进程 race 在 prod 单进程下可忽略
+        # — 跟 r66 项② "防呆" discipline 一致 (r2b1c31 createGroup 防重触发三件套同款)
+        for _g in groups:
+            if _g.get('createdBy') == auth.user_info.get('userId', '') and _g.get('name') == name:
+                self._send_json_error(409, f'已存在同名群组: {name} (id={_g.get("id")})')
+                return
+
         new_group = {
             'id': provided_id or 'grp_' + uuid.uuid4().hex[:10],
             'name': name,
