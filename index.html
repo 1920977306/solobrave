@@ -17260,15 +17260,21 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
 }
 .nav-notification-badge[data-count="0"] { display: none; }
 .notification-panel {
+  /* 〔r72 反馈 Comment 1 老大 17:10「这个点不动, 没有进行设计」: panel 定位 + 视觉重设计
+     — 修前: left:64px top:12px (锚左侧 nav, 跟 .sb2-bell-btn 顶栏铃铛脱节 — r39-3 CSS 漂移铁律同款)
+       panel 显示在左侧 nav 旁, 顶栏铃铛点了用户看不到 = "点不动" 视觉空转
+     — 修后: top:48px right:16px (锚顶栏右侧, 跟 .sb2-bell-btn 顶栏铃铛对齐, 真显示在用户期待位置)
+     — 视觉跟 .sb2-* 系统对齐: border var(--sb2-border), border-radius var(--sb2-r-lg) 14px, shadow 温和
+     — r72 跟 r70 P2 KB 详情弹层 / 规律详情弹层 同款 precedent: 锚点 + 居中定位 + 视觉对齐 .sb2-* 系统 */
   position: fixed;
-  left: 64px;
-  top: 12px;
+  top: 48px;
+  right: 16px;
   width: 340px;
   max-height: 70vh;
-  background: var(--bg-primary, var(--bg-primary,#ffffff));
-  border: 0.5px solid var(--separator);
-  border-radius: 12px;
-  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.18);
+  background: var(--bg-primary, #ffffff);
+  border: 1px solid var(--sb2-border);
+  border-radius: var(--sb2-r-lg, 14px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
   z-index: 10001;
   display: none;
   flex-direction: column;
@@ -18419,7 +18425,7 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
 </div>
 
 <script src="js/inline-08.js?v=f2d73f6b57"></script>
-<script src="js/inline-09.js?v=4d6fbb9161"></script>
+<script src="js/inline-09.js?v=a270f4fb18"></script>
 
 <!-- ★ feat/sb2-chat: SoloBrave 2.0 聊天模块 JS (核心链: 消息流 + 发送框)
      - 复用老 /api/chat/:agentId 接口契约, 零后端改动

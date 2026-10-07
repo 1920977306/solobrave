@@ -1500,12 +1500,35 @@ window.sb2_openPalette = function(){
 window.sb2_openCreate = function(){
   // 按模块给最常用的一个动作 (零编造数据, 只调现成 API)
   var m = SB2_CURRENT_MODULE;
+  /* 〔r72 反馈 Comment 2 老大 17:10「这个也是点不开, 重新设计」:
+     — 修前: messages 模块调 startNewChat → startNewConversation (不存在) → location.reload()
+       用户感觉"点不动" (reload 后视觉无变化)
+     — 修后: messages 模块直接清空 messages DOM + toast 提示, 绕过 location.reload 丑陋 fallback
+     — startNewChat 是 inline-06.js:12 shim, 内部 fallback location.reload 不该走产品路径
+     — 状态一致性: messages 不持久, 下次 reload 自然同步 (跟原版行为一致)
+     — 跟 r38 IIFE onclick 铁律同款: 跨文件私有函数 (sb2_execSlashCommand) 调不到, 走直接 DOM 操作 */
   if (m === 'knowledge' && typeof createNewKnowledge === 'function') createNewKnowledge();
   else if (m === 'patterns' && typeof triggerPatternInduce === 'function') triggerPatternInduce();
   else if (m === 'influencers' && typeof openInfluencerLibrary === 'function') openInfluencerLibrary();
   else if (m === 'products' && typeof openProductLibrary === 'function') openProductLibrary();
   else if (m === 'tasks' && typeof createNewTask === 'function') createNewTask();
-  else if (m === 'messages' && typeof startNewChat === 'function') startNewChat();
+  else if (m === 'messages') {
+    // 直接清空 messages DOM (跟 /clear slash 命令效果一致, 但不走 location.reload)
+    var messagesEl = document.getElementById('sb2ChatMessages');
+    if (messagesEl) messagesEl.innerHTML = ''
+      + '<div class="sb2-chat-empty">'
+      + '  <div class="sb2-chat-empty-icon">💬</div>'
+      + '  <div>新对话已就绪</div>'
+      + '  <div class="sb2-chat-empty-tip">输入消息开始新对话</div>'
+      + '</div>';
+    // 清空 _sb2Chat state (跟 /clear 一致, IIFE 私有 messages 数组)
+    if (typeof window._sb2Chat !== 'undefined' && window._sb2Chat && Array.isArray(window._sb2Chat.messages)) {
+      window._sb2Chat.messages = [];
+    }
+    // 提示用户 (跨 IIFE 兼容)
+    if (typeof showToast === 'function') showToast('新对话已就绪');
+    return;
+  }
   else if (typeof showToast === 'function') showToast('新建 — 快捷入口待加强');
 };
 
