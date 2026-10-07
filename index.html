@@ -13686,8 +13686,8 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
  */
 :root {
   /* 气泡 (核心) */
-  --sb2-chat-bubble-user-bg: var(--sb2-brand);
-  --sb2-chat-bubble-user-fg: var(--sb2-s1);
+  --sb2-chat-bubble-user-bg: var(--sb2-brand-soft);  /* 〔chat-opt 2026-10-07 老大拍板〕橙底白字 → 浅橙底深色字, 跟 AI 气泡同构 */
+  --sb2-chat-bubble-user-fg: var(--sb2-t1);
   --sb2-chat-bubble-assistant-bg: var(--sb2-s2);  /* 风格对齐原型 surface-2 柔灰底 */
   --sb2-chat-bubble-assistant-fg: var(--sb2-t1);
   --sb2-chat-bubble-system-bg: var(--sb2-warning-soft);
@@ -14129,12 +14129,13 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
   /* 〔fix/sb2-side-restore commit 11〕14 轮热修: 删 box-shadow 冗余 (line 13093+ token 已 none)
      原型 line 514 气泡 box-shadow:none — token var(--sb2-chat-bubble-shadow-user) 已是 none,
      CSS 里再 box-shadow: var(...); 是冗余, 删后跟原型语义对齐 (「气泡无阴影」是设计意图, 不是配置开关)
-     〔r39-13〕补 border:none (原型 line 499 用户气泡 border:none, 橙底实心) */
+     〔r39-13〕补 border:none (原型 line 499 用户气泡 border:none, 橙底实心)
+     〔chat-opt 2026-10-07 老大拍板〕浅橙底 + 深色字 + 细描边 (原橙底白字像按钮, 跟 AI 气泡语言不统一) */
   background: var(--sb2-chat-bubble-user-bg);
   color: var(--sb2-chat-bubble-user-fg);
   align-self: flex-end;  /* 用户气泡在 col 内右对齐 */
   max-width: 100%;
-  border: none;
+  border: 1px solid var(--sb2-border);
 }
 .sb2-chat-bubble[data-role="assistant"] {
   /* 〔r39-13〕对齐原版 .card 视觉 (老大: 气泡对齐原版) — 修前 assistant 气泡
@@ -14179,8 +14180,9 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
   font-size: 12.5px;
 }
 .sb2-chat-bubble[data-role="user"] .sb2-chat-bubble-body code {
-  background: rgba(255, 255, 255, 0.18);  /* 不可改: 用户气泡上的 code alpha 蒙层 */
-  color: var(--sb2-s1);
+  /* 〔chat-opt 2026-10-07〕用户气泡白字蒙层随底色反转: 白 alpha → 黑 alpha */
+  background: rgba(0, 0, 0, 0.06);
+  color: inherit;
 }
 .sb2-chat-bubble-body pre {
   margin: 6px 0;
@@ -14204,6 +14206,27 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
 }
 .sb2-chat-msg-row[data-role="user"] .sb2-chat-bubble-time {
   text-align: right;
+}
+/* 〔chat-opt 2026-10-07〕头像合并 spacer: 组内非首条头像占位, 占位不占视觉但保气泡列对齐 */
+.sb2-chat-msg-avatar.spacer {
+  visibility: hidden;
+}
+/* 〔chat-opt 2026-10-07〕跨天日期分割线: 居中弱字 + 两侧发丝线, 撑满消息列宽 */
+.sb2-chat-date-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  align-self: stretch;
+  font: 400 11px/1.4 "PingFang SC", sans-serif;
+  color: var(--sb2-t3);
+  user-select: none;
+}
+.sb2-chat-date-divider::before,
+.sb2-chat-date-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--sb2-border);
 }
 .sb2-chat-bubble-images {
   display: flex;
@@ -18722,7 +18745,7 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
      - 旧 chatArea + 老 JS 函数 100% 不动, 新 sb2 完全独立
      - _sb2Chat state + renderChatMain dispatcher
 -->
-<script src="js/inline-10.js?v=266d7c5819"></script>
+<script src="js/inline-10.js?v=chatopt20261007"></script>
 
 <!-- ★ feat/sb2-chat-tasks: §2 聊天进阶 JS (slash 命令 + @mention + 模型选择)
      - 复用 §1 的 _sb2Chat state + sb2_doSend + renderChatMain dispatcher

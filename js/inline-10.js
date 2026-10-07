@@ -121,7 +121,7 @@
     }
     var html = '';
     for (var i = 0; i < _sb2Chat.messages.length; i++) {
-      html += sb2_renderBubble(_sb2Chat.messages[i]);
+      html += sb2_renderBubble(_sb2Chat.messages[i], _sb2GroupOpts(_sb2Chat.messages[i], i > 0 ? _sb2Chat.messages[i - 1] : null));
     }
     container.innerHTML = html;
     container.scrollTop = container.scrollHeight;
@@ -129,7 +129,36 @@
     if (typeof window.sb2PropMountCards === 'function') window.sb2PropMountCards(container);
   }
 
-  function sb2_renderBubble(msg) {
+  /* 〔chat-opt 2026-10-07 老大拍板〕消息分组渲染:
+     同 role 且间隔 ≤5min 的连续消息 → 头像转 spacer 占位 (气泡列对齐不跳) + 时间戳省略;
+     间隔 >5min / 换发送者 → 头像 + 时间戳回归; 跨天 → 额外插居中日期分割线
+     依据: 气泡统一/头像合并/时间分组三件套, 会话 23:24 老大批注咨询 + 「执行」拍板 */
+  var _SB2_GROUP_GAP = 5 * 60 * 1000;
+  function _sb2MsgT(msg) { return msg && (msg.timestamp || msg.created_at); }
+  function _sb2DayKey(t) { var d = new Date(t); return isNaN(d.getTime()) ? '' : d.getFullYear() + '-' + d.getMonth() + '-' + d.getDate(); }
+  function _sb2DividerLabel(t) {
+    var d = new Date(t);
+    if (isNaN(d.getTime())) return '';
+    var wk = ['日', '一', '二', '三', '四', '五', '六'][d.getDay()];
+    return (d.getMonth() + 1) + '月' + d.getDate() + '日 星期' + wk;
+  }
+  function _sb2GroupOpts(msg, prev) {
+    var t = _sb2MsgT(msg);
+    if (!prev) return { showAvatar: true, showTime: true, divider: t ? _sb2DividerLabel(t) : null };
+    var pt = _sb2MsgT(prev);
+    var ptms = pt ? new Date(pt).getTime() : NaN;
+    var tms = t ? new Date(t).getTime() : NaN;
+    var gapBig = isNaN(ptms) || isNaN(tms) ? true : (tms - ptms > _SB2_GROUP_GAP);
+    var dayChanged = _sb2DayKey(pt) !== _sb2DayKey(t);
+    return {
+      showAvatar: gapBig || prev.role !== msg.role,
+      showTime: gapBig || dayChanged,
+      divider: dayChanged && t ? _sb2DividerLabel(t) : null
+    };
+  }
+
+  function sb2_renderBubble(msg, opts) {
+    opts = opts || { showAvatar: true, showTime: true, divider: null };
     var role = (msg && msg.role) ? msg.role : 'assistant';
     var content = (msg && msg.content !== undefined && msg.content !== null) ? msg.content : '-';
     var time = _sb2FmtTime(msg && (msg.timestamp || msg.created_at));
@@ -216,15 +245,26 @@
       avatarChar = empName ? empName.charAt(0) : '-';
     }
 
-    return ''
+    /* 〔chat-opt 2026-10-07〕头像合并: 组内非首条 → spacer 占位 (visibility:hidden 保布局对齐) */
+    var avatarHtml = opts.showAvatar
+      ? '<span class="sb2-chat-msg-avatar ' + avatarRoleCls + '">' + _sb2EscapeHtml(avatarChar) + '</span>'
+      : '<span class="sb2-chat-msg-avatar ' + avatarRoleCls + ' spacer"></span>';
+    var timeHtml = opts.showTime
+      ? '<span class="sb2-chat-bubble-time">' + _sb2EscapeHtml(time) + '</span>'
+      : '';
+    var dividerHtml = opts.divider
+      ? '<div class="sb2-chat-date-divider"><span>' + _sb2EscapeHtml(opts.divider) + '</span></div>'
+      : '';
+
+    return dividerHtml
       + '<div class="sb2-chat-msg-row" data-role="' + _sb2EscapeHtml(role) + '">'
-      + '  <span class="sb2-chat-msg-avatar ' + avatarRoleCls + '">' + _sb2EscapeHtml(avatarChar) + '</span>'
+      +    avatarHtml
       + '  <div class="sb2-chat-msg-col">'
       +    chipsHtml
       + '    <div class="sb2-chat-bubble' + (isErr ? ' sb2-chat-bubble-error' : '') + '" data-role="' + _sb2EscapeHtml(role) + '">'
       + '      <div class="sb2-chat-bubble-body">' + bodyHtml + imgHtml + propCardHtml + '</div>'
       + '    </div>'
-      + '    <span class="sb2-chat-bubble-time">' + _sb2EscapeHtml(time) + '</span>'
+      +    timeHtml
       + '  </div>'
       + '</div>';
   }
@@ -234,10 +274,15 @@
     if (!container) return;
     var empty = container.querySelector('.sb2-chat-empty');
     if (empty) empty.parentNode.removeChild(empty);
+    /* 〔chat-opt 2026-10-07〕增量消息同分组规则: 与 messages 末条比较
+       (msg 可能未 push — 流式占位, 此时仍取末条做 prev) */
+    var msgs = _sb2Chat.messages;
+    var prev = null;
+    if (msgs.length && msgs[msgs.length - 1] === msg) prev = msgs.length > 1 ? msgs[msgs.length - 2] : null;
+    else if (msgs.length) prev = msgs[msgs.length - 1];
     var wrap = document.createElement('div');
-    wrap.innerHTML = sb2_renderBubble(msg);
-    var bubble = wrap.firstChild;
-    if (bubble) container.appendChild(bubble);
+    wrap.innerHTML = sb2_renderBubble(msg, _sb2GroupOpts(msg, prev));
+    while (wrap.firstChild) container.appendChild(wrap.firstChild);
     if (scrollToEnd !== false) container.scrollTop = container.scrollHeight;
     // ★ P1b: 异步步 — 扫占位 div 拉 GET /api/proposals/:id 填卡
     if (typeof window.sb2PropMountCards === 'function') window.sb2PropMountCards(container);
