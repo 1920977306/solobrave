@@ -32030,9 +32030,34 @@ def _start_ws_proxy(bind, port, target_host, target_port):
         logger.warning('  [WS] websockets 库未安装，跳过 plain WS 代理')
         return None, None
 
+    # ★ fix/plain-ws-proxy-origin (老大 2026-10-07): OpenClaw 9.8 对 WS Origin 校验变严
+    #   （CONTROL_UI_ORIGIN_NOT_ALLOWED）。8081 代理原来不转发客户端 Origin，直接用
+    #   fallback http://0.0.0.0:8081  upstream，被 9.8 拒绝 → 前端降级 Mock 模式。
+    #   修法与 WSS 代理（_start_wss_proxy 的 _process_request）对齐：握手时抠出浏览器
+    #   Origin 挂到 ws._client_origin，转发时原样带给网关。浏览器 ws 握手必带 Origin。
+    def _extract_origin(request_headers):
+        try:
+            for key in ('Origin', 'origin', 'ORIGIN'):
+                v = request_headers.get(key)
+                if v:
+                    return v
+        except Exception:
+            pass
+        try:
+            for k, v in request_headers.raw_items():
+                if k.lower() == 'origin':
+                    return v
+        except Exception:
+            pass
+        return None
+
+    async def _process_request(ws, request):
+        ws._client_origin = _extract_origin(request.headers)
+        return None  # 放行握手；origin 是否合法交给上游网关判
+
     async def _proxy_handler(client_ws):
         target_uri = f'ws://{target_host}:{target_port}'
-        # HTTP 页面可能没 Origin, 给个 http:// 占位让上游网关 accept
+        # 优先用 _process_request 抠到的浏览器真实 Origin；缺失时维持原 fallback
         client_origin = getattr(client_ws, '_client_origin', None) or f'http://{bind}:{port}'
         upstream = None
         try:
@@ -32089,7 +32114,7 @@ def _start_ws_proxy(bind, port, target_host, target_port):
         # 无 ssl= 参数, plain WS
         server = await websockets.serve(
             _proxy_handler, bind, port,
-            # 不传 origins= 参数: plain WS 不校验 origin (浏览器发送 ws 时可能没 origin 头)
+            process_request=_process_request,  # 抠浏览器 Origin 供转发（9.8 origin 校验）
         )
         logger.info(f'  [WS] plain 代理已启动: ws://{bind}:{port} → ws://{target_host}:{target_port}')
         await asyncio.Future()
