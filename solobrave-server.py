@@ -28,6 +28,7 @@ import urllib.request
 import urllib.error
 import hashlib
 import hmac
+import secrets
 import base64
 import uuid
 import time
@@ -238,6 +239,73 @@ PRODUCT_DIR = os.path.join(DATA_DIR, 'products')
 INFLUENCER_DIR = os.path.join(DATA_DIR, 'influencers')
 EMBEDDING_DIR = os.path.join(DATA_DIR, 'embeddings')
 DB_PATH = os.path.join(DATA_DIR, 'solobrave.db')
+
+# ═══ 多租户底座（Phase 0 方案 C, M1 配置层）═══
+# tenants.json = 平台级租户注册表（留在平台 data/，不随租户库走）
+# DEFAULT_TENANT_ID = 存量单租户数据的归属租户；迁移脚本 scripts/migrate_tenant_bootstrap.py 建立
+# INTERNAL_SECRET_FILE = localhost AI 员工通道的 HMAC 签名密钥（多租户模式下强制验签）
+TENANTS_FILE = os.path.join(DATA_DIR, 'tenants.json')
+DEFAULT_TENANT_ID = 't_default'
+INTERNAL_SECRET_FILE = os.path.join(DATA_DIR, 'certs', 'internal_secret')
+
+def _load_tenants():
+    """加载租户注册表；文件缺失/损坏时视为空（= 纯单租户模式）"""
+    data = _read_json(TENANTS_FILE, [])
+    if isinstance(data, dict):
+        return data.get('tenants', []) if isinstance(data.get('tenants'), list) else []
+    return data if isinstance(data, list) else []
+
+def _save_tenants(tenants):
+    _write_json(TENANTS_FILE, tenants)
+
+def _active_tenant_ids():
+    return [t.get('id') for t in _load_tenants() if t.get('status', 'active') == 'active' and t.get('id')]
+
+def _multi_tenant_mode():
+    """多租户模式判定：显式环境变量优先，否则按注册表活跃租户数 > 1。
+    单租户模式下 localhost X-Agent-Id 通道保持旧行为（兼容现有 AI 员工体系），
+    多租户模式下必须 HMAC 验签（见 _verify_internal_agent_sig）。"""
+    env = os.environ.get('SOLOBRAVE_MT', '').strip().lower()
+    if env in ('1', 'true', 'yes', 'on'):
+        return True
+    if env in ('0', 'false', 'no', 'off'):
+        return False
+    return len(_active_tenant_ids()) > 1
+
+def _get_internal_secret():
+    """读取或生成 localhost 内部通道签名密钥。权限 0600。"""
+    try:
+        with open(INTERNAL_SECRET_FILE, 'r', encoding='utf-8') as f:
+            s = f.read().strip()
+            if s:
+                return s.encode('utf-8')
+    except Exception:
+        pass
+    s = secrets.token_hex(32)
+    os.makedirs(os.path.dirname(INTERNAL_SECRET_FILE), exist_ok=True)
+    fd = os.open(INTERNAL_SECRET_FILE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, 'w', encoding='utf-8') as f:
+        f.write(s)
+    logger.info(f'  [MT] 已生成内部通道签名密钥: {INTERNAL_SECRET_FILE}')
+    return s.encode('utf-8')
+
+def _verify_internal_agent_sig(agent_id, headers):
+    """多租户模式下校验 localhost AI 员工调用签名：
+    X-Agent-Ts (unix秒, ±300s 内) + X-Agent-Sig = HMAC_SHA256(secret, f'{agent_id}.{ts}') 前32hex。
+    返回 (ok, reason)。"""
+    try:
+        ts = headers.get('X-Agent-Ts', '').strip()
+        sig = headers.get('X-Agent-Sig', '').strip().lower()
+        if not ts or not sig:
+            return False, '多租户模式要求 X-Agent-Ts/X-Agent-Sig 签名头'
+        if abs(int(time.time()) - int(ts)) > 300:
+            return False, 'X-Agent-Ts 超出 ±300s 窗口'
+        expected = hmac.new(_get_internal_secret(), f'{agent_id}.{ts}'.encode('utf-8'), hashlib.sha256).hexdigest()[:32]
+        if not hmac.compare_digest(expected, sig):
+            return False, 'X-Agent-Sig 验签失败'
+        return True, ''
+    except Exception as e:
+        return False, f'验签异常: {e}'
 
 # ═══ 图片识别提示词 ═══
 # role == '商务' 的 AI 员工调用 /api/vision/describe 时使用该专用提取提示词，
@@ -1379,9 +1447,11 @@ def _base64url_decode(s):
     return base64.urlsafe_b64decode(s)
 
 
-def generate_token(user_id, role, pwd_version=0):
+def generate_token(user_id, role, pwd_version=0, tenant_id=None):
     """生成 JWT token；pwd_version 记录 token 签发时的密码版本，
-    改密码后用户记录 passwordChangedAt 会更新，旧 token 自动失效。"""
+    改密码后用户记录 passwordChangedAt 会更新，旧 token 自动失效。
+    tenant_id 进 tid claim（多租户底座 M1）：数据路由以 token 里的 tid 为准，
+    不信任客户端直传的租户标识。旧 token 无 tid → 视为默认租户。"""
     header = {"alg": "HS256", "typ": "JWT"}
     payload = {
         "sub": user_id,
@@ -1390,6 +1460,8 @@ def generate_token(user_id, role, pwd_version=0):
         "iat": int(time.time()),
         "pwd": pwd_version,  # 密码版本号，改密码后递增 → 旧 token 自然失效
     }
+    if tenant_id:
+        payload["tid"] = tenant_id
 
     header_b64 = _base64url_encode(json.dumps(header, separators=(',', ':')))
     payload_b64 = _base64url_encode(json.dumps(payload, separators=(',', ':')))
@@ -1454,6 +1526,7 @@ def verify_token(token):
             'userId': payload.get('sub'),
             'role': payload.get('role'),
             'pwd': payload.get('pwd', 0),  # 密码版本号，用于 token失效校验
+            'tid': payload.get('tid') or DEFAULT_TENANT_ID,  # 租户归属；旧 token 无 tid → 默认租户
         }
     except Exception:
         return None
@@ -2327,6 +2400,27 @@ class AuthResult:
         return self.user_info and self.user_info.get('role') == 'admin'
 
     @property
+    def is_platform_admin(self):
+        """平台超管：跨租户运营角色（现 role='admin' 原义，M1 语义显式命名）。"""
+        return self.user_info and self.user_info.get('role') == 'admin'
+
+    @property
+    def is_tenant_admin(self):
+        """租户管理员：租户内管理角色（M1 引入，存量数据无此角色 → 恒 False）。"""
+        return self.user_info and self.user_info.get('role') == 'tenant_admin'
+
+    @property
+    def tenant_id(self):
+        """当前请求所属租户：优先 token 里的 tid（_authenticate 已回填默认值），
+        其次用户记录 tenant_id，兜底默认租户。单租户模式下恒为 t_default。"""
+        if not self.user_info:
+            return None
+        tid = self.user_info.get('tid')
+        if not tid and self.user_record:
+            tid = self.user_record.get('tenant_id')
+        return tid or DEFAULT_TENANT_ID
+
+    @property
     def user_id(self):
         return self.user_info.get('userId') if self.user_info else None
 
@@ -2406,6 +2500,13 @@ def _get_localhost_auth_result(headers, parsed_body=None):
         if agent:
             created_by = agent.get('createdBy')
             if created_by:
+                # ★ MT M1: 多租户模式下 localhost X-Agent-Id 通道必须 HMAC 验签，
+                # 否则任意本机进程可冒充任意租户 AI 员工（Phase 0 风险清单结构性风险 #1）
+                if _multi_tenant_mode():
+                    ok, reason = _verify_internal_agent_sig(agent_id, headers)
+                    if not ok:
+                        logger.warning(f'  [Auth] MT模式 localhost 验签拒绝: agent_id={agent_id}: {reason}')
+                        return AuthResult(error=f'多租户模式内部通道需要验签: {reason}', status=401)
                 # ★ 审计：本地 AI 员工调用打日志
                 logger.info(f'  [Auth] localhost AI 调用: agent_id={agent_id} created_by={created_by}')
                 result = AuthResult(user_info={'userId': created_by, 'role': 'admin'})
@@ -8906,7 +9007,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         _save_users(users)
 
         # 生成 token（pwd_version 用于改密后让旧 token 自动失效）
-        token = generate_token(user['id'], user.get('role', 'employee'), user.get('pwdVersion', 0))
+        token = generate_token(user['id'], user.get('role', 'employee'), user.get('pwdVersion', 0), tenant_id=user.get('tenant_id') or DEFAULT_TENANT_ID)
 
         self._send_json(200, {
             'token': token,
@@ -8921,6 +9022,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 'teamIds': user.get('teamIds', []),
                 'subordinateIds': user.get('subordinateIds', []),
                 'roleTemplateId': user.get('roleTemplateId'),
+                'tenantId': user.get('tenant_id') or DEFAULT_TENANT_ID,
                 'permissions': _get_effective_permissions({'id': user['id'], 'role': user.get('role', 'employee'), 'roleTemplateId': user.get('roleTemplateId')})
             }
         })
@@ -9018,7 +9120,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             'agentQuota': user.get('agentQuota', 10),
             'apiQuota': user.get('apiQuota', 1000),
             'permissions': _get_effective_permissions(auth),
-            'roleTemplateId': user.get('roleTemplateId')
+            'roleTemplateId': user.get('roleTemplateId'),
+            'tenantId': auth.tenant_id
         })
 
     def _handle_get_permissions(self):
