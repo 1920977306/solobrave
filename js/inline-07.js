@@ -4622,7 +4622,7 @@ function sb2PtnRender(){
      — 原 verified/candidate/hypothesis 是后端英文枚举值, 跟后端契约一致
      — 但用户面应显示中文 (跟 r39-5 UI 文案禁止开发黑话铁律一致, 跟 legacy renderPatternsList line 5116 levelLabel 同款)
      — 映射: hypothesis→假设, candidate→候选, verified→已验证 (跟 inline-06.js line 5116 共享语义) */
-  if (heroSub) heroSub.textContent = total + ' 条规律 · 📐 已验证 ' + lvCount.verified + ' · 🔬 候选 ' + lvCount.candidate + ' · 🧪 假设 ' + lvCount.hypothesis;
+  if (heroSub) heroSub.innerHTML = total + ' 条规律 · <i class=sb2-ico-ruler></i> 已验证 ' + lvCount.verified + ' · <i class=sb2-ico-microscope></i> 候选 ' + lvCount.candidate + ' · <i class=sb2-ico-flask></i> 假设 ' + lvCount.hypothesis;
   // chips 渲染 (一次性, 后续只更新计数)
   var chipsEl = document.getElementById('sb2PtnChips');
   var chipsData = [
