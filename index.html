@@ -12335,10 +12335,12 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
   padding:80px 24px; text-align:center; color:var(--sb2-t3);
   font:400 13px/1.5 "PingFang SC",sans-serif;
 }
-/* 〔24 轮批注② v2〕分页器 CSS 恢复 (含 23 轮批注④ sticky 吸底, 每页不滚动时无感知, 防边界溢出) */
+/* 〔24 轮批注② v2〕分页器 CSS 恢复 (含 23 轮批注④ sticky 吸底, 每页不滚动时无感知, 防边界溢出)
+   〔r67 v2 2026-10-07〕补 margin-top:auto: r67 v1 list flex:1 后列表已撑满模块,
+   margin-top:auto 把分页推到底缘 (sticky bottom:0 只在内容溢出时生效, 内容不满时靠 auto 边距) */
 .sb2-kb-pager{
   display:flex; gap:4px; align-items:center; justify-content:center;
-  padding:14px 0 4px;
+  padding:14px 0 4px; margin-top:auto;
   position:sticky; bottom:0; background:var(--sb2-bg);
 }
 .sb2-kb-pager-btn{
