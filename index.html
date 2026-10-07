@@ -11011,6 +11011,61 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
   gap:12px;
   margin-top:10px;
 }
+/* 〔dash-opt-2〕KB 待审核 / 逾期任务 卡内行 + 行内操作钮 */
+.sb2-dash2-todo-rows{
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+  margin-top:8px;
+}
+.sb2-dash2-todo-row{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  min-width:0;
+}
+.sb2-dash2-todo-row-t{
+  flex:1 1 auto;
+  min-width:0;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  font-size:12px;
+  color:var(--sb2-t1);
+}
+.sb2-dash2-todo-row-meta{
+  flex:0 0 auto;
+  font-size:11px;
+  color:var(--sb2-danger, #F53F3F);
+}
+.sb2-dash2-todo-row-acts{
+  flex:0 0 auto;
+  display:flex;
+  gap:6px;
+}
+.sb2-dash2-todo-btn{
+  padding:3px 10px;
+  border-radius:var(--sb2-r, 6px);
+  border:1px solid var(--sb2-border);
+  background:var(--sb2-s1);
+  color:var(--sb2-t2);
+  font-size:11px;
+  cursor:pointer;
+  line-height:1.5;
+}
+.sb2-dash2-todo-btn:hover{ border-color:var(--sb2-accent); color:var(--sb2-accent); }
+.sb2-dash2-todo-btn.ok{
+  background:var(--sb2-accent);
+  border-color:var(--sb2-accent);
+  color:#fff;
+}
+.sb2-dash2-todo-btn.ok:hover{ background:var(--sb2-accent-strong); border-color:var(--sb2-accent-strong); }
+.sb2-dash2-todo-btn:disabled{ opacity:.5; cursor:default; }
+.sb2-dash2-todo-more{
+  margin-top:8px;
+  font-size:11px;
+  color:var(--sb2-t3);
+}
 @media (max-width:1100px){
   .sb2-dash2-todo-list{ grid-template-columns:1fr; }
 }
@@ -18907,7 +18962,7 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
 </div>
 
 <script src="js/inline-08.js?v=f2d73f6b57"></script>
-<script src="js/inline-09.js?v=dashopt1a20261008"></script>
+<script src="js/inline-09.js?v=dashopt2c20261008"></script>
 
 <!-- ★ feat/sb2-chat: SoloBrave 2.0 聊天模块 JS (核心链: 消息流 + 发送框)
      - 复用老 /api/chat/:agentId 接口契约, 零后端改动

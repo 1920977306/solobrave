@@ -451,11 +451,18 @@ function buildFocus(){
 
 /* ---------- 〔dash-opt-1 2026-10-08 老大拍板方向 A〕等你拍板 hero 区 ---------- */
 /* 工作台 = 待办指挥中心: 核心是给老板「做决定」的台面, 不是导航中转
-   数据源: GET /api/proposals?status=pending&limit=10 (审批中心同款收窄列表)
-   渲染: .sb2-prop-card loading 占位 → window.sb2PropMountCards (P1b 既有管线) 填 6 态卡
-         → inline 选项/驳回/409 处理/执行结果 全部复用, 零新交互逻辑 (SEV1 教训: 不抄第二份)
-   空态: 整块 section display:none (不占屏, 老大「多此一举」红线 — 没待办就不渲 hero)
-   拍板后: sb2PropRenderState 就地切结果态; 侧栏 badge 走 sb2RefreshDashboardBadges 重刷 */
+   数据源 (3 路并行, 零编造 — 空类不渲染):
+     1. 待审批提案  GET /api/proposals?status=pending&limit=10
+        → .sb2-prop-card loading 占位 → window.sb2PropMountCards (P1b 既有管线) 填 6 态卡
+        → inline 选项/驳回/409 处理/执行结果全部复用, 零新交互逻辑 (SEV1 教训: 不抄第二份)
+     2. 知识待审核  GET /api/knowledge/entries?createdAfter=<now-7d>&limit=100 (服务端 SQL 下推时间窗,
+        老大红线: 不过滤集≠全量集; 客户端只滤 status==='pending') → 通过 PUT {status:'ok'} / 驳回 DELETE
+        (与知识库模块 approveKnowledgeDoc/rejectKnowledgeDoc 同契约, 但不复用函数 — 那两个成功后会
+        调 loadKnowledgePage() 重渲知识模块, 在 dashboard 上下文有副作用)
+     3. 逾期任务    GET /api/tasks (admin 全量) → 客户端滤 status!=='completed' && deadline<今天
+        → 「去处理」跳任务模块并直接打开该任务表单 (带 payload 的跳转, 不是裸导航)
+   空态: 三块全空 → section display:none (不占屏, 老大「多此一举」红线 — 没待办就不渲 hero)
+   拍板后: 提案卡就地切结果态; KB/任务卡在 DOM 内移除该行并重算, 全空收 section */
 function sb2_loadDashboardTodo(){
   var tok = localStorage.getItem('sb_auth_token') || '';
   var headers = { 'Authorization': 'Bearer ' + tok };
@@ -465,31 +472,167 @@ function sb2_loadDashboardTodo(){
     var mods = JSON.parse(localStorage.getItem('sb_module_perms') || 'null');
     if (mods && Array.isArray(mods)) headers['X-Module-Perms'] = JSON.stringify(mods);
   } catch(e){}
-  fetch('/api/proposals?status=pending&limit=10', { headers: headers })
+
+  var proposalsP = fetch('/api/proposals?status=pending&limit=10', { headers: headers })
     .then(function(r){ return r.json(); })
     .then(function(d){
-      var section = document.getElementById('sb2Dash2Todo');
-      var el = document.getElementById('sb2Dash2TodoList');
-      if (!section || !el) return;
       var list = (d && Array.isArray(d.proposals)) ? d.proposals : (Array.isArray(d) ? d : []);
-      /* 零编造红线: 列表项缺 id 的丢掉 (防后端契约漂移渲出死卡) */
-      list = list.filter(function(p){ return p && p.id; });
-      if (list.length === 0){
-        section.style.display = 'none';
-        return;
-      }
-      section.style.display = '';
-      el.innerHTML = list.map(function(p){
-        return '<div class="sb2-prop-card loading" data-state="loading" data-proposal-id="' + escapeHtml(p.id) + '">加载提议卡片…</div>';
-      }).join('');
-      if (typeof window.sb2PropMountCards === 'function') window.sb2PropMountCards(el);
+      return list.filter(function(p){ return p && p.id; });
     })
-    .catch(function(err){
-      var section = document.getElementById('sb2Dash2Todo');
-      if (section) section.style.display = 'none';
-      console.warn('[sb2_loadDashboardTodo]', err);
+    .catch(function(){ return []; });
+
+  var kbCutoff = Date.now() - 7 * 86400 * 1000;
+  var kbP = fetch('/api/knowledge/entries?createdAfter=' + kbCutoff + '&limit=100', { headers: headers })
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      var docs = (d && Array.isArray(d.docs)) ? d.docs : [];
+      return docs.filter(function(x){ return x && x.status === 'pending' && x.id; });
+    })
+    .catch(function(){ return []; });
+
+  var tasksP = fetch('/api/tasks', { headers: headers })
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      var list = (d && Array.isArray(d.tasks)) ? d.tasks : [];
+      var today = new Date();
+      var ymd = today.getFullYear() + '-' + String(today.getMonth() + 1).padStart(2, '0') + '-' + String(today.getDate()).padStart(2, '0');
+      return list.filter(function(t){
+        if (!t || t.status === 'completed') return false;
+        var dl = String(t.deadline || '').trim();
+        if (!dl) return false;
+        var parts = dl.split('-');
+        var iso = parts.length === 2 ? today.getFullYear() + '-' + dl : dl;
+        return iso < ymd;
+      });
+    })
+    .catch(function(){ return []; });
+
+  Promise.all([proposalsP, kbP, tasksP]).then(function(arr){
+    var section = document.getElementById('sb2Dash2Todo');
+    var el = document.getElementById('sb2Dash2TodoList');
+    if (!section || !el) return;
+    var proposals = arr[0], kbPending = arr[1], overdueTasks = arr[2];
+    if (proposals.length === 0 && kbPending.length === 0 && overdueTasks.length === 0){
+      /* 清空旧卡再藏: 防「先有待办后清零」时残留假卡 (拍板后重刷场景) */
+      el.innerHTML = '';
+      section.style.display = 'none';
+      return;
+    }
+    section.style.display = '';
+    var html = '';
+    html += proposals.map(function(p){
+      return '<div class="sb2-prop-card loading" data-state="loading" data-proposal-id="' + escapeHtml(p.id) + '">加载提议卡片…</div>';
+    }).join('');
+    /* 知识待审核卡 (与提案卡同款容器语言, 行内 通过/驳回) */
+    if (kbPending.length > 0){
+      var kbRows = kbPending.slice(0, 3).map(function(x){
+        return '<div class="sb2-dash2-todo-row" data-kb-id="' + escapeHtml(x.id) + '">'
+             +   '<span class="sb2-dash2-todo-row-t" title="' + escapeHtml(x.title || '') + '">' + escapeHtml((x.title || '(无标题)').slice(0, 30)) + '</span>'
+             +   '<span class="sb2-dash2-todo-row-acts">'
+             +     '<button type="button" class="sb2-dash2-todo-btn ok" onclick="sb2DashTodoKbApprove(\'' + escapeHtml(x.id) + '\', this)">通过</button>'
+             +     '<button type="button" class="sb2-dash2-todo-btn no" onclick="sb2DashTodoKbReject(\'' + escapeHtml(x.id) + '\', this)">驳回</button>'
+             +   '</span>'
+             + '</div>';
+      }).join('');
+      html += '<div class="sb2-prop-card sb2-dash2-todo-kb" data-state="pending">'
+           +   '<div class="sb2-prop-card-head"><span class="sb2-prop-card-state pending">待审核</span><span style="font-size:11px;color:var(--sb2-t3);">知识库</span></div>'
+           +   '<div class="sb2-prop-card-title">近 7 天 ' + kbPending.length + ' 条知识待审核</div>'
+           +   '<div class="sb2-dash2-todo-rows">' + kbRows + '</div>'
+           +   (kbPending.length > 3 ? '<div class="sb2-dash2-todo-more">还有 ' + (kbPending.length - 3) + ' 条在知识库模块处理</div>' : '')
+           + '</div>';
+    }
+    /* 逾期任务卡 (行内 去处理 → 任务模块开表单) */
+    if (overdueTasks.length > 0){
+      var tkRows = overdueTasks.slice(0, 3).map(function(t){
+        return '<div class="sb2-dash2-todo-row">'
+             +   '<span class="sb2-dash2-todo-row-t" title="' + escapeHtml(t.title || '') + '">' + escapeHtml((t.title || '(无标题)').slice(0, 30)) + '</span>'
+             +   '<span class="sb2-dash2-todo-row-meta">截止 ' + escapeHtml(t.deadline || '—') + '</span>'
+             +   '<span class="sb2-dash2-todo-row-acts"><button type="button" class="sb2-dash2-todo-btn ok" onclick="sb2DashTodoOpenTask(\'' + escapeHtml(t.id) + '\')">去处理</button></span>'
+             + '</div>';
+      }).join('');
+      html += '<div class="sb2-prop-card sb2-dash2-todo-task" data-state="pending">'
+           +   '<div class="sb2-prop-card-head"><span class="sb2-prop-card-state pending">待处理</span><span style="font-size:11px;color:var(--sb2-t3);">任务</span></div>'
+           +   '<div class="sb2-prop-card-title">' + overdueTasks.length + ' 个任务已过截止日未完成</div>'
+           +   '<div class="sb2-dash2-todo-rows">' + tkRows + '</div>'
+           +   (overdueTasks.length > 3 ? '<div class="sb2-dash2-todo-more">还有 ' + (overdueTasks.length - 3) + ' 个在任务模块处理</div>' : '')
+           + '</div>';
+    }
+    el.innerHTML = html;
+    if (typeof window.sb2PropMountCards === 'function') window.sb2PropMountCards(el);
+  }).catch(function(err){
+    var section = document.getElementById('sb2Dash2Todo');
+    if (section) section.style.display = 'none';
+    console.warn('[sb2_loadDashboardTodo]', err);
+  });
+}
+
+/* 知识通过: PUT {status:'ok'} (契约同 approveKnowledgeDoc, 见函数头注释不复用原因) */
+function sb2DashTodoKbApprove(docId, btn){
+  if (!docId || (btn && btn.disabled)) return;
+  if (btn) btn.disabled = true;
+  apiFetch('/api/knowledge/entries/' + encodeURIComponent(docId), {
+    method: 'PUT',
+    body: JSON.stringify({ status: 'ok' })
+  }).then(function(resp){
+    if (resp && resp.ok) {
+      if (typeof showToast === 'function') showToast('✓ 已通过审核，条目进入可检索状态', 'success');
+      sb2DashTodoRemoveRow(docId);
+      if (typeof window.sb2RefreshDashboardBadges === 'function') window.sb2RefreshDashboardBadges();
+    } else {
+      if (typeof showToast === 'function') showToast('❌ 审核操作失败（HTTP ' + (resp && resp.status) + '）', 'error');
+      if (btn) btn.disabled = false;
+    }
+  }).catch(function(e){
+    if (typeof showToast === 'function') showToast('❌ 审核操作失败: ' + (e && e.message ? e.message : e), 'error');
+    if (btn) btn.disabled = false;
+  });
+}
+/* 知识驳回: DELETE (软删级联清 chunks, 契约同 rejectKnowledgeDoc) */
+function sb2DashTodoKbReject(docId, btn){
+  if (!docId || (btn && btn.disabled)) return;
+  if (!confirm('确认驳回该条目？驳回后将被删除，不再进入检索。')) return;
+  if (btn) btn.disabled = true;
+  apiFetch('/api/knowledge/entries/' + encodeURIComponent(docId), { method: 'DELETE' })
+    .then(function(resp){
+      if (resp && resp.ok) {
+        if (typeof showToast === 'function') showToast('✗ 已驳回并删除', 'success');
+        sb2DashTodoRemoveRow(docId);
+        if (typeof window.sb2RefreshDashboardBadges === 'function') window.sb2RefreshDashboardBadges();
+      } else {
+        if (typeof showToast === 'function') showToast('❌ 驳回失败（HTTP ' + (resp && resp.status) + '）', 'error');
+        if (btn) btn.disabled = false;
+      }
+    }).catch(function(e){
+      if (typeof showToast === 'function') showToast('❌ 驳回失败: ' + (e && e.message ? e.message : e), 'error');
+      if (btn) btn.disabled = false;
     });
 }
+/* 行内移除 KB 行; 卡内无行 → 移除卡; 网格无卡 → 收 section */
+function sb2DashTodoRemoveRow(docId){
+  var row = document.querySelector('#sb2Dash2TodoList .sb2-dash2-todo-row[data-kb-id="' + docId + '"]');
+  if (row) row.parentNode.removeChild(row);
+  var card = document.querySelector('#sb2Dash2TodoList .sb2-dash2-todo-kb');
+  if (card && !card.querySelector('.sb2-dash2-todo-row')) {
+    card.parentNode.removeChild(card);
+  }
+  var el = document.getElementById('sb2Dash2TodoList');
+  if (el && el.children.length === 0) {
+    var section = document.getElementById('sb2Dash2Todo');
+    if (section) section.style.display = 'none';
+  }
+}
+/* 逾期任务 → 任务模块并直接打开该任务表单 (带 payload 的跳转) */
+function sb2DashTodoOpenTask(taskId){
+  if (typeof sb2Go === 'function') sb2Go('tasks');
+  setTimeout(function(){
+    if (typeof sb2TasksOpenForm === 'function') sb2TasksOpenForm(taskId);
+  }, 400);
+}
+/* IIFE 作用域墙: onclick 行内调用 + 跨块手动重刷都走 window (SEV1 老教训, 跟 sb2ToggleSide 同款) */
+window.sb2DashTodoKbApprove = sb2DashTodoKbApprove;
+window.sb2DashTodoKbReject = sb2DashTodoKbReject;
+window.sb2DashTodoOpenTask = sb2DashTodoOpenTask;
+window.sb2_loadDashboardTodo = sb2_loadDashboardTodo;
 
 /* ---------- MVP2 三 feed 区加载 (knowledge-events + knowledge-patterns + kb entries) ---------- */
 function sb2_loadDashboardFeeds(){
