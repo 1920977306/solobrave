@@ -3847,8 +3847,8 @@ def init_db():
         ''')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_tasks_assignee ON tasks(assignee)')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status)')
-        conn.execute('CREATE INDEX IF NOT EXISTS idx_tasks_talent ON tasks(talent_id)')
         # ★ r75 非破坏迁移: 已有 tasks 表加 talent_id 列 (SQLite ALTER TABLE ADD COLUMN)
+        # 必须在 CREATE INDEX idx_tasks_talent 之前执行, 否则旧 db 无 talent_id 列启动直接 OperationalError
         try:
             cols = [r['name'] for r in conn.execute("PRAGMA table_info(tasks)").fetchall()]
             if 'talent_id' not in cols:
@@ -3857,6 +3857,7 @@ def init_db():
             # ALTER TABLE 失败不阻塞 (老 SQLite / 锁竞争场景)
             import logging as _logging
             _logging.getLogger(__name__).warning('[tasks migrate] talent_id 列添加失败: %s', _e)
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_tasks_talent ON tasks(talent_id)')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_tasks_creator ON tasks(creator)')
 
         # FIXME: 大脑知识中枢新增表（保留旧表，不删数据）
