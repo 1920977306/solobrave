@@ -3814,11 +3814,32 @@ def init_db():
                 credits_used INTEGER DEFAULT 0,
                 session_id TEXT,
                 created_at TEXT DEFAULT (datetime('now', 'localtime')),
+                reason TEXT DEFAULT 'consumption',
+                delta INTEGER DEFAULT 0,
+                note TEXT DEFAULT '',
                 FOREIGN KEY (agent_id) REFERENCES credit_accounts(agent_id)
             )
         ''')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_credit_quotas_agent ON credit_quotas(agent_id)')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_credit_usage_log_agent ON credit_usage_log(agent_id, created_at)')
+        # ★ 积分体系派单 老大 01:59 拍板 (贾维斯派单, 2026-10-08):
+        #   credit_usage_log 加 reason/delta/note 列 (记录加减值 + 留痕审计)
+        #   reason: consumption | checkin | admin_grant | admin_deduct
+        #   delta: 正=加, 负=减 (consumption 场景 = -credits_used)
+        #   note: 管理员备注 / 签到默认 "daily check-in"
+        # 必须在 ALTER 完成后才建 idx_credit_usage_log_reason (避免 cc7b6f8 同款顺序 bug)
+        try:
+            cols = [r['name'] for r in conn.execute("PRAGMA table_info(credit_usage_log)").fetchall()]
+            if 'reason' not in cols:
+                conn.execute("ALTER TABLE credit_usage_log ADD COLUMN reason TEXT DEFAULT 'consumption'")
+            if 'delta' not in cols:
+                conn.execute("ALTER TABLE credit_usage_log ADD COLUMN delta INTEGER DEFAULT 0")
+            if 'note' not in cols:
+                conn.execute("ALTER TABLE credit_usage_log ADD COLUMN note TEXT DEFAULT ''")
+        except Exception as _e:
+            import logging as _logging
+            _logging.getLogger(__name__).warning('[credit_usage_log migrate] reason/delta/note 列添加失败: %s', _e)
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_credit_usage_log_reason ON credit_usage_log(reason, created_at)')
 
         # 任务管理表
         # ★ r75 派单 老大 10-08 派单 tab 6 任务-达人关联:
@@ -7680,6 +7701,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if path == '/api/credits/check':
             self._handle_get_credit_check()
             return
+        # ★ 积分体系派单 (贾维斯派单, 2026-10-08): 签到状态查询 (checkin/admin-grant 是 POST, 另注册)
+        if path == '/api/credits/checkin/status':
+            self._handle_credits_checkin_status()
+            return
 
         # Brand API
         if path == '/api/brands' or path == '/api/brands/':
@@ -8001,7 +8026,14 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             agent_id = path[len('/api/credits/quotas/'):-len('/recharge')]
             if agent_id and '/' not in agent_id:
                 self._handle_credit_recharge(agent_id)
-                return
+            return
+        # ★ 积分体系派单 (贾维斯派单, 2026-10-08): 签到 + 管理员分配
+        if path == '/api/credits/checkin':
+            self._handle_credits_checkin()
+            return
+        if path == '/api/credits/admin-grant':
+            self._handle_credits_admin_grant()
+            return
 
         # 违禁词 API（check 需先于 /api/forbidden-words 通用匹配）
         if path == '/api/forbidden-words/check':
@@ -16032,6 +16064,117 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 'updated_at': r['updated_at'] or '',
             } for r in rows]
             self._send_json(200, items)
+        finally:
+            conn.close()
+
+    # ★ 积分体系派单 老大 01:59 拍板 (贾维斯派单, 2026-10-08):
+    #   POST /api/credits/checkin — 每日签到 (幂等 + 上限守卫 + log)
+    def _handle_credits_checkin(self):
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        # 签到基于 auth userId (localhost 走 X-Agent-Id, prod 走 Bearer token user_id)
+        agent_id = (getattr(auth, 'localhost_agent_id', None) or auth.user_id or '').strip()
+        if not agent_id:
+            self._send_json_error(400, '无法识别签到者身份')
+            return
+        conn = _db_conn()
+        try:
+            result = _checkin_credits(conn, agent_id)
+            conn.commit()
+            # 已签到返回 200 + already_checked_in=True (前端按钮灰态用, 不是错误)
+            # 上限 cap 返回 200 + capped=True (前端提示「已上限」, 不是错误)
+            self._send_json(200, {
+                'agent_id': agent_id,
+                'today': datetime.now().strftime('%Y-%m-%d'),
+                **result
+            })
+        except Exception as _e:
+            conn.rollback()
+            self._send_json_error(500, '签到失败: ' + str(_e))
+        finally:
+            conn.close()
+
+    # ★ 积分体系派单 老大 01:59 拍板:
+    #   POST /api/credits/admin-grant — 管理员加减积分 (仅 admin + 强制 log)
+    def _handle_credits_admin_grant(self):
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not auth.is_admin:
+            self._send_json_error(403, '仅管理员可分配积分')
+            return
+        body = self._read_body()
+        if not body:
+            self._send_json_error(400, '无效的请求体')
+            return
+        agent_id = (body.get('agent_id') or '').strip()
+        if not agent_id:
+            self._send_json_error(400, '缺少 agent_id')
+            return
+        delta = body.get('delta')
+        if delta is None:
+            self._send_json_error(400, '缺少 delta (正=加, 负=减)')
+            return
+        note = (body.get('note') or '').strip()
+        # operator: admin 自己 user_id (来自 auth, 不是 agent_id)
+        operator = (auth.user_id or '').strip()
+        conn = _db_conn()
+        try:
+            result = _admin_grant_credits(conn, agent_id, delta, operator=operator, note=note)
+            if not result.get('ok'):
+                self._send_json_error(400, result.get('error', '分配失败'))
+                return
+            conn.commit()
+            self._send_json(200, {
+                'agent_id': agent_id,
+                'operator': operator,
+                **result
+            })
+        except Exception as _e:
+            conn.rollback()
+            self._send_json_error(500, '分配失败: ' + str(_e))
+        finally:
+            conn.close()
+
+    # ★ 积分体系派单 老大 01:59 拍板:
+    #   GET /api/credits/checkin/status — 签到状态 (今天是否签 + 余额 + 距上限差额)
+    def _handle_credits_checkin_status(self):
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        agent_id = (getattr(auth, 'localhost_agent_id', None) or auth.user_id or '').strip()
+        if not agent_id:
+            self._send_json_error(400, '无法识别签到者身份')
+            return
+        conn = _db_conn()
+        try:
+            _ensure_credit_account(conn, agent_id)
+            row = conn.execute('SELECT balance FROM credit_accounts WHERE agent_id = ?', (agent_id,)).fetchone()
+            balance = (row['balance'] if row else 0) or 0
+            today = datetime.now().strftime('%Y-%m-%d')
+            already = conn.execute(
+                "SELECT id FROM credit_usage_log WHERE agent_id = ? AND reason = 'checkin' AND created_at LIKE ? LIMIT 1",
+                (agent_id, today + '%')
+            ).fetchone()
+            already_checked_in = bool(already)
+            reward = DEFAULT_CHECKIN_REWARD
+            limit = DEFAULT_CREDIT_LIMIT
+            remaining_to_limit = max(0, limit - balance)
+            next_reward = 0 if already_checked_in else reward
+            self._send_json(200, {
+                'agent_id': agent_id,
+                'today': today,
+                'already_checked_in': already_checked_in,
+                'balance': balance,
+                'limit': limit,
+                'remaining_to_limit': remaining_to_limit,
+                'next_reward': next_reward,
+                'reward': reward
+            })
         finally:
             conn.close()
 
@@ -28833,6 +28976,87 @@ def _recharge_credits(conn, agent_id, amount, operator=''):
     new_balance = row['balance'] or 0
     logger.info(f'  [Credits] 充值 agent={agent_id} amount={amount} new_balance={new_balance} operator={operator}')
     return new_balance
+
+
+# ★ 积分体系派单 老大 01:59 拍板 (贾维斯派单, 2026-10-08):
+#   签到常量 - 全部做成可调, 老大一句话可改
+DEFAULT_CHECKIN_REWARD = 10        # 签到一次 +10 积分
+DEFAULT_CREDIT_LIMIT = 10000       # 余额上限 10000 积分
+
+def _checkin_credits(conn, agent_id, reward=DEFAULT_CHECKIN_REWARD, limit=DEFAULT_CREDIT_LIMIT):
+    """每日签到 (幂等: agent_id + 当天日期唯一).
+    返回 dict {ok, already_checked_in, balance, capped, reward, limit, delta}
+    - already_checked_in=True → 当天已签到, 不重复加余额
+    - capped=True → 余额已达上限, 不再加 (但仍写 log reason=checkin capped 留痕)
+    - delta: 实际累加的积分 (capped 时 = 0)
+    """
+    _ensure_credit_account(conn, agent_id)
+    today = datetime.now().strftime('%Y-%m-%d')
+    # 幂等守卫: 当天 reason='checkin' 已记录则拒绝重复
+    already = conn.execute(
+        "SELECT id FROM credit_usage_log WHERE agent_id = ? AND reason = 'checkin' AND created_at LIKE ? LIMIT 1",
+        (agent_id, today + '%')
+    ).fetchone()
+    if already:
+        row = conn.execute('SELECT balance FROM credit_accounts WHERE agent_id = ?', (agent_id,)).fetchone()
+        return {'ok': False, 'already_checked_in': True, 'balance': row['balance'] if row else 0,
+                'capped': False, 'reward': reward, 'limit': limit, 'delta': 0}
+    # 上限守卫: balance + reward > limit 则 capped (仍写 log 留痕, delta=0)
+    row = conn.execute('SELECT balance FROM credit_accounts WHERE agent_id = ?', (agent_id,)).fetchone()
+    current = (row['balance'] if row else 0) or 0
+    capped = (current + reward) > limit
+    delta = 0 if capped else reward
+    if not capped:
+        conn.execute(
+            "UPDATE credit_accounts SET balance = balance + ?, total_recharged = total_recharged + ?, updated_at = datetime('now','localtime') WHERE agent_id = ?",
+            (reward, reward, agent_id)
+        )
+    # 写 log (留痕审计: capped 时 delta=0 但 note 标 'capped')
+    note_text = 'daily check-in' if not capped else f'daily check-in capped (limit={limit})'
+    conn.execute(
+        "INSERT INTO credit_usage_log (agent_id, credits_used, reason, delta, note, session_id, created_at) VALUES (?, ?, 'checkin', ?, ?, '', ?)",
+        (agent_id, 0, delta, note_text, datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+    )
+    new_balance = current + delta
+    logger.info(f'  [Credits] checkin agent={agent_id} reward={reward} delta={delta} new_balance={new_balance} capped={capped}')
+    return {'ok': True, 'already_checked_in': False, 'balance': new_balance,
+            'capped': capped, 'reward': reward, 'limit': limit, 'delta': delta}
+
+
+def _admin_grant_credits(conn, agent_id, delta, operator='', note=''):
+    """管理员分配积分 (加减均可, 不受上限, 强制 log).
+    返回 dict {ok, balance, delta, reason, note, new_balance}
+    """
+    _ensure_credit_account(conn, agent_id)
+    try:
+        delta = int(delta)
+    except (TypeError, ValueError):
+        return {'ok': False, 'error': 'delta 必须是整数'}
+    if delta == 0:
+        return {'ok': False, 'error': 'delta 不能为 0'}
+    reason = 'admin_grant' if delta > 0 else 'admin_deduct'
+    if delta > 0:
+        # 加: balance + delta, total_recharged + delta
+        conn.execute(
+            "UPDATE credit_accounts SET balance = balance + ?, total_recharged = total_recharged + ?, updated_at = datetime('now','localtime') WHERE agent_id = ?",
+            (delta, delta, agent_id)
+        )
+    else:
+        # 减: balance + delta (允许为负或扣到 0, 跟既有 _record_credit_usage 一致; admin 主动操作不卡死)
+        abs_d = -delta
+        conn.execute(
+            "UPDATE credit_accounts SET balance = MAX(0, balance - ?), total_consumed = total_consumed + ?, updated_at = datetime('now','localtime') WHERE agent_id = ?",
+            (abs_d, abs_d, agent_id)
+        )
+    # 强制 log (留痕审计)
+    conn.execute(
+        "INSERT INTO credit_usage_log (agent_id, credits_used, reason, delta, note, session_id, created_at) VALUES (?, 0, ?, ?, ?, ?, ?)",
+        (agent_id, reason, delta, note, operator, datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+    )
+    row = conn.execute('SELECT balance FROM credit_accounts WHERE agent_id = ?', (agent_id,)).fetchone()
+    new_balance = row['balance'] if row else 0
+    logger.info(f'  [Credits] admin_grant agent={agent_id} delta={delta} reason={reason} operator={operator} new_balance={new_balance}')
+    return {'ok': True, 'balance': new_balance, 'delta': delta, 'reason': reason, 'note': note, 'new_balance': new_balance}
 
 
 def _record_credit_usage(conn, agent_id, input_tokens, output_tokens, cache_read_tokens, session_id='', created_at=None):
