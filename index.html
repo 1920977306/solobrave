@@ -11078,6 +11078,170 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
   font:500 11px/1 "PingFang SC",sans-serif; color:var(--sb2-t2);
   background:var(--sb2-s3); padding:4px 10px; border-radius:var(--sb2-r-full);
 }
+/* ★ r63 项② (老大 13:06 批注②「点达人没有详情」): 达人详情浮层 drawer
+   仿 sb2-pds-detail precedent (line 11007+) 居中弹窗 + sb2-pds-rise 动画 (line 11020)
+   命名空间 sb2-tln-* (talents 缩写 tln, 跟 sb2-pds-* 商品平行的命名空间)
+   7 tab 设计跟既有 legacy renderTalentDetail 7 panel 语义一致 (概况/带货/粉丝/商品/跟进记录/待办/知识库)
+   跟既有 sb2-pds-findtalent (line 11101) / sb2-pds-detail 同 precedent 体系
+   字段名铁律 (第 1 条): drawer 渲染函数抄实测 /api/talents/{id} 真字段, 不凭印象 (大丸子) */
+.sb2-tln-detail-overlay{
+  position:fixed; inset:0; background:rgba(0,0,0,0.45);
+  display:none; align-items:center; justify-content:center;
+  z-index:1100;
+}
+.sb2-tln-detail-overlay.open{ display:flex; }
+.sb2-tln-detail-panel{
+  width:960px; max-width:calc(100vw - 32px); max-height:84vh;
+  background:var(--sb2-s1); border-radius:var(--sb2-r-lg);
+  box-shadow:var(--sb2-sh3);
+  display:flex; flex-direction:column; overflow:hidden;
+  animation:sb2-pds-rise .18s ease;
+}
+.sb2-tln-detail-header{
+  display:flex; align-items:center; gap:12px;
+  padding:14px 20px; border-bottom:1px solid var(--sb2-border);
+  flex:0 0 auto;
+}
+.sb2-tln-detail-header h2{
+  flex:1; min-width:0; margin:0;
+  font:600 16px/1.3 "PingFang SC",sans-serif; color:var(--sb2-t1);
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+.sb2-tln-detail-sub{
+  font:400 12px/1.4 "PingFang SC",sans-serif; color:var(--sb2-t3);
+  margin-top:2px;
+}
+.sb2-tln-detail-close{
+  font:400 18px/1 sans-serif; color:var(--sb2-t3);
+  background:transparent; border:0; cursor:pointer;
+  width:28px; height:28px; border-radius:var(--sb2-r-full);
+  display:flex; align-items:center; justify-content:center;
+  transition:background .12s, color .12s;
+  flex-shrink:0;
+}
+.sb2-tln-detail-close:hover{ background:var(--sb2-s3); color:var(--sb2-t1); }
+.sb2-tln-detail-tabs{
+  display:flex; align-items:center; gap:2px;
+  padding:0 20px; border-bottom:1px solid var(--sb2-border);
+  flex:0 0 auto; overflow-x:auto;
+}
+.sb2-tln-tab{
+  font:500 13px/1 "PingFang SC",sans-serif; color:var(--sb2-t3);
+  background:transparent; border:0; cursor:pointer;
+  padding:14px 16px; position:relative;
+  transition:color .12s;
+  white-space:nowrap;
+}
+.sb2-tln-tab:hover{ color:var(--sb2-t1); }
+.sb2-tln-tab.active{ color:var(--sb2-t1); font-weight:600; }
+.sb2-tln-tab.active::after{
+  content:""; position:absolute; left:14px; right:14px; bottom:-1px; height:2px;
+  background:var(--sb2-accent); border-radius:1px;
+}
+.sb2-tln-detail-body{
+  flex:1 1 auto; overflow-y:auto; padding:20px;
+  font:400 13px/1.6 "PingFang SC",sans-serif; color:var(--sb2-t1);
+}
+.sb2-tln-tab-panel{ display:none; }
+.sb2-tln-tab-panel.active{ display:block; }
+.sb2-tln-loading{
+  padding:40px 0; text-align:center; color:var(--sb2-t3);
+  font:400 13px/1.6 "PingFang SC",sans-serif;
+}
+.sb2-tln-empty{
+  padding:32px 16px; text-align:center; color:var(--sb2-t3);
+  font:400 13px/1.6 "PingFang SC",sans-serif;
+  background:var(--sb2-s2); border-radius:var(--sb2-r-md);
+}
+.sb2-tln-section{ margin-bottom:20px; }
+.sb2-tln-section:last-child{ margin-bottom:0; }
+.sb2-tln-section-title{
+  font:600 12px/1.3 "PingFang SC",sans-serif; color:var(--sb2-t3);
+  text-transform:uppercase; letter-spacing:0.04em;
+  margin-bottom:10px;
+}
+.sb2-tln-hero{ display:flex; gap:16px; align-items:flex-start; }
+.sb2-tln-avatar{
+  width:64px; height:64px; border-radius:50%; background:var(--sb2-s3);
+  display:flex; align-items:center; justify-content:center;
+  flex-shrink:0; overflow:hidden;
+}
+.sb2-tln-avatar-img{ width:100%; height:100%; object-fit:cover; }
+.sb2-tln-avatar-text{ font:600 24px/1 "PingFang SC",sans-serif; color:var(--sb2-t2); }
+.sb2-tln-hero-info{ flex:1; min-width:0; }
+.sb2-tln-hero-name{
+  font:600 18px/1.3 "PingFang SC",sans-serif; color:var(--sb2-t1);
+  margin-bottom:8px;
+}
+.sb2-tln-hero-pills{ display:flex; flex-wrap:wrap; gap:6px; margin-bottom:8px; }
+.sb2-tln-pill{
+  font:400 12px/1.4 "PingFang SC",sans-serif; color:var(--sb2-t2);
+  background:var(--sb2-s3); padding:4px 10px; border-radius:var(--sb2-r-full);
+}
+.sb2-tln-pill label{ color:var(--sb2-t3); margin-right:4px; }
+.sb2-tln-hero-bio{
+  font:400 13px/1.6 "PingFang SC",sans-serif; color:var(--sb2-t2);
+  margin-top:8px;
+}
+.sb2-tln-hero-tags{ display:flex; gap:6px; flex-wrap:wrap; margin-top:8px; }
+.sb2-tln-tag{
+  font:500 11px/1 "PingFang SC",sans-serif; color:var(--sb2-t2);
+  background:var(--sb2-s3); padding:4px 10px; border-radius:var(--sb2-r-full);
+}
+.sb2-tln-metric-grid{ display:grid; grid-template-columns:repeat(4,1fr); gap:8px; }
+.sb2-tln-metric-card{
+  background:var(--sb2-s2); padding:12px 14px; border-radius:var(--sb2-r-md);
+  border:1px solid var(--sb2-border);
+}
+.sb2-tln-metric-value{
+  font:600 18px/1.2 "PingFang SC",sans-serif; color:var(--sb2-t1);
+  margin-bottom:4px;
+}
+.sb2-tln-metric-label{
+  font:400 11px/1.3 "PingFang SC",sans-serif; color:var(--sb2-t3);
+}
+.sb2-tln-info-grid{ display:grid; grid-template-columns:repeat(2,1fr); gap:8px; }
+.sb2-tln-info-item{
+  background:var(--sb2-s2); padding:10px 14px; border-radius:var(--sb2-r-md);
+  border:1px solid var(--sb2-border);
+}
+.sb2-tln-info-item label{
+  display:block; font:500 11px/1.4 "PingFang SC",sans-serif; color:var(--sb2-t3);
+  margin-bottom:4px;
+}
+.sb2-tln-info-item .value{
+  font:500 14px/1.4 "PingFang SC",sans-serif; color:var(--sb2-t1);
+}
+.sb2-tln-fans-block{
+  background:var(--sb2-s2); padding:14px 16px; border-radius:var(--sb2-r-md);
+  border:1px solid var(--sb2-border); margin-bottom:10px;
+}
+.sb2-tln-fans-title{
+  font:600 13px/1.4 "PingFang SC",sans-serif; color:var(--sb2-t1);
+  margin-bottom:10px;
+}
+.sb2-tln-fans-row{ display:flex; align-items:center; gap:10px; padding:4px 0; }
+.sb2-tln-fans-label{
+  flex:0 0 80px; font:500 12px/1.4 "PingFang SC",sans-serif; color:var(--sb2-t2);
+}
+.sb2-tln-fans-bar{
+  flex:1 1 auto; height:8px; background:var(--sb2-s3); border-radius:var(--sb2-r-full);
+  overflow:hidden;
+}
+.sb2-tln-fans-fill{
+  height:100%; background:var(--sb2-accent); transition:width .3s;
+}
+.sb2-tln-fans-pct{
+  flex:0 0 50px; text-align:right; font:500 12px/1.4 "PingFang SC",sans-serif;
+  color:var(--sb2-t1);
+}
+.sb2-tln-ai-card{
+  background:var(--sb2-s2); padding:14px 16px; border-radius:var(--sb2-r-md);
+  border:1px solid var(--sb2-border);
+  font:400 13px/1.6 "PingFang SC",sans-serif; color:var(--sb2-t2);
+  white-space:pre-wrap;
+}
+
 /* ★ r39.3-P0: 行操作 cell + 商品侧「找达人」弹窗 (仿 sb2-tln-aimatch precedent 反转,
    命名空间 sb2-pds-findtalent-*, 跟 sb2-tln-aimatch-* / sb2-pds-detail-* 平行)
    跟项 2 对称: 商品行 hover 操作区 cell + 居中 720 弹窗 + sb2-pds-rise 动画
@@ -14434,6 +14598,41 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
   </div>
 </div>
 
+<!-- ★ r63 项② (老大 13:06 批注②「点达人没有详情」): 达人详情浮层 drawer
+     仿 sb2-pds-detail precedent (line 11007+) 居中 960 弹窗 + sb2-pds-rise 动画
+     7 tab (概况/带货/粉丝/商品/跟进记录/待办/知识库) — 复用既有 renderTalentDetail 7 panel 语义
+     数据走 GET /api/talents/{id} 真接口 (字段名铁律 — 抄实测 JSON, 不凭印象)
+     关闭入口 (派单明文 3 个): Esc 键 + ✕ 按钮 + 遮罩点击 -->
+<div class="sb2-tln-detail-overlay" id="sb2TlnDetailOverlay">
+  <div class="sb2-tln-detail-panel" id="sb2TlnDetailPanel">
+    <div class="sb2-tln-detail-header">
+      <div style="flex:1;min-width:0;">
+        <h2 id="sb2TlnDetailTitle">达人详情</h2>
+        <div class="sb2-tln-detail-sub" id="sb2TlnDetailSub">载入中…</div>
+      </div>
+      <button class="sb2-tln-detail-close" id="sb2TlnDetailClose" aria-label="关闭">×</button>
+    </div>
+    <div class="sb2-tln-detail-tabs" id="sb2TlnDetailTabs">
+      <button class="sb2-tln-tab active" data-tab="overview" onclick="sb2TlnSwitchTab('overview')">概况</button>
+      <button class="sb2-tln-tab" data-tab="sales" onclick="sb2TlnSwitchTab('sales')">带货</button>
+      <button class="sb2-tln-tab" data-tab="fans" onclick="sb2TlnSwitchTab('fans')">粉丝</button>
+      <button class="sb2-tln-tab" data-tab="products" onclick="sb2TlnSwitchTab('products')">商品</button>
+      <button class="sb2-tln-tab" data-tab="records" onclick="sb2TlnSwitchTab('records')">跟进记录</button>
+      <button class="sb2-tln-tab" data-tab="followups" onclick="sb2TlnSwitchTab('followups')">待办</button>
+      <button class="sb2-tln-tab" data-tab="knowledge" onclick="sb2TlnSwitchTab('knowledge')">知识库</button>
+    </div>
+    <div class="sb2-tln-detail-body" id="sb2TlnDetailBody">
+      <div class="sb2-tln-tab-panel active" data-panel="overview" id="sb2TlnPanelOverview"></div>
+      <div class="sb2-tln-tab-panel" data-panel="sales" id="sb2TlnPanelSales"></div>
+      <div class="sb2-tln-tab-panel" data-panel="fans" id="sb2TlnPanelFans"></div>
+      <div class="sb2-tln-tab-panel" data-panel="products" id="sb2TlnPanelProducts"></div>
+      <div class="sb2-tln-tab-panel" data-panel="records" id="sb2TlnPanelRecords"></div>
+      <div class="sb2-tln-tab-panel" data-panel="followups" id="sb2TlnPanelFollowUps"></div>
+      <div class="sb2-tln-tab-panel" data-panel="knowledge" id="sb2TlnPanelKnowledge"></div>
+    </div>
+  </div>
+</div>
+
 <!-- ★ sb2-talents MVP1: 全新达人库屏 (骨架 + 列表 + 侧栏三维筛选现场聚合 + 搜索 + 分页, 旧 #influencersMid 兜底) -->
 <!-- ★ fix/sb2-proto-align (commit 1): 砍左侧常驻筛选栏, 三维筛选收进页头「筛选 ▾」下拉面板 -->
 <div class="sb2-talents-main" id="sb2TalentsMain">
@@ -17760,7 +17959,7 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
      v2 (202609241444): 初始破缓存 + skip-device 守卫
      v3 (202609241420): probe 误导文案澄清 (fingerprint fallback → token-only) -->
 <script src="openclaw-client.js?v=202609301548"></script>
-<script src="js/inline-07.js?v=3de5a5b5ac"></script>
+<script src="js/inline-07.js?v=303fd1560c"></script>
 
 <!-- Match Result Modal -->
 <div class="product-modal-overlay" id="matchModalOverlay" onclick="closeMatchModal()">

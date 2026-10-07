@@ -1966,11 +1966,26 @@ function sb2TalentsRenderTable(){
 
 /* ★ fix/sb2-proto-align (commit 1): 行点击高亮单选
    重复点击同一行取消选中, 切到别行重置 (跟原型互斥单选行为一致)
-   注意 checkbox onclick 用 event.stopPropagation() 避免冒泡触发行点击 */
+   注意 checkbox onclick 用 event.stopPropagation() 避免冒泡触发行点击
+   ★ r63 项② (老大 13:06 批注②「点达人没有详情」): 行 click 同时开浮层 drawer
+     重复点同一行关 drawer, 切到别行换 drawer 内容 (跟 prototype 互斥单选行为一致)
+     drawer 内容走 GET /api/talents/{id} 真接口 (字段名铁律 — 抄实测 JSON, 不凭印象)
+     数据契约实测 (大丸子 tal_1787213095215_841db3):
+       基础: id/name/avatar/douyin_id/real_name/wechat/phone/email/city/level/followers/talent_type/location/agency/tags/bio
+       合作: cooperation_status/follow_up_by/next_follow_up_at/follow_up_note/commission_requirement
+       数据: fulfillment_score/rating_score/total_gmv/total_products/product_count/total_shops/average_price/live_ratio/video_ratio/avg_live_gmv/live_gpm/video_gpm
+       画像: fan_gender/fan_age/fan_city_tier/fan_price_range + video_audience_* 镜像
+       OCR:  ocr_raw_fields / ai_analysis / ai_reason / ai_rating / ai_tags */
 function sb2TalentsToggleRow(id){
   if (!id) return;
-  _sb2TalentsSelectedRowId = (_sb2TalentsSelectedRowId === id) ? '' : id;
+  var wasSelected = (_sb2TalentsSelectedRowId === id);
+  _sb2TalentsSelectedRowId = wasSelected ? '' : id;
   sb2TalentsRenderTable();
+  if (wasSelected) {
+    if (typeof window !== 'undefined' && typeof window.sb2TlnCloseDetail === 'function') window.sb2TlnCloseDetail();
+  } else {
+    if (typeof window !== 'undefined' && typeof window.sb2TlnOpenDetail === 'function') window.sb2TlnOpenDetail(id);
+  }
 }
 
 /* ★ MVP1: 三维筛选现场聚合 — 拿到本页列表后, 客户端聚合, 跟知识库 chips 同一招
@@ -2620,6 +2635,325 @@ window.sb2TalentsPatchMatchCell = sb2TalentsPatchMatchCell;
 window.sb2TalentsOpenAiMatch = sb2TalentsOpenAiMatch;
 window.sb2TalentsCloseAiMatch = sb2TalentsCloseAiMatch;
 window.sb2TalentsSubmitMatchProposal = sb2TalentsSubmitMatchProposal;
+
+/* ============================================================
+ * ★ r63 项② (老大 13:06 批注②「点达人没有详情」): sb2 达人库行/头像点击 → 浮层 drawer
+ *   仿 sb2-pds-detail precedent 居中 960 弹窗 (比商品详情略宽, 7 tab 内容)
+ *   命名空间 sb2Tln-* (talents 缩写 tln, 跟 sb2-pds-* 商品平行的命名空间)
+ *   复用既有 renderTalentDetail 7 tab 语义结构 (概况/带货/粉丝/商品/跟进记录/待办/知识库)
+ *     字段名铁律 (第 1 条): 抄实测 /api/talents/{id} 真字段 (大丸子 tal_1787213095215_841db3)
+ *     7 panel 渲染函数独立写 (不依赖 legacy renderTalentDetail, 避免 legacy DOM id 冲突)
+ *     3 panel 真内容 (概况/带货/粉丝) + 4 panel 占位 (商品/跟进记录/待办/知识库 待后续派单补齐)
+ *   IIFE onclick 跨域铁律 (r38): drawer 函数挂 window + onclick 属性必走 window.* (跟 sb2-pds-findtalent precedent 一致)
+ *   行高亮选中态: 复用 .sb2-talents-table tbody tr.selected (line 11830 CSS 已存在, 不用新加)
+ *   Esc / ✕ / 遮罩关闭: drawer 自带事件绑定 (派单明文 3 个关闭入口)
+ * ============================================================ */
+var _sb2TlnDetailCurrentId = '';      // 当前 drawer 打开的 talent id
+var _sb2TlnDetailCurrentData = null;   // 当前 drawer 缓存的 talent data
+var _sb2TlnDetailCurrentTab = 'overview';
+var _sb2TlnDetailLoaded = false;
+
+/* HTML 转义 (老模块 sb2TalentsEsc 是内联, drawer 独立一份) */
+function sb2TlnEsc(s){
+  return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){
+    return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c];
+  });
+}
+
+/* 数字格式: 1.2万 / 22.5万 / 500万 等 */
+function sb2TlnFmtWan(n){
+  var num = Number(n) || 0;
+  if (num >= 10000) return (num / 10000).toFixed(1).replace(/\.0$/, '') + '万';
+  if (num > 0) return String(Math.round(num));
+  return '0';
+}
+
+/* 打开 drawer: fetch /api/talents/{id}, 渲染 7 panel
+   复用既有 renderTalentDetail 7 tab 语义 (老大派单明确「复用既有 renderTalentDetail 7 tab」)
+   数据契约实测 (大丸子 tal_1787213095215_841db3):
+     基础: id/name/avatar/douyin_id/real_name/wechat/phone/email/city/level/followers/talent_type/location/agency/tags/bio
+     合作: cooperation_status/follow_up_by/next_follow_up_at/follow_up_note/commission_requirement
+     数据: fulfillment_score/rating_score/total_gmv/total_products/product_count/total_shops/average_price/live_ratio/video_ratio/avg_live_gmv/live_gpm/video_gpm
+     画像: fan_gender/fan_age/fan_city_tier/fan_price_range + video_audience_* 镜像
+     OCR:  ocr_raw_fields / ai_analysis / ai_reason / ai_rating / ai_tags
+   字段名铁律 (第 1 条): 抄实测 JSON, 不凭印象 (r36 fix/sb2-side-restore 已立条目) */
+function sb2TlnOpenDetail(id){
+  if (!id) return;
+  _sb2TlnDetailCurrentId = id;
+  _sb2TlnDetailCurrentTab = 'overview';
+  var overlay = document.getElementById('sb2TlnDetailOverlay');
+  var titleEl = document.getElementById('sb2TlnDetailTitle');
+  var subEl = document.getElementById('sb2TlnDetailSub');
+  if (!overlay) return;
+  if (titleEl) titleEl.textContent = '达人详情';
+  if (subEl) subEl.textContent = '载入中…';
+  sb2TlnResetPanels();
+  overlay.classList.add('open');
+  if (typeof apiFetch !== 'function') {
+    if (subEl) subEl.textContent = '环境异常: apiFetch 未定义';
+    return;
+  }
+  apiFetch('/api/talents/' + encodeURIComponent(id)).then(function(resp){
+    if (!resp || !resp.ok){
+      if (subEl) subEl.textContent = '加载失败 (HTTP ' + (resp ? resp.status : '?') + ')';
+      return null;
+    }
+    return resp.json();
+  }).then(function(t){
+    if (!t) return;
+    _sb2TlnDetailCurrentData = t;
+    if (titleEl) titleEl.textContent = t.name || '达人详情';
+    if (subEl) subEl.textContent = (t.douyin_id ? '@' + t.douyin_id + ' · ' : '') +
+      (t.city ? t.city + ' · ' : '') +
+      (t.followers ? sb2TlnFmtWan(t.followers) + ' 粉丝' : '');
+    sb2TlnRenderAllPanels(t);
+    sb2TlnSwitchTab('overview');
+    _sb2TlnDetailLoaded = true;
+  }).catch(function(e){
+    if (subEl) subEl.textContent = '加载异常: ' + (e && e.message || String(e));
+    if (typeof window !== 'undefined' && typeof window.showToast === 'function') window.showToast('⚠️ 达人详情加载失败', 'warn');
+  });
+}
+
+/* 关闭 drawer */
+function sb2TlnCloseDetail(){
+  var overlay = document.getElementById('sb2TlnDetailOverlay');
+  if (overlay) overlay.classList.remove('open');
+  _sb2TlnDetailCurrentId = '';
+  _sb2TlnDetailCurrentData = null;
+  _sb2TlnDetailLoaded = false;
+}
+
+/* 重置 7 panel + tab 状态 */
+function sb2TlnResetPanels(){
+  var tabPanelIds = ['sb2TlnPanelOverview','sb2TlnPanelSales','sb2TlnPanelFans','sb2TlnPanelProducts','sb2TlnPanelRecords','sb2TlnPanelFollowUps','sb2TlnPanelKnowledge'];
+  for (var i = 0; i < tabPanelIds.length; i++){
+    var el = document.getElementById(tabPanelIds[i]);
+    if (el) el.innerHTML = '<div class="sb2-tln-loading">载入中…</div>';
+  }
+  var tabs = document.querySelectorAll('#sb2TlnDetailTabs .sb2-tln-tab');
+  tabs.forEach(function(t){ t.classList.toggle('active', t.dataset.tab === 'overview'); });
+}
+
+/* 切 tab */
+function sb2TlnSwitchTab(tab){
+  _sb2TlnDetailCurrentTab = tab;
+  var tabs = document.querySelectorAll('#sb2TlnDetailTabs .sb2-tln-tab');
+  tabs.forEach(function(t){ t.classList.toggle('active', t.dataset.tab === tab); });
+  var panels = document.querySelectorAll('#sb2TlnDetailBody .sb2-tln-tab-panel');
+  panels.forEach(function(p){ p.classList.toggle('active', p.dataset.panel === tab); });
+}
+
+/* 渲染所有 7 panel (简版, 字段名抄实测) */
+function sb2TlnRenderAllPanels(t){
+  sb2TlnRenderPanelOverview(t);
+  sb2TlnRenderPanelSales(t);
+  sb2TlnRenderPanelFans(t);
+  sb2TlnRenderPanelProducts(t);
+  sb2TlnRenderPanelRecords(t);
+  sb2TlnRenderPanelFollowUps(t);
+  sb2TlnRenderPanelKnowledge(t);
+}
+
+/* Panel 1: 概况 (核心数据 + 基础信息 + AI 分析) */
+function sb2TlnRenderPanelOverview(t){
+  var el = document.getElementById('sb2TlnPanelOverview');
+  if (!el) return;
+  var html = '';
+  html += '<div class="sb2-tln-section">';
+  html += '<div class="sb2-tln-hero">';
+  var initial = (t.name || '?').charAt(0);
+  var avatar = t.avatar
+    ? '<img src="' + sb2TlnEsc(t.avatar) + '" class="sb2-tln-avatar-img" onerror="this.parentNode.textContent=\'' + sb2TlnEsc(initial) + '\'">'
+    : '<span class="sb2-tln-avatar-text">' + sb2TlnEsc(initial) + '</span>';
+  html += '<div class="sb2-tln-avatar">' + avatar + '</div>';
+  html += '<div class="sb2-tln-hero-info">';
+  html += '<div class="sb2-tln-hero-name">' + sb2TlnEsc(t.name || '-') + '</div>';
+  html += '<div class="sb2-tln-hero-pills">';
+  html += '<span class="sb2-tln-pill"><label>抖音号</label>' + sb2TlnEsc(t.douyin_id || '-') + '</span>';
+  html += '<span class="sb2-tln-pill"><label>粉丝</label>' + sb2TlnFmtWan(t.followers) + '</span>';
+  html += '<span class="sb2-tln-pill"><label>等级</label>' + sb2TlnEsc(t.level || '-') + '</span>';
+  html += '<span class="sb2-tln-pill"><label>类目</label>' + sb2TlnEsc(t.category || t.talent_type || '-') + '</span>';
+  html += '<span class="sb2-tln-pill"><label>状态</label>' + sb2TlnEsc(t.cooperation_status || '-') + '</span>';
+  html += '</div>';
+  if (t.bio) html += '<div class="sb2-tln-hero-bio">' + sb2TlnEsc(t.bio) + '</div>';
+  var tags = Array.isArray(t.tags) ? t.tags : [];
+  if (tags.length) {
+    html += '<div class="sb2-tln-hero-tags">' + tags.map(function(tag){
+      return '<span class="sb2-tln-tag">' + sb2TlnEsc(tag) + '</span>';
+    }).join('') + '</div>';
+  }
+  html += '</div></div></div>';
+
+  html += '<div class="sb2-tln-section">';
+  html += '<div class="sb2-tln-section-title">核心数据</div>';
+  html += '<div class="sb2-tln-metric-grid">';
+  var kpis = [
+    { label: '粉丝量', val: sb2TlnFmtWan(t.followers) },
+    { label: '总 GMV', val: sb2TlnFmtWan(t.total_gmv) },
+    { label: '视频 GPM', val: (Number(t.video_gpm) || 0).toFixed(0) },
+    { label: '直播 GPM', val: (Number(t.live_gpm) || 0).toFixed(0) },
+    { label: '带货商品数', val: String(t.product_count || t.total_products || 0) },
+    { label: '合作店铺数', val: String(t.total_shops || 0) },
+    { label: '平均件单价', val: (Number(t.average_price) || 0).toFixed(1) },
+    { label: '评分', val: (Number(t.rating_score) || 0).toFixed(1) }
+  ];
+  kpis.forEach(function(k){
+    html += '<div class="sb2-tln-metric-card">';
+    html += '<div class="sb2-tln-metric-value">' + sb2TlnEsc(k.val) + '</div>';
+    html += '<div class="sb2-tln-metric-label">' + sb2TlnEsc(k.label) + '</div>';
+    html += '</div>';
+  });
+  html += '</div></div>';
+
+  // AI 分析摘要 (有 ai_analysis 显示, 无显示「待 AI 分析」)
+  if (t.ai_analysis) {
+    html += '<div class="sb2-tln-section">';
+    html += '<div class="sb2-tln-section-title">🤖 AI 综合分析</div>';
+    html += '<div class="sb2-tln-ai-card">' + sb2TlnEsc(t.ai_analysis).substring(0, 800) + (t.ai_analysis.length > 800 ? '…' : '') + '</div>';
+    html += '</div>';
+  } else {
+    html += '<div class="sb2-tln-section">';
+    html += '<div class="sb2-tln-section-title">🤖 AI 综合分析</div>';
+    html += '<div class="sb2-tln-empty">点击「+ 录入达人」旁的 AI 分析生成达人综合评估。</div>';
+    html += '</div>';
+  }
+  el.innerHTML = html;
+}
+
+/* Panel 2: 带货 (带货明细) */
+function sb2TlnRenderPanelSales(t){
+  var el = document.getElementById('sb2TlnPanelSales');
+  if (!el) return;
+  var rows = [
+    { label: '总 GMV', val: sb2TlnFmtWan(t.total_gmv) + (t.total_gmv_text ? ' (' + t.total_gmv_text + ')' : '') },
+    { label: '视频 GPM', val: (Number(t.video_gpm) || 0).toFixed(0) + (t.video_gpm_text ? ' (' + t.video_gpm_text + ')' : '') },
+    { label: '直播 GPM', val: (Number(t.live_gpm) || 0).toFixed(0) },
+    { label: '平均直播 GMV', val: sb2TlnFmtWan(t.avg_live_gmv) },
+    { label: '直播占比', val: (Number(t.live_ratio) || 0).toFixed(1) + '%' },
+    { label: '视频占比', val: (Number(t.video_ratio) || 0).toFixed(1) + '%' },
+    { label: '履约评分', val: (Number(t.fulfillment_score) || 0).toFixed(1) },
+    { label: '佣金要求', val: (Number(t.commission_requirement) || 0).toFixed(1) + '%' }
+  ];
+  var html = '<div class="sb2-tln-section"><div class="sb2-tln-section-title">带货明细</div>';
+  html += '<div class="sb2-tln-info-grid">';
+  rows.forEach(function(r){
+    html += '<div class="sb2-tln-info-item"><label>' + sb2TlnEsc(r.label) + '</label><div class="value">' + sb2TlnEsc(r.val) + '</div></div>';
+  });
+  html += '</div></div>';
+  el.innerHTML = html;
+}
+
+/* Panel 3: 粉丝 (4 维度分布 + 视频粉丝 4 维度, 进度条 + 精度 toFixed 1) */
+function sb2TlnRenderPanelFans(t){
+  var el = document.getElementById('sb2TlnPanelFans');
+  if (!el) return;
+  var dims = [
+    { key: 'fan_gender', label: '性别分布 (账号)' },
+    { key: 'fan_age', label: '年龄分布 (账号)' },
+    { key: 'fan_city_tier', label: '城市等级 (账号)' },
+    { key: 'fan_price_range', label: '客单价 (账号)' },
+    { key: 'video_audience_gender', label: '性别分布 (视频)' },
+    { key: 'video_audience_age', label: '年龄分布 (视频)' },
+    { key: 'video_audience_city_tier', label: '城市等级 (视频)' },
+    { key: 'video_audience_price_range', label: '客单价 (视频)' }
+  ];
+  var html = '<div class="sb2-tln-section"><div class="sb2-tln-section-title">粉丝画像</div>';
+  var anyBlock = false;
+  dims.forEach(function(d){
+    var v = t[d.key];
+    if (!v || typeof v !== 'object' || Array.isArray(v)) return;
+    var entries = Object.keys(v).map(function(k){ return [k, Number(v[k]) || 0]; });
+    entries = entries.filter(function(e){ return e[1] > 0; });
+    if (entries.length === 0) return;
+    anyBlock = true;
+    entries.sort(function(a, b){ return b[1] - a[1]; });
+    var total = entries.reduce(function(acc, e){ return acc + e[1]; }, 0);
+    html += '<div class="sb2-tln-fans-block">';
+    html += '<div class="sb2-tln-fans-title">' + sb2TlnEsc(d.label) + '</div>';
+    entries.slice(0, 6).forEach(function(e){
+      var pct = total ? (e[1] / total * 100).toFixed(1) : 0;
+      html += '<div class="sb2-tln-fans-row">';
+      html += '<span class="sb2-tln-fans-label">' + sb2TlnEsc(e[0]) + '</span>';
+      html += '<div class="sb2-tln-fans-bar"><div class="sb2-tln-fans-fill" style="width:' + pct + '%"></div></div>';
+      html += '<span class="sb2-tln-fans-pct">' + pct + '%</span>';
+      html += '</div>';
+    });
+    html += '</div>';
+  });
+  if (!anyBlock) {
+    html += '<div class="sb2-tln-empty">粉丝画像数据待补充 (后续派单接入 OCR 解析).</div>';
+  }
+  html += '</div>';
+  el.innerHTML = html;
+}
+
+/* Panel 4-7: 占位 (数据待后续派单补齐) — 派单只要求 7 tab 可切 + 0 pageerror, 不要求内容完整 */
+function sb2TlnRenderPanelProducts(t){
+  var el = document.getElementById('sb2TlnPanelProducts');
+  if (!el) return;
+  el.innerHTML = '<div class="sb2-tln-empty">带货商品列表数据待后续派单接入 (现依赖 r39-P0 匹配商品 cell, 需新建 /api/talents/{id}/products 端点或复用 r39 撮合链).</div>';
+}
+function sb2TlnRenderPanelRecords(t){
+  var el = document.getElementById('sb2TlnPanelRecords');
+  if (!el) return;
+  el.innerHTML = '<div class="sb2-tln-empty">跟进记录数据待后续派单接入 (现 follow_up_note/next_follow_up_at 字段在前端未串联, 需新建 /api/talents/{id}/records 端点).</div>';
+}
+function sb2TlnRenderPanelFollowUps(t){
+  var el = document.getElementById('sb2TlnPanelFollowUps');
+  if (!el) return;
+  el.innerHTML = '<div class="sb2-tln-empty">待办数据待后续派单接入 (需新建 /api/talents/{id}/followups 端点).</div>';
+}
+function sb2TlnRenderPanelKnowledge(t){
+  var el = document.getElementById('sb2TlnPanelKnowledge');
+  if (!el) return;
+  el.innerHTML = '<div class="sb2-tln-empty">知识库数据待后续派单接入 (需新建 /api/talents/{id}/knowledge 端点).</div>';
+}
+
+/* 初始化: 监听 Esc 键 + ✕ + 遮罩点击关闭 (派单明文 3 个关闭入口) */
+function sb2TlnDetailInit(){
+  if (typeof document === 'undefined') return;
+  if (!document._sb2TlnDetailEscBound) {
+    document.addEventListener('keydown', function(e){
+      if (e && e.key === 'Escape') {
+        var overlay = document.getElementById('sb2TlnDetailOverlay');
+        if (overlay && overlay.classList.contains('open')) sb2TlnCloseDetail();
+      }
+    });
+    document._sb2TlnDetailEscBound = true;
+  }
+  var closeBtn = document.getElementById('sb2TlnDetailClose');
+  if (closeBtn && !closeBtn._sb2TlnBound) {
+    closeBtn.addEventListener('click', sb2TlnCloseDetail);
+    closeBtn._sb2TlnBound = true;
+  }
+  var overlay = document.getElementById('sb2TlnDetailOverlay');
+  if (overlay && !overlay._sb2TlnBound) {
+    overlay.addEventListener('click', function(e){
+      if (e.target === overlay) sb2TlnCloseDetail();
+    });
+    overlay._sb2TlnBound = true;
+  }
+}
+
+/* ★ r63 项② IIFE onclick 跨域铁律 (r38): drawer 函数挂 window 暴露 */
+window.sb2TlnOpenDetail = sb2TlnOpenDetail;
+window.sb2TlnCloseDetail = sb2TlnCloseDetail;
+window.sb2TlnSwitchTab = sb2TlnSwitchTab;
+window.sb2TlnDetailInit = sb2TlnDetailInit;
+/* 自启: 绑 Esc/✕/遮罩 关闭入口 (派单明文 3 个) — DOMContentLoaded 后 init */
+(function () {
+  function _boot() {
+    if (typeof sb2TlnDetailInit === 'function') sb2TlnDetailInit();
+  }
+  if (typeof document !== 'undefined') {
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', _boot);
+    } else {
+      _boot();
+    }
+  }
+})();
 
 /* ============================================================
  * sb2-tasks MVP1: 任务模块 (看板默认 + 列表 segmented + 侧栏三维联动)
