@@ -242,10 +242,10 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   background: var(--hover-bg);
 }
 .user-dropdown-item.danger {
-  color: #FF3B30;
+  color: var(--sb2-danger);
 }
 .user-dropdown-item.danger:hover {
-  background: rgba(255, 59, 48, 0.06);
+  background: var(--sb2-danger-soft);
 }
 
 /* Mid sidebar toggle button for mobile */
@@ -359,8 +359,8 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .module-action-btn:hover { background: var(--accent-light); }
 .module-action-btn.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
 .module-action-btn.primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
-.module-action-btn.danger { color: #FF3B30; border-color: #FF3B30; background: var(--bg-primary,#ffffff); }
-.module-action-btn.danger:hover { background: #FF3B30; color: #fff; }
+.module-action-btn.danger { color: var(--sb2-danger); border-color: var(--sb2-danger); background: var(--bg-primary,#ffffff); }
+.module-action-btn.danger:hover { background: var(--sb2-danger); color: #fff; }
 .module-form-row { margin-bottom: 14px; }
 .module-form-row label { display: block; font-size: 12px; color: var(--text-secondary); margin-bottom: 4px; }
 .module-form-row input, .module-form-row select, .module-form-row textarea { width: 100%; padding: 8px 12px; border: 0.5px solid var(--separator); border-radius: 6px; background: var(--bg-primary); font-size: 14px; box-sizing: border-box; }
@@ -1670,7 +1670,7 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 #productModalOverlay .sku-spec-values { flex:1; padding:6px 10px; border-radius:var(--radius-md); border:0.5px solid var(--separator); font-size:13px; background:var(--bg-primary); outline:none; box-sizing:border-box; }
 #productModalOverlay .sku-spec-values:focus { border-color:var(--accent); background:var(--bg-primary,#ffffff); }
 #productModalOverlay .sku-spec-remove { flex-shrink:0; width:28px; height:28px; border:none; background:transparent; color:var(--text-tertiary); font-size:18px; cursor:pointer; border-radius:50%; line-height:28px; text-align:center; }
-#productModalOverlay .sku-spec-remove:hover { color:#FF3B30; background:rgba(255,59,48,0.1); }
+#productModalOverlay .sku-spec-remove:hover { color:var(--sb2-danger); background:var(--sb2-danger-soft); }
 #productModalOverlay .sku-add-spec-btn { margin-top:4px; padding:6px 14px; border-radius:var(--radius-md); border:0.5px dashed var(--separator); background:transparent; font-size:13px; color:var(--accent); cursor:pointer; }
 #productModalOverlay .sku-add-spec-btn:hover { background:var(--bg-tertiary); }
 #productModalOverlay .product-modal-footer {
@@ -2977,8 +2977,8 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   padding: 2px 4px;
 }
 .talents-timeline-actions button:hover { color: var(--accent-hover); }
-.talents-timeline-actions button.delete { color: #FF3B30; }
-.talents-timeline-actions button.delete:hover { color: #d9363e; }
+.talents-timeline-actions button.delete { color: var(--sb2-danger); }
+.talents-timeline-actions button.delete:hover { color: var(--sb2-danger-strong); }
 
 /* Category sidebar */
 .knowledge-cat-sidebar { background: var(--bg-primary,#ffffff); }
@@ -3195,8 +3195,8 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   border-radius: 6px;
 }
 .knowledge-cat-context-item:hover { background: var(--color-bg-softer, #F2F2F7); }
-.knowledge-cat-context-item.danger { color: var(--color-status-lost, #FF3B30); }
-.knowledge-cat-context-item.danger:hover { background: rgba(255, 59, 48, 0.08); }
+.knowledge-cat-context-item.danger { color: var(--sb2-danger); }
+.knowledge-cat-context-item.danger:hover { background: var(--sb2-danger-soft); }
 
 /* Middle list */
 .knowledge-mid-header {
@@ -3811,8 +3811,8 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   white-space: nowrap;
 }
 .knowledge-view-actions { display: flex; gap: 8px; align-items: center; flex-shrink: 0; }
-.knowledge-view-actions .module-action-btn.danger { color: var(--color-status-lost, #FF3B30); }
-.knowledge-view-actions .module-action-btn.danger:hover { background: var(--color-status-lost, #FF3B30); color: #fff; }
+.knowledge-view-actions .module-action-btn.danger { color: var(--sb2-danger); }
+.knowledge-view-actions .module-action-btn.danger:hover { background: var(--sb2-danger); color: #fff; }
 .knowledge-view-meta {
   display: flex;
   align-items: center;
@@ -4435,8 +4435,8 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 @keyframes menuPopIn { from { opacity: 0; transform: scale(0.95) translateY(-4px); } to { opacity: 1; transform: scale(1) translateY(0); } }
 .emp-settings-menu .menu-item { display: flex; align-items: center; gap: 10px; padding: 9px 16px; font-size: 13px; color: var(--text-primary); cursor: pointer; transition: all 0.12s; margin: 0 6px; border-radius: 8px; }
 .emp-settings-menu .menu-item:hover { background: rgba(22, 119, 255, 0.08); }
-.emp-settings-menu .menu-item.danger { color: #FF3B30; }
-.emp-settings-menu .menu-item.danger:hover { background: rgba(255, 59, 48, 0.08); }
+.emp-settings-menu .menu-item.danger { color: var(--sb2-danger); }
+.emp-settings-menu .menu-item.danger:hover { background: var(--sb2-danger-soft); }
 .emp-settings-menu .menu-divider { height: 0.5px; background: rgba(120, 120, 128, 0.2); margin: 4px 10px; }
 /* Submenu for move to group */
 .emp-settings-menu .menu-item.has-submenu { position: relative; }
@@ -4451,8 +4451,8 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .ctx-menu.active { display: block; animation: menuPopIn 0.15s cubic-bezier(0.4, 0, 0.2, 1); }
 .ctx-menu .menu-item { display: flex; align-items: center; gap: 10px; padding: 9px 16px; font-size: 13px; color: var(--text-primary); cursor: pointer; transition: all 0.12s; margin: 0 6px; border-radius: 8px; }
 .ctx-menu .menu-item:hover { background: rgba(22, 119, 255, 0.08); }
-.ctx-menu .menu-item.danger { color: #FF3B30; }
-.ctx-menu .menu-item.danger:hover { background: rgba(255, 59, 48, 0.08); }
+.ctx-menu .menu-item.danger { color: var(--sb2-danger); }
+.ctx-menu .menu-item.danger:hover { background: var(--sb2-danger-soft); }
 .ctx-menu .menu-divider { height: 0.5px; background: rgba(120, 120, 128, 0.2); margin: 4px 10px; }
 
 
@@ -5082,7 +5082,7 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   transition: all 0.1s ease;
 }
 .msg-hover-btn:hover { background: var(--color-bg-softer, #F2F2F7); color: var(--accent, #1677ff); }
-.msg-hover-btn.danger:hover { color: var(--color-status-lost, #FF3B30); }
+.msg-hover-btn.danger:hover { color: var(--sb2-danger); }
 /* own 消息(右侧)在右上; not-own(左侧)在右上(不变, 工具栏永远右上方便触发) */
 .msg.own .msg-hover-actions { right: 8px; left: auto; }
 
@@ -6167,7 +6167,7 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .context-menu.active { display: block; }
 .context-item { display: flex; align-items: center; gap: 10px; padding: 8px 14px; cursor: pointer; font: var(--font-sm); transition: background 0.1s; }
 .context-item:hover { background: var(--bg-secondary); }
-.context-item.danger { color: #FF3B30; }
+.context-item.danger { color: var(--sb2-danger); }
 .context-divider { height: 0.5px; background: var(--separator); margin: 4px 0; }
 .list-item.dragging { opacity: 0.5; background: var(--accent-light); }
 .list-item.drag-over { border-top: 2px solid var(--accent); }
@@ -6184,8 +6184,8 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .modal-btn { padding: 8px 16px; border-radius: 8px; border: none; font-size: 13px; font-weight: 500; cursor: pointer; transition: all 0.15s; font-family: inherit; }
 .modal-btn-secondary { background: var(--bg-secondary, #f5f5f7); color: var(--text-secondary, #6e6e73); }
 .modal-btn-secondary:hover { background: var(--bg-tertiary, #ebebed); }
-.modal-btn-danger { background: #FF3B30; color: #fff; }
-.modal-btn-danger:hover { background: #D70015; }
+.modal-btn-danger { background: var(--sb2-danger); color: #fff; }
+.modal-btn-danger:hover { background: var(--sb2-danger-strong); }
 .modal-btn-danger:disabled { opacity: 0.6; cursor: wait; }
 .modal { background: var(--bg-primary); border-radius: var(--radius-lg); box-shadow: var(--shadow-modal); width: 90%; max-width: 440px; max-height: 85vh; overflow: hidden; display: flex; flex-direction: column; }
 .modal-header { padding: 14px 16px; border-bottom: 0.5px solid var(--separator); display: flex; align-items: center; justify-content: space-between; }
@@ -6219,6 +6219,10 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .member-option.selected .member-check { background: var(--accent); border-color: var(--accent); color: white; }
 
 .btn { padding: 8px 16px; border-radius: var(--radius-md); font-size: 13px; font-weight: 500; transition: all 0.15s; }
+/* 〔r78 危险按钮统一〕此前 deleteTeam 的 .btn-danger 无任何规则, 按钮裸奔无红色;
+   补实心红规则, 走 --sb2-danger token (亮 #DC2626 / 暗 #EF5757), hover 深一档 */
+.btn-danger { background: var(--sb2-danger); color: #fff; }
+.btn-danger:hover { background: var(--sb2-danger-strong); }
 .btn-primary { background: var(--accent); color: white; }
 .btn-primary:hover { background: var(--accent-hover); }
 .btn-secondary { background: var(--bg-secondary); color: var(--text-primary); }
@@ -9567,7 +9571,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
   --sb2-accent:#3B5BFD; --sb2-accent-strong:#2E48E8; --sb2-accent-soft:rgba(59,91,253,.09);
   --sb2-success:#17A34A; --sb2-success-soft:rgba(23,163,74,.10);
   --sb2-warning:#D97706; --sb2-warning-soft:rgba(217,119,6,.10);
-  --sb2-danger:#DC2626; --sb2-danger-soft:rgba(220,38,38,.09);
+  --sb2-danger:#DC2626; --sb2-danger-strong:#B91C1C; --sb2-danger-soft:rgba(220,38,38,.09);
   --sb2-gold:#B8860B; --sb2-gold-soft:rgba(184,134,11,.10);
   --sb2-r-sm:6px; --sb2-r-md:10px; --sb2-r-lg:14px; --sb2-r-full:999px;
   --sb2-sh1:0 1px 2px rgba(24,24,27,.05);
@@ -9584,7 +9588,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
   --sb2-accent:#6B84FF; --sb2-accent-strong:#88A1FF; --sb2-accent-soft:rgba(107,132,255,.14);
   --sb2-success:#34C06A; --sb2-success-soft:rgba(52,192,106,.14);
   --sb2-warning:#F0A22E; --sb2-warning-soft:rgba(240,162,46,.14);
-  --sb2-danger:#EF5757; --sb2-danger-soft:rgba(239,87,87,.13);
+  --sb2-danger:#EF5757; --sb2-danger-strong:#F87171; --sb2-danger-soft:rgba(239,87,87,.13);
   --sb2-sh1:0 1px 2px rgba(0,0,0,.3);
   --sb2-sh2:0 1px 3px rgba(0,0,0,.35),0 4px 12px rgba(0,0,0,.25);
   --sb2-sh3:0 8px 30px rgba(0,0,0,.5);
@@ -9734,8 +9738,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
   font:400 13px/1.4 "PingFang SC",sans-serif; color:var(--sb2-t1,#0F172A);
 }
 .sb2-rail-menu-item:hover{ background:var(--sb2-s3,#F1F5F9); }
-.sb2-rail-menu-item.danger{ color:#E5484D; }
-.sb2-rail-menu-item.danger:hover{ background:rgba(229,72,77,.08); }
+.sb2-rail-menu-item.danger{ color:var(--sb2-danger); }
+.sb2-rail-menu-item.danger:hover{ background:var(--sb2-danger-soft); }
 
 /* 旧 left-nav 隐藏(保留 DOM 作回归兜底, 移动端回退显示) */
 .left-nav{ display:none !important; }
@@ -10658,10 +10662,10 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
   font:400 12px/1.5 "PingFang SC",sans-serif; text-align:center;
 }
 .sb2-btn-danger{
-  background:var(--sb2-danger, var(--sb2-warning));
-  color:var(--sb2-s1);
+  background:var(--sb2-danger);
+  color:#fff;
 }
-.sb2-btn-danger:hover:not(:disabled){ background:var(--sb2-danger-strong, var(--sb2-warning)); }
+.sb2-btn-danger:hover:not(:disabled){ background:var(--sb2-danger-strong); }
 
 /* ============================================================
  * sb2-patterns MVP3: 触发归纳 modal + 删除确认 modal
@@ -17684,8 +17688,8 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
 .modal-btn.secondary:hover{background:var(--bg-tertiary)}
 .modal-btn.primary{background:var(--accent);color:white}
 .modal-btn.primary:hover{background:var(--accent-hover)}
-.modal-btn.danger{background:#FF3B30;color:white}
-.modal-btn.danger:hover{background:#E03030}
+.modal-btn.danger{background:var(--sb2-danger);color:white}
+.modal-btn.danger:hover{background:var(--sb2-danger-strong)}
 
 /* Exec Approval Modal */
 .exec-approval-section{margin-bottom:12px;text-align:left}
@@ -18515,7 +18519,7 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
 .team-tree-item:hover .team-tree-actions { opacity: 1; }
 .team-tree-btn { padding: 4px 8px; border-radius: 6px; border: none; cursor: pointer; font-size: 11px; transition: all 0.15s; background: var(--bg-tertiary); color: var(--text-secondary); }
 .team-tree-btn:hover { background: var(--accent); color: white; }
-.team-tree-btn.danger:hover { background: #FF3B30; }
+.team-tree-btn.danger:hover { background: var(--sb2-danger); }
 
 /* ===== 管理面板子弹窗 ===== */
 /* 子弹窗用 fixed 且 z-index 高于内容区 */
