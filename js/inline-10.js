@@ -645,6 +645,11 @@
         var legacyChat = document.getElementById('chatArea');
         if (legacyChat) { legacyChat.classList.remove('hidden'); legacyChat.style.display = 'flex'; }
         shell.hidden = true;
+        // 切走再切回: 群头可能被其他模块的清空逻辑抹掉, 空了重建 (openGroupChat 幂等)
+        var _grpHdr = legacyChat && legacyChat.querySelector('.chat-header-name');
+        if ((!_grpHdr || !_grpHdr.textContent.trim()) && typeof openGroupChat === 'function') {
+          try { openGroupChat(window._sb2GroupMode); } catch (e) { /* 守卫 */ }
+        }
         return;
       }
       shell.hidden = false;
