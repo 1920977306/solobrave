@@ -202,3 +202,24 @@ function provision_tenant(admin_email, plan):
 - [x] Top 20 风险点按热度排序 + 泄漏端点标注（§3，含 ❌ 实测证据行号）
 - [x] 一键开通伪代码（§4：开户→冷启动→积分→Bot 绑定）
 - [x] 工作量估算（§5）
+
+---
+
+## 7. 实现进度（M1–M4 已落地，分支 feat/tenant-isolation）
+
+> 以下里程碑均已沙箱（18220, SOLOBRAVE_MT=1）实测通过，prod 以单租户模式运行（行为零变化）。
+
+| 里程碑 | 内容 | 提交 | 沙箱验证 |
+|---|---|---|---|
+| M1 租户底座 | tenants.json 注册表；`scripts/migrate_tenant_bootstrap.py` 幂等迁移（存量归 t_default，自动 .bak）；JWT 加 `tid` claim（旧 token 无 tid → 默认租户）；AuthResult.tenant_id / is_platform_admin / is_tenant_admin；localhost 通道多租户模式 HMAC 验签硬闸（X-Agent-Ts ±300s + X-Agent-Sig，密钥 `data/certs/internal_secret` 0600） | d1531ca | 迁移幂等✅ 登录 tid✅ 验签 4 场景✅ |
+| M2 租户 DB 路由 | `_db_conn()` thread-local 路由（tid 仅认证层写入）；t_default 恒落 legacy 库（零拷贝）；新租户惰性建库 + init_db 全量 schema；`_run_as_tenant()` 后台任务包裹器 | 3e61972 | admin 262/t_acme 空库 39 表/双向写入隔离✅ |
+| M3 行级校验 | talents 详情 + 3 个子资源端点镜像列表可见性（404 不暴露 id）；proposals 详情对齐列表 admin-only；deals 详情 JOIN 归属校验；`_talent_visible_to_auth()` 统一 helper。tasks 复核本就有校验；products 为共享货盘语义不动 | f5d4119 | 员工越权 404/admin 200/proposals 403✅ |
+| M4 一键开通 | `POST /api/tenants`（平台超管专属）：开户 + 冷启动（惰性建库）+ 积分种子（tenant_pool）；`GET /api/tenants`（userCount）；重名 409 | 7501e2a | 开通→登录→积分 800→tenant_admin 403→跨租户不可见✅ |
+
+### 遗留（下一轮）
+- 目录物理隔离（chats/memory 等仍在全局目录，按 agent_id 天然无碰撞，删租户需 sweep 脚本）
+- 后台子线程租户上下文传递（heavy_jobs 等用 `_run_as_tenant` 逐点接线）
+- 角色模板拆分（tenant_admin 的权限模板进 permissions.json）
+- Bot 绑定（飞书）异步流程化
+- embedding_cache 租户盐（防侧信道）
+- 存量 dirs 的 `emp_001`/`{empId}` 模板残留清洗
