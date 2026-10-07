@@ -20934,7 +20934,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             balance, has_credits = _check_credit_balance(agent_id)
             credit_info = {'balance': balance, 'has_credits': has_credits}
             if not has_credits:
-                self._send_json(429, {'error': '积分不足', 'balance': balance})
+                # ★ 2026-10-08 老大 02:29 拍板: 提示语对齐「硬停 + 引导充值」口径
+                self._send_json(429, {'error': '积分不足，AI 服务已暂停。请联系管理员分配积分，或每日签到领取 +10 积分。', 'balance': balance})
                 return
 
         msg = {
@@ -30688,15 +30689,27 @@ def _handle_proxy_kimi(self):
         }).encode())
         return
 
-    # 3. 检查积分余额（fix/reliability-r1: 不再拦截！透支继续走 upstream，由 _record_credit_usage
-    #    的 MAX(balance - ?, 0) 兜底记账, 避免客户端看到 403 中断业务。
-    #    充值仍由 _recharge_credits 走 SQL, 不会自动透支, 但前端不会卡住。
+    # 3. 检查积分余额（★ 2026-10-08 老大 02:29 拍板: 硬停 —— 推翻 fix/reliability-r1 的透支放行）
+    #    余额耗尽直接 429 返回, 不再转发 upstream; 提示语引导客户找管理员分配积分或每日签到。
+    #    admin 运营者 bypass: _check_credit_balance 对 admin 内置虚拟充足, 天然不受限。
     if agent_id:
         _t = time.perf_counter()
         balance, has_credits = _check_credit_balance(agent_id)
         _timing('credit_check', _t)
         if not has_credits:
-            logger.warning(f'  [KimiProxy] 积分不足但继续处理 (agent_id={agent_id}, balance={balance}); 记账会扣到 0 但不阻塞')
+            logger.warning(f'  [KimiProxy] 积分不足硬停 (agent_id={agent_id}, balance={balance})')
+            self.send_response(429)
+            self.send_header('Content-Type', 'application/json; charset=utf-8')
+            self.end_headers()
+            self.wfile.write(json.dumps({
+                'type': 'error',
+                'error': {
+                    'type': 'insufficient_credits',
+                    'message': '积分不足，AI 服务已暂停。请联系管理员分配积分，或每日签到领取 +10 积分。',
+                    'balance': balance
+                }
+            }, ensure_ascii=False).encode('utf-8'))
+            return
 
     # 4. 读取请求体
     _t = time.perf_counter()
