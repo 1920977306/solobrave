@@ -1313,7 +1313,7 @@ var SB2_SIDE_RENDERERS = {
         ]},
         { label:'我的项目组', items: groups.length ? groups.slice(0, 10).map(function(g){
           return { name: (g.name || g.display_name || '-'),
-                   onClick:"(typeof openGroup==='function' ? openGroup('"+(g.id||'')+"') : (typeof showToast==='function' ? showToast('项目组群聊 — 后续版本开放') : null))" };
+                   onClick:"(typeof sb2GroupsOpenChat==='function' ? sb2GroupsOpenChat('"+(g.id||'')+"') : (typeof showToast==='function' ? showToast('项目组群聊 — 后续版本开放') : null))" };
         }) : [{ name:'暂无项目组' }] }
       ]
     };
@@ -1354,6 +1354,7 @@ var SB2_SIDE_RENDERERS = {
           role: roleDisplay,
           active: (_curEmp === e.id),
           onClick: "(function(id){"
+                 + "if(typeof sb2ExitGroupChat==='function'){try{sb2ExitGroupChat();}catch(e){}}"
                  + "try{localStorage.setItem('sb_current_emp',id);}catch(e){}"
                  + "if(typeof openChat==='function'){try{openChat(id);}catch(e){}}"
                  + "if(typeof window.renderChatMain==='function'){try{window.renderChatMain();}catch(e){}}"
@@ -1364,7 +1365,7 @@ var SB2_SIDE_RENDERERS = {
     ];
     if (groups.length) {
       items.push({ label:'项目组群聊 ('+groups.length+')', items:groups.slice(0, 10).map(function(g){
-        return { name: (g.name || g.display_name || '-'), onClick:"openGroup && openGroup('"+g.id+"')" };
+        return { name: (g.name || g.display_name || '-'), onClick:"(typeof sb2GroupsOpenChat==='function' ? sb2GroupsOpenChat('"+g.id+"') : (typeof showToast==='function' ? showToast('打开群聊失败') : null))" };
       })});
     }
     return { title:'AI 办公室', sub: list.length+' 员工 · '+onlineCount+' 在线', items:items, searchInput:'搜索员工…' };

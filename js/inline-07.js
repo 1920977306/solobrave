@@ -6024,6 +6024,11 @@ function sb2GroupsInit(){
 
 function sb2GroupsOpenChat(groupId){
   try {
+    // ★ sb2 群聊模式 (inline-10): 复用 legacy 群聊 UI, 真正落地群聊视图
+    if (typeof window.sb2EnterGroupChat === 'function') { window.sb2EnterGroupChat(groupId); return; }
+  } catch(e){}
+  // 兑底: sb2EnterGroupChat 未加载时走原链路 (群头写进 legacy 隐藏区, 可能不可见)
+  try {
     if (typeof switchModule === 'function') switchModule('messages');
     setTimeout(function(){
       try { if (typeof openGroupChat === 'function') openGroupChat(groupId); }

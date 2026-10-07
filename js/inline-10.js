@@ -639,9 +639,22 @@
     if (!shell) return;
     // 1. 显隐切换
     if (typeof currentModule !== 'undefined' && currentModule === 'messages') {
+      // ★ 群聊模式 (2026-10-08): sb2 聊天面板暂无群聊实现, 复用 legacy #chatArea 完整群聊 UI
+      //   进入: 去 .hidden 显示 legacy 聊天区, 藏 sb2 面板; 退出 sb2ExitGroupChat 恢复
+      if (window._sb2GroupMode) {
+        var legacyChat = document.getElementById('chatArea');
+        if (legacyChat) { legacyChat.classList.remove('hidden'); legacyChat.style.display = 'flex'; }
+        shell.hidden = true;
+        return;
+      }
       shell.hidden = false;
     } else {
       shell.hidden = true;
+      // 群聊模式随模块离开一并收起 legacy 聊天区 (防残留露底)
+      if (window._sb2GroupMode) {
+        var legacyChat2 = document.getElementById('chatArea');
+        if (legacyChat2) legacyChat2.classList.add('hidden');
+      }
       return;
     }
     // 2. 同步当前员工
@@ -662,6 +675,17 @@
   setInterval(function () {
     try {
       if (typeof currentModule !== 'undefined' && currentModule === 'messages') sb2_updateTopbar();
+      // ★ 群聊模式兜底退出 (2026-10-08): 用户从 legacy 侧栏员工列表直接点私聊 (不走 sb2 renderer)
+      //   → sb_current_emp 变化但没人调 sb2ExitGroupChat → 5s 轮询比对, 变了就退出群模式
+      //   注意: openGroupChat 自己会 removeItem('sb_current_emp') (inline-03:6010 防串混)
+      //   → 变 '' 是群聊正常态, 只有变成非空真员工 id 才说明用户点了私聊
+      var _empNow = localStorage.getItem('sb_current_emp') || '';
+      if (window._sb2GroupMode) {
+        if (window._sb2GroupLastEmp === undefined) window._sb2GroupLastEmp = _empNow;
+        else if (_empNow && _empNow !== window._sb2GroupLastEmp) { window._sb2GroupLastEmp = _empNow; sb2ExitGroupChat(); }
+      } else {
+        window._sb2GroupLastEmp = _empNow;
+      }
     } catch (e) { /* 守卫 */ }
   }, 5000);
 
@@ -724,4 +748,40 @@
   window._sb2Chat = _sb2Chat;
   // ★ r68 批注①: 员工档案 onclick 跨块调用 — IIFE 内函数必须挂 window 才够得着
   window.sb2_openEmpProfile = sb2_openEmpProfile;
+
+  // ===== 群聊模式 (2026-10-08, 待办 A 配套) =====
+  // sb2 聊天面板没有群聊实现 (无 currentGroupId 概念), 群聊真链路全在 legacy
+  // (openGroupChat/sendGroupMessage/OpenClaw 流式)。这里不重写, 而是进 sb2 壳时
+  // 显示 legacy #chatArea (完整群聊 UI), 退出时恢复 sb2 面板。
+  function sb2EnterGroupChat(groupId) {
+    try { if (typeof switchModule === 'function') switchModule('messages'); } catch (e) {}
+    window._sb2GroupMode = groupId || true;
+    setTimeout(function () {
+      try {
+        var legacy = document.getElementById('chatArea');
+        var shell = document.getElementById('sb2ChatMain');
+        if (legacy) { legacy.classList.remove('hidden'); legacy.style.display = 'flex'; }
+        if (shell) shell.hidden = true;
+        if (typeof openGroupChat === 'function') openGroupChat(groupId);
+        // openGroupChat 会 removeItem('sb_current_emp') (防串混) — 同步基准防看护误退
+        window._sb2GroupLastEmp = localStorage.getItem('sb_current_emp') || '';
+      } catch (e) { console.error('[sb2EnterGroupChat]', e); }
+    }, 300);
+  }
+  function sb2ExitGroupChat() {
+    if (!window._sb2GroupMode) return;
+    window._sb2GroupMode = null;
+    try {
+      var legacy = document.getElementById('chatArea');
+      if (legacy) legacy.classList.add('hidden');
+      if (typeof currentModule !== 'undefined' && currentModule === 'messages') {
+        var shell = document.getElementById('sb2ChatMain');
+        if (shell) shell.hidden = false;
+        renderChatMain();
+      }
+    } catch (e) { /* 守卫 */ }
+  }
+  window._sb2GroupMode = null;
+  window.sb2EnterGroupChat = sb2EnterGroupChat;
+  window.sb2ExitGroupChat = sb2ExitGroupChat;
 })();
