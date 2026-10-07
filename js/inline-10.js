@@ -65,26 +65,37 @@
     if (nameEl) nameEl.textContent = empName + (empRole ? ' · ' + empRole : '');
 
     // 状态行: 绿点 + 网关在线 · 模型名 / 未连接 (原型规格: 模型名内联, 可点击换模型)
+    // 〔chat-opt-2 2026-10-07〕修活死人信号: 原 _sb2Chat.wsConnected 全仓无赋值点 (恒 false,
+    //   顶栏永远「未连接」), 改读全局 openclaw 真实 WS 态; 连接中单独橙点态
     var statusEl = document.getElementById('sb2ChatTopbarStatus');
     var statusTextEl = document.getElementById('sb2ChatTopbarStatusText');
     var modelName = (_sb2ChatTasks && _sb2ChatTasks.model && _sb2ChatTasks.model.current) || '';
     var online = !!(emp && (emp.online === true || emp.status === 'online'));
-    var wsConnected = !!_sb2Chat.wsConnected;
-    if (statusEl) statusEl.classList.toggle('offline', !(online && wsConnected));
+    /* 〔chat-opt-2〕openclaw 是 openclaw-client.js 顶层 const (全局词法绑定, 不在 window 上),
+       必须 typeof 裸名守卫, 不能 window.openclaw (恒 undefined) */
+    var _oc = (typeof openclaw !== 'undefined') ? openclaw : null;
+    var wsConnected = !!(_oc && _oc.connected && _oc.authenticated);
+    var wsConnecting = !!(_oc && _oc.connected && !_oc.authenticated);
+    if (statusEl) {
+      statusEl.classList.toggle('offline', !(online && wsConnected) && !wsConnecting);
+      statusEl.classList.toggle('connecting', wsConnecting);
+    }
     if (statusTextEl) {
       if (online && wsConnected) {
         statusTextEl.innerHTML = '网关在线 · <span class="sb2-chat-topbar-pick-model" id="sb2ChatPickModel" title="点击切换模型">' + _sb2EscapeHtml(modelName || '-') + '</span>';
       } else if (wsConnected) {
         statusTextEl.textContent = '网关已连 · 员工离线';
+      } else if (wsConnecting) {
+        statusTextEl.textContent = '连接中…';
       } else {
-        statusTextEl.textContent = '未连接';
+        statusTextEl.textContent = '未连接 · 点击重连';
       }
     }
 
-    // 输入框 placeholder 动态拼接员工名 (原型: 给 {员工名} 派活…)
+    // 输入框 placeholder 动态拼接员工名 (〔chat-opt-2〕精简: 快捷键提示已常驻空态提示 + title)
     var inp = document.getElementById('sb2ChatInput');
     if (inp) {
-      inp.placeholder = '给 ' + (empName || '员工') + ' 派活… (Enter 发送, Shift+Enter 换行)';
+      inp.placeholder = '派活给 ' + (empName || '员工') + '…';
     }
   }
   // 顶栏 ghost 按钮占位 (原型对应"员工档案/设置"待展开, 跟前端规范一致走 toast)
@@ -256,6 +267,11 @@
       ? '<div class="sb2-chat-date-divider"><span>' + _sb2EscapeHtml(opts.divider) + '</span></div>'
       : '';
 
+    /* 〔chat-opt-2 2026-10-07〕失败消息重试入口 (历史 error 气泡 + 实时失败占位统一走 sb2ChatRetry) */
+    var retryHtml = isErr
+      ? '<button type="button" class="sb2-chat-retry-btn" onclick="sb2ChatRetry()">↻ 重试</button>'
+      : '';
+
     return dividerHtml
       + '<div class="sb2-chat-msg-row" data-role="' + _sb2EscapeHtml(role) + '">'
       +    avatarHtml
@@ -265,6 +281,7 @@
       + '      <div class="sb2-chat-bubble-body">' + bodyHtml + imgHtml + propCardHtml + '</div>'
       + '    </div>'
       +    timeHtml
+      +    retryHtml
       + '  </div>'
       + '</div>';
   }
@@ -464,7 +481,7 @@
         })
       });
       if (!resp) {
-        if (placeholderEl) placeholderEl.textContent = '-';
+        sb2_failBubble(placeholderEl);
         return;
       }
       var reply = await resp.json();
@@ -510,13 +527,65 @@
       }
     } catch (e) {
       console.error('[sb2_doSend]', e);
-      if (placeholderEl) placeholderEl.textContent = '-';
+      sb2_failBubble(placeholderEl);
     } finally {
       _sb2Chat.sending = false;
       if (progress) progress.hidden = true;
       sendBtn.disabled = inp.value.trim().length === 0;
     }
   }
+
+  /* 〔chat-opt-2 2026-10-07〕发送失败占位 → 错误气泡 + 重试按钮 */
+  function sb2_failBubble(placeholderEl) {
+    if (!placeholderEl) return;
+    var bubble = placeholderEl.closest('.sb2-chat-bubble');
+    placeholderEl.textContent = '⚠️ 这条消息发送失败';
+    if (!bubble) return;
+    bubble.classList.add('sb2-chat-bubble-error');
+    if (bubble.parentNode && !bubble.parentNode.querySelector('.sb2-chat-retry-btn')) {
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'sb2-chat-retry-btn';
+      btn.textContent = '↻ 重试';
+      btn.addEventListener('click', function () { sb2ChatRetry(); });
+      bubble.parentNode.insertBefore(btn, bubble.nextSibling);
+    }
+  }
+
+  /* 〔chat-opt-2 2026-10-07〕重试: 取最近一条用户消息 (含附件) 重新走 sb2_doSend */
+  function sb2ChatRetry() {
+    var lastUser = null;
+    for (var i = _sb2Chat.messages.length - 1; i >= 0; i--) {
+      if (_sb2Chat.messages[i] && _sb2Chat.messages[i].role === 'user') { lastUser = _sb2Chat.messages[i]; break; }
+    }
+    var inp = document.getElementById('sb2ChatInput');
+    if (!lastUser || !inp) {
+      if (typeof showToast === 'function') showToast('没有可重试的消息');
+      return;
+    }
+    inp.value = (lastUser.content && lastUser.content !== '(附件)') ? lastUser.content : '';
+    _sb2Chat.attached = (lastUser.images && lastUser.images.length) ? lastUser.images.slice() : [];
+    if (typeof sb2_renderAttachBar === 'function') sb2_renderAttachBar();
+    inp.dispatchEvent(new Event('input'));
+    sb2_doSend();
+  }
+
+  /* 〔chat-opt-2 2026-10-07〕顶栏状态行点击重连 (走 openclaw 全局客户端) */
+  function sb2ChatReconnect() {
+    /* 〔chat-opt-2〕openclaw 是顶层 const 全局词法绑定, typeof 裸名取 */
+    var _oc = (typeof openclaw !== 'undefined') ? openclaw : null;
+    var _st = document.getElementById('sb2ChatTopbarStatusText');
+    var _offline = _st && _st.textContent.indexOf('未连接') >= 0;
+    if (!_offline) return;  // 健康态点击无副作用
+    if (_oc && typeof _oc.connect === 'function') {
+      try { _oc.connect(); } catch (e) { console.warn('[sb2ChatReconnect]', e); }
+      if (typeof showToast === 'function') showToast('正在连接网关…');
+    } else if (typeof showToast === 'function') {
+      showToast('网关客户端未加载,请刷新页面');
+    }
+  }
+  window.sb2ChatRetry = sb2ChatRetry;
+  window.sb2ChatReconnect = sb2ChatReconnect;
 
   // ===== Dispatcher =====
   function renderChatMain() {
@@ -540,6 +609,15 @@
       sb2_bindInput();
     }
   }
+
+  /* 〔chat-opt-2 2026-10-07〕顶栏状态跟随真实 WS 态:
+     原状态只在进聊天时刷一次 → 断线/重连后文字假死; updateConnectionStatus 的周期在 inline-03,
+     不跨块; 这里 5s 轻量重刷 sb2_updateTopbar (幂等纯 DOM, 无网络请求), 仅在 messages 模块 */
+  setInterval(function () {
+    try {
+      if (typeof currentModule !== 'undefined' && currentModule === 'messages') sb2_updateTopbar();
+    } catch (e) { /* 守卫 */ }
+  }, 5000);
 
   // ===== Watchdog: 5 秒内兜底 module 激活 =====
   function sb2_watchModule() {

@@ -13946,6 +13946,34 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
 .sb2-chat-topbar-status.offline .sb2-chat-topbar-status-dot {
   background: var(--sb2-t3);
 }
+/* 〔chat-opt-2 2026-10-07〕连接中态 (橙点) + 未连接可点重连 */
+.sb2-chat-topbar-status.connecting {
+  color: var(--sb2-warning);
+}
+.sb2-chat-topbar-status.connecting .sb2-chat-topbar-status-dot {
+  background: var(--sb2-warning);
+}
+.sb2-chat-topbar-status.offline {
+  cursor: pointer;
+}
+.sb2-chat-topbar-status.offline:hover {
+  color: var(--sb2-t1);
+}
+/* 〔chat-opt-2 2026-10-07〕失败消息重试按钮 */
+.sb2-chat-retry-btn {
+  align-self: flex-start;
+  margin-top: 2px;
+  padding: 3px 10px;
+  font: 400 12px/1.4 "PingFang SC", sans-serif;
+  color: var(--sb2-danger);
+  background: var(--sb2-s1);
+  border: 1px solid var(--sb2-danger-soft);
+  border-radius: var(--sb2-r-md);
+  cursor: pointer;
+}
+.sb2-chat-retry-btn:hover {
+  background: var(--sb2-danger-soft);
+}
 /* 状态行内嵌模型名 (原型规格: 可点击换模型, §2 功能保留) */
 .sb2-chat-topbar-pick-model {
   cursor: pointer;
@@ -16276,7 +16304,7 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
       <span class="sb2-chat-topbar-avatar" id="sb2ChatTopbarAvatar">R</span>
       <div class="sb2-chat-topbar-meta">
         <div class="sb2-chat-topbar-name" id="sb2ChatTopbarName">-</div>
-        <div class="sb2-chat-topbar-status offline" id="sb2ChatTopbarStatus">
+        <div class="sb2-chat-topbar-status offline" id="sb2ChatTopbarStatus" onclick="sb2ChatReconnect()" title="点击重连网关">
           <span class="sb2-chat-topbar-status-dot"></span>
           <span id="sb2ChatTopbarStatusText">未连接</span>
         </div>
@@ -16321,7 +16349,7 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
     <div class="sb2-chat-input-row">
       <div class="sb2-chat-composer-top">
         <div class="sb2-chat-input-pill">
-          <textarea id="sb2ChatInput" class="sb2-chat-input" rows="1" placeholder="给员工派活… (Enter 发送, Shift+Enter 换行)" autocomplete="off"></textarea>
+          <textarea id="sb2ChatInput" class="sb2-chat-input" rows="1" placeholder="给员工派活…" autocomplete="off"></textarea>
         </div>
       </div>
       <div class="sb2-chat-composer-bar">
@@ -16339,7 +16367,7 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h16"/><path d="m6 16 6-12"/><path d="m18 16-6-12"/></svg>
           </button>
         </div>
-        <button class="sb2-btn sb2-btn-ink sb2-chat-send-btn" id="sb2ChatSendBtn" type="button" disabled title="发送" aria-label="发送消息">发送</button>
+        <button class="sb2-btn sb2-btn-ink sb2-chat-send-btn" id="sb2ChatSendBtn" type="button" disabled title="发送" aria-label="发送消息"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>发送</button>
       </div>
     </div>
     <input type="file" id="sb2ChatFileInput" accept="image/*" multiple style="display:none;">
@@ -18745,7 +18773,7 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
      - 旧 chatArea + 老 JS 函数 100% 不动, 新 sb2 完全独立
      - _sb2Chat state + renderChatMain dispatcher
 -->
-<script src="js/inline-10.js?v=chatopt20261007"></script>
+<script src="js/inline-10.js?v=chatopt2c20261007"></script>
 
 <!-- ★ feat/sb2-chat-tasks: §2 聊天进阶 JS (slash 命令 + @mention + 模型选择)
      - 复用 §1 的 _sb2Chat state + sb2_doSend + renderChatMain dispatcher
