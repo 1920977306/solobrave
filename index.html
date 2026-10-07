@@ -11483,9 +11483,14 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
 }
 
 /* --- 看板三列 --- */
+/* ★ r66 批注⑥ 老大 15:30「下面留大空白出来」: 任务看板 align-items:start → stretch + height:100%
+   — 原 align-items:start 列只撑内容高度, 内容少时底部露大空白
+   — 改 stretch 让列填满 board 高度, 加 height:100% 让 board 撑满 .sb2-tasks-content
+   — 跟 28 终态 + 视口守卫铁律一致 (fit-in 不留白) */
 .sb2-tasks-board{
   display:grid; grid-template-columns:repeat(3,1fr);
-  gap:14px; align-items:start;
+  gap:14px; align-items:stretch;
+  min-height:0; height:100%;
 }
 
 /* ★ MVP1 P1 fix: 视图互斥 — 看板/列表 wrap 默认 CSS 管控, 不依赖 inline style
@@ -11498,6 +11503,7 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
 .sb2-tasks-col{
   background:var(--sb2-s2); border:1px solid var(--sb2-border);
   border-radius:var(--sb2-r-lg); padding:12px; min-height:200px;
+  display:flex; flex-direction:column; min-height:0;
 }
 .sb2-tasks-col-h{
   display:flex; align-items:center; gap:8px; margin-bottom:12px; padding:0 2px;
@@ -12042,6 +12048,26 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
 .sb2-talents-gpm-val{
   font:500 12px/1.2 "PingFang SC",sans-serif; color:var(--sb2-t1);
   min-width:36px; text-align:right;
+}
+/* ★ r66 批注⑤ 老大 15:30「价格有点丑」: GMV 金额列专属视觉 (跟 GPM 比率列区分)
+   — 暖色 var(--sb2-warning) 跟金额重要性匹配, 比 GPM 蓝色更有商业感
+   — 金额字号 13px (比 GPM 12px 突出 1px, 视觉层级: 金额 > 比率)
+   — 复用 .sb2-talents-gpm 同结构 (flex bar + val), 只换 CSS 变量, 不造新组件 */
+.sb2-talents-gmv{
+  display:flex; align-items:center; gap:8px;
+}
+.sb2-talents-gmv-bar{
+  flex:1; max-width:80px; height:6px; border-radius:var(--sb2-r-full);
+  background:var(--sb2-s3); overflow:hidden;
+}
+.sb2-talents-gmv-fill{
+  height:100%; background:var(--sb2-warning); border-radius:var(--sb2-r-full);
+  transition:width .3s ease;
+}
+.sb2-talents-gmv-val{
+  font:600 13px/1.2 "PingFang SC",sans-serif; color:var(--sb2-warning);
+  min-width:42px; text-align:right;
+  font-variant-numeric: tabular-nums;
 }
 .sb2-talents-rating{
   display:inline-block; padding:3px 10px; border-radius:var(--sb2-r-full);
@@ -18039,7 +18065,7 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
      v2 (202609241444): 初始破缓存 + skip-device 守卫
      v3 (202609241420): probe 误导文案澄清 (fingerprint fallback → token-only) -->
 <script src="openclaw-client.js?v=202609301548"></script>
-<script src="js/inline-07.js?v=303fd1560c"></script>
+<script src="js/inline-07.js?v=ce9d047010"></script>
 
 <!-- Match Result Modal -->
 <div class="product-modal-overlay" id="matchModalOverlay" onclick="closeMatchModal()">

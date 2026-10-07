@@ -710,7 +710,20 @@ function sb2KbUpdateHeroTitle(){
     });
   }
   if (_cats) _walk(_cats);
-  hero.textContent = name || _sb2KbActiveCat || '全部知识';
+  /* ★ r66 批注① 老大 15:30「为什么是英文」: 后端 KB 分类里有 legacy_migration 等英文 key,
+     hero 直接渲染 server 返回的 c.name 会显示英文。跟 inline-09.js _sb2ReviewCatLabel 同款人话映射
+     (字段名铁律 r39-5: 后端英文 key 兜底中文标签, 不让用户接触开发黑话) */
+  var _catLabelMap = {
+    'legacy_migration': '历史迁移',
+    '达人库': '达人库',
+    '公共知识': '公共知识',
+    '商品库': '商品库',
+    '流量知识': '流量知识',
+    'personal': '个人',
+    'team': '团队'
+  };
+  var display = (name && _catLabelMap[name]) ? _catLabelMap[name] : name;
+  hero.textContent = display || _catLabelMap[_sb2KbActiveCat] || _sb2KbActiveCat || '全部知识';
 }
 
 function sb2KbRenderChips(cats, entries){
@@ -1758,7 +1771,11 @@ var _sb2PtnStatus = ''; // 〔24 轮批注④ 二阶段 老大 12:54 授权映�
 /* 〔r39-16 批注③〕前端切片分页状态: _sb2PtnPatterns 已全量在手 (API limit=100),
    筛选组合过滤后按 20/页切片渲染, 底栏分页条钉底部 (老大: 不要滑动的) */
 var _sb2PtnPage = 1;
-var _sb2PtnLimit = 20;
+/* ★ r66 批注④ 老大 15:30「增加两个达人, 意思就是一页 12 个」: 规律库卡片页尺寸 20→12
+   — 截图 3 显示当前 5 页 × 20 = 100 条 (2 列 × 10 行, 满屏铺到底)
+   — 老大希望 12 条/页 (2 列 × 6 行, 跟模块卡片密度匹配, 不滚动 + 留底部 breathing room)
+   — 跟达人库 pageSize 10 / 商品库动态 pageSize 跨模块对齐 (28 终态 + 视口守卫, fit-in 不滚动) */
+var _sb2PtnLimit = 12;
 var _sb2PtnFilteredTotal = 0; // sb2PtnRender 每次刷新, sb2PtnGoPage 翻页上限用
 
 /* ============================================================
@@ -1835,13 +1852,15 @@ function sb2TalentsGpmFill(value, pageMax){
   return Math.min(100, Math.round((v / pageMax) * 100));
 }
 
-/* ★ MVP1: 千分位 + 万单位 (total_gmv 0~500 万跨度大, 显示 ¥28.1万)
-   ★ fix/talents-hotfix: 原型是 ¥186,700 纯千分位无万单位 → 统一 ¥300,000 千分位
-   之前: ≥10000 转万单位 (300.0万), 老大实测错位 */
+/* ★ r66 批注⑤ 老大 15:30「价格有点丑」: 表格 GMV 列改用 ¥N万 格式 (跟 sb2TlnFmtWan 同款)
+   — 原千分位 ¥5,000,000 阅读体验差 (数 0 太累), 改 ¥500万 一眼看出量级
+   — 跟 drawer 内 GMV 显示 / 全模块 KPI 排版一致 (r33 KPI 排版同源)
+   — 10000 以下仍用纯数字 (¥8,500 → ¥8500 不带千分位, 跟粉丝列 followersFmt 同款) */
 function sb2TalentsFmtGmv(v){
   var n = Number(v) || 0;
   if (n === 0) return '¥0';
-  return '¥' + n.toLocaleString('en-US');
+  if (n >= 10000) return '¥' + (n / 10000).toFixed(1).replace(/\.0$/, '') + '万';
+  return '¥' + Math.round(n);
 }
 function sb2TalentsFmtFollowers(v){
   var n = Number(v) || 0;
@@ -1924,8 +1943,12 @@ function sb2TalentsRowHtml(t, pageMaxGpm, pageMaxGmv){
     + '<td><span class="sb2-talents-chip">' + category + '</span></td>'
     + '<td><span class="sb2-talents-chip-level">' + level + '</span></td>'
     + '<td class="sb2-talents-num">' + followers + '</td>'
-    /* ★ fix/talents-hotfix: GMV 列加 mini bar (跟 GPM 同模式, 用 pageMax 归一) */
-    + '<td><div class="sb2-talents-gpm" title="总 GMV 原值: ' + gmvRaw + '"><div class="sb2-talents-gpm-bar"><div class="sb2-talents-gpm-fill" style="width:' + gmvFill + '%"></div></div><span class="sb2-talents-gpm-val">' + gmv + '</span></div></td>'
+    /* ★ r66 批注⑤ 老大 15:30「价格有点丑」: GMV 列专属视觉
+       — 原复用 .sb2-talents-gpm (GPM 同色蓝色), 但 GMV 是金额, GPM 是比率, 数据类型不同不该共用
+       — 改用 .sb2-talents-gmv 专属 class: 暖色 var(--sb2-warning) + 加粗金额视觉
+       — 视觉层级: 金额字号 13px (比 GPM 12px 突出), 颜色 var(--sb2-warning) 暖色跟数据重要性匹配
+       — 不造新组件, 复用 .sb2-talents-gpm 同结构 (flex bar + val), 只换 CSS 变量 */
+    + '<td><div class="sb2-talents-gmv" title="总 GMV 原值: ' + gmvRaw + '"><div class="sb2-talents-gmv-bar"><div class="sb2-talents-gmv-fill" style="width:' + gmvFill + '%"></div></div><span class="sb2-talents-gmv-val">' + gmv + '</span></div></td>'
     + '<td><div class="sb2-talents-gpm" title="GPM 原值: ' + gpm + '"><div class="sb2-talents-gpm-bar"><div class="sb2-talents-gpm-fill" style="width:' + gpmFill + '%"></div></div><span class="sb2-talents-gpm-val">' + gpm + '</span></div></td>'
     + '<td class="sb2-talents-num">' + rating + '</td>'
     + '<td class="' + matchedClass + '">' + matchedStr + '</td>'
