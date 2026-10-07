@@ -10133,7 +10133,8 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
 /* 〔feat(r77) 2026-10-07 老大批注: 侧栏可收起, 所有页面通用〕
    实现: body.sb2-side-collapsed 全局类 (跟 body.sb2-no-side 同模式, 区别: 用户可控 + localStorage 持久)
      收起 → #sb2Side display:none + 顶栏/dash/主区让位 60px (三组规则照抄 sb2-no-side)
-     展开入口 → #sb2SideExpand 浮动钮贴 rail 右缘, 仅「收起态 且 当前模块有侧栏」显示
+   〔feat(r77)-2 老大 22:20 批注〕折叠键挪到顶栏全局搜索左边 (#sb2SideToggle):
+     收起态图标旋 180° 变展开方向, 一个钮管收/展; 侧栏头内旧折叠钮 + 浮动展开钮同步移除
    守卫: 布局覆盖规则包在 @media (min-width:769px) — ≤768 移动端既有回退 (margin-left:0 全宽)
      优先级更高, 不抢; >1100 侧栏本 display:none, 收起/展开同 60px, 无冲突 */
 @media (min-width:769px){
@@ -10144,30 +10145,19 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
 }
 /* 收起动画: 内容区让位过渡 (.sb2-side 本体 display:none 不参与, 跟 sb2-no-side 一致) */
 .sb2-topbar,.sb2-dash,.app-container{ transition:left .18s ease,margin-left .18s ease; }
-/* 侧栏头右侧折叠钮 (renderSideFor 头模板内渲染, 所有带侧栏模块通用) */
-.sb2-side-head{ display:flex; align-items:flex-start; gap:6px; }
-.sb2-side-head-txt{ flex:1; min-width:0; }
-.sb2-side-collapse{
-  flex-shrink:0; width:24px; height:24px; margin:1px 0 0; padding:0;
-  display:flex; align-items:center; justify-content:center;
-  border:none; background:transparent; border-radius:6px;
-  color:var(--sb2-t3); cursor:pointer;
-}
-.sb2-side-collapse:hover{ background:var(--sb2-s3); color:var(--sb2-t1); }
-.sb2-side-collapse svg{ width:14px; height:14px; }
-/* 收起态浮动展开钮 (贴 rail 右缘, 顶栏之下) */
-#sb2SideExpand{
-  display:none; position:fixed; left:60px; top:72px; z-index:81;
-  width:20px; height:44px; padding:0;
-  align-items:center; justify-content:center;
-  background:var(--sb2-s2); border:1px solid var(--sb2-border); border-left:none;
-  border-radius:0 8px 8px 0; color:var(--sb2-t3); cursor:pointer;
-}
-#sb2SideExpand:hover{ color:var(--sb2-t1); background:var(--sb2-s3); }
-#sb2SideExpand svg{ width:12px; height:12px; }
+/* 顶栏折叠钮 (#sb2SideToggle): 全局搜索左边, 跟 .sb2-topbar-search 同款 36x36 icon 钮
+   显隐: 默认隐; ≥1101px 且非 no-side (tasks/lobster 无侧栏) 才显 — id 选择器优先级管住 base display */
+#sb2SideToggle{ display:none; }
 @media (min-width:1101px){
-  body.sb2-side-collapsed:not(.sb2-no-side) #sb2SideExpand{ display:flex; }
+  body:not(.sb2-no-side) #sb2SideToggle{
+    width:36px; height:36px; border-radius:var(--sb2-r-md);
+    display:flex; align-items:center; justify-content:center; cursor:pointer;
+    color:var(--sb2-t2); border:none; background:transparent; transition:all .15s;
+  }
 }
+#sb2SideToggle:hover{ background:var(--sb2-s3); color:var(--sb2-t1); }
+#sb2SideToggle svg{ width:16px; height:16px; transition:transform .18s ease; }
+body.sb2-side-collapsed #sb2SideToggle svg{ transform:rotate(180deg); }
 
 /* —— 窄屏回退: 新顶栏 / #side 隐藏 —— */
 @media (max-width:768px){
@@ -14572,6 +14562,11 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
        - 保留 svg icon (14x14) + onclick="sb2_openPalette()" + aria-label="搜索"
        - 实际效果: 顶栏 380px 宽 button → 36x36 icon button, 跟右侧 .sb2-bell-btn 通知按钮同款
        - sb2_openPalette 调 openGlobalSearch → 显示 globalSearchModal + focus input(不变) -->
+  <!-- 〔feat(r77)-2 2026-10-07 老大 22:20 批注〕侧栏折叠键放全局搜索左边, 搜索框自然右移
+       收起态图标旋 180° (CSS), 一个钮管收/展; tasks/lobster (sb2-no-side) 与 ≤1100px 自动隐藏 -->
+  <button id="sb2SideToggle" type="button" onclick="sb2ToggleSide()" title="收起/展开侧栏" aria-label="收起或展开侧栏">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m11 17-5-5 5-5"/><path d="m18 17-5-5 5-5"/></svg>
+  </button>
   <button class="sb2-topbar-search" id="sb2TopbarSearch" type="button" onclick="sb2_openPalette()" aria-label="搜索">
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
   </button>
@@ -14589,8 +14584,6 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
 
 <!-- ★ feat/sb2-global-shell: 新 #side 上下文侧栏 (固定 236px) — body 直接子元素 -->
 <aside class="sb2-side" id="sb2Side" aria-label="上下文侧栏"></aside>
-<!-- 〔feat(r77) 2026-10-07〕侧栏收起态展开钮: 浮动贴 rail 右缘, 显隐纯 CSS (body.sb2-side-collapsed 且非 no-side) -->
-<button id="sb2SideExpand" onclick="sb2ToggleSide()" title="展开侧栏" aria-label="展开侧栏"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></button>
 
 <div class="app-container">
 

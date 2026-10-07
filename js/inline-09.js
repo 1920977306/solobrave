@@ -1446,12 +1446,8 @@ function renderSideFor(moduleId){
   var fn = SB2_SIDE_RENDERERS[moduleId];
   var data = fn ? fn() : { title: moduleId, sub:'-', items:[] };
   var html = '';
-  /* 〔feat(r77) 2026-10-07 老大批注: 侧栏可收起〕头模板加折叠钮 (所有带侧栏模块通用)
-     头改 flex 行: 标题区 .sb2-side-head-txt (flex:1) + 右侧折叠钮 .sb2-side-collapse
-     收起/展开逻辑 + 持久化在 sb2ToggleSide (本文件下方), 纯 body class 切换, 不碰各模块渲染 */
-  html += '<div class="sb2-side-head"><div class="sb2-side-head-txt"><div class="sb2-side-title">'+escHtml(data.title)+'</div>';
-  if (data.sub) html += '<div class="sb2-side-sub">'+escHtml(data.sub)+'</div>';
-  html += '</div><button class="sb2-side-collapse" onclick="sb2ToggleSide()" title="收起侧栏" aria-label="收起侧栏"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m11 17-5-5 5-5"/><path d="m18 17-5-5 5-5"/></svg></button></div>';
+  html += '<div class="sb2-side-head"><div class="sb2-side-title">'+escHtml(data.title)+'</div>';
+  if (data.sub) html += '<div class="sb2-side-sub">'+escHtml(data.sub)+'</div></div>';
   /* 〔fix/sb2-side-restore commit 12〕15 轮热修: messages 模块侧栏恢复搜索输入 (15 轮恢复 14 轮误删)
      只在 data.searchInput 存在时渲染 .sb2-side-search-input — 14 轮 commit 11 全删之后
      截图发现 messages 模块原版侧栏顶部就有 "搜索员工..." 过滤 AI 员工列表
