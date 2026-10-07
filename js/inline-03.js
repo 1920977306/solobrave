@@ -1503,7 +1503,7 @@ async function sendMsg() {
       if (status === 'failed' || polls >= maxPolls) {
         clearInterval(timer);
         console.warn('[HeavyPipe] 旁路失败（' + (errMsg || (polls >= maxPolls ? 'timeout' : '状态丢失')) + '），降级回 OpenClaw 主干道 jobId=' + jobId);
-        sendViaOpenClaw(empInfo, text, docContext, timeStr, pendingImages, 0, null, talentInjection);
+        sendViaOpenClaw(empInfo, text, docContext, timeStr, pendingImages, 0, null, talentInjection, ocInjection, ocTags);
         return;
       }
       // analyzing / null：占位不是回复，是状态提示——保持思考中提示条，实时刷新阶段文案
@@ -1582,6 +1582,10 @@ async function sendMsg() {
   // 达人防编造（架构级）：后端保存消息时检测达人关键词，命中则直查 talents 表并随响应返回
   // talentInjection（【系统数据】），由前端拼进发给 OpenClaw 的消息，LLM 不参与数据查询
   var talentInjection = '';
+  // 〔r81 批注① 2026-10-08〕MS3 召回（记忆/知识/规律）：后端响应带回注入文本 + 条数统计，
+  // 注入文本拼进发给 OpenClaw 的消息（真注入），条数挂到 assistant 消息供气泡上方 chip 渲染
+  var ocInjection = '';
+  var ocTags = null;
   var heavyJobId = null;
   var heavyPlaceholder = '';
   var replyToId = window._pendingQuote ? window._pendingQuote.id : null;
@@ -1593,6 +1597,8 @@ async function sendMsg() {
     if (saveResp && saveResp.ok) {
       var saveData = await saveResp.json();
       if (saveData && saveData.talentInjection) talentInjection = saveData.talentInjection;
+      if (saveData && saveData.openclawInjection) ocInjection = saveData.openclawInjection;
+      if (saveData && saveData.injectionTags) ocTags = saveData.injectionTags;
       // 回填消息 id 到刚插入的用户气泡（右键引用依赖 data-msg-id + _msgQuotePool）
       // pendingImages 在函数开头已 slice 快照，此处引用不受后面 clearPendingImages() 影响
       var savedMsgId = (saveData && saveData.userMessage && saveData.userMessage.id) || (saveData && saveData.id) || null;
@@ -1685,12 +1691,12 @@ async function sendMsg() {
 
   if (ocOk) {
     // 所有消息统一走 OpenClaw 主干道（图片已提前转成文字描述）
-    sendViaOpenClaw(emp, text, docContext, timeStr, pendingImages, 0, null, talentInjection);
+    sendViaOpenClaw(emp, text, docContext, timeStr, pendingImages, 0, null, talentInjection, ocInjection, ocTags);
   } else {
     // 即使没有配置AI，也用 OpenClaw main agent 兜底
     if (typeof openclaw !== 'undefined' && openclaw.connected) {
       emp.openclawName = emp.openclawName || 'main';
-      sendViaOpenClaw(emp, text, docContext, timeStr, pendingImages, 0, null, talentInjection);
+      sendViaOpenClaw(emp, text, docContext, timeStr, pendingImages, 0, null, talentInjection, ocInjection, ocTags);
     } else {
       setTimeout(function () {
         var t = document.getElementById('typingMsg');
@@ -1841,9 +1847,13 @@ function hasTalentKeyword(text) {
 }
 
 // 通过 OpenClaw WS 发送消息
-async function sendViaOpenClaw(emp, userMessage, docContext, timeStr, images, chainDepth, groupId, systemData) {
+// 〔r81 批注① 2026-10-08〕ocInjection/ocTags：后端 /api/chat 响应带回的 MS3 召回
+// （记忆/知识/规律）注入文本与条数统计 —— 文本真拼进 WS 消息，条数随回复落库供 chip 渲染
+async function sendViaOpenClaw(emp, userMessage, docContext, timeStr, images, chainDepth, groupId, systemData, ocInjection, ocTags) {
   images = images || [];
   chainDepth = chainDepth || 0;
+  ocInjection = ocInjection || '';
+  ocTags = ocTags || null;
   // 达人【系统数据】注入文本，两个来源：
   // 1. sendMsg 保存用户消息时后端随响应返回的 talentInjection（参数传入）；
   // 2. 下方兜底：命中关键词时前端直接调 /api/talents/injection-text 获取。
@@ -1958,6 +1968,8 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr, images, ch
   // 注入商品库/达人库/匹配引擎工具说明（主大脑管控，X-Agent-Id 硬编码为员工ID）
   systemPrompt += buildAgentToolsContext(emp.id);
   if (ragResult.context) systemPrompt += '\n\n' + ragResult.context;
+  // 〔r81 批注①〕MS3 记忆/知识/规律召回注入（与 RAG 并列，数据源后端 MS3 管道）
+  if (ocInjection) systemPrompt += '\n\n' + ocInjection;
 
   // 注入团队动态（同项目组其他 AI 最近对话摘要）
   if (!groupId) {
@@ -2037,7 +2049,7 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr, images, ch
       // 保存到聊天记录 (跟原 displayAIReply 路径行为一致)
       if (!groupId) {
         try {
-          saveChatHistory(emp.id, userMessage, reply, docContext, ragResult.citations, images);
+          saveChatHistory(emp.id, userMessage, reply, docContext, ragResult.citations, images, ocTags);
         } catch (saveErr) {
           console.warn('[Streaming] saveChatHistory failed:', saveErr);
         }
@@ -2050,8 +2062,8 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr, images, ch
       if (groupId) {
         displayGroupAIReply(groupId, emp.id, reply, chainDepth);
       } else {
-        displayAIReply(reply, docContext, timeStr, emp.id, ragResult.citations, chainDepth);
-        saveChatHistory(emp.id, userMessage, reply, docContext, ragResult.citations, images);
+        displayAIReply(reply, docContext, timeStr, emp.id, ragResult.citations, chainDepth, ocTags);
+        saveChatHistory(emp.id, userMessage, reply, docContext, ragResult.citations, images, ocTags);
       }
       // 命中违禁词时在该消息气泡上方插入警告条 (新建节点路径)
       if (fwWarning && msgArea && msgArea.childElementCount > msgCountBefore) {
@@ -8236,6 +8248,8 @@ function renderMsgs(type) {
         citationHtml2 = '<div class="citation-bar" onclick="toggleCitationPanel(\'' + citeId2 + '\')">📚 引用了 ' + m.citations.length + ' 条知识 <span class="citation-toggle">▼</span></div>' +
           '<div class="citation-panel hidden" id="' + citeId2 + '">' + citeItems2 + '</div>';
       }
+      // 〔r81 批注①〕MS3 召回 chip 条（历史消息，气泡上方；复用 builder，无数据不渲染）
+      var injChipsHtml2 = (!own && m.injectionTags) ? buildInjectionChipsHtml(m.injectionTags) : '';
       // ④ 连续消息合并: 跳过 avatar + sender 行; 时间只在 lastInGroup 显示
       var isConsecutive = groupFlags[idx].consecutive;
       var isLastInGroup = groupFlags[idx].lastInGroup;
@@ -8254,7 +8268,7 @@ function renderMsgs(type) {
         var timeOnlyHtml = '<div class="msg-sender msg-sender-time-only"><span class="msg-sender-time">' + timeStr + '</span></div>';
         senderHtml = timeOnlyHtml;
       }
-      return sepHtml + '<div class="' + msgClasses.trim() + '" data-msg-id="' + escapeAttr(m.id || '') + '">' + avatarHtml + '<div class="msg-content">' + senderHtml + '<div class="msg-bubble">' + quoteHtml2 + formatMessageContent(m.content) + '</div>' + citationHtml2 + imagesHtml2 + '<div class="msg-hover-actions" data-msg-id="' + escapeAttr(m.id || '') + '">' + '<button class="msg-hover-btn" data-action="copy" title="复制">📋</button>' + '<button class="msg-hover-btn" data-action="quote" title="引用">💬</button>' + (own ? '<button class="msg-hover-btn" data-action="resend" title="重发">🔄</button>' : '') + '<button class="msg-hover-btn danger" data-action="delete" title="删除">🗑</button>' + '</div>' + '</div></div>';
+      return sepHtml + '<div class="' + msgClasses.trim() + '" data-msg-id="' + escapeAttr(m.id || '') + '">' + avatarHtml + '<div class="msg-content">' + senderHtml + injChipsHtml2 + '<div class="msg-bubble">' + quoteHtml2 + formatMessageContent(m.content) + '</div>' + citationHtml2 + imagesHtml2 + '<div class="msg-hover-actions" data-msg-id="' + escapeAttr(m.id || '') + '">' + '<button class="msg-hover-btn" data-action="copy" title="复制">📋</button>' + '<button class="msg-hover-btn" data-action="quote" title="引用">💬</button>' + (own ? '<button class="msg-hover-btn" data-action="resend" title="重发">🔄</button>' : '') + '<button class="msg-hover-btn danger" data-action="delete" title="删除">🗑</button>' + '</div>' + '</div></div>';
     }).join('') + '<div class="typing-indicator" id="typingIndicator" style="display:none;"><div class="typing-dots"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div></div>';
     if (typingMsg) {
       area.appendChild(typingMsg);
@@ -13588,7 +13602,7 @@ function validateFinalSystemPrompt(systemPrompt) {
 
 // 保存聊天历史
 // ===== 聊天记录后端同步 =====
-async function saveChatToServer(projId, userMsg, aiMsg, docContext, citations, images) {
+async function saveChatToServer(projId, userMsg, aiMsg, docContext, citations, images, injectionTags) {
   if (typeof apiFetch !== 'function') return;
   citations = citations || [];
   images = images || [];
@@ -13620,6 +13634,10 @@ async function saveChatToServer(projId, userMsg, aiMsg, docContext, citations, i
     };
     if (citations.length > 0) {
       assistantBody.citations = citations;
+    }
+    // 〔r81 批注①〕MS3 召回条数随 assistant 落库（气泡上方 chip 历史可见，只丢不造）
+    if (injectionTags && typeof injectionTags === 'object') {
+      assistantBody.injectionTags = injectionTags;
     }
     resp = await apiFetch(baseUrl, {
       method: 'POST',
@@ -13679,6 +13697,7 @@ function loadChatFromServer(id, type, callback) {
           time: m.timestamp || Date.now(),
           images: m.images || null,
           citations: m.citations || [],
+          injectionTags: m.injectionTags || null,
           reply_to: m.reply_to || null,
           reply_to_message: m.reply_to_message || null
         };
@@ -13707,15 +13726,15 @@ function clearChatOnServer(id, type) {
     method: 'DELETE'
   }).catch(function (e) {});
 }
-function saveChatHistory(empId, userMsg, aiMsg, docContext, citations, images) {
+function saveChatHistory(empId, userMsg, aiMsg, docContext, citations, images, injectionTags) {
   if (!empId) {
     console.warn('[saveChatHistory] empId 为空，跳过保存');
     return;
   }
   citations = citations || [];
   images = images || [];
-  // 同步到后端
-  saveChatToServer(empId, userMsg, aiMsg, docContext, citations, images);
+  // 同步到后端（injectionTags 随 assistant 消息落库，历史刷新后 chip 仍可渲染）
+  saveChatToServer(empId, userMsg, aiMsg, docContext, citations, images, injectionTags);
 
   // 提取并保存记忆（延迟 800ms，避免与刚结束的 OpenClaw session 冲突）
   setTimeout(function () {
@@ -14793,7 +14812,22 @@ function _tryAutoPutTalentFromReply(reply) {
     });
 }
 
-function displayAIReply(replyText, docContext, timeStr, expectedEmpId, citations, chainDepth) {
+// 〔r81 批注① 2026-10-08〕MS3 召回 chip 条构建（记忆/知识/规律 三色 pill，复用 sb2 全局 CSS）
+// 数据驱动：injectionTags = {memory:{core,daily,archive}, knowledge, pattern}
+// 无数据/全 0 返回 ''（只丢不造，不渲染零 chip）
+function buildInjectionChipsHtml(injectionTags) {
+  if (!injectionTags || typeof injectionTags !== 'object') return '';
+  var _mem = injectionTags.memory || {};
+  var _memTotal = (_mem.core || 0) + (_mem.daily || 0) + (_mem.archive || 0);
+  var _chips = '';
+  if (_memTotal > 0) _chips += '<span class="sb2-chat-injection-chip accent">🧠 记忆 ' + _memTotal + ' 条</span>';
+  if ((injectionTags.knowledge || 0) > 0) _chips += '<span class="sb2-chat-injection-chip brand">📄 知识 ' + injectionTags.knowledge + ' 条</span>';
+  if ((injectionTags.pattern || 0) > 0) _chips += '<span class="sb2-chat-injection-chip gold">🧩 规律 ' + injectionTags.pattern + ' 条</span>';
+  if (!_chips) return '';
+  return '<div class="sb2-chat-injection-chips">' + _chips + '</div>';
+}
+
+function displayAIReply(replyText, docContext, timeStr, expectedEmpId, citations, chainDepth, injectionTags) {
   // ★ fix/talent-full-sync-r3: dedup 路径自动 PUT (放在函数最前, 异步后台执行不阻塞 render)
   if (replyText && typeof replyText === 'string') {
     _tryAutoPutTalentFromReply(replyText);
@@ -14832,6 +14866,9 @@ function displayAIReply(replyText, docContext, timeStr, expectedEmpId, citations
   html += '<div class="msg-avatar">' + renderAvatar(emp, 32) + '</div>\n';
   html += '<div class="msg-content">\n';
   html += '<div class="msg-sender"><span class="msg-sender-name">' + escapeHtml(emp.name) + '</span><span class="msg-sender-role">' + escapeHtml(getEmpRoleDisplay(emp)) + '</span><span class="msg-sender-time">' + timeStr + '</span></div>\n';
+  // 〔r81 批注①〕MS3 召回 chip 条（气泡上方，原型设计还原；无数据不渲染）
+  var _injChipsHtml = buildInjectionChipsHtml(injectionTags);
+  if (_injChipsHtml) html += _injChipsHtml + '\n';
   html += '<div class="msg-bubble">' + bubble + '</div>\n';
   if (citationHtml) html += citationHtml;
   html += '</div></div>';

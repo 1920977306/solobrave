@@ -20768,6 +20768,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         _citations = body.get('citations')
         if _citations:
             msg['citations'] = _citations
+        # 〔r81 批注① 2026-10-08〕保留注入统计（OpenClaw WS 链路 MS3 召回溯源，
+        # 气泡上方 记忆/知识/规律 三色 chip 数据源；前端回传 assistant 时透传，只丢不造）
+        _inj_tags_in = body.get('injectionTags')
+        if isinstance(_inj_tags_in, dict):
+            msg['injectionTags'] = _inj_tags_in
         # 保留图片信息（多模态）
         images = body.get('images', [])
         if images:
@@ -21134,14 +21139,59 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         #   heavy bypass 形同虚设. 移到前置后多图直接旁路, 不调 _call_ai_api,
         #   不会返回 'AI 服务暂时不可用' 错误消息.
 
+        # 〔r81 批注① 2026-10-08〕OpenClaw WS 链路 MS3 召回补流：
+        # 聊天走 WebSocket 不经过 _call_ai_api，记忆/知识/规律注入统计断流
+        # （气泡上方三色 chip 数据源缺失，老大批注"气泡上面这个功能很好，怎么去掉了"）。
+        # 返回 userMessage 前同步跑一次 MS3 召回（与 _call_ai_api 同一管道），
+        # 注入文本随响应带给前端拼进 WS 消息 —— 真注入真计数，只丢不造。
+        oc_injection = ''
+        oc_inj_tags = None
+        if role == 'user' and agent.get('openclawName'):
+            try:
+                _oc_emb = get_embedding_config(agent_id)
+                _oc_cfg = dict(agent)
+                if _oc_emb.get('model'):
+                    _oc_cfg['embeddingModel'] = _oc_emb['model']
+                _oc_mem_text, _oc_mem_stats = ms3.inject_memories(
+                    agent_id, '',
+                    user_message=body.get('content', ''),
+                    api_key=_oc_emb.get('apiKey') or agent.get('apiKey', ''),
+                    provider=_oc_emb.get('provider') or agent.get('aiProvider', '') or agent.get('apiProvider', ''),
+                    agent_config=_oc_cfg,
+                    allowed_knowledge_categories=_allowed_knowledge_categories(auth),
+                    model=_oc_emb.get('model'),
+                    base_url=_oc_emb.get('baseUrl'),
+                    return_stats=True,
+                )
+                _oc_ke_text, _oc_ke_stats = _retrieve_knowledge_context(
+                    body.get('content', ''), agent_id, None, return_stats=True)
+                _oc_parts = [p for p in (_oc_mem_text or '', _oc_ke_text or '') if p and p.strip()]
+                oc_injection = '\n\n'.join(_oc_parts)
+                _oc_mem = (_oc_mem_stats or {}).get('memory', {}) if isinstance(_oc_mem_stats, dict) else {}
+                oc_inj_tags = {
+                    'memory': {'core': _oc_mem.get('core', 0), 'daily': _oc_mem.get('daily', 0), 'archive': _oc_mem.get('archive', 0)},
+                    'knowledge': (_oc_mem_stats or {}).get('knowledge', 0) if isinstance(_oc_mem_stats, dict) else 0,
+                    'pattern': (_oc_ke_stats or {}).get('pattern', 0) if isinstance(_oc_ke_stats, dict) else 0,
+                }
+                logger.info(f'  [OCInject] {agent_id} MS3召回 mem={oc_inj_tags["memory"]} knowledge={oc_inj_tags["knowledge"]} pattern={oc_inj_tags["pattern"]} text_len={len(oc_injection)}')
+            except Exception as _oc_err:
+                logger.error(f'  [OCInject] {agent_id} MS3召回失败(静默降级,不显示chip): {_oc_err}')
+
         if connection_type == 'openclaw':
             self._send_json(200, {
                 'userMessage': msg,
                 'hint': '请通过 WebSocket 连接获取 AI 回复',
-                'talentInjection': talent_injection
+                'talentInjection': talent_injection,
+                'openclawInjection': oc_injection,
+                'injectionTags': oc_inj_tags
             })
         else:
-            self._send_json(200, {'userMessage': msg, 'talentInjection': talent_injection})
+            self._send_json(200, {
+                'userMessage': msg,
+                'talentInjection': talent_injection,
+                'openclawInjection': oc_injection,
+                'injectionTags': oc_inj_tags
+            })
 
     def _handle_reanalysis_request(self, agent, agent_id, content, intent, msg, auth):
         """达人重新分析意图接管回复：存量 vision_data 截图事件存在则创建异步重分析任务
