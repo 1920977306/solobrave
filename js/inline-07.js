@@ -1871,7 +1871,7 @@ var _sb2TalentsLoaded = false;
    apply when: 任何「列表列需逐行异步拉数据」必须并发池 + cell patch, 禁全表 await */
 var _sb2TalentsMatchCount = {};      // {tid: total or 0}
 var _sb2TalentsMatchFetching = {};   // {tid: true} 防止 dup
-var _sb2TalentsMatchPoolMax = 6;     // 并发池上限 (262 行全表 ~ 50 行 / 6 = ~10s, 前 6 ~ 1.2s 出现)
+var _sb2TalentsMatchPoolMax = 2;     // 并发池上限 2: Chrome 单源 HTTP/1.0 连接上限 6, 池 6 会把 drawer/通知等交互请求全堵死 (冷启动 ai-match 单条 45s+); 留 4 条给交互, 列表列慢填但不再卡交互
 
 /* ★ MVP1: cooperation_status 7 枚举中文映射 (老大实测: available 189 / communicating 11 / cooperating 10 / blacklist 1 / resting 1; following/archived 0 条, 映射函数里照写) */
 var _SB2_TALENT_STATUS_LABELS = {
