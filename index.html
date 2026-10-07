@@ -6881,8 +6881,12 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 }
 .gw-btn-secondary { background: var(--bg-secondary); color: var(--text-primary); }
 .gw-btn-secondary:hover { background: var(--bg-tertiary); }
-.gw-btn-primary { background: var(--accent); color: white; }
-.gw-btn-primary:hover { background: var(--accent-hover); }
+/* 〔r78 P1〕向导主按钮 legacy 蓝 #1677FF (--accent) → 品牌橙 token:
+   新建项目组向导是每个新用户首见流程, 主色跟全站品牌走; v1 设置弹窗的 .btn-primary
+   同属 legacy 蓝但整窗活在 v1 视觉体系 (链接/开关同为蓝), 半改会蓝橙混排,
+   留待 v1→sb2 弹窗迁移时整体换血, 不动 */
+.gw-btn-primary { background: var(--sb2-brand); color: white; }
+.gw-btn-primary:hover { background: var(--sb2-brand-strong); }
 
 /* 群组 emoji 选择器 */
 .emoji-grid {
@@ -12777,8 +12781,10 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
   background:var(--sb2-s1); color:var(--sb2-t1); font:500 12px/1 "PingFang SC",sans-serif;
   cursor:pointer; transition:all .12s;
 }
-.sb2-talents-pager button:hover:not(:disabled){ border-color:var(--sb2-accent); color:var(--sb2-accent); }
-.sb2-talents-pager button.active{ background:var(--sb2-accent); border-color:var(--sb2-accent); color:#fff; }
+.sb2-talents-pager button:hover:not(:disabled){ border-color:var(--sb2-border-strong); color:var(--sb2-t1); }
+/* 〔r78 P1〕active 蓝→ink 黑: 知识库 .sb2-kb-pager-btn.active 同款 (L12828),
+   对齐 sb2「ink=当前/主选」语言 (chips/seg/pager 一致); --sb2-accent 蓝不再上按钮 */
+.sb2-talents-pager button.active{ background:var(--sb2-ink); border-color:var(--sb2-ink); color:#fff; }
 .sb2-talents-pager button:disabled{ opacity:.4; cursor:not-allowed; }
 .sb2-talents-pager .ellipsis{ padding:0 4px; color:var(--sb2-t3); }
 
