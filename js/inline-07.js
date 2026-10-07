@@ -3988,10 +3988,36 @@ function sb2PdsCloseDetail(){
   if (overlay) overlay.classList.remove('open');
 }
 
+/* ★ r70 批注⑨ 老大 16:25「暂无图片怎么不弄个可以上传图片的按钮」: 商品图上传入口
+   — input change 触发, 选好图片后走 fetch 上传 (multipart/form-data)
+   — 暂时只 toast 提示 (后端 /api/products/{id}/upload-image 待接入, 排 P2 协调人)
+   — 不造新 API 入口, 复用 showToast 既有 (r38 IIFE onclick 铁律, 不造第二个渲染入口) */
+function sb2PdsUploadImage(productId, inputEl){
+  var file = (inputEl && inputEl.files && inputEl.files[0]) || null;
+  if (!file) { showToast('请选择图片', 'warning'); return; }
+  /* TODO 协调人排期: 后端 /api/products/{id}/upload-image 接入 (multipart/form-data)
+     当前占位: toast 提示 + 清空 input.value (防止同一文件不触发 change) */
+  showToast('图片上传功能开发中 (P2 排期)', 'info');
+  if (inputEl) inputEl.value = '';
+}
+
 function _sb2PdsDetailHtml(p){
   var h = '';
   if (p.main_image) h += '<img class="sb2-pds-detail-hero-img" src="' + escAttr(p.main_image) + '" alt="" />';
-  else h += '<div class="sb2-pds-detail-hero-img-empty">暂无图片</div>';
+  else {
+    /* ★ r70 批注⑨ 老大 16:25「暂无图片怎么不弄个可以上传图片的按钮」: 加上传引导态
+       — 原 div 只显示「暂无图片」文字, 用户找不到上传入口
+       — 改: 图标 + 文案 + 上传按钮 (input[type=file] hidden + label 触发)
+       — onchange 走 /api/products/{id}/upload-image (待后端 API 接入, 排 P2 协调人)
+       — 只丢不造: 文件 input hidden 不挡 UI, label 显示按钮样式
+       — 跟空状态设计铁律一致: 数据缺失 → 引导用户补全 */
+    h += '<div class="sb2-pds-detail-hero-img-empty">';
+    h += '<div class="sb2-pds-detail-hero-img-empty-icon">📷</div>';
+    h += '<div class="sb2-pds-detail-hero-img-empty-text">暂无图片</div>';
+    h += '<label class="sb2-pds-detail-hero-img-upload-btn" for="sb2PdsUploadImg-' + escAttr(p.id) + '">上传图片</label>';
+    h += '<input type="file" id="sb2PdsUploadImg-' + escAttr(p.id) + '" accept="image/*" style="display:none" onchange="sb2PdsUploadImage(\'' + escAttr(p.id) + '\', this)">';
+    h += '</div>';
+  }
 
   h += '<div class="sb2-pds-detail-section">';
   h += '<div class="sb2-pds-detail-section-title">基础信息</div>';
@@ -4434,9 +4460,80 @@ function switchPtnSideStatus(status){
   sb2PtnRender();
 }
 
+/* ★ r70 批注⑦ 老大 16:25「这个说明就不能做的好一点吗, 没有一点客户体验感」: 晋升链路说明重做
+   — 原 showToast 太简陋, 3 行文字不能图解晋升链
+   — 改: 居中弹层 + 4 阶段流程图 (图标 + 名称 + 触发条件 + 说明)
+   — 4 阶段: 假设 → 候选 → 已验证 → 成熟 (+ 已废弃 退化路径)
+   — 复用 sb2-ptn-detail 弹层 precedent (居中 680 + 遮罩 + rise 动画)
+   — IIFE 自启挂 window 兜底 (r38 IIFE onclick 铁律, 跟 sb2PtnOpenDetail 同款) */
 function sb2PtnPromotionExplain(){
-  // MVP1 占位: 解释晋升链 — MVP5 做完整可视化
-  showToast('晋升链: hypothesis → candidate → verified\n- evidence ≥ 30 且置信度 ≥ 80 自动晋升\n- MVP5 完整可视化排期', 'info');
+  var overlay = document.getElementById('sb2PtnPromoOverlay');
+  var panel = document.getElementById('sb2PtnPromoPanel');
+  var stagesEl = document.getElementById('sb2PtnPromoStages');
+  if (!overlay || !panel || !stagesEl) return;
+  /* 渲染 5 个 stage (4 晋升 + 1 退化) */
+  var stages = _sb2PtnPromoRenderStages();
+  var html = '';
+  stages.forEach(function(s, idx){
+    html += '<div class="sb2-ptn-promo-stage ' + s.cls + '">';
+    html += '<div class="sb2-ptn-promo-stage-icon">' + s.icon + '</div>';
+    html += '<div class="sb2-ptn-promo-stage-content">';
+    html += '<div class="sb2-ptn-promo-stage-name">' + s.name + '</div>';
+    html += '<div class="sb2-ptn-promo-stage-desc">' + s.desc + '</div>';
+    html += '<div class="sb2-ptn-promo-stage-trigger">' + s.trigger + '</div>';
+    html += '</div></div>';
+    /* 阶段间箭头 (除了最后一个) */
+    if (idx < stages.length - 1) {
+      html += '<div class="sb2-ptn-promo-arrow">' + (idx === 3 ? '↘' : '↓') + '</div>';
+    }
+  });
+  stagesEl.innerHTML = html;
+  overlay.classList.add('open');
+  panel.classList.add('open');
+}
+
+function sb2PtnPromotionClose(){
+  var overlay = document.getElementById('sb2PtnPromoOverlay');
+  var panel = document.getElementById('sb2PtnPromoPanel');
+  if (overlay) overlay.classList.remove('open');
+  if (panel) panel.classList.remove('open');
+}
+
+/* 渲染 4 阶段流程 (跟 levelLabel 同款语义, 跨 4 处一致) */
+function _sb2PtnPromoRenderStages(){
+  /* ★ 跟 r66 项⑤⑥ 映射一致: hypothesis→假设, candidate→候选, verified→已验证, proven→成熟 */
+  return [
+    {
+      icon: '🧪', cls: 'hypothesis', name: '假设',
+      desc: 'AI 归纳出来的新规律, 等待人工确认',
+      trigger: '触发: AI 归纳 (⚡触发归纳 按钮)',
+      arrow: '↑ 人工确认 ↓ 弃用'
+    },
+    {
+      icon: '🔬', cls: 'candidate', name: '候选',
+      desc: '已确认可用, 但证据数不够晋升',
+      trigger: '晋升: 人工点 ✓ 确认 (从假设)',
+      arrow: '↑ 证据 ≥ 30 + 置信度 ≥ 80 ↓'
+    },
+    {
+      icon: '📐', cls: 'verified', name: '已验证',
+      desc: '证据数达标 + 置信度高, 自动晋升',
+      trigger: '晋升: evidence ≥ 30 且 confidence ≥ 80 (自动)',
+      arrow: '↑ 持续命中率高 ↓'
+    },
+    {
+      icon: '⭐', cls: 'proven', name: '成熟',
+      desc: '长期高质量, 命中率稳定, 生产级使用',
+      trigger: '晋升: 持续命中率高 (自动)',
+      arrow: '↓ 长期不用 ↓'
+    },
+    {
+      icon: '🗑️', cls: 'deprecated', name: '已废弃',
+      desc: '不再使用或被新规律替代',
+      trigger: '触发: 人工点 ✗ 弃用 或 长期不用',
+      arrow: '(终点)'
+    }
+  ];
 }
 
 function sb2PtnRender(){

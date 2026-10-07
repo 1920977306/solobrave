@@ -9565,6 +9565,65 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
   --shadow-modal:0 10px 40px rgba(0,0,0,.5);
 }
 
+/* ★ r70 批注② 老大 16:25「其他都暗, 还有些没暗, 改一下都暗除了详情页」:
+   浮层强制亮色, 避免被暗黑穿透 (内容焦点必须保持亮色)
+   — 暗黑模式下周围区域 (侧栏 / 列表 / 顶栏) 自动走 [data-sb2-theme=dark] token 变暗
+   — 但浮层是焦点, 强制亮色: background 白 + 文字深色 + 边框浅色
+   — 覆盖 5 浮层: KB 详情/编辑 + 规律详情/promo + 商品详情
+   — 跨 [data-sb2-theme=dark] 和 [data-theme=dark] 双选择器 (跟 r39-3 双属性同步同款) */
+[data-sb2-theme="dark"] .sb2-kb-detail-panel,
+[data-theme="dark"] .sb2-kb-detail-panel,
+[data-sb2-theme="dark"] .sb2-kb-modal-content,
+[data-theme="dark"] .sb2-kb-modal-content,
+[data-sb2-theme="dark"] .sb2-ptn-detail-panel,
+[data-theme="dark"] .sb2-ptn-detail-panel,
+[data-sb2-theme="dark"] .sb2-ptn-promo-panel,
+[data-theme="dark"] .sb2-ptn-promo-panel,
+[data-sb2-theme="dark"] .sb2-pds-detail-panel,
+[data-theme="dark"] .sb2-pds-detail-panel{
+  background:#fff;
+  border-color:#E5E5EA;
+  color:#1C1C1E;
+}
+[data-sb2-theme="dark"] .sb2-kb-detail-header,
+[data-theme="dark"] .sb2-kb-detail-header,
+[data-sb2-theme="dark"] .sb2-kb-modal-header,
+[data-theme="dark"] .sb2-kb-modal-header,
+[data-sb2-theme="dark"] .sb2-ptn-promo-header,
+[data-theme="dark"] .sb2-ptn-promo-header{
+  border-bottom-color:#E5E5EA;
+}
+[data-sb2-theme="dark"] .sb2-kb-detail-title,
+[data-theme="dark"] .sb2-kb-detail-title,
+[data-sb2-theme="dark"] .sb2-kb-modal-header h2,
+[data-theme="dark"] .sb2-kb-modal-header h2,
+[data-sb2-theme="dark"] .sb2-ptn-promo-title,
+[data-theme="dark"] .sb2-ptn-promo-title{
+  color:#1C1C1E;
+}
+[data-sb2-theme="dark"] .sb2-kb-detail-content,
+[data-theme="dark"] .sb2-kb-detail-content,
+[data-sb2-theme="dark"] .sb2-ptn-promo-intro,
+[data-theme="dark"] .sb2-ptn-promo-intro,
+[data-sb2-theme="dark"] .sb2-ptn-promo-stage,
+[data-theme="dark"] .sb2-ptn-promo-stage{
+  background:#F9F9FB;
+  border-color:#E5E5EA;
+  color:#1C1C1E;
+}
+[data-sb2-theme="dark"] .sb2-kb-meta-value,
+[data-theme="dark"] .sb2-kb-meta-value,
+[data-sb2-theme="dark"] .sb2-ptn-promo-stage-name,
+[data-theme="dark"] .sb2-ptn-promo-stage-name{
+  color:#1C1C1E;
+}
+[data-sb2-theme="dark"] .sb2-kb-meta-label,
+[data-theme="dark"] .sb2-kb-meta-label,
+[data-sb2-theme="dark"] .sb2-ptn-promo-stage-desc,
+[data-theme="dark"] .sb2-ptn-promo-stage-desc{
+  color:#63636E;
+}
+
 /* —— 图标轨 (通顶: 18 轮批注①, 顶部 y=0 h=940 对齐原型) —— */
 .sb2-rail{
   position:fixed; left:0; top:0; bottom:0; width:60px; z-index:90;
@@ -10394,6 +10453,82 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
   border-radius:var(--sb2-r-sm); flex-shrink:0;
 }
 .sb2-ptn-modal-close:hover{ background:var(--sb2-s3); color:var(--sb2-t1); }
+
+/* ★ r70 批注⑦ 老大 16:25「这个说明就不能做的好一点吗, 没有一点客户体验感」: 晋升链路说明弹层 CSS
+   — 跟 sb2-ptn-modal 平行结构 (居中弹层 + 遮罩 + rise 动画)
+   — width:680 (内容多: 4 阶段 + 流程图, 比 induce modal 480 宽)
+   — 阶段卡片样式: icon + name + desc + trigger 三段式 */
+.sb2-ptn-promo-overlay{
+  position:fixed; inset:0; z-index:100;
+  background:rgba(10,10,14,.45); backdrop-filter:blur(3px);
+  display:none;
+}
+.sb2-ptn-promo-overlay.open{ display:block; }
+.sb2-ptn-promo-panel{
+  position:fixed; left:50%; top:50%; transform:translate(-50%,-50%);
+  width:680px; max-width:90vw; max-height:80vh;
+  background:var(--sb2-s1); border:1px solid var(--sb2-border);
+  border-radius:var(--sb2-r-lg); box-shadow:0 12px 40px rgba(0,0,0,.12);
+  display:none; flex-direction:column; overflow:hidden;
+  z-index:101;
+  animation:sb2-ptn-modal-rise .2s ease;
+}
+.sb2-ptn-promo-panel.open{ display:flex; }
+.sb2-ptn-promo-header{
+  display:flex; align-items:center; justify-content:space-between;
+  padding:14px 20px; border-bottom:1px solid var(--sb2-border); flex-shrink:0;
+}
+.sb2-ptn-promo-title{
+  margin:0; font:600 16px/1.3 "PingFang SC",sans-serif; color:var(--sb2-ink);
+}
+.sb2-ptn-promo-close{
+  width:28px; height:28px; border:none; background:transparent; cursor:pointer;
+  font-size:18px; line-height:1; color:var(--sb2-t3);
+  border-radius:var(--sb2-r-sm);
+}
+.sb2-ptn-promo-close:hover{ background:var(--sb2-s3); color:var(--sb2-t1); }
+.sb2-ptn-promo-body{
+  padding:20px; overflow-y:auto; flex:1; min-height:0;
+  display:flex; flex-direction:column; gap:16px;
+}
+.sb2-ptn-promo-intro{
+  font:400 13px/1.6 "PingFang SC",sans-serif; color:var(--sb2-t2);
+  padding:10px 14px; background:var(--sb2-s2);
+  border-radius:var(--sb2-r-sm); border-left:3px solid var(--sb2-brand);
+}
+.sb2-ptn-promo-stages{
+  display:flex; flex-direction:column; gap:12px;
+}
+.sb2-ptn-promo-stage{
+  display:flex; gap:12px; padding:12px 14px;
+  background:var(--sb2-s2); border:1px solid var(--sb2-border);
+  border-radius:var(--sb2-r-md);
+}
+.sb2-ptn-promo-stage-icon{
+  font-size:24px; line-height:1; flex-shrink:0; padding-top:2px;
+}
+.sb2-ptn-promo-stage-content{ flex:1; min-width:0; }
+.sb2-ptn-promo-stage-name{
+  font:600 14px/1.3 "PingFang SC",sans-serif; color:var(--sb2-t1);
+  margin-bottom:4px;
+}
+.sb2-ptn-promo-stage-desc{
+  font:400 12px/1.5 "PingFang SC",sans-serif; color:var(--sb2-t2);
+  margin-bottom:6px;
+}
+.sb2-ptn-promo-stage-trigger{
+  font:500 11px/1.4 "PingFang SC",sans-serif; color:var(--sb2-brand);
+  background:var(--sb2-brand-soft); padding:2px 8px;
+  border-radius:var(--sb2-r-sm); display:inline-block;
+}
+.sb2-ptn-promo-arrow{
+  text-align:center; font-size:14px; color:var(--sb2-t3);
+  margin:-4px 0;
+}
+.sb2-ptn-promo-stage.deprecated{
+  opacity:.7; border-style:dashed;
+}
+.sb2-ptn-promo-stage.deprecated .sb2-ptn-promo-stage-name{ color:var(--sb2-t3); }
 .sb2-ptn-modal-body{
   padding:16px 20px; overflow-y:auto; flex:1; min-height:0;
   display:flex; flex-direction:column; gap:14px;
@@ -11069,10 +11204,28 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
   background:var(--sb2-s3); margin-bottom:12px;
 }
 .sb2-pds-detail-hero-img-empty{
-  width:100%; height:120px; border-radius:var(--sb2-r-md);
+  width:100%; min-height:120px; border-radius:var(--sb2-r-md);
   background:var(--sb2-s3); color:var(--sb2-t3);
-  display:flex; align-items:center; justify-content:center;
+  display:flex; flex-direction:column; align-items:center; justify-content:center;
+  gap:8px;
   font:500 12px/1 "PingFang SC",sans-serif; margin-bottom:12px;
+  padding:20px;
+}
+.sb2-pds-detail-hero-img-empty-icon{
+  font-size:32px; line-height:1; opacity:.6;
+}
+.sb2-pds-detail-hero-img-empty-text{
+  font:500 12px/1.4 "PingFang SC",sans-serif;
+}
+.sb2-pds-detail-hero-img-upload-btn{
+  display:inline-block; padding:6px 14px; margin-top:4px;
+  border:1px solid var(--sb2-brand); border-radius:var(--sb2-r-sm);
+  background:var(--sb2-brand); color:#fff;
+  font:500 12px/1 "PingFang SC",sans-serif; cursor:pointer;
+  transition:background .15s, border-color .15s;
+}
+.sb2-pds-detail-hero-img-upload-btn:hover{
+  background:var(--sb2-brand-strong); border-color:var(--sb2-brand-strong);
 }
 .sb2-pds-detail-tags{
   display:flex; gap:6px; flex-wrap:wrap;
@@ -15036,6 +15189,25 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
   </div>
 </div>
 
+<!-- ★ r70 批注⑦ 老大 16:25「这个说明就不能做的好一点吗, 没有一点客户体验感」: 晋升链路说明弹层 DOM
+   — 4 阶段流程图 (假设→候选→已验证→成熟, + 已废弃 退化路径)
+   — 每阶段: icon + 名称 + 说明 + 触发条件 (背景 chip 突出)
+   — JS 函数 sb2PtnPromotionExplain/Close (跟 sb2PtnOpenDetail/CloseDetail 同款 precedent)
+   — 居中弹层 680 (比 induce modal 480 宽, 流程图需要宽度) -->
+<div class="sb2-ptn-promo-overlay" id="sb2PtnPromoOverlay" onclick="sb2PtnPromotionClose()"></div>
+<div class="sb2-ptn-promo-panel" id="sb2PtnPromoPanel" onclick="event.stopPropagation()">
+  <div class="sb2-ptn-promo-header">
+    <h2 class="sb2-ptn-promo-title">📚 规律晋升链路说明</h2>
+    <button class="sb2-ptn-promo-close" onclick="sb2PtnPromotionClose()" aria-label="关闭">×</button>
+  </div>
+  <div class="sb2-ptn-promo-body">
+    <div class="sb2-ptn-promo-intro">
+      规律从 AI 归纳到生产级使用，会经过 4 个晋升阶段 + 1 个退化路径。每个阶段有不同的「触发条件」，系统按规则自动判断或人工确认。
+    </div>
+    <div class="sb2-ptn-promo-stages" id="sb2PtnPromoStages"><!-- JS 动态渲染 5 个 stage --></div>
+  </div>
+</div>
+
 <!-- ★ sb2-patterns MVP3: 触发规律归纳 modal (POST /api/knowledge-patterns/induce) -->
 <div class="sb2-ptn-modal" id="sb2PtnInduceModal">
   <div class="sb2-ptn-modal-overlay" onclick="sb2PtnCloseInduceModal()"></div>
@@ -18070,7 +18242,7 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
      v2 (202609241444): 初始破缓存 + skip-device 守卫
      v3 (202609241420): probe 误导文案澄清 (fingerprint fallback → token-only) -->
 <script src="openclaw-client.js?v=202609301548"></script>
-<script src="js/inline-07.js?v=d468d11fa7"></script>
+<script src="js/inline-07.js?v=823e1e0ca6"></script>
 
 <!-- Match Result Modal -->
 <div class="product-modal-overlay" id="matchModalOverlay" onclick="closeMatchModal()">
