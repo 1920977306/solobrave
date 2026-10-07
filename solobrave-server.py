@@ -16074,10 +16074,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
-        # 签到基于 auth userId (localhost 走 X-Agent-Id, prod 走 Bearer token user_id)
-        agent_id = (getattr(auth, 'localhost_agent_id', None) or auth.user_id or '').strip()
-        if not agent_id:
-            self._send_json_error(400, '无法识别签到者身份')
+        # ★ 02:04 更正: 客户签到的钱落「客户的 AI 员工」钱包 (与消费计量同 keying), 不落登录用户 id
+        body = self._read_body() or {}
+        agent_id, _err = _resolve_credit_target_agent(auth, body.get('agent_id', ''))
+        if _err:
+            self._send_json_error(403 if '无权' in _err else 400, _err)
             return
         conn = _db_conn()
         try:
@@ -16146,9 +16147,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
-        agent_id = (getattr(auth, 'localhost_agent_id', None) or auth.user_id or '').strip()
-        if not agent_id:
-            self._send_json_error(400, '无法识别签到者身份')
+        # ★ 02:04 更正: 与 checkin 同口径 — 查的是「客户的 AI 员工」钱包
+        qs = parse_qs(urlparse(self.path).query)
+        agent_id, _err = _resolve_credit_target_agent(auth, qs.get('agent_id', [''])[0])
+        if _err:
+            self._send_json_error(403 if '无权' in _err else 400, _err)
             return
         conn = _db_conn()
         try:
@@ -28983,12 +28986,39 @@ def _recharge_credits(conn, agent_id, amount, operator=''):
 DEFAULT_CHECKIN_REWARD = 10        # 签到一次 +10 积分
 DEFAULT_CREDIT_LIMIT = 10000       # 余额上限 10000 积分
 
+def _resolve_credit_target_agent(auth, requested=''):
+    """签到/查询的积分账户归属 = AI 员工 id (credit 计量按员工 keying, _check_credit_balance/_record_credit_usage 同口径)。
+    ★ 02:04 更正: 签到主体是「客户」(人按按钮), 但钱包必须落客户名下 AI 员工的账户, 否则签到攒的钱消费端永远扣不到。
+    - requested 显式指定: 校验当前登录用户对该员工有访问权 (admin 全通)
+    - 未指定: 恰好一个可访问员工则用它; 多个则要求显式指定; admin 必须显式指定
+    返回 (agent_id, error_message) — error_message 非空即拒绝
+    """
+    # localhost 内部快捷通道 (AI/脚本直调): X-Agent-Id 已验明员工身份, 直接用作钱包 key
+    _local = (getattr(auth, 'localhost_agent_id', None) or '').strip()
+    if _local and not (requested or '').strip():
+        return _local, ''
+    accessible = _get_accessible_agent_ids(auth)
+    requested = (requested or '').strip()
+    if requested:
+        if accessible is not None and requested not in accessible:
+            return '', f'无权操作员工 {requested} 的积分账户'
+        return requested, ''
+    if accessible is None:
+        return '', '管理员请显式指定 agent_id'
+    if len(accessible) == 1:
+        return next(iter(accessible)), ''
+    return '', '有多个可访问员工, 请指定 agent_id'
+
 def _checkin_credits(conn, agent_id, reward=DEFAULT_CHECKIN_REWARD, limit=DEFAULT_CREDIT_LIMIT):
-    """每日签到 (幂等: agent_id + 当天日期唯一).
+    """每日签到 (客户主体, 幂等: agent_id + 当天日期唯一).
     返回 dict {ok, already_checked_in, balance, capped, reward, limit, delta}
     - already_checked_in=True → 当天已签到, 不重复加余额
     - capped=True → 余额已达上限, 不再加 (但仍写 log reason=checkin capped 留痕)
     - delta: 实际累加的积分 (capped 时 = 0)
+
+    ★ 派单更正 (贾维斯 02:03): 签到主体是客户 (user), 不是员工 (emp).
+       DB 字段 agent_id 是历史命名, 本场景语义是 agent_id (客户账号).
+       派单不要求改 schema, 沿用 agent_id 字段避免破坏既有 recharge 路径.
     """
     _ensure_credit_account(conn, agent_id)
     today = datetime.now().strftime('%Y-%m-%d')
@@ -29018,14 +29048,17 @@ def _checkin_credits(conn, agent_id, reward=DEFAULT_CHECKIN_REWARD, limit=DEFAUL
         (agent_id, 0, delta, note_text, datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
     )
     new_balance = current + delta
-    logger.info(f'  [Credits] checkin agent={agent_id} reward={reward} delta={delta} new_balance={new_balance} capped={capped}')
+    logger.info(f'  [Credits] checkin agent_id={agent_id} reward={reward} delta={delta} new_balance={new_balance} capped={capped}')
     return {'ok': True, 'already_checked_in': False, 'balance': new_balance,
             'capped': capped, 'reward': reward, 'limit': limit, 'delta': delta}
 
 
 def _admin_grant_credits(conn, agent_id, delta, operator='', note=''):
-    """管理员分配积分 (加减均可, 不受上限, 强制 log).
+    """管理员给客户账号分配积分 (加减均可, 不受上限, 强制 log).
     返回 dict {ok, balance, delta, reason, note, new_balance}
+
+    ★ 派单更正 (贾维斯 02:03): 主体是客户 (user), 不是员工 (emp).
+       DB 字段 agent_id 是历史命名, 本场景语义是 agent_id (客户账号).
     """
     _ensure_credit_account(conn, agent_id)
     try:
@@ -29055,7 +29088,7 @@ def _admin_grant_credits(conn, agent_id, delta, operator='', note=''):
     )
     row = conn.execute('SELECT balance FROM credit_accounts WHERE agent_id = ?', (agent_id,)).fetchone()
     new_balance = row['balance'] if row else 0
-    logger.info(f'  [Credits] admin_grant agent={agent_id} delta={delta} reason={reason} operator={operator} new_balance={new_balance}')
+    logger.info(f'  [Credits] admin_grant agent_id={agent_id} delta={delta} reason={reason} operator={operator} new_balance={new_balance}')
     return {'ok': True, 'balance': new_balance, 'delta': delta, 'reason': reason, 'note': note, 'new_balance': new_balance}
 
 
