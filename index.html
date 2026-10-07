@@ -9959,12 +9959,16 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
    — 源顺序纪律: 改完基础定义 (line 10206) 仍在 1100 media 之前, 同优先级后定义赢规则保持
    — 验收: rail 点 AI 办公室/达人库 (有侧栏模块), 侧栏标题 y≈0-24 贴顶, 无白条纹 */
 .sb2-side{
+  /* 〔r78 批注① 老大 22:18「都做成白的吧」: 侧栏底色 s2→s1 纯白, 全站侧栏统一
+     — 修前: 本侧栏 s2 #FAFAFB, 唯任务页 .sb2-tasks-side s1 #FFFFFF, 两口径并存
+     — 修后: 全部走 s1 (暗黑模式 s1=#17171B 同步生效, 无需另改)
+     — 取舍记录: 白侧栏与白内容卡同层, 靠 border-right 分隔 (老大 A/B 后拍板全白) */
   /* 〔r75 批注③ 老大 19:22「侧栏要跟右边对齐」: 加 padding-top/bottom 20px
      — 修前: 侧栏头卡贴 y0, 主区内容在 topbar(48)+20=y68 → 两侧节奏断层, 视觉怪
      — 修后: 两侧统一「区域顶 + 20px」节奏 (主区 = topbar 48 + 20, 侧栏 = 0 + 20)
      — 注: 严格 y 对齐需侧栏 padding-top 67px, 顶部大留白更难看, 采节奏对齐 */
   position:fixed; top:0; left:60px; bottom:0; width:236px; z-index:80;
-  background:var(--sb2-s2); border-right:1px solid var(--sb2-border);
+  background:var(--sb2-s1); border-right:1px solid var(--sb2-border);
   display:flex; flex-direction:column; overflow:hidden;
   padding:20px 0;
 }
