@@ -13785,12 +13785,77 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
 }
 
 /* Input row (原型 flex row: ghost attach + white pill + btn-ink send) */
+/* 〔r68 批注③ 2026-10-07〕输入区重设计: 单行挤压改「白卡作曲家」
+   参考: 原型 s-chat (127.0.0.1:18203) — 白底圆角输入囊 + 深色发送键
+   结构: 整张白卡 (radius 14 + border-strong) 内含两行
+     上行 = 裸 textarea (卡片已包视觉, 囊去边框)
+     下行 = 工具条 (附件/表情/@///模型 pill 居左, 发送居右)
+   好处: 工具钮不再跟 textarea 抢一行宽度, 窄屏自然换行不溢出
+   功能零改动: 所有 id / onclick / 弹层锚点 (.sb2-chat-input-wrap) 不变 */
 .sb2-chat-input-row {
   display: flex;
-  align-items: flex-end;
-  gap: var(--sb2-chat-input-row-gap);
-  /* 〔r65 批注①〕r65 起工具钮 4 个 (附件/表情/@//) + 模型 pill, 窄屏防溢出允许换行 */
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+  background: var(--sb2-chat-input-pill-bg);
+  border: var(--sb2-chat-input-pill-border);
+  border-radius: var(--sb2-chat-input-pill-radius);
+  padding: 8px 10px 6px;
+  transition: border-color 0.15s;
+}
+.sb2-chat-input-row:focus-within {
+  border-color: var(--sb2-chat-input-pill-border-focus);
+}
+.sb2-chat-composer-top {
+  display: flex;
+  min-width: 0;
+}
+/* 卡片内 textarea 容器: 去独立边框/底色, 由外卡统一包视觉 */
+.sb2-chat-composer-top .sb2-chat-input-pill {
+  border: none;
+  background: transparent;
+  padding: 4px 6px;
+}
+/* 工具条: 工具居左 (flex:1 吃掉弹性空间), 模型 pill + 发送居右 */
+.sb2-chat-composer-bar {
+  display: flex;
+  align-items: center;
   flex-wrap: wrap;
+  gap: 4px;
+  padding-top: 4px;
+}
+.sb2-chat-composer-tools {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+/* 卡内工具钮: 去 ghost 边框, 透明底 + hover 灰底 (Feishus/Slack 风格) */
+.sb2-chat-composer-bar .sb2-btn {
+  width: 30px;
+  height: 30px;
+  padding: 0 !important;
+  border: none;
+  background: transparent;
+  border-radius: var(--sb2-r-md);
+  color: var(--sb2-t2);
+  display: grid;
+  place-items: center;
+}
+.sb2-chat-composer-bar .sb2-btn:hover {
+  background: var(--sb2-s3);
+  color: var(--sb2-t1);
+}
+.sb2-chat-composer-bar .sb2-chat-send-btn {
+  width: auto;
+  height: 30px;
+  padding: 0 14px !important;
+  border-radius: var(--sb2-r-md);
+}
+.sb2-chat-composer-bar .sb2-chat-model-pill {
+  padding: 5px 10px;
+  max-width: 140px;
 }
 
 /* Attach btn (原型: btn-ghost 方形 8px padding) */
@@ -15595,8 +15660,8 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
       </div>
     </div>
     <div class="sb2-chat-topbar-right">
-      <button class="sb2-chat-topbar-ghost" type="button" id="sb2ChatTopbarProfile" title="员工档案" onclick="sb2_toastComingSoon('员工档案')">员工档案</button>
-      <button class="sb2-chat-topbar-ghost" type="button" id="sb2ChatTopbarSettings" title="会话设置" onclick="sb2_toastComingSoon('会话设置')">设置</button>
+      <button class="sb2-chat-topbar-ghost" type="button" id="sb2ChatTopbarProfile" title="员工档案" onclick="sb2_openEmpProfile()">员工档案</button>
+      <button class="sb2-chat-topbar-ghost" type="button" id="sb2ChatTopbarSettings" title="会话设置 (请求级模型指定)" onclick="sb2_renderModelMenu()">设置</button>
     </div>
   </header>
 
@@ -15623,23 +15688,29 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
     <!-- 〔r65 批注① 2026-10-07〕补齐 legacy 输入工具钮: 表情/@提及//命令/模型切换
          弹层逻辑本已在 js/inline-11.js 实现并 window 暴露, 这里只加触发钮 (IIFE+onclick 铁律) -->
     <div class="sb2-chat-input-row">
-      <button class="sb2-btn sb2-btn-ghost sb2-chat-attach-btn" type="button" id="sb2ChatAttachBtn" title="图片附件" aria-label="添加图片附件">
-        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
-      </button>
-      <button class="sb2-btn sb2-btn-ghost sb2-chat-attach-btn" type="button" title="表情" onclick="sb2_insertEmoji()">
-        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" x2="9.01" y1="9" y2="9"/><line x1="15" x2="15.01" y1="9" y2="9"/></svg>
-      </button>
-      <button class="sb2-btn sb2-btn-ghost sb2-chat-attach-btn" type="button" title="@ 提及员工" onclick="sb2_openMentionBtn()">
-        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8"/></svg>
-      </button>
-      <button class="sb2-btn sb2-btn-ghost sb2-chat-attach-btn" type="button" title="/ 命令" onclick="sb2_openSlashBtn()">
-        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h16"/><path d="m6 16 6-12"/><path d="m18 16-6-12"/></svg>
-      </button>
-      <button class="sb2-chat-model-pill" id="sb2ChatPickModel" type="button" title="切换模型 (请求级, 必须经 OpenClaw Gateway)" onclick="sb2_renderModelMenu()">模型</button>
-      <div class="sb2-chat-input-pill">
-        <textarea id="sb2ChatInput" class="sb2-chat-input" rows="1" placeholder="给员工派活… (Enter 发送, Shift+Enter 换行)" autocomplete="off"></textarea>
+      <div class="sb2-chat-composer-top">
+        <div class="sb2-chat-input-pill">
+          <textarea id="sb2ChatInput" class="sb2-chat-input" rows="1" placeholder="给员工派活… (Enter 发送, Shift+Enter 换行)" autocomplete="off"></textarea>
+        </div>
       </div>
-      <button class="sb2-btn sb2-btn-ink sb2-chat-send-btn" id="sb2ChatSendBtn" type="button" disabled title="发送" aria-label="发送消息">发送</button>
+      <div class="sb2-chat-composer-bar">
+        <div class="sb2-chat-composer-tools">
+          <button class="sb2-btn sb2-btn-ghost sb2-chat-attach-btn" type="button" id="sb2ChatAttachBtn" title="图片附件" aria-label="添加图片附件">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+          </button>
+          <button class="sb2-btn sb2-btn-ghost sb2-chat-attach-btn" type="button" title="表情" onclick="sb2_insertEmoji()">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" x2="9.01" y1="9" y2="9"/><line x1="15" x2="15.01" y1="9" y2="9"/></svg>
+          </button>
+          <button class="sb2-btn sb2-btn-ghost sb2-chat-attach-btn" type="button" title="@ 提及员工" onclick="sb2_openMentionBtn()">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8"/></svg>
+          </button>
+          <button class="sb2-btn sb2-btn-ghost sb2-chat-attach-btn" type="button" title="/ 命令" onclick="sb2_openSlashBtn()">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h16"/><path d="m6 16 6-12"/><path d="m18 16-6-12"/></svg>
+          </button>
+        </div>
+        <button class="sb2-chat-model-pill" id="sb2ChatPickModel" type="button" title="切换模型 (请求级, 必须经 OpenClaw Gateway)" onclick="sb2_renderModelMenu()">模型</button>
+        <button class="sb2-btn sb2-btn-ink sb2-chat-send-btn" id="sb2ChatSendBtn" type="button" disabled title="发送" aria-label="发送消息">发送</button>
+      </div>
     </div>
     <input type="file" id="sb2ChatFileInput" accept="image/*" multiple style="display:none;">
 
@@ -18017,7 +18088,7 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
      - 旧 chatArea + 老 JS 函数 100% 不动, 新 sb2 完全独立
      - _sb2Chat state + renderChatMain dispatcher
 -->
-<script src="js/inline-10.js?v=56c22d7746"></script>
+<script src="js/inline-10.js?v=266d7c5819"></script>
 
 <!-- ★ feat/sb2-chat-tasks: §2 聊天进阶 JS (slash 命令 + @mention + 模型选择)
      - 复用 §1 的 _sb2Chat state + sb2_doSend + renderChatMain dispatcher

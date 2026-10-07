@@ -96,6 +96,16 @@
     }
   }
 
+  // ★ r68 批注①: 「员工档案」接 legacy openEmpDetail (inline-03 既有员工详情抽屉, 零新逻辑)
+  function sb2_openEmpProfile() {
+    var id = _sb2Chat.agentId || _sb2GetCurrentEmpId();
+    if (id && typeof openEmpDetail === 'function') {
+      openEmpDetail(id);
+      return;
+    }
+    sb2_toastComingSoon('员工档案');
+  }
+
   // ===== Messages =====
   function sb2_renderMessages() {
     var container = document.getElementById('sb2ChatMessages');
@@ -543,4 +553,6 @@
   window.sb2_appendBubble = sb2_appendBubble;
   // 同步 _sb2Chat 引用挂 window (同根因: P1b prop 块需 push 消息)
   window._sb2Chat = _sb2Chat;
+  // ★ r68 批注①: 员工档案 onclick 跨块调用 — IIFE 内函数必须挂 window 才够得着
+  window.sb2_openEmpProfile = sb2_openEmpProfile;
 })();
