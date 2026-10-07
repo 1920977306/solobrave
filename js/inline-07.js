@@ -1816,6 +1816,16 @@ function sb2PtnSearchInput(q){
   if (typeof sb2PtnRender === 'function') sb2PtnRender();
 }
 
+/* 〔r77 批注④ 老大 21:14「详细的让客户点击查看」: 员工详情高级设置折叠开关 */
+function toggleEmpAdv(){
+  var body = document.getElementById('empAdvBody');
+  var tog = document.querySelector('.emp-adv-toggle');
+  if (!body) return;
+  var open = body.style.display !== 'none';
+  body.style.display = open ? 'none' : '';
+  if (tog) tog.classList.toggle('open', !open);
+}
+
 /* ============================================================
  * sb2-talents MVP1: 端点契约 / 三维筛选现场聚合 / 评级分档 / 状态映射 / GPM 归一 / 表格 + 分页
  * 端点契约 (grep 源码 + 老大实测):

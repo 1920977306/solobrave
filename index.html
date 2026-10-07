@@ -5571,7 +5571,7 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
    ======================================== */
 .emp-detail-overlay { position: fixed; inset: 0; background: rgba(10, 10, 14, 0.55); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); opacity: 0; visibility: hidden; transition: all 0.3s; z-index: 250; }
 .emp-detail-overlay.open { opacity: 1; visibility: visible; }
-.emp-detail-panel { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 90%; max-width: 680px; max-height: 80vh; background: #ffffff; border-radius: 16px; box-shadow: 0 20px 60px rgba(0,0,0,0.18); z-index: 251; display: flex; flex-direction: column; overflow: hidden; opacity: 0; visibility: hidden; transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1); }
+.emp-detail-panel { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 92%; max-width: 960px; max-height: 84vh; background: #ffffff; border-radius: 16px; box-shadow: 0 20px 60px rgba(0,0,0,0.18); z-index: 251; display: flex; flex-direction: column; overflow: hidden; opacity: 0; visibility: hidden; transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1); }
 .emp-detail-content { flex: 1; overflow-y: auto; padding: 14px 20px; }
 .emp-detail-actions { flex-shrink: 0; padding: 12px 20px; }
 .emp-detail-overlay.open .emp-detail-panel { opacity: 1; visibility: visible; transform: translate(-50%, -50%) scale(1); }
@@ -5597,10 +5597,18 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 }
 /* 〔r71 反馈 Comment 2〕header padding 20px → 14px 20px, 跟 KB 详情同款紧凑度 */
 .emp-detail-header { display: flex; align-items: center; gap: 12px; padding: 14px 20px; border-bottom: 0.5px solid var(--separator); }
+/* 〔r77 批注② 老大 21:14「header 占的部分太大了」: header 压缩
+   — avatar 56→44 / name 单行 / role+status 并入一行 / padding 14→10 */
 .emp-detail-header.emp-detail-header-v3 {
+  padding: 10px 20px;
   /* 〔r73 反馈 Comment 2〕header 渐变从浅蓝 (#EEF0FF) 删,改为纯白 (跟 .sb2-* 系统对齐) */
   background: #ffffff;
 }
+.emp-detail-header-v3 .emp-detail-avatar{ width:44px; height:44px; font-size:22px; flex-shrink:0; }
+.emp-detail-header-v3 .emp-detail-name{ font-size:17px; line-height:1.2; }
+.emp-detail-header-v3 .emp-detail-role{ display:inline; font-size:12px; color:var(--sb2-t3,#8E8E93); margin-bottom:0; }
+.emp-detail-header-v3 .emp-detail-status{ display:inline-flex; font-size:12px; margin-left:10px; }
+.emp-detail-header-v3 .emp-action-btn{ padding:8px 14px; font-size:13px; }
 /* 〔r75 批注② 老大 19:22「详情页右边是蓝色的,去掉」: 删 v3 header 蓝紫光晕伪元素
    — 根因: r73 只删了 header 背景渐变 (#EEF0FF), 漏了 ::before 装饰光晕
    — 该伪元素 absolute 50%宽 200%高, 从 header (y77) 溢出覆盖整个面板右下 (实测像素 #EDEDFB = rgba(94,92,230,0.12) over 白)
@@ -5613,36 +5621,51 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .emp-detail-header-v3 .status-dot.online { animation: aiEmpStatusPulse 2s ease-in-out infinite; }
 @keyframes aiEmpStatusPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
 
+/* 〔r77 批注④〕高级设置折叠区: 核心信息直出, 详细设置点击展开 */
+.emp-adv-toggle{
+  display:flex; align-items:center; gap:10px;
+  margin-top:12px; padding:10px 14px;
+  border:1px dashed var(--sb2-border); border-radius:8px;
+  font:500 13px/1.4 "PingFang SC",sans-serif; color:var(--sb2-t2);
+  cursor:pointer; user-select:none;
+}
+.emp-adv-toggle:hover{ background:var(--sb2-s2); }
+.emp-adv-hint{ font-size:11px; color:var(--sb2-t3); flex:1; }
+.emp-adv-arrow{ font-size:12px; color:var(--sb2-t3); transition:transform .15s ease; }
+.emp-adv-toggle.open .emp-adv-arrow{ transform:rotate(90deg); }
+
 /* ============================================================
  * V3 升级 - ai-emp-* 命名空间(stats 独立条 / 4 能力 / 工作记录)
  * ============================================================ */
 
-/* stats 独立条(跨 tab 始终可见,header 下方,tabs 上方) */
+/* stats 独立条(跨 tab 始终可见,header 下方,tabs 上方)
+   〔r77 批注③ 老大 21:14「这个占的部分也大」: 压缩 97px → ~56px
+   — bar padding 14→8 / 卡 padding 12→6 / 数值 22→16 / 标签 12→11 */
 .ai-emp-stats-bar {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 10px;
-  padding: 14px 20px;
-  background: var(--color-bg-soft, #F5F7FA);
-  border-bottom: 1px solid var(--color-border-subtle, #E5E5EA);
+  gap: 8px;
+  padding: 8px 20px;
+  background: var(--sb2-s2, var(--color-bg-soft, #F5F7FA));
+  border-bottom: 1px solid var(--sb2-border, var(--color-border-subtle, #E5E5EA));
 }
 .ai-emp-stat {
-  padding: 12px 14px;
-  background: var(--color-bg, var(--bg-primary,#ffffff));
-  border: 1px solid var(--color-border-subtle, #E5E5EA);
-  border-radius: 10px;
+  padding: 6px 12px;
+  background: var(--sb2-s1, var(--color-bg, #ffffff));
+  border: 1px solid var(--sb2-border, var(--color-border-subtle, #E5E5EA));
+  border-radius: 8px;
   position: relative;
 }
 .ai-emp-stat-value {
-  font-size: 22px;
+  font-size: 16px;
   font-weight: 600;
   color: var(--color-text-primary, #1C1C1E);
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.02em;
   line-height: 1.2;
 }
-.ai-emp-stat-value.placeholder { color: var(--color-text-tertiary, #8E8E93); font-size: 18px; font-weight: 500; }
-.ai-emp-stat-label { font-size: 12px; color: var(--color-text-tertiary, #8E8E93); margin-top: 4px; }
+.ai-emp-stat-value.placeholder { color: var(--color-text-tertiary, #8E8E93); font-size: 13px; font-weight: 500; }
+.ai-emp-stat-label { font-size: 11px; color: var(--color-text-tertiary, #8E8E93); margin-top: 2px; }
 .ai-emp-stat-source { display: none; font-size: 10px; color: var(--color-text-tertiary, #8E8E93); margin-top: 4px; font-family: var(--font-num, monospace); opacity: 0.7; }
 /* V2.1 评级 chip 视觉: 数字为 0 时加灰色「未采集」chip,和达人卡 V2.1 一致
    零编造规则 v2: 0 不等于没数据,统一兑底为「未采集」 */
@@ -16624,7 +16647,13 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
 </div>
 </div>
 </div>
-<div class="emp-doc-section" style="margin-top:16px;">
+<!-- 〔r77 批注④ 老大 21:14「重要部分先展示,详细的点击查看」: 高级设置折叠区
+     — 核心信息 (emp-info-list  above) 直接展示; 描述/紧急标记/Dreaming 收进折叠区, 默认收起 -->
+<div class="emp-adv-toggle" onclick="toggleEmpAdv()">
+  <span>⚙️ 高级设置</span><span class="emp-adv-hint">描述 · 紧急标记 · Dreaming 模式</span><span class="emp-adv-arrow" id="empAdvArrow">▸</span>
+</div>
+<div class="emp-adv-body" id="empAdvBody" style="display:none;">
+<div class="emp-doc-section" style="margin-top:12px;">
   <div class="emp-doc-title">📝 描述</div>
   <textarea id="empDescriptionInput" rows="3" placeholder="输入员工描述..." style="width:100%;padding:10px 12px;border:1px solid var(--separator);border-radius:8px;font-size:13px;box-sizing:border-box;resize:vertical;"></textarea>
   <div id="empDetailDescription" style="margin-top:8px;font-size:12px;color:var(--text-secondary);line-height:1.5;"></div>
@@ -16638,6 +16667,7 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
   <input type="text" id="empBadgeInput" placeholder="如: 称呼Truman! 立刻" style="width:100%;padding:10px 12px;border:1px solid var(--separator);border-radius:8px;font-size:13px;box-sizing:border-box;" oninput="updateBadgePreview(this.value)">
   <div id="empBadgePreview" style="margin-top:8px;font-size:12px;color:var(--text-secondary);"></div>
 </div>
+</div><!-- /.emp-adv-body -->
 </div>
 
 <!-- Avatar Tab -->
@@ -18493,7 +18523,7 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
      v2 (202609241444): 初始破缓存 + skip-device 守卫
      v3 (202609241420): probe 误导文案澄清 (fingerprint fallback → token-only) -->
 <script src="openclaw-client.js?v=202609301548"></script>
-<script src="js/inline-07.js?v=3d01f12616"></script>
+<script src="js/inline-07.js?v=c930f23f3f"></script>
 
 <!-- Match Result Modal -->
 <div class="product-modal-overlay" id="matchModalOverlay" onclick="closeMatchModal()">
