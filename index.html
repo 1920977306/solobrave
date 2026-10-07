@@ -15516,6 +15516,15 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
       <button class="sb2-tln-tab" data-tab="records" onclick="sb2TlnSwitchTab('records')">跟进记录</button>
       <button class="sb2-tln-tab" data-tab="followups" onclick="sb2TlnSwitchTab('followups')">待办</button>
       <button class="sb2-tln-tab" data-tab="knowledge" onclick="sb2TlnSwitchTab('knowledge')">知识库</button>
+      <!-- ★ r75 派单 tab 6 任务-达人关联 (贾维斯派单给小路, 老大已批「全部弄」):
+        - 新增第 8 个 tab "任务" (在 records 跟进记录后, 跟 followups 待办 平行但语义不同)
+        - 数据源: GET /api/tasks?talent_id={talentId} (server 已加 talent_id 过滤参数 cc7b6f8)
+        - 任务卡显示: 标题 / 状态 / 优先级 / 截止 / 创建人 / 关联达人 (当前达人, 用于解除关联)
+        - 操作: 解除关联 (PUT /api/tasks/{id} {talent_id: ''}) / 新建任务 (POST /api/tasks 带 talent_id)
+        - 跟 r74 (新 rail active 同步) + r78 (按钮红体系) + r73 (员工详情去蓝色) 联动设计哲学一致
+        - 跟既有 sb2TlnFetchPanelFollowUps / sb2TlnFetchPanelKnowledge 同款懒加载钩子模式
+        - 字段名铁律 (第 1 条): 渲染函数抄实测 /api/tasks?talent_id=xxx 真字段, 不凭印象 -->
+      <button class="sb2-tln-tab" data-tab="tasks" onclick="sb2TlnSwitchTab('tasks')">任务</button>
     </div>
     <div class="sb2-tln-detail-body" id="sb2TlnDetailBody">
       <div class="sb2-tln-tab-panel active" data-panel="overview" id="sb2TlnPanelOverview"></div>
@@ -15525,6 +15534,7 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
       <div class="sb2-tln-tab-panel" data-panel="records" id="sb2TlnPanelRecords"></div>
       <div class="sb2-tln-tab-panel" data-panel="followups" id="sb2TlnPanelFollowUps"></div>
       <div class="sb2-tln-tab-panel" data-panel="knowledge" id="sb2TlnPanelKnowledge"></div>
+      <div class="sb2-tln-tab-panel" data-panel="tasks" id="sb2TlnPanelTasks"></div>
     </div>
   </div>
 </div>
@@ -15743,6 +15753,11 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
       <div class="sb2-tasks-form-row">
         <label>项目</label>
         <input type="text" id="sb2TasksFormProject" placeholder="例如: 达人撮合">
+      </div>
+      <!-- ★ r75 派单: 任务-达人关联字段 (admin 才显示 + 可改/清空; PUT {talent_id:''} 解除关联) -->
+      <div class="sb2-tasks-form-row" id="sb2TasksFormTalentRow" style="display:none">
+        <label>关联达人 <span class="ro">(admin 可改/清空)</span></label>
+        <input type="text" id="sb2TasksFormTalentId" placeholder="达人 id (留空 = 解除关联)">
       </div>
     </div>
     <div class="sb2-tasks-form-grid">
@@ -18921,7 +18936,7 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
      v2 (202609241444): 初始破缓存 + skip-device 守卫
      v3 (202609241420): probe 误导文案澄清 (fingerprint fallback → token-only) -->
 <script src="openclaw-client.js?v=202609301548"></script>
-<script src="js/inline-07.js?v=556d65bca5"></script>
+<script src="js/inline-07.js?v=7e6d77e757"></script>
 
 <!-- Match Result Modal -->
 <div class="product-modal-overlay" id="matchModalOverlay" onclick="closeMatchModal()">

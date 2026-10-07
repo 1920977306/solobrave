@@ -2815,7 +2815,7 @@ function sb2TlnCloseDetail(){
 
 /* 重置 7 panel + tab 状态 */
 function sb2TlnResetPanels(){
-  var tabPanelIds = ['sb2TlnPanelOverview','sb2TlnPanelSales','sb2TlnPanelFans','sb2TlnPanelProducts','sb2TlnPanelRecords','sb2TlnPanelFollowUps','sb2TlnPanelKnowledge'];
+  var tabPanelIds = ['sb2TlnPanelOverview','sb2TlnPanelSales','sb2TlnPanelFans','sb2TlnPanelProducts','sb2TlnPanelRecords','sb2TlnPanelFollowUps','sb2TlnPanelKnowledge','sb2TlnPanelTasks'];
   for (var i = 0; i < tabPanelIds.length; i++){
     var el = document.getElementById(tabPanelIds[i]);
     if (el) el.innerHTML = '<div class="sb2-tln-loading">载入中…</div>';
@@ -2835,15 +2835,16 @@ function sb2TlnSwitchTab(tab){
   tabs.forEach(function(t){ t.classList.toggle('active', t.dataset.tab === tab); });
   var panels = document.querySelectorAll('#sb2TlnDetailBody .sb2-tln-tab-panel');
   panels.forEach(function(p){ p.classList.toggle('active', p.dataset.panel === tab); });
-  /* 懋加载钩子: tab 4 (products) / 5 (followups) / 7 (knowledge) 首次切才 fetch */
+  /* 懋加载钩子: tab 4 (products) / 5 (followups) / 7 (knowledge) / 8 (tasks ★r75) 首次切才 fetch */
   var t = window._sb2TlnDetailCurrentTalent;
   if (!t || !t.id) return;
   if (tab === 'products' && !_sb2TlnDetailLoadedTabs.products) sb2TlnFetchPanelProducts(t.id);
   else if (tab === 'followups' && !_sb2TlnDetailLoadedTabs.followups) sb2TlnFetchPanelFollowUps(t.id);
   else if (tab === 'knowledge' && !_sb2TlnDetailLoadedTabs.knowledge) sb2TlnFetchPanelKnowledge(t.id);
+  else if (tab === 'tasks' && !_sb2TlnDetailLoadedTabs.tasks) sb2TlnFetchPanelTasks(t.id);
 }
 
-/* 渲染所有 7 panel (简版, 字段名抄实测) */
+/* 渲染所有 8 panel (简版, 字段名抄实测, ★r75 加 tasks panel) */
 function sb2TlnRenderAllPanels(t){
   sb2TlnRenderPanelOverview(t);
   sb2TlnRenderPanelSales(t);
@@ -2852,6 +2853,7 @@ function sb2TlnRenderAllPanels(t){
   sb2TlnRenderPanelRecords(t);
   sb2TlnRenderPanelFollowUps(t);
   sb2TlnRenderPanelKnowledge(t);
+  sb2TlnRenderPanelTasks(t);
 }
 
 /* Panel 1: 概况 (核心数据 + 基础信息 + AI 分析) */
@@ -3070,12 +3072,132 @@ function sb2TlnRenderPanelFollowUps(t){
 }
 
 function sb2TlnRenderPanelRecords(t){
-  /* 方案 (a) 保留空态文案: 待办-达人关联需新增 talent_id 字段, 下轮再派
-     派单推荐 (a) 最小入侵, 不擅自 ALTER TABLE; 等任务-达人关联需要时再增字段 */
+  /* r75 派单后 (cc7b6f8 server schema 端 talent_id 字段已加):
+     - 保留 records tab 占位文案 (此 tab 历史上对应 legacy 跟进记录, 跟 task 任务语义不同)
+     - 任务-达人关联已迁到第 8 个 tab "任务" (sb2TlnPanelTasks)
+     - Records tab 不主动切, 仍由 sb2TlnRenderPanelRecords 渲染 (后续按派单再决定保留/替换) */
   var el = document.getElementById('sb2TlnPanelRecords');
   if (!el) return;
-  el.innerHTML = '<div class="sb2-tln-empty">待办-达人关联待下轮派单: 需在 tasks 表新增 talent_id 字段 (方案 b), 本期方案 (a) 保留空态 (派单推荐, 最小入侵).</div>';
+  el.innerHTML = '<div class="sb2-tln-empty">跟进记录暂无</div>';
 }
+
+/* ★ r75 派单 tab 6 任务-达人关联 (贾维斯派单给小路, 老大已批「全部弄」):
+   - 渲染任务列表 (从 /api/tasks?talent_id=xxx 拉)
+   - 字段名铁律 (第 1 条): 抄实测 /api/tasks 真字段 id/title/status/priority/deadline/assignee/creator/created_at/talent_id
+   - 操作: 解除关联 (PUT /api/tasks/{id} {talent_id: ''}) + 新建任务按钮 (POST /api/tasks 带 talent_id)
+   - 跟既有 sb2TlnFetchPanelFollowUps / sb2TlnFetchPanelKnowledge 同款懒加载 + cache + 渲染模式 */
+function sb2TlnRenderPanelTasks(t){
+  var el = document.getElementById('sb2TlnPanelTasks');
+  if (!el) return;
+  if (!_sb2TlnDetailLoadedTabs.tasks) {
+    el.innerHTML = '<div class="sb2-tln-loading">任务加载中…</div>';
+    sb2TlnFetchPanelTasks(t.id);
+    return;
+  }
+  var cached = _sb2TlnDetailCache.tasks;
+  var tasks = Array.isArray(cached && cached.tasks) ? cached.tasks : [];
+  var html = '';
+  /* 新建任务按钮 (admin 可见, 任务页可改/解除关联) */
+  html += '<div class="sb2-tln-section">';
+  html += '<div class="sb2-tln-section-title" style="display:flex;align-items:center;justify-content:space-between;">';
+  html += '<span>关联任务 · ' + tasks.length + ' 条</span>';
+  html += '<button class="sb2-btn sb2-btn-brand sb2-btn-sm" onclick="sb2TlnCreateTaskForTalent(\'' + sb2TlnEsc(t.id) + '\')" title="为该达人新建任务, 自动关联 talent_id">+ 新建任务</button>';
+  html += '</div>';
+  if (tasks.length === 0) {
+    html += '<div class="sb2-tln-empty">该达人暂未关联任务, 可点右上角新建</div>';
+  } else {
+    tasks.forEach(function(k){
+      var statusLabel = ({pending:'待处理', in_progress:'进行中', completed:'已完成', cancelled:'已取消'})[k.status] || k.status || '-';
+      var priorityLabel = ({urgent:'紧急', high:'高', normal:'普通', low:'低'})[k.priority] || k.priority || '-';
+      var deadline = k.deadline || '无';
+      var assignee = k.assignee_name || k.assignee || '未指定';
+      var creator = k.creator_name || k.creator || '-';
+      var talentChip = (k.talent_id === t.id) ? '<span class="sb2-tln-pill sb2-tln-pill-accent">本达人</span>' : '<span class="sb2-tln-pill">' + sb2TlnEsc(k.talent_id || '-') + '</span>';
+      html += '<div class="sb2-tln-timeline-item">';
+      html += '<div class="sb2-tln-timeline-time">' + sb2TlnEsc(creator) + ' · 截止 ' + sb2TlnEsc(deadline) + ' · ' + sb2TlnEsc(priorityLabel) + ' · ' + sb2TlnEsc(statusLabel) + ' · 关联 ' + talentChip + '</div>';
+      html += '<div class="sb2-tln-timeline-content"><strong>' + sb2TlnEsc(k.title || '(无标题)') + '</strong></div>';
+      html += '<div class="sb2-tln-timeline-next">负责人: ' + sb2TlnEsc(assignee);
+      html += ' · <button class="sb2-btn sb2-btn-ghost sb2-btn-sm" onclick="sb2TlnUnlinkTask(\'' + sb2TlnEsc(k.id) + '\',\'' + sb2TlnEsc(t.id) + '\')" title="解除 talent_id 关联, 任务保留但不绑定该达人">解除关联</button>';
+      html += '</div>';
+      html += '</div>';
+    });
+  }
+  html += '</div>';
+  el.innerHTML = html;
+}
+
+async function sb2TlnFetchPanelTasks(talentId){
+  if (!talentId) return;
+  try {
+    var resp = await apiFetch('/api/tasks?talent_id=' + encodeURIComponent(talentId));
+    if (!resp || !resp.ok) {
+      var el = document.getElementById('sb2TlnPanelTasks');
+      if (el) el.innerHTML = '<div class="sb2-tln-empty">任务加载失败 (HTTP ' + (resp ? resp.status : 'no resp') + ')</div>';
+      _sb2TlnDetailLoadedTabs.tasks = true;
+      return;
+    }
+    var data = await resp.json();
+    _sb2TlnDetailCache.tasks = data;
+    _sb2TlnLoadedTabs = _sb2TlnLoadedTabs || {};
+    _sb2TlnLoadedTabs.tasks = true;
+    _sb2TlnDetailLoadedTabs.tasks = true;
+    var t = window._sb2TlnDetailCurrentTalent || {id: talentId};
+    sb2TlnRenderPanelTasks(t);
+  } catch (e) {
+    var el = document.getElementById('sb2TlnPanelTasks');
+    if (el) el.innerHTML = '<div class="sb2-tln-empty">网络错误: ' + sb2TlnEsc(e && e.message || e) + '</div>';
+    _sb2TlnDetailLoadedTabs.tasks = true;
+  }
+}
+
+/* ★ r75 派单: 达人详情内"新建任务"按钮 → 复用 sb2TasksOpenForm(null, talentId) 自动带 talent_id
+   (跟协调人预接的 sb2TasksOpenForm prefillTalentId 参数 + server camelCase/snake_case 双接受 联动)
+   关闭 form 后刷新 tab 6 任务列表 (lazy fetch) */
+function sb2TlnCreateTaskForTalent(talentId){
+  if (!talentId) return;
+  if (typeof sb2TasksOpenForm !== 'function') {
+    alert('任务表单组件未就绪, 请刷新页面');
+    return;
+  }
+  sb2TasksOpenForm(null, talentId);
+  /* form 关闭后 _sb2TasksList 已更新, 触发 tab 6 lazy refresh */
+  setTimeout(function(){
+    _sb2TlnDetailLoadedTabs.tasks = false;
+    if (_sb2TlnDetailCurrentTab === 'tasks' && window._sb2TlnDetailCurrentTalent) {
+      sb2TlnFetchPanelTasks(window._sb2TlnDetailCurrentTalent.id);
+    }
+  }, 0);
+}
+
+/* ★ r75 派单: 任务卡"解除关联"按钮 → PUT /api/tasks/{id} {talent_id: ''} */
+async function sb2TlnUnlinkTask(taskId, talentId){
+  if (!taskId || !talentId) return;
+  if (!confirm('确认解除该任务与此达人的关联? (任务保留, 但 talent_id 清空)')) return;
+  try {
+    var resp = await apiFetch('/api/tasks/' + encodeURIComponent(taskId), {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({talent_id: ''})
+    });
+    if (!resp || !resp.ok) {
+      alert('解除关联失败 HTTP ' + (resp ? resp.status : 'no resp'));
+      return;
+    }
+    /* 刷新当前 tab 数据 */
+    _sb2TlnDetailLoadedTabs.tasks = false;
+    var t = window._sb2TlnDetailCurrentTalent || {id: talentId};
+    if (typeof sb2TlnSwitchTab === 'function' && _sb2TlnDetailCurrentTab === 'tasks') {
+      sb2TlnFetchPanelTasks(t.id);
+    }
+    sb2TlnRenderPanelTasks(t);
+  } catch (e) {
+    alert('网络错误: ' + (e && e.message || e));
+  }
+}
+
+/* 暴露 r75 新增函数 (r38 IIFE onclick 铁律: HTML onclick 跨块调用 window.* 兜底) */
+window.sb2TlnCreateTaskForTalent = sb2TlnCreateTaskForTalent;
+window.sb2TlnUnlinkTask = sb2TlnUnlinkTask;
 
 function sb2TlnRenderPanelKnowledge(t){
   var el = document.getElementById('sb2TlnPanelKnowledge');
@@ -3733,7 +3855,7 @@ async function sb2TasksMoveStatus(id, newStatus){
 }
 
 // ★ Modal — 新建 / 编辑
-function sb2TasksOpenForm(idOrNull){
+function sb2TasksOpenForm(idOrNull, prefillTalentId){
   _sb2TasksEditingId = idOrNull || null;
   var modal = document.getElementById('sb2TasksModal');
   var mask = document.getElementById('sb2TasksModalMask');
@@ -3748,6 +3870,9 @@ function sb2TasksOpenForm(idOrNull){
   var fProgress = document.getElementById('sb2TasksFormProgress');
   var noteEl = document.getElementById('sb2TasksEmployeeNote');
   var delBtn = document.getElementById('sb2TasksModalDeleteBtn');
+  // ★ r75 派单: talent_id 字段 (admin 才显示; 达人详情建任务自动带 talent_id 走这条路径)
+  var fTalentRow = document.getElementById('sb2TasksFormTalentRow');
+  var fTalentId = document.getElementById('sb2TasksFormTalentId');
   if (!modal) return;
 
   // 灌员工下拉 (复用 window.emps, 跟聊天 mentions 同源)
@@ -3774,6 +3899,7 @@ function sb2TasksOpenForm(idOrNull){
     if (fDeadline) fDeadline.value = task.deadline || '';
     var prog = parseInt(task.progress, 10); if (isNaN(prog)) prog = 0;
     if (fProgress) fProgress.value = prog;
+    if (fTalentId) fTalentId.value = task.talent_id || '';
   } else {
     if (titleEl) titleEl.textContent = '新建任务';
     if (fTitle) fTitle.value = '';
@@ -3784,10 +3910,15 @@ function sb2TasksOpenForm(idOrNull){
     if (fPriority) fPriority.value = 'normal';
     if (fDeadline) fDeadline.value = '';
     if (fProgress) fProgress.value = '0';
+    // ★ r75 派单: 达人详情建任务自动带 talent_id 走 prefill 参数
+    if (fTalentId) fTalentId.value = prefillTalentId || '';
   }
   // 员工仅 status + progress (PUT 白名单)
   if (noteEl) noteEl.style.display = admin ? 'none' : '';
   var readonly = !admin;
+  // ★ r75 派单: admin 才显示 talent_id 字段 (员工 POST 也带 talent_id 但不显示; 但 server 端 POST 默认接受 talent_id, 员工可建任务时不传 talent_id 默认 '')
+  if (fTalentRow) fTalentRow.style.display = admin ? '' : 'none';
+  if (fTalentId) fTalentId.disabled = readonly;
   [fTitle, fDesc, fAssignee, fProject, fPriority, fDeadline].forEach(function(el){
     if (!el) return;
     el.disabled = readonly;
@@ -3815,6 +3946,7 @@ async function sb2TasksSaveForm(){
   var fPriority = document.getElementById('sb2TasksFormPriority');
   var fDeadline = document.getElementById('sb2TasksFormDeadline');
   var fProgress = document.getElementById('sb2TasksFormProgress');
+  var fTalentId = document.getElementById('sb2TasksFormTalentId'); // ★ r75 派单: 达人关联字段
   var title = fTitle ? String(fTitle.value || '').trim() : '';
   if (!title){
     sb2TasksToast('任务标题不能为空');
@@ -3825,6 +3957,8 @@ async function sb2TasksSaveForm(){
   if (isNaN(prog)) prog = 0;
   if (prog < 0) prog = 0;
   if (prog > 100) prog = 100;
+  // ★ r75 派单: talent_id 由 admin 显式传; 空串 = 解除关联 (server 端允许 PUT {talent_id: ''})
+  var talentIdVal = fTalentId ? String(fTalentId.value || '').trim() : '';
   var emps = (typeof window.emps !== 'undefined' && Array.isArray(window.emps)) ? window.emps : [];
   var assigneeName = '';
   if (fAssignee && fAssignee.value){
@@ -3846,7 +3980,9 @@ async function sb2TasksSaveForm(){
           priority: fPriority ? fPriority.value : 'normal',
           deadline: fDeadline ? fDeadline.value : '',
           project_id: fProject ? fProject.value : '',
-          progress: String(prog)
+          progress: String(prog),
+          // ★ r75 派单: admin allowed_fields 加 talent_id; 员工非 admin 不带此字段 (server 端会忽略)
+          talent_id: talentIdVal
         };
       } else {
         // 员工只允许 status + progress
@@ -3876,7 +4012,9 @@ async function sb2TasksSaveForm(){
           priority: fPriority ? fPriority.value : 'normal',
           deadline: fDeadline ? fDeadline.value : '',
           projectId: fProject ? fProject.value : '',
-          progress: String(prog)
+          progress: String(prog),
+          // ★ r75 派单: 达人详情建任务自动带 talent_id 走 camelCase + snake_case 双接受
+          talentId: talentIdVal
         })
       });
     }
