@@ -66,7 +66,10 @@
   /* Feishu three-column layout colors */
   --left-nav-bg: #2e2e33;
   --mid-sidebar-bg: #ffffff;
-  --right-content-bg: #ffffff;
+  /* 〔r69 批注① 2026-10-07〕右侧内容区底色 白 → 灰 (对齐 --sb2-bg)
+     老大: 模块底下留白色是啥意思, 直接变灰, 其他页面也有这个问题
+     原值 #ffffff 经 --right-content-bg 只被 .app-main (line 310) 引用, 全局一处生效 */
+  --right-content-bg: var(--sb2-bg);
   /* ★ V2.1: --primary-blue #1677ff → #1677ff (保留别名兼容老 var(--primary-blue) 调用) */
   --primary-blue: #1677ff;
   --hover-bg: #f5f7fa;
