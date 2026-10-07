@@ -7642,6 +7642,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         # Users API
+        if path == '/api/tenants':
+            self._handle_get_tenants()
+            return
         if path == '/api/users':
             self._handle_get_users()
             return
@@ -8326,6 +8329,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 return
 
         # Teams API (V2)
+        if path == '/api/tenants':
+            self._handle_post_tenants()
+            return
         if path == '/api/teams':
             self._handle_create_team()
             return
@@ -9675,6 +9681,98 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         # 立即 204 不存（避免污染）
         self.send_response(204)
         self.end_headers()
+
+    def _handle_get_tenants(self):
+        """GET /api/tenants — 租户注册表列表（仅平台超管）
+        多租户底座 M4 开通流程配套。普通管理员/租户管理员不可见平台租户面。"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not auth.is_platform_admin:
+            self._send_json_error(403, '仅平台超管可查看租户列表')
+            return
+        tenants = _load_tenants()
+        users = _load_users()
+        counts = {}
+        for u in users:
+            tid = u.get('tenant_id') or DEFAULT_TENANT_ID
+            counts[tid] = counts.get(tid, 0) + 1
+        result = []
+        for t in tenants:
+            if not isinstance(t, dict):
+                continue
+            result.append({
+                'id': t.get('id'),
+                'name': t.get('name'),
+                'plan': t.get('plan'),
+                'status': t.get('status', 'active'),
+                'createdAt': t.get('createdAt'),
+                'userCount': counts.get(t.get('id'), 0),
+            })
+        self._send_json(200, {'tenants': result, 'total': len(result)})
+
+    def _handle_post_tenants(self):
+        """POST /api/tenants — 一键开通（仅平台超管）
+        流程（docs/phase0-tenant-isolation.md §4）: 开户 → 冷启动 → 积分 → (Bot绑定异步, 后续轮)。
+        - 开户: tenants.json + users.json(租户管理员) 平台侧落盘
+        - 冷启动: 租户业务库首次访问由 _db_conn 惰性建(本 handler 主动触发一次建库+积分种子)
+        幂等: username 已存在 → 409; 租户名重复允许(展示名不做唯一约束)。"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not auth.is_platform_admin:
+            self._send_json_error(403, '仅平台超管可开通租户')
+            return
+        body = self._read_body() or {}
+        name = (body.get('name') or '').strip()
+        admin_username = (body.get('adminUsername') or '').strip()
+        admin_password = body.get('adminPassword') or ''
+        plan = (body.get('plan') or 'std').strip()
+        credits = int(body.get('credits', 500))
+        if not name or not admin_username or len(admin_password) < 8:
+            self._send_json_error(400, 'name/adminUsername 必填, adminPassword ≥8 位')
+            return
+        users = _load_users()
+        if _find_user(users, 'username', admin_username):
+            self._send_json_error(409, '管理员用户名已存在')
+            return
+        tid = 't_' + uuid.uuid4().hex[:12]
+        tenants = _load_tenants()
+        tenants.append({
+            'id': tid, 'name': name, 'plan': plan, 'status': 'active',
+            'createdAt': datetime.now().isoformat(), 'provisionedBy': auth.user_id,
+        })
+        _save_tenants(tenants)
+        pwd_hash, pwd_salt = hash_password(admin_password)
+        uid = 'user_' + uuid.uuid4().hex[:12]
+        users.append({
+            'id': uid, 'username': admin_username,
+            'passwordHash': pwd_hash, 'passwordSalt': pwd_salt, 'pwdVersion': 0,
+            'role': 'tenant_admin', 'displayName': body.get('adminDisplayName') or admin_username,
+            'tenant_id': tid, 'agentQuota': int(body.get('agentQuota', 10)),
+            'apiQuota': int(body.get('apiQuota', 1000)),
+            'createdAt': datetime.now().isoformat(),
+        })
+        _save_users(users)
+        # 冷启动: 触发租户库建库 + 积分种子（沿用 credit_accounts 体系, 落租户库）
+        def _seed_credits():
+            conn = _db_conn()
+            try:
+                conn.execute(
+                    'INSERT OR IGNORE INTO credit_accounts (agent_id, balance, updated_at) VALUES (?, ?, datetime(\'now\', \'localtime\'))',
+                    ('tenant_pool', credits))
+                conn.commit()
+            finally:
+                conn.close()
+        try:
+            _run_as_tenant(tid, _seed_credits)
+        except Exception as e:
+            logger.error(f'[MT] 租户 {tid} 积分种子失败(可重试): {e}')
+        logger.info(f'[MT] 租户开通: {tid} name={name} admin={admin_username} by={auth.user_id}')
+        self._send_json(200, {'tenantId': tid, 'adminUserId': uid,
+                              'tenantDb': os.path.relpath(_tenant_db_path(tid), DATA_DIR)})
 
     def _handle_get_users(self):
         """GET /api/users（需要 admin）"""
