@@ -11782,6 +11782,24 @@ body.sb2-side-collapsed #sb2SideToggle svg{ transform:rotate(180deg); }
   font-size:9px; display:inline-flex; align-items:center; justify-content:center;
   flex-shrink:0;
 }
+/* 〔r79 老大 22:29「任务页面的侧边栏跟其他的不一样,要一样」〕任务侧栏 item 全面并入 sb2-side 视觉体系
+   — 修前: padding 6 8 / fs 12 / radius r-sm / active 橙红 pill (brand-soft + brand 字)
+   — 修后: 照抄 .sb2-side-item (line 10024) 规格 8 10 / 38 高 / 14px / radius 10
+   — active: 去品牌红, 用 hover 同款中性高亮 (s3 底 + 墨字), 跟 sb2 体系零冲突
+   — group label 不动 (11px t3 两边已一致) */
+.sb2-tasks-side-item{
+  padding:8px 10px; border-radius:10px; height:38px;
+  font-size:14px; line-height:22.4px; font-family:"PingFang SC",sans-serif;
+  transition:all .12s;
+}
+.sb2-tasks-side-item:hover{ background:var(--sb2-s3); color:var(--sb2-t1); }
+.sb2-tasks-side-item.active{
+  background:var(--sb2-s3); color:var(--sb2-t1); font-weight:500;
+}
+.sb2-tasks-side-item .n{
+  font-size:11px; font-weight:500; color:var(--sb2-t3); line-height:15.4px;
+}
+.sb2-tasks-side-item.active .n{ color:var(--sb2-t3); }
 
 /* --- 主区 pane --- */
 .sb2-tasks-pane{ flex:1 1 auto; min-width:0; display:flex; flex-direction:column; overflow:hidden; }
