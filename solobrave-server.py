@@ -5929,6 +5929,12 @@ _DENIAL_CLASS_PATTERNS = [
     '未读取到截图',
     '没读到截图',
     '不作为任何决策依据',
+    # 〔r81 补 2026-10-08〕原始工具调用转录：agent 工作笔记（<tool>exec</tool> / curl 内部接口等）
+    # 混入分析正文被自动入库（实测 kb_entries 混入 5 条，已清理），属过程噪音非业务知识
+    '<tool>',
+    '<tool_call',
+    '<|tool_call',
+    'tool_calls_section_begin',
 ]
 
 
