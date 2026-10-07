@@ -213,10 +213,16 @@ function buildDashboard(){
     +     '<div><div class="sb2-dash2-greet-date" id="sb2GreetDate"></div>'
     +     '<h1 class="sb2-dash2-greet-title" id="sb2GreetTitle">工作台</h1>'
     /* ★ fix/sb2-proto-align (commit 2): 删 sub「今日智能协作 · 数据概览」(原型 line 369-371 没有 sub 元素) */ + '</div>'
-    +     '<div class="sb2-dash2-greet-acts"><button class="sb2-btn sb2-btn-ghost" onclick="sb2Go(\'influencers\')">达人跟进</button>'
-    /* 〔fix/sb2-side-restore commit 6 C〕以前的龙虾办公室就是现在的工作台, rail 不再保留单独入口
-        dashboard 上的「进入龙虾办公室」按钮改 sb2Go('messages') (进 AI 办公室) */
-    +     '<button class="sb2-btn sb2-btn-brand" onclick="sb2Go(\'messages\')">进入 AI 办公室</button></div>'
+    /* 〔dash-opt-1 2026-10-08 老大拍板方向 A: 工作台 = 待办指挥中心〕
+        删「达人跟进」纯导航钮 (左侧导航栏已有同功能入口, 老大多此一举批注);
+        「进入 AI 办公室」保留为唯一主 CTA */
+    +     '<div class="sb2-dash2-greet-acts"><button class="sb2-btn sb2-btn-brand" onclick="sb2Go(\'messages\')">进入 AI 办公室</button></div>'
+    +   '</div>'
+    /* 〔dash-opt-1〕等你拍板 hero 区: 待审批提案 inline 拍板 (复用 P1b 提案卡 6 态管线, 零新交互逻辑)
+        空态整块隐藏 (JS 控制), 不渲占屏占位 */
+    +   '<div class="sb2-dash2-todo" id="sb2Dash2Todo" style="display:none">'
+    +     '<div class="sb2-dash2-feed-hd"><h2>等你拍板</h2><span class="hint">来自 AI 员工的提案, 同意后立即执行</span></div>'
+    +     '<div id="sb2Dash2TodoList" class="sb2-dash2-todo-list"></div>'
     +   '</div>'
     +   '<div class="sb2-kpis">'
     +     kpi('sb2KpiInject','近 7 天知识注入','')
@@ -226,16 +232,16 @@ function buildDashboard(){
     +   '</div>'
     +   '<div class="sb2-dash2-feed-grid">'
     +     '<div class="sb2-dash2-feed sb2-dash2-feed-focus">'
-    +       '<div class="sb2-dash2-feed-hd"><h2>今日关注</h2><span class="hint">按紧急度排序</span><a class="all" onclick="sb2Go(\'influencers\')">全部 →</a></div>'
+    +       '<div class="sb2-dash2-feed-hd"><h2>今日关注</h2><span class="hint">按紧急度排序</span></div>'
     +       '<div id="sb2Dash2FocusList" class="sb2-dash2-feed-focus-list"></div>'
     +     '</div>'
     +     '<div class="sb2-dash2-feed-rightcol">'
     +       '<div class="sb2-dash2-feed sb2-dash2-feed-insights">'
-    +         '<div class="sb2-dash2-feed-hd"><h2>规律洞察</h2><span class="hint">本周最活跃</span><a class="all" onclick="sb2Go(\'patterns\')">全部 →</a></div>'
+    +         '<div class="sb2-dash2-feed-hd"><h2>规律洞察</h2><span class="hint">本周最活跃</span></div>'
     +         '<div id="sb2Dash2InsightList" class="sb2-dash2-feed-insights-list"></div>'
     +       '</div>'
     +       '<div class="sb2-dash2-feed sb2-dash2-feed-activity">'
-    +         '<div class="sb2-dash2-feed-hd"><h2>员工动态</h2><span class="hint">最近 24 小时</span><a class="all" onclick="sb2Go(\'messages\')">全部 →</a></div>'
+    +         '<div class="sb2-dash2-feed-hd"><h2>员工动态</h2><span class="hint">最近 24 小时</span></div>'
     +         '<div id="sb2Dash2ActivityList" class="sb2-dash2-feed-activity-list"></div>'
     +       '</div>'
     +     '</div>'
@@ -427,6 +433,8 @@ function sb2_loadDashboardKpis(){
     });
   /* MVP2: 三 feed 区加载 (今日关注 + 规律洞察 + 员工动态) — 与 KPI 4 卡并行 */
   sb2_loadDashboardFeeds();
+  /* 〔dash-opt-1〕等你拍板 hero 区 — 与 feed 并行 */
+  sb2_loadDashboardTodo();
 }
 // 兑底: 老 loadKpis() 仍保留 (回归失败可切回), 但 buildDashboard 默认走新函数
 function loadKpis(){ sb2_loadDashboardKpis(); }
@@ -439,6 +447,48 @@ function focusItem(tagCls, tag, title, desc, target){
 function buildFocus(){
   /* MVP1 兼容: 老逻辑 (写 #sb2FocusList / #sb2MiniBody), 但 MVP2 已删除, 函数无副作用 */
   return;
+}
+
+/* ---------- 〔dash-opt-1 2026-10-08 老大拍板方向 A〕等你拍板 hero 区 ---------- */
+/* 工作台 = 待办指挥中心: 核心是给老板「做决定」的台面, 不是导航中转
+   数据源: GET /api/proposals?status=pending&limit=10 (审批中心同款收窄列表)
+   渲染: .sb2-prop-card loading 占位 → window.sb2PropMountCards (P1b 既有管线) 填 6 态卡
+         → inline 选项/驳回/409 处理/执行结果 全部复用, 零新交互逻辑 (SEV1 教训: 不抄第二份)
+   空态: 整块 section display:none (不占屏, 老大「多此一举」红线 — 没待办就不渲 hero)
+   拍板后: sb2PropRenderState 就地切结果态; 侧栏 badge 走 sb2RefreshDashboardBadges 重刷 */
+function sb2_loadDashboardTodo(){
+  var tok = localStorage.getItem('sb_auth_token') || '';
+  var headers = { 'Authorization': 'Bearer ' + tok };
+  var xid = (window.SB2 && SB2.agentId) || localStorage.getItem('sb_agent_id') || '';
+  if (xid) headers['X-Agent-Id'] = xid;
+  try {
+    var mods = JSON.parse(localStorage.getItem('sb_module_perms') || 'null');
+    if (mods && Array.isArray(mods)) headers['X-Module-Perms'] = JSON.stringify(mods);
+  } catch(e){}
+  fetch('/api/proposals?status=pending&limit=10', { headers: headers })
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      var section = document.getElementById('sb2Dash2Todo');
+      var el = document.getElementById('sb2Dash2TodoList');
+      if (!section || !el) return;
+      var list = (d && Array.isArray(d.proposals)) ? d.proposals : (Array.isArray(d) ? d : []);
+      /* 零编造红线: 列表项缺 id 的丢掉 (防后端契约漂移渲出死卡) */
+      list = list.filter(function(p){ return p && p.id; });
+      if (list.length === 0){
+        section.style.display = 'none';
+        return;
+      }
+      section.style.display = '';
+      el.innerHTML = list.map(function(p){
+        return '<div class="sb2-prop-card loading" data-state="loading" data-proposal-id="' + escapeHtml(p.id) + '">加载提议卡片…</div>';
+      }).join('');
+      if (typeof window.sb2PropMountCards === 'function') window.sb2PropMountCards(el);
+    })
+    .catch(function(err){
+      var section = document.getElementById('sb2Dash2Todo');
+      if (section) section.style.display = 'none';
+      console.warn('[sb2_loadDashboardTodo]', err);
+    });
 }
 
 /* ---------- MVP2 三 feed 区加载 (knowledge-events + knowledge-patterns + kb entries) ---------- */

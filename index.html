@@ -11001,6 +11001,19 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
   gap:14px;
   margin-top:6px;
 }
+/* 〔dash-opt-1 2026-10-08〕等你拍板 hero 区: 提案卡双列栅格, 与 feed 卡同款容器语言 */
+.sb2-dash2-todo{
+  margin-top:14px;
+}
+.sb2-dash2-todo-list{
+  display:grid;
+  grid-template-columns:repeat(auto-fill, minmax(340px, 1fr));
+  gap:12px;
+  margin-top:10px;
+}
+@media (max-width:1100px){
+  .sb2-dash2-todo-list{ grid-template-columns:1fr; }
+}
 @media (max-width:1100px){
   .sb2-dash2-feed-grid{ grid-template-columns:1fr; }
 }
@@ -18894,7 +18907,7 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
 </div>
 
 <script src="js/inline-08.js?v=f2d73f6b57"></script>
-<script src="js/inline-09.js?v=d13d996e58"></script>
+<script src="js/inline-09.js?v=dashopt1a20261008"></script>
 
 <!-- ★ feat/sb2-chat: SoloBrave 2.0 聊天模块 JS (核心链: 消息流 + 发送框)
      - 复用老 /api/chat/:agentId 接口契约, 零后端改动
