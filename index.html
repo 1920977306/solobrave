@@ -5621,6 +5621,8 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .emp-detail-header-v3 .emp-detail-actions {
   display: flex; gap: 8px; align-items: center; position: relative; z-index: 1; flex-shrink: 0;
   margin-right: 12px;
+  /* 〔r77 补刀2〕基类自带 padding:12px 20px, 把 36px 按钮撑成 61px → header 82px; 归 0 后 header=64px */
+  padding: 0;
 }
 .emp-detail-header-v3 .status-dot.online { animation: aiEmpStatusPulse 2s ease-in-out infinite; }
 @keyframes aiEmpStatusPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
