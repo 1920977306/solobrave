@@ -420,10 +420,14 @@
       var p = document.getElementById('sb2ChatTasksPopup');
       var inp = document.getElementById('sb2ChatInput');
       var pickModel = document.getElementById('sb2ChatPickModel');
+      var settingsBtn = document.getElementById('sb2ChatTopbarSettings');
       if (!p) return;
       if (p.contains(e.target)) return;
       if (inp && inp.contains(e.target)) return;  // 输入框内点击由 keyup 触发
       if (pickModel && pickModel.contains(e.target)) return;  // 状态行模型名点击单独处理
+      // ★ r68 批注②: 顶栏「设置」按钮同 pickModel — 点击先开弹层再冒泡到 document,
+      //   不设豁免会被本监听器立刻关掉 (开即合, 表现「点击没反应」)
+      if (settingsBtn && settingsBtn.contains(e.target)) return;
       _sb2HidePopup();
     });
   }
