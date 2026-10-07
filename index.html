@@ -19692,15 +19692,22 @@ function checkUrlParams() {
     }, 500);
   }
   if (action === 'createGroup') {
-    setTimeout(function () {
-      if (typeof openGroupWizard === 'function') {
-        openGroupWizard();
-        // 清除 URL 参数
-        const url = new URL(window.location);
-        url.searchParams.delete('action');
-        window.history.replaceState({}, '', url);
-      }
-    }, 500);
+    /* 〔r39-17④ 防呆 老大拍板〕 ?action=createGroup 三件套防重触发:
+       1. 内存 flag — 同页 session 只触发一次 (checkUrlParams 被多次调/SPA 复调不重复弹)
+       2. 立即清 URL 参数 — 不等 500ms setTimeout, 窗口期内刷新不会带参重发
+       3. openGroupWizard 内部「已开跳过」兜底 (关不掉根因: 重开竞态复位用户已关的向导)
+       不用 sessionStorage — 它在标签页刷新后不释放, 会误伤合法的「刷新再弹一次」 */
+    if (!window._urlCreateGroupFired) {
+      window._urlCreateGroupFired = true;
+      const url0 = new URL(window.location);
+      url0.searchParams.delete('action');
+      window.history.replaceState({}, '', url0);
+      setTimeout(function () {
+        if (typeof openGroupWizard === 'function') {
+          openGroupWizard();
+        }
+      }, 500);
+    }
   }
   if (action === 'createEmployee') {
     setTimeout(function () {
@@ -24414,6 +24421,10 @@ function openGroupWizard() {
     showToast('⛔ 你没有项目组管理权限', 'warning');
     return;
   }
+  /* 〔r39-17④ 防呆〕 已打开则跳过 — 防「关不掉」重开竞态
+     (重复触发会把用户刚关掉的向导复位重弹; 手动按钮在向导已开时重复点也无害) */
+  var _gwOverlay0 = document.getElementById('groupWizardOverlay');
+  if (_gwOverlay0 && _gwOverlay0.classList.contains('show')) return;
   gwStep = 1;
   gwEmoji = '🚀';
   gwMembers = [];
