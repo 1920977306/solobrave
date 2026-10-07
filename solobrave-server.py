@@ -3821,6 +3821,10 @@ def init_db():
         conn.execute('CREATE INDEX IF NOT EXISTS idx_credit_usage_log_agent ON credit_usage_log(agent_id, created_at)')
 
         # 任务管理表
+        # ★ r75 派单 老大 10-08 派单 tab 6 任务-达人关联:
+        #   - tasks 表加 talent_id TEXT DEFAULT '' (非破坏迁移, 旧数据 talent_id='' 兼容)
+        #   - 索引 idx_tasks_talent 用于 /api/tasks?talent_id=xxx 端点过滤
+        #   - 关联 + 解除通过 PUT /api/tasks/{id} {talent_id: ''} 实现
         conn.execute('''
             CREATE TABLE IF NOT EXISTS tasks (
                 id TEXT PRIMARY KEY,
@@ -3837,11 +3841,22 @@ def init_db():
                 progress TEXT DEFAULT '',
                 created_at TEXT DEFAULT (datetime('now', 'localtime')),
                 updated_at TEXT DEFAULT (datetime('now', 'localtime')),
-                completed_at TEXT DEFAULT ''
+                completed_at TEXT DEFAULT '',
+                talent_id TEXT DEFAULT ''
             )
         ''')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_tasks_assignee ON tasks(assignee)')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_tasks_talent ON tasks(talent_id)')
+        # ★ r75 非破坏迁移: 已有 tasks 表加 talent_id 列 (SQLite ALTER TABLE ADD COLUMN)
+        try:
+            cols = [r['name'] for r in conn.execute("PRAGMA table_info(tasks)").fetchall()]
+            if 'talent_id' not in cols:
+                conn.execute("ALTER TABLE tasks ADD COLUMN talent_id TEXT DEFAULT ''")
+        except Exception as _e:
+            # ALTER TABLE 失败不阻塞 (老 SQLite / 锁竞争场景)
+            import logging as _logging
+            _logging.getLogger(__name__).warning('[tasks migrate] talent_id 列添加失败: %s', _e)
         conn.execute('CREATE INDEX IF NOT EXISTS idx_tasks_creator ON tasks(creator)')
 
         # FIXME: 大脑知识中枢新增表（保留旧表，不删数据）
@@ -17123,7 +17138,12 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
     # ─── 任务管理 API ────────────────────────────────────
 
     def _handle_get_tasks(self):
-        """GET /api/tasks — 任务列表，支持status/assignee过滤"""
+        """GET /api/tasks — 任务列表，支持status/assignee/talent_id过滤
+           ★ r75 派单 老大 10-08 派单 tab 6 任务-达人关联:
+           — 新增 talent_id 过滤参数 (达人详情 tab 6 渲染调用)
+           — 非 admin 用户的 creator/assignee 权限检查保持
+           — ≤20 行薄改, 跟 assignee_filter 同款结构
+        """
         auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
@@ -17131,6 +17151,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         qs = parse_qs(urlparse(self.path).query)
         status_filter = qs.get('status', [None])[0]
         assignee_filter = qs.get('assignee', [None])[0]
+        talent_filter = qs.get('talent_id', [None])[0]  # ★ r75 新增
         conn = _db_conn()
         try:
             sql = 'SELECT * FROM tasks WHERE 1=1'
@@ -17141,6 +17162,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             if assignee_filter:
                 sql += ' AND assignee = ?'
                 params.append(assignee_filter)
+            if talent_filter:  # ★ r75: 达人详情 tab 6 调用, 只取关联此达人的任务
+                sql += ' AND talent_id = ?'
+                params.append(talent_filter)
             if not auth.is_admin:
                 uid = auth.user_info.get('userId', '')
                 sql += ' AND (assignee = ? OR creator = ?)'
@@ -17197,8 +17221,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         task_id = f"task_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
         conn = _db_conn()
         try:
-            conn.execute('''INSERT INTO tasks (id, title, description, assignee, assignee_name, creator, creator_name, status, priority, deadline, project_id, progress)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''', (
+            # ★ r75 派单: talent_id 字段 (达人详情建任务自动带 talent_id)
+            conn.execute('''INSERT INTO tasks (id, title, description, assignee, assignee_name, creator, creator_name, status, priority, deadline, project_id, progress, talent_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''', (
                 task_id,
                 body.get('title', '').strip(),
                 body.get('description', ''),
@@ -17210,7 +17235,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 body.get('priority', 'normal'),
                 body.get('deadline', ''),
                 body.get('projectId', ''),
-                body.get('progress', '')
+                body.get('progress', ''),
+                body.get('talent_id', '') or body.get('talentId', '')  # ★ r75: 接受 camelCase + snake_case
             ))
             conn.commit()
             row = conn.execute('SELECT * FROM tasks WHERE id = ?', (task_id,)).fetchone()
@@ -17245,7 +17271,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                     self._send_json_error(403, '无权修改此任务')
                     return
             # 员工只能改 status 和 progress，管理员可改全部
-            allowed_fields = ['status', 'progress'] if not auth.is_admin else ['title', 'description', 'assignee', 'assignee_name', 'status', 'priority', 'deadline', 'project_id', 'progress']
+            # ★ r75 派单: admin allowed_fields 加 talent_id (任务页改/解除关联)
+            allowed_fields = ['status', 'progress'] if not auth.is_admin else ['title', 'description', 'assignee', 'assignee_name', 'status', 'priority', 'deadline', 'project_id', 'progress', 'talent_id']
             updates = []
             params = []
             for field in allowed_fields:
