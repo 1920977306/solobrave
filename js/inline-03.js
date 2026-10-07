@@ -9906,8 +9906,13 @@ var _creditsCache = { empId: null, balance: null, ts: 0 };
 function _renderChatCredits(balance) {
   var el = document.getElementById('chatHeaderCredits');
   if (!el) return;
+  /* 〔dash/credit-checkin 2026-10-08 派单 B〕sb2 聊天顶栏芯片双写 (legacy chat-header-v2 在 sb2 壳下不可见,
+     用户实际看到的顶栏是 .sb2-chat-topbar-*) */
+  var sb2el = document.getElementById('sb2ChatTopbarCredits');
+  var sb2num = document.getElementById('sb2ChatTopbarCreditsNum');
   if (balance === null || balance === undefined) {
     el.style.display = 'none';
+    if (sb2el) sb2el.style.display = 'none';
     return;
   }
   var numEl = el.querySelector('.credit-num');
@@ -9915,14 +9920,22 @@ function _renderChatCredits(balance) {
   if (balance <= 0) {
     el.classList.add('zero');
     if (numEl) numEl.textContent = '0';
+    if (sb2num) sb2num.textContent = '0';
+    if (sb2el) sb2el.classList.add('zero');
   } else if (balance < 100) {
     el.classList.add('low');
     if (numEl) numEl.textContent = String(balance);
+    if (sb2num) sb2num.textContent = String(balance);
+    if (sb2el) sb2el.classList.remove('zero');
   } else {
     if (numEl) numEl.textContent = String(balance);
+    if (sb2num) sb2num.textContent = String(balance);
+    if (sb2el) sb2el.classList.remove('zero');
   }
   el.style.display = '';
+  if (sb2el) sb2el.style.display = '';
   el.title = '剩余 ' + balance + ' 积分';
+  if (sb2el) sb2el.title = '剩余 ' + balance + ' 积分, 点击打开积分仪表盘';
 }
 function loadChatCredits(empId, force) {
   if (!empId) return;

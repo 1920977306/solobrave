@@ -4929,6 +4929,36 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .chat-header-credits.zero { background: rgba(142,142,147,0.15); color: #8E8E93; }
 .chat-header-credits .credit-icon { font-size: 11px; }
 .chat-header-credits .credit-num { font-variant-numeric: tabular-nums; }
+
+/* 〔dash/credit-checkin 2026-10-08 派单 B〕积分体系 UI 三件套 */
+/* 1. sb2 聊天顶栏余额芯片 (ghost 钮语言, 点击跳积分仪表盘) */
+.sb2-chat-topbar-credits { cursor: pointer; font-variant-numeric: tabular-nums; }
+.sb2-chat-topbar-credits:hover { border-color: var(--sb2-accent); color: var(--sb2-accent); }
+.sb2-chat-topbar-credits.zero { color: var(--sb2-t3); }
+/* 2. 每日签到卡 */
+.sb2-credit-checkin-body { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.sb2-credit-checkin-balance { min-width: 220px; flex: 1; }
+.sb2-credit-checkin-num { font-size: 34px; font-weight: 700; color: var(--accent, #1677ff); line-height: 1.1; font-variant-numeric: tabular-nums; }
+.sb2-credit-checkin-unit { font-size: 12px; color: var(--color-text-secondary, #6E6E73); margin: 2px 0 8px; }
+.sb2-credit-checkin-bar { height: 6px; border-radius: 3px; background: rgba(22, 119, 255, 0.12); overflow: hidden; max-width: 320px; }
+.sb2-credit-checkin-bar > div { height: 100%; background: var(--accent, #1677ff); border-radius: 3px; transition: width 0.3s; }
+.sb2-credit-checkin-sub { font-size: 11px; color: var(--color-text-secondary, #6E6E73); margin-top: 4px; }
+.sb2-credit-checkin-btn {
+  padding: 8px 22px; border-radius: 10px; border: none; cursor: pointer;
+  background: var(--accent, #1677ff); color: #fff; font-size: 14px; font-weight: 600; font-family: inherit;
+  transition: background 0.15s, opacity 0.15s;
+}
+.sb2-credit-checkin-btn:hover { opacity: 0.88; }
+.sb2-credit-checkin-btn.done { background: rgba(142,142,147,0.18); color: var(--color-text-secondary, #6E6E73); cursor: default; }
+.sb2-credit-checkin-btn:disabled { opacity: 1; }
+/* 3. 用量曲线 (总览卡内) */
+.sb2-credit-curve-wrap { margin-top: 14px; }
+.sb2-credit-curve-hd { font-size: 12px; color: var(--color-text-secondary, #6E6E73); display: flex; justify-content: space-between; align-items: baseline; }
+.sb2-credit-curve-note { font-size: 11px; color: var(--color-text-tertiary, #8E8E93); }
+.sb2-credit-curve { width: 100%; height: 64px; display: block; margin-top: 6px; }
+.sb2-credit-curve .line { fill: none; stroke: var(--accent, #1677ff); stroke-width: 1.5; stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke; }
+.sb2-credit-curve .area { fill: rgba(22, 119, 255, 0.08); }
+.sb2-credit-curve-empty { padding: 18px 0; text-align: center; font-size: 12px; color: var(--color-text-tertiary, #8E8E93); }
 .chat-header-link { font-size: 13px; color: var(--accent); text-decoration: none; cursor: pointer; transition: opacity 0.15s; }
 .chat-header-link:hover { opacity: 0.8; }
 .chat-header-right { display: flex; align-items: center; gap: 4px; }
@@ -15271,7 +15301,12 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
 <div class="sb2-settings-main" id="sb2SettingsMain">
   <div class="sb2-settings-hero">
     <h1>设置</h1>
-    <p>系统维护工具：知识搜索测试、AI 大脑调度、向量索引重建、知识事件查询。面向管理员，日常办公用不到这个页面。</p>
+    <p>日常：积分签到与用量仪表盘。维护工具（面向管理员）：知识搜索测试、AI 大脑调度、向量索引重建、知识事件查询。</p>
+  </div>
+  <!-- 〔dash/credit-checkin 2026-10-08 派单 B〕积分仪表盘挂设置屏顶部 (客户日常视角, sb2SettingsShow 触发加载) -->
+  <div id="sb2CreditArea">
+    <div id="sb2CreditCheckinArea"></div>
+    <div id="sb2CreditComputeArea"></div>
   </div>
   <div class="sb2-settings-grid">
     <!-- 卡 1: 语义搜索 -->
@@ -16526,6 +16561,10 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
       </div>
     </div>
     <div class="sb2-chat-topbar-right">
+      <!-- 〔dash/credit-checkin 2026-10-08 派单 B〕积分余额芯片: loadChatCredits 灌数据 (inline-03 _renderChatCredits 双写), 点击跳积分仪表盘 -->
+      <button class="sb2-chat-topbar-ghost sb2-chat-topbar-credits" type="button" id="sb2ChatTopbarCredits" title="积分余额, 点击打开积分仪表盘" onclick="sb2JumpToCreditDashboard()" style="display:none;">
+        <i class=sb2-ico-gem></i> <span id="sb2ChatTopbarCreditsNum">-</span>
+      </button>
       <button class="sb2-chat-topbar-ghost" type="button" id="sb2ChatTopbarProfile" title="员工档案" onclick="sb2_openEmpProfile()">员工档案</button>
       <button class="sb2-chat-topbar-ghost" type="button" id="sb2ChatTopbarSettings" title="点击切换模型 (请求级)" onclick="sb2_openModelPicker()" data-default-text="选择模型">选择模型</button>
       <!-- ★ r73 反馈 Comment 1 老大 17:44「不要设置这两个字, 改成当前模型的名字, 点开改成弹窗」:
@@ -17566,7 +17605,7 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
 </div>
 </div>
 
-<script src="js/inline-03.js?v=514cefabd1"></script>
+<script src="js/inline-03.js?v=credcheckin1a20261008"></script>
 
 <!-- Modal Styles -->
 <style>
@@ -18936,7 +18975,7 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
      v2 (202609241444): 初始破缓存 + skip-device 守卫
      v3 (202609241420): probe 误导文案澄清 (fingerprint fallback → token-only) -->
 <script src="openclaw-client.js?v=202609301548"></script>
-<script src="js/inline-07.js?v=7e6d77e757"></script>
+<script src="js/inline-07.js?v=credcheckin1a20261008"></script>
 
 <!-- Match Result Modal -->
 <div class="product-modal-overlay" id="matchModalOverlay" onclick="closeMatchModal()">

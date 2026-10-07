@@ -1545,6 +1545,9 @@ function sb2SettingsShow(){
   if (input) input.value = '';
   var eventsInput = document.getElementById('sb2FeatEventsEntityInput');
   if (eventsInput) eventsInput.value = '';
+  /* 〔dash/credit-checkin 2026-10-08 派单 B〕积分仪表盘同屏加载 (签到卡 + 总览/员工卡) */
+  if (typeof loadCreditCheckin === 'function') loadCreditCheckin();
+  if (typeof loadComputeStats === 'function') loadComputeStats();
 }
 
 // 卡 1: 语义搜索
@@ -6348,7 +6351,8 @@ function _creditDateRange(range) {
 }
 function setCreditTimeRange(range) { _creditTimeRange = range; loadComputeStats(); }
 async function loadComputeStats() {
-  var area = document.getElementById('computeStatsArea');
+  /* sb2 设置屏容器优先, legacy #computeStatsArea 兑底 (同上) */
+  var area = document.getElementById('sb2CreditComputeArea') || document.getElementById('computeStatsArea');
   if (!area) return;
   area.innerHTML = '<div class="settings-card">' + renderSkeleton('detail') + '</div>';
   try {
@@ -6367,8 +6371,12 @@ async function loadComputeStats() {
       Array.isArray(balances) ? balances : [],
       Array.isArray(quotas) ? quotas : [],
       (todayUsage && todayUsage.data) || [],
-      summary || {}
+      summary || {},
+      dr,
+      (todayUsage && todayUsage.total) || 0
     );
+    /* 〔dash/credit-checkin 2026-10-08 派单 B〕签到卡同屏加载 */
+    if (typeof loadCreditCheckin === 'function') loadCreditCheckin();
   } catch (e) {
     console.warn('[loadComputeStats] 获取积分数据失败', e);
     area.innerHTML = '<div class="settings-card">' + renderEmptyState({
@@ -6383,7 +6391,7 @@ async function loadComputeStats() {
 function _creditStatChip(label, value) {
   return '<div style="flex:1;min-width:140px;border-radius:12px;background:rgba(22, 119, 255, 0.06);padding:12px 14px;"><div style="font-size:12px;color:var(--color-text-secondary, #6E6E73);">' + label + '</div><div style="font-size:20px;font-weight:700;color:var(--accent, #1677ff);margin-top:2px;">' + value + '</div></div>';
 }
-function renderCreditDashboard(balances, quotas, todayRecords, summary) {
+function renderCreditDashboard(balances, quotas, todayRecords, summary, dr, usageTotal) {
   var admin = isAdmin();
   if (!admin) {
     var _myAgentIds = {};
@@ -6422,7 +6430,11 @@ function renderCreditDashboard(balances, quotas, todayRecords, summary) {
   html += _creditStatChip('累计 Tokens', formatNumber(summary.total_tokens || 0));
   html += _creditStatChip('日均消耗积分', formatNumber(summary.daily_avg_credits || 0));
   html += _creditStatChip('消耗记录数', formatNumber(summary.records_count || 0));
-  html += '</div></div>';
+  html += '</div>';
+  /* 〔dash/credit-checkin 2026-10-08 派单 B〕用量曲线: 按天聚合所选区间消耗 (今日/昨日单点不画)
+     截断诚实标注: usage 接口 page_size 上限 200, total>200 时注明样本量 (零编造红线) */
+  html += _creditUsageCurveHtml(todayRecords, dr, usageTotal);
+  html += '</div>';
 
   // 员工积分卡片
   html += '<div class="settings-card"><div class="settings-card-title">员工积分余额</div>';
@@ -6560,6 +6572,121 @@ function renderCreditUsageList(records) {
 
 // ========== 通知历史 ==========
 var _notificationHistoryCache = [];
+
+/* ============================================================
+ * 〔dash/credit-checkin 2026-10-08 派单 B 老大「开始」〕每日签到 + 客户视角余额 + 用量曲线
+ * 端点 (server prod 5aac17c 已真机验证):
+ *   GET  /api/credits/checkin/status — {already_checked_in, balance, limit, remaining_to_limit, reward}
+ *   POST /api/credits/checkin       — 幂等当天唯一; already_checked_in / capped 都是 200 非错误
+ * 关键口径 (02:04 更正): 钱包按客户名下 AI 员工 id keying; 前端不传 agent_id = 单一员工自动命中,
+ *   多员工场景显式传 (handoff: 多员工场景才传) — 本文件统一走 _creditCheckinTarget() 解析
+ * ============================================================ */
+/* 签到目标员工: 单员工 → 不传 agent_id (服务端自动命中); 多员工 → 当前聊天员工优先, 否则第一位 */
+function _creditCheckinTarget(){
+  var list = (typeof emps !== 'undefined' && Array.isArray(emps)) ? emps.filter(function(e){ return e && e.id; }) : [];
+  if (list.length === 0) return null;
+  if (list.length === 1) return { id: '', name: list[0].name || list[0].id, multi: false };
+  var cur = '';
+  try { cur = localStorage.getItem('sb_current_emp') || ''; } catch(e){}
+  var pick = list.find(function(e){ return e.id === cur; }) || list[0];
+  return { id: pick.id, name: pick.name || pick.id, multi: true };
+}
+async function loadCreditCheckin(){
+  /* sb2 设置屏容器优先, legacy #settingsRight 兑底 (MVP6.5 起 settings-active 恒隐 legacy 面板) */
+  var area = document.getElementById('sb2CreditCheckinArea') || document.getElementById('creditCheckinArea');
+  if (!area) return;
+  var t = _creditCheckinTarget();
+  if (!t) { area.innerHTML = ''; return; }
+  try {
+    var url = '/api/credits/checkin/status' + (t.id ? '?agent_id=' + encodeURIComponent(t.id) : '');
+    var resp = await apiFetch(url);
+    if (!resp || !resp.ok) { area.innerHTML = ''; return; }
+    var d = await resp.json();
+    area.innerHTML = renderCreditCheckin(d, t);
+  } catch (e) {
+    console.warn('[loadCreditCheckin]', e);
+    area.innerHTML = '';
+  }
+}
+function renderCreditCheckin(d, t){
+  var pct = d.limit > 0 ? Math.min(100, Math.round((d.balance || 0) / d.limit * 100)) : 0;
+  var btn;
+  if (d.already_checked_in) {
+    btn = '<button type="button" class="sb2-credit-checkin-btn done" disabled><i class=sb2-ico-check></i> 已签到 +' + (d.reward || 10) + '</button>';
+  } else if ((d.remaining_to_limit || 0) <= 0) {
+    btn = '<button type="button" class="sb2-credit-checkin-btn done" disabled>已达上限</button>';
+  } else {
+    btn = '<button type="button" class="sb2-credit-checkin-btn" onclick="doCreditCheckin()">签到 +' + (d.reward || 10) + '</button>';
+  }
+  return '<div class="settings-card sb2-credit-checkin-card">'
+    + '<div class="settings-card-title">每日签到 <span style="font-weight:400;font-size:12px;color:var(--color-text-secondary,#6E6E73);">1 积分 = 1000 tokens, 每日一次, 上限 ' + formatNumber(d.limit || 10000) + '</span></div>'
+    + '<div class="sb2-credit-checkin-body">'
+    +   '<div class="sb2-credit-checkin-balance">'
+    +     '<div class="sb2-credit-checkin-num" id="creditCheckinBalance">' + formatNumber(d.balance || 0) + '</div>'
+    +     '<div class="sb2-credit-checkin-unit">积分' + (t.multi ? ' · 钱包: ' + escapeHtml(t.name) : '') + '</div>'
+    +     '<div class="sb2-credit-checkin-bar"><div style="width:' + pct + '%"></div></div>'
+    +     '<div class="sb2-credit-checkin-sub">距上限还差 ' + formatNumber(d.remaining_to_limit || 0) + '</div>'
+    +   '</div>'
+    +   '<div class="sb2-credit-checkin-act">' + btn + '</div>'
+    + '</div></div>';
+}
+async function doCreditCheckin(){
+  var t = _creditCheckinTarget();
+  if (!t) return;
+  var btn = document.querySelector('#creditCheckinArea .sb2-credit-checkin-btn:not(.done)');
+  if (btn) btn.disabled = true;
+  try {
+    var resp = await apiFetch('/api/credits/checkin', {
+      method: 'POST',
+      body: JSON.stringify(t.id ? { agent_id: t.id } : {})
+    });
+    var d = await resp.json().catch(function(){ return {}; });
+    if (resp && resp.ok) {
+      if (d.already_checked_in) showToast('今天已签过到了, 明天再来', 'info');
+      else if (d.capped) showToast('余额已达上限 ' + formatNumber(d.limit || 10000) + ', 签到不再累加', 'info');
+      else showToast('✅ 签到成功 +' + (d.delta || d.reward || 10) + ', 当前余额 ' + formatNumber(d.balance || 0), 'success');
+    } else {
+      showToast('❌ ' + ((d && d.error && d.error.message) || '签到失败'), 'error');
+    }
+  } catch (e) {
+    showToast('❌ 签到失败: ' + (e && e.message ? e.message : e), 'error');
+  }
+  loadCreditCheckin();
+  if (typeof loadComputeStats === 'function') loadComputeStats();
+}
+/* 用量曲线: records 按天聚合 → SVG 折线 (今日/昨日单点区间不画; total>page_size 诚实标注样本量) */
+function _creditUsageCurveHtml(records, dr, usageTotal){
+  if (!dr || !dr.start || !dr.end || dr.start === dr.end) return '';
+  var fmt = function(d){ var m=String(d.getMonth()+1), day=String(d.getDate()); return d.getFullYear()+'-'+(m.length<2?'0'+m:m)+'-'+(day.length<2?'0'+day:day); };
+  var dayMap = {};
+  (records || []).forEach(function(r){
+    var k = String(r.created_at || '').slice(0, 10);
+    if (k) dayMap[k] = (dayMap[k] || 0) + (r.credits_used || 0);
+  });
+  var days = [], cur = new Date(dr.start + 'T00:00:00'), endD = new Date(dr.end + 'T00:00:00');
+  while (cur <= endD && days.length < 62) { days.push(fmt(cur)); cur.setDate(cur.getDate() + 1); }
+  var vals = days.map(function(k){ return dayMap[k] || 0; });
+  var max = Math.max.apply(null, vals.concat([1]));
+  var W = 100, H = 32, step = days.length > 1 ? W / (days.length - 1) : W;
+  var pts = vals.map(function(v, i){ return (i * step).toFixed(1) + ',' + (H - 3 - (v / max) * (H - 8)).toFixed(1); }).join(' ');
+  var areaPts = '0,' + H + ' ' + pts + ' ' + W + ',' + H;
+  var note = (usageTotal && usageTotal > 200) ? '<span class="sb2-credit-curve-note">样本: 最近 200 条记录</span>' : '';
+  var hasData = vals.some(function(v){ return v > 0; });
+  var body = hasData
+    ? '<svg class="sb2-credit-curve" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none"><polygon points="' + areaPts + '" class="area"/><polyline points="' + pts + '" class="line"/></svg>'
+    : '<div class="sb2-credit-curve-empty">所选区间暂无消耗</div>';
+  return '<div class="sb2-credit-curve-wrap"><div class="sb2-credit-curve-hd"><span>用量曲线</span>' + note + '</div>' + body + '</div>';
+}
+/* 聊天头部余额芯片点击 → 跳设置页积分仪表盘 (sb2 设置屏顶部, 行级照抄 viewAllNotifications 模式) */
+function sb2JumpToCreditDashboard(){
+  if (typeof switchModule === 'function') switchModule('settings');
+  /* sb2SettingsShow 由 switchModule('settings') 钩子自动触发 → 加载签到卡 + 仪表盘;
+     这里只补滚动到顶部让余额区入视野 */
+  setTimeout(function(){
+    var main = document.getElementById('sb2SettingsMain');
+    if (main && main.scrollIntoView) main.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, 300);
+}
 
 // ★ fix/notification-panel-polish: 友好时间格式 helper (panel + history 共用)
 //   <1 min → 刚刚 / <1h → X 分钟前 / 今天 → HH:MM / 昨天 → 昨天 HH:MM / 今年 → M月D日 HH:MM / 跨年 → YYYY/M/D HH:MM
