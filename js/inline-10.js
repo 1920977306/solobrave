@@ -286,6 +286,18 @@
     var timeHtml = opts.showTime
       ? '<span class="sb2-chat-bubble-time">' + _sb2EscapeHtml(time) + '</span>'
       : '';
+    /* 〔chat-opt-5 2026-10-08〕AI 气泡上方姓名+时间标签 (还原原型设计稿, 老大批注)
+       每条 AI 消息上方显示员工名 (恒显), 时间随分组规则 (opts.showTime 才带) */
+    var metaHtml = '';
+    if (!isUser && !isSystem) {
+      var _metaEmp = _sb2GetEmpById(_sb2Chat.agentId);
+      var _metaName = (_metaEmp && _metaEmp.name) ? _metaEmp.name : '';
+      if (_metaName) {
+        metaHtml = '<div class="sb2-chat-msg-meta"><span class="sb2-chat-msg-meta-name">' + _sb2EscapeHtml(_metaName) + '</span>'
+          + (opts.showTime ? '<span class="sb2-chat-msg-meta-time">' + _sb2EscapeHtml(time) + '</span>' : '')
+          + '</div>';
+      }
+    }
     var dividerHtml = opts.divider
       ? '<div class="sb2-chat-date-divider"><span>' + _sb2EscapeHtml(opts.divider) + '</span></div>'
       : '';
@@ -299,6 +311,7 @@
       + '<div class="sb2-chat-msg-row" data-role="' + _sb2EscapeHtml(role) + '">'
       +    avatarHtml
       + '  <div class="sb2-chat-msg-col">'
+      +    metaHtml
       +    chipsHtml
       + '    <div class="sb2-chat-bubble' + (isErr ? ' sb2-chat-bubble-error' : '') + '" data-role="' + _sb2EscapeHtml(role) + '">'
       + '      <div class="sb2-chat-bubble-body">' + bodyHtml + imgHtml + propCardHtml + '</div>'

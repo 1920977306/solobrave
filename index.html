@@ -14192,6 +14192,22 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
   min-width: 0;
   max-width: 100%;
 }
+/* 〔chat-opt-5 2026-10-08〕AI 气泡上方 姓名+时间 标签 (还原原型设计稿) */
+.sb2-chat-msg-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: var(--sb2-chat-bubble-time-size);
+  line-height: 1.4;
+  padding-left: 2px;
+}
+.sb2-chat-msg-meta-name {
+  font-weight: 600;
+  color: var(--sb2-t2);
+}
+.sb2-chat-msg-meta-time {
+  color: var(--sb2-chat-bubble-time);
+}
 /* 注入标签 chips (原型特征元素, 数据驱动) */
 .sb2-chat-injection-chips {
   display: flex;
@@ -18885,7 +18901,7 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
      - 旧 chatArea + 老 JS 函数 100% 不动, 新 sb2 完全独立
      - _sb2Chat state + renderChatMain dispatcher
 -->
-<script src="js/inline-10.js?v=chatopt4a20261008"></script>
+<script src="js/inline-10.js?v=chatopt5a20261008"></script>
 
 <!-- ★ feat/sb2-chat-tasks: §2 聊天进阶 JS (slash 命令 + @mention + 模型选择)
      - 复用 §1 的 _sb2Chat state + sb2_doSend + renderChatMain dispatcher
