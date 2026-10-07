@@ -461,7 +461,9 @@ function buildFocus(){
         调 loadKnowledgePage() 重渲知识模块, 在 dashboard 上下文有副作用)
      3. 逾期任务    GET /api/tasks (admin 全量) → 客户端滤 status!=='completed' && deadline<今天
         → 「去处理」跳任务模块并直接打开该任务表单 (带 payload 的跳转, 不是裸导航)
-   空态: 三块全空 → section display:none (不占屏, 老大「多此一举」红线 — 没待办就不渲 hero)
+     4. 等你回复    GET /api/notifications?unread_only=1 (AI 回复推 type='message' 未读通知, 带 agent_id)
+        → 按 agent 去重取最新 → 「去回复」置已读 + 打开该员工聊天 (行级照抄侧栏四步链)
+   空态: 四块全空 → section display:none (不占屏, 老大「多此一举」红线 — 没待办就不渲 hero)
    拍板后: 提案卡就地切结果态; KB/任务卡在 DOM 内移除该行并重算, 全空收 section */
 function sb2_loadDashboardTodo(){
   var tok = localStorage.getItem('sb_auth_token') || '';
@@ -507,12 +509,30 @@ function sb2_loadDashboardTodo(){
     })
     .catch(function(){ return []; });
 
-  Promise.all([proposalsP, kbP, tasksP]).then(function(arr){
+  /* 4) 等你回复: AI 回复时服务端推 type='message' 未读通知 (chat POST 链路 _push_notification,
+        带 agent_id + 回复摘要). 按 agent_id 去重取最新一条/人 */
+  var notifP = fetch('/api/notifications?unread_only=1&limit=50', { headers: headers })
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      var items = (d && Array.isArray(d.items)) ? d.items : [];
+      var byAgent = {};
+      items.forEach(function(n){
+        if (!n || n.type !== 'message' || !n.agent_id) return;
+        if (!byAgent[n.agent_id] || (n.created_at || 0) > (byAgent[n.agent_id].created_at || 0)) {
+          byAgent[n.agent_id] = n;
+        }
+      });
+      return Object.keys(byAgent).map(function(k){ return byAgent[k]; })
+        .sort(function(a, b){ return (b.created_at || 0) - (a.created_at || 0); });
+    })
+    .catch(function(){ return []; });
+
+  Promise.all([proposalsP, kbP, tasksP, notifP]).then(function(arr){
     var section = document.getElementById('sb2Dash2Todo');
     var el = document.getElementById('sb2Dash2TodoList');
     if (!section || !el) return;
-    var proposals = arr[0], kbPending = arr[1], overdueTasks = arr[2];
-    if (proposals.length === 0 && kbPending.length === 0 && overdueTasks.length === 0){
+    var proposals = arr[0], kbPending = arr[1], overdueTasks = arr[2], unreadReplies = arr[3];
+    if (proposals.length === 0 && kbPending.length === 0 && overdueTasks.length === 0 && unreadReplies.length === 0){
       /* 清空旧卡再藏: 防「先有待办后清零」时残留假卡 (拍板后重刷场景) */
       el.innerHTML = '';
       section.style.display = 'none';
@@ -555,6 +575,30 @@ function sb2_loadDashboardTodo(){
            +   '<div class="sb2-prop-card-title">' + overdueTasks.length + ' 个任务已过截止日未完成</div>'
            +   '<div class="sb2-dash2-todo-rows">' + tkRows + '</div>'
            +   (overdueTasks.length > 3 ? '<div class="sb2-dash2-todo-more">还有 ' + (overdueTasks.length - 3) + ' 个在任务模块处理</div>' : '')
+           + '</div>';
+    }
+    /* 等你回复卡 (行内 去回复 → 打开该员工聊天 + 通知置已读) */
+    if (unreadReplies.length > 0){
+      var empsIndex = {};
+      try {
+        (typeof window.emps !== 'undefined' && Array.isArray(window.emps) ? window.emps : []).forEach(function(e){
+          if (e && e.id) empsIndex[e.id] = e.display_name || e.name || '';
+        });
+      } catch(e){}
+      var chatRows = unreadReplies.slice(0, 3).map(function(n){
+        var empName = empsIndex[n.agent_id] || (n.title || '').replace(/ 回复了你$/, '') || '员工';
+        var snippet = (n.content || '').slice(0, 30);
+        var when = (typeof sb2_relativeTime === 'function') ? sb2_relativeTime(n.created_at || 0) : '';
+        return '<div class="sb2-dash2-todo-row" data-nid="' + escapeHtml(n.id) + '">'
+             +   '<span class="sb2-dash2-todo-row-t" title="' + escapeHtml(n.content || '') + '">' + escapeHtml(empName) + '：' + escapeHtml(snippet) + (when ? ' · ' + escapeHtml(when) : '') + '</span>'
+             +   '<span class="sb2-dash2-todo-row-acts"><button type="button" class="sb2-dash2-todo-btn ok" onclick="sb2DashTodoOpenChat(\'' + escapeHtml(n.agent_id) + '\', \'' + escapeHtml(n.id) + '\')">去回复</button></span>'
+             + '</div>';
+      }).join('');
+      html += '<div class="sb2-prop-card sb2-dash2-todo-chat" data-state="pending">'
+           +   '<div class="sb2-prop-card-head"><span class="sb2-prop-card-state pending">待回复</span><span style="font-size:11px;color:var(--sb2-t3);">即时通讯</span></div>'
+           +   '<div class="sb2-prop-card-title">' + unreadReplies.length + ' 位员工等你回复</div>'
+           +   '<div class="sb2-dash2-todo-rows">' + chatRows + '</div>'
+           +   (unreadReplies.length > 3 ? '<div class="sb2-dash2-todo-more">还有 ' + (unreadReplies.length - 3) + ' 位在 AI 办公室处理</div>' : '')
            + '</div>';
     }
     el.innerHTML = html;
@@ -607,11 +651,25 @@ function sb2DashTodoKbReject(docId, btn){
       if (btn) btn.disabled = false;
     });
 }
-/* 行内移除 KB 行; 卡内无行 → 移除卡; 网格无卡 → 收 section */
+/* 行内移除行 (KB 通过/驳回后); 卡内无行 → 移除卡; 网格无卡 → 收 section */
 function sb2DashTodoRemoveRow(docId){
   var row = document.querySelector('#sb2Dash2TodoList .sb2-dash2-todo-row[data-kb-id="' + docId + '"]');
   if (row) row.parentNode.removeChild(row);
   var card = document.querySelector('#sb2Dash2TodoList .sb2-dash2-todo-kb');
+  if (card && !card.querySelector('.sb2-dash2-todo-row')) {
+    card.parentNode.removeChild(card);
+  }
+  var el = document.getElementById('sb2Dash2TodoList');
+  if (el && el.children.length === 0) {
+    var section = document.getElementById('sb2Dash2Todo');
+    if (section) section.style.display = 'none';
+  }
+}
+/* 等你回复行移除 (data-nid), 结构同上 (卡类 .sb2-dash2-todo-chat) */
+function sb2DashTodoRemoveChatRow(notifId){
+  var row = document.querySelector('#sb2Dash2TodoList .sb2-dash2-todo-row[data-nid="' + notifId + '"]');
+  if (row) row.parentNode.removeChild(row);
+  var card = document.querySelector('#sb2Dash2TodoList .sb2-dash2-todo-chat');
   if (card && !card.querySelector('.sb2-dash2-todo-row')) {
     card.parentNode.removeChild(card);
   }
@@ -628,10 +686,29 @@ function sb2DashTodoOpenTask(taskId){
     if (typeof sb2TasksOpenForm === 'function') sb2TasksOpenForm(taskId);
   }, 400);
 }
+/* 去回复 → 通知置已读 (PUT /api/notifications/:id/read, 契约同 inline-07:6490)
+   + 跳 AI 办公室打开该员工聊天 (行级照抄 messages 侧栏 onClick 四步链, 23 轮批注③ 修法) */
+function sb2DashTodoOpenChat(empId, notifId){
+  if (notifId) {
+    try {
+      apiFetch('/api/notifications/' + encodeURIComponent(notifId) + '/read', { method: 'PUT' })
+        .catch(function(){});
+    } catch(e){}
+    sb2DashTodoRemoveChatRow(notifId);
+  }
+  if (typeof sb2Go === 'function') sb2Go('messages');
+  setTimeout(function(){
+    try { localStorage.setItem('sb_current_emp', empId); } catch(e){}
+    if (typeof openChat === 'function') { try { openChat(empId); } catch(e){} }
+    if (typeof window.renderChatMain === 'function') { try { window.renderChatMain(); } catch(e){} }
+    if (typeof window.renderSideFor === 'function') { try { window.renderSideFor('messages'); } catch(e){} }
+  }, 400);
+}
 /* IIFE 作用域墙: onclick 行内调用 + 跨块手动重刷都走 window (SEV1 老教训, 跟 sb2ToggleSide 同款) */
 window.sb2DashTodoKbApprove = sb2DashTodoKbApprove;
 window.sb2DashTodoKbReject = sb2DashTodoKbReject;
 window.sb2DashTodoOpenTask = sb2DashTodoOpenTask;
+window.sb2DashTodoOpenChat = sb2DashTodoOpenChat;
 window.sb2_loadDashboardTodo = sb2_loadDashboardTodo;
 
 /* ---------- MVP2 三 feed 区加载 (knowledge-events + knowledge-patterns + kb entries) ---------- */
