@@ -2526,6 +2526,15 @@ def _get_localhost_auth_result(headers, parsed_body=None):
     return AuthResult(error='本地调用需要 X-Agent-Id 头或 Bearer token', status=401)
 
 
+def _talent_visible_to_auth(auth, talent_row_dict):
+    """M3 行级可见性: 镜像 _handle_get_talents 列表规则。
+    admin 全可见; 非 admin 仅 created_by ∈ {自己}∪{自己的AI员工}。返回 bool。"""
+    if auth.is_admin and not getattr(auth, 'localhost_agent_id', None):
+        return True
+    uid = _resolve_talent_owner_id(auth)
+    visible = {uid} | set(_get_user_emp_ids(uid))
+    return (talent_row_dict.get('created_by') or '') in visible
+
 def _resolve_talent_owner_id(auth):
     """达人数据归属：返回写入操作应归属的用户 ID（两层架构的子库归属）。
     AI 员工本地调用（localhost_agent_id）归属到该员工的创建者（子账号），
@@ -15923,7 +15932,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json_error(500, 'List failed')
 
     def _handle_get_deal_detail(self, deal_id):
-        """GET /api/deals/<id> — 完整记录"""
+        """GET /api/deals/<id> — 完整记录
+        ★ M3 行级校验: 镜像列表规则（JOIN talents, 非 admin 仅 created_by ∈ 自己+员工）。
+        之前详情零校验 → 凭 id 可读他人合作单（Phase 0 风险清单 #19）。"""
         auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
@@ -15938,6 +15949,21 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             if not row:
                 self._send_json_error(404, 'Deal not found')
                 return
+            if not auth.is_admin:
+                uid = _resolve_talent_owner_id(auth)
+                ids = [uid] + list(_get_user_emp_ids(uid))
+                mark = ','.join('?' * len(ids))
+                conn2 = _db_conn()
+                try:
+                    ok_row = conn2.execute(
+                        f'SELECT d.id FROM deals d JOIN talents t ON d.talent_id = t.id '
+                        f'WHERE d.id = ? AND t.created_by IN ({mark})',
+                        [deal_id] + ids).fetchone()
+                finally:
+                    conn2.close()
+                if not ok_row:
+                    self._send_json_error(404, 'Deal not found')
+                    return
             self._send_json(200, _deal_row_to_dict(row))
         except Exception as e:
             logger.error(f'  [Deals] detail failed: {e}')
@@ -18844,7 +18870,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         self._send_json(200, {'text': _build_talent_injection_text(auth)})
 
     def _handle_get_talent(self, talent_id):
-        """GET /api/talents/:id — 获取达人详情"""
+        """GET /api/talents/:id — 获取达人详情
+        ★ M3 行级校验: 镜像列表可见性规则（_handle_get_talents 同款）。
+        之前详情零校验 → 非 admin 凭 id 可读主库/他人子库达人（Phase 0 风险清单 #2 IDOR）。
+        返回 404 而非 403: 不暴露 id 是否存在。"""
         auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
@@ -18858,7 +18887,14 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not row:
             self._send_json_error(404, 'Talent not found')
             return
-        self._send_json(200, _talent_row_to_dict(row))
+        t = _talent_row_to_dict(row)
+        if not auth.is_admin or getattr(auth, 'localhost_agent_id', None):
+            uid = _resolve_talent_owner_id(auth)
+            visible_ids = {uid} | set(_get_user_emp_ids(uid))
+            if (t.get('created_by') or '') not in visible_ids:
+                self._send_json_error(404, 'Talent not found')
+                return
+        self._send_json(200, t)
 
     def _handle_post_talent(self):
         """POST /api/talents — 录入达人（douyin_id 完全一致时报重复；同用户同名时合并更新原记录）"""
@@ -19094,6 +19130,15 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_auth_error(auth.error, auth.status)
             return
         if not self._require_module_permission(auth, 'influencers'): return
+        # ★ M3 行级校验: 达人本体不可见 → 子资源一律 404（防 id 探测）
+        _conn_t = _db_conn()
+        try:
+            _row_t = _conn_t.execute('SELECT created_by FROM talents WHERE id = ?', (talent_id,)).fetchone()
+        finally:
+            _conn_t.close()
+        if not _row_t or not _talent_visible_to_auth(auth, {'created_by': _row_t['created_by']}):
+            self._send_json_error(404, 'Talent not found')
+            return
         conn = _db_conn()
         try:
             exists = conn.execute('SELECT 1 FROM talents WHERE id = ?', (talent_id,)).fetchone()
@@ -19118,6 +19163,15 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_auth_error(auth.error, auth.status)
             return
         if not self._require_module_permission(auth, 'influencers'): return
+        # ★ M3 行级校验: 达人本体不可见 → 子资源一律 404（防 id 探测）
+        _conn_t = _db_conn()
+        try:
+            _row_t = _conn_t.execute('SELECT created_by FROM talents WHERE id = ?', (talent_id,)).fetchone()
+        finally:
+            _conn_t.close()
+        if not _row_t or not _talent_visible_to_auth(auth, {'created_by': _row_t['created_by']}):
+            self._send_json_error(404, 'Talent not found')
+            return
         conn = _db_conn()
         try:
             exists = conn.execute('SELECT 1 FROM talents WHERE id = ?', (talent_id,)).fetchone()
@@ -19453,11 +19507,17 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         self._send_json(200, {'proposals': proposals, 'total': total, 'offset': offset, 'limit': limit})
 
     def _handle_get_proposal(self, proposal_id):
-        """GET /api/proposals/:id — 详情, 人类/agent 均可
+        """GET /api/proposals/:id — 详情
+        ★ M3: 列表早已 admin-only 收窄（老大拍板）, 详情之前却零校验 →
+        任意登录用户凭 id 读审批中心提议（含商务条款）。此处对齐列表口径。
         惰性过期: pending → expired WHERE expires_at < now."""
         auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status); return
+        # ★ M3 行级校验: 跟 _handle_get_proposals 列表同款 admin-only
+        if not auth.is_admin or getattr(auth, 'localhost_agent_id', None):
+            self._send_json_error(403, '仅人类管理员可看审批中心')
+            return
         conn = _db_conn()
         try:
             now_ms = int(time.time() * 1000)
@@ -20318,6 +20378,15 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_auth_error(auth.error, auth.status)
             return
         if not self._require_module_permission(auth, 'influencers'): return
+        # ★ M3 行级校验: 达人本体不可见 → 子资源一律 404（防 id 探测）
+        _conn_t = _db_conn()
+        try:
+            _row_t = _conn_t.execute('SELECT created_by FROM talents WHERE id = ?', (talent_id,)).fetchone()
+        finally:
+            _conn_t.close()
+        if not _row_t or not _talent_visible_to_auth(auth, {'created_by': _row_t['created_by']}):
+            self._send_json_error(404, 'Talent not found')
+            return
         query = parse_qs(urlparse(self.path).query)
         limit = int(query.get('limit', ['20'])[0])
         conn = _db_conn()
