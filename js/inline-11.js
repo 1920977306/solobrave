@@ -81,6 +81,50 @@
     _sb2RenderPopup(html);
     _sb2ShowPopup();
   }
+  /* ★ r73 反馈 Comment 1 老大 17:44「点开改成弹窗」: 顶栏设置按钮改成居中浮窗
+     — 跟 KB 详情浮层 (line 12712+) + 规律详情浮层 (line 10229+) 同款 precedent
+     — 复用 _sb2ChatTasks.model.list 数据, 渲染到 .sb2-model-picker-list
+     — 选完模型调 sb2_switchModel + 更新顶栏按钮文字 + 关闭浮窗
+     — closeModelPicker 走 outside-click (overlay onclick) + close 按钮 + 选完自动关 */
+  function sb2_openModelPicker(){
+    var listEl = document.getElementById('sb2ModelPickerList');
+    var overlay = document.getElementById('sb2ModelPickerOverlay');
+    var panel = document.getElementById('sb2ModelPickerPanel');
+    if (!listEl || !overlay || !panel) return;
+    // 渲染模型列表
+    var html = '';
+    for (var i = 0; i < _sb2ChatTasks.model.list.length; i++) {
+      var m = _sb2ChatTasks.model.list[i];
+      var isActive = m.name === _sb2ChatTasks.model.current;
+      var cls = 'sb2-model-picker-item' + (isActive ? ' active' : '');
+      html += ''
+        + '<div class="' + cls + '" data-mname="' + _sb2EscapeHtml(m.name) + '" onclick="sb2_pickModel(\'' + _sb2EscapeHtml(m.name).replace(/'/g, "\\'") + '\')">'
+        + '  <div class="sb2-model-picker-item-body">'
+        + '    <div class="sb2-model-picker-item-name">' + _sb2EscapeHtml(m.name) + '</div>'
+        + (m.desc ? '    <div class="sb2-model-picker-item-desc">' + _sb2EscapeHtml(m.desc) + '</div>' : '')
+        + '  </div>'
+        + '  <span class="sb2-model-picker-item-check">✓</span>'
+        + '</div>';
+    }
+    listEl.innerHTML = html;
+    overlay.classList.add('open');
+    panel.classList.add('open');
+    _sb2HidePopup();  // 关闭 popup menu (避免双重弹窗)
+  }
+  function closeModelPicker(){
+    var overlay = document.getElementById('sb2ModelPickerOverlay');
+    var panel = document.getElementById('sb2ModelPickerPanel');
+    if (overlay) overlay.classList.remove('open');
+    if (panel) panel.classList.remove('open');
+  }
+  function sb2_pickModel(name){
+    sb2_switchModel(name);
+    // ★ 同步顶栏按钮文字: 显示当前模型名 (老大 17:44 反馈)
+    var btn = document.getElementById('sb2ChatTopbarSettings');
+    if (btn) btn.textContent = name;
+    // 状态行 span (id 共用 sb2ChatPickModel, 删 button 后 fallback) 自动被 sb2_switchModel 更新
+    closeModelPicker();
+  }
   function sb2_switchModel(name) {
     var found = _sb2ChatTasks.model.list.find(function(m) { return m.name === name; });
     if (!found) return;
@@ -506,6 +550,9 @@
   };
   window.sb2_renderModelMenu = sb2_renderModelMenu;
   window.sb2_switchModel = sb2_switchModel;
+  window.sb2_openModelPicker = sb2_openModelPicker;
+  window.closeModelPicker = closeModelPicker;
+  window.sb2_pickModel = sb2_pickModel;
   window.sb2_execSlashCommand = sb2_execSlashCommand;
   window.sb2_renderMentionMenu = sb2_renderMentionMenu;
   window._sb2ChatTasks = _sb2ChatTasks;  // F12 调试

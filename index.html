@@ -5569,7 +5569,7 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
    ======================================== */
 .emp-detail-overlay { position: fixed; inset: 0; background: rgba(10, 10, 14, 0.55); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); opacity: 0; visibility: hidden; transition: all 0.3s; z-index: 250; }
 .emp-detail-overlay.open { opacity: 1; visibility: visible; }
-.emp-detail-panel { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 90%; max-width: 680px; max-height: 80vh; background: var(--bg-primary); border-radius: 16px; box-shadow: 0 20px 60px rgba(0,0,0,0.25); z-index: 251; display: flex; flex-direction: column; overflow: hidden; opacity: 0; visibility: hidden; transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1); }
+.emp-detail-panel { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 90%; max-width: 680px; max-height: 80vh; background: #ffffff; border-radius: 16px; box-shadow: 0 20px 60px rgba(0,0,0,0.18); z-index: 251; display: flex; flex-direction: column; overflow: hidden; opacity: 0; visibility: hidden; transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1); }
 .emp-detail-content { flex: 1; overflow-y: auto; padding: 14px 20px; }
 .emp-detail-actions { flex-shrink: 0; padding: 12px 20px; }
 .emp-detail-overlay.open .emp-detail-panel { opacity: 1; visibility: visible; transform: translate(-50%, -50%) scale(1); }
@@ -5596,7 +5596,8 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 /* 〔r71 反馈 Comment 2〕header padding 20px → 14px 20px, 跟 KB 详情同款紧凑度 */
 .emp-detail-header { display: flex; align-items: center; gap: 12px; padding: 14px 20px; border-bottom: 0.5px solid var(--separator); }
 .emp-detail-header.emp-detail-header-v3 {
-  background: linear-gradient(135deg, var(--color-ai-bg-soft, #EEF0FF) 0%, var(--color-bg, var(--bg-primary,#ffffff)) 60%);
+  /* 〔r73 反馈 Comment 2〕header 渐变从浅蓝 (#EEF0FF) 删,改为纯白 (跟 .sb2-* 系统对齐) */
+  background: #ffffff;
 }
 .emp-detail-header.emp-detail-header-v3::before {
   content: "";
@@ -5746,11 +5747,11 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .list-item:hover .status-dot { transform: scale(1.15); }
 @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
 .emp-detail-close { width: 32px; height: 32px; border: none; background: transparent; cursor: pointer; display: flex; align-items: center; justify-content: center; border-radius: 8px; color: var(--text-secondary); }
-.emp-detail-close:hover { background: var(--bg-secondary); }
-.emp-detail-tabs { display: flex; padding: 0 20px; border-bottom: 0.5px solid var(--separator); }
-.emp-detail-tab { flex: 1; padding: 12px 8px; border: none; background: transparent; cursor: pointer; font-size: 13px; color: var(--text-secondary); border-bottom: 2px solid transparent; transition: all 0.2s; }
-.emp-detail-tab:hover { color: var(--text-primary); }
-.emp-detail-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+.emp-detail-close:hover { background: var(--sb2-s3); color: var(--sb2-t1); }
+.emp-detail-tabs { display: flex; padding: 0 20px; border-bottom: 1px solid var(--sb2-border); }
+.emp-detail-tab { flex: 1; padding: 12px 8px; border: none; background: transparent; cursor: pointer; font-size: 13px; color: var(--sb2-t3); border-bottom: 2px solid transparent; transition: all 0.2s; }
+.emp-detail-tab:hover { color: var(--sb2-t1); }
+.emp-detail-tab.active { color: var(--sb2-brand); border-bottom-color: var(--sb2-brand); }
 /* 〔r71 反馈 Comment 2〕content padding 16/20 → 14/20, 跟 KB 详情同款 (line 12770 .sb2-kb-detail-content padding 14 16) */
 .emp-detail-content { flex: 1; overflow-y: auto; padding: 14px 20px; }
 .emp-tab-pane { display: none; }
@@ -5760,9 +5761,9 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .emp-stat-value { font-size: 20px; font-weight: 600; color: var(--accent); }
 .emp-stat-label { font-size: 11px; color: var(--text-secondary); margin-top: 2px; }
 .emp-info-list { display: flex; flex-direction: column; gap: 8px; }
-.emp-info-item { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 0.5px solid var(--separator); }
-.emp-info-label { font-size: 13px; color: var(--text-secondary); }
-.emp-info-value { font-size: 13px; font-family: 'SF Mono', monospace; }
+.emp-info-item { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--sb2-border); }
+.emp-info-label { font-size: 13px; color: var(--sb2-t3); }
+.emp-info-value { font-size: 13px; font-family: 'SF Mono', monospace; color: var(--sb2-t1); }
 /* V2.1 quota-meter 横条进度条(上下文用量, 复用 --separator 轨道 + accent 填充 + SF Mono 数字) */
 .quota-meter {
   position: relative;
@@ -5798,10 +5799,10 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .emp-doc-title { font-size: 12px; font-weight: 600; color: var(--text-secondary); margin-bottom: 6px; text-transform: uppercase; }
 .emp-doc-editor { width: 100%; padding: 10px; background: var(--bg-secondary); border: 0.5px solid var(--separator); border-radius: var(--radius-sm); font-size: 12px; font-family: 'SF Mono', monospace; resize: vertical; box-sizing: border-box; }
 .emp-doc-editor:focus { outline: none; border-color: var(--accent); }
-.emp-action-btn { display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%; padding: 10px 16px; background: var(--bg-secondary); border: 0.5px solid var(--separator); border-radius: var(--radius-sm); font-size: 13px; cursor: pointer; transition: all 0.2s; }
-.emp-action-btn:hover { background: var(--bg-tertiary); }
-.emp-action-btn.primary { background: var(--accent); color: white; border-color: var(--accent); }
-.emp-action-btn.primary:hover { background: var(--accent-hover); }
+.emp-action-btn { display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%; padding: 10px 16px; background: #ffffff; border: 1px solid var(--sb2-border); border-radius: var(--sb2-r-md); font-size: 13px; cursor: pointer; transition: all 0.2s; color: var(--sb2-t1); }
+.emp-action-btn:hover { background: var(--sb2-s3); }
+.emp-action-btn.primary { background: var(--sb2-brand); color: #fff; border-color: var(--sb2-brand); }
+.emp-action-btn.primary:hover { background: var(--sb2-brand-strong); }
 /* 〔r71 反馈 Comment 2〕footer padding 16/20 → 12/20, 跟 KB 详情同款 (.sb2-kb-detail-footer line 12777) */
 .emp-detail-actions { display: flex; gap: 12px; padding: 12px 20px; border-top: 0.5px solid var(--separator); }
 .emp-detail-actions .emp-action-btn { flex: 1; }
@@ -10275,6 +10276,66 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
   font-size:18px; line-height:1; color:var(--sb2-t3);
   border-radius:var(--sb2-r-sm); flex-shrink:0;
 }
+
+/* ★ r73 反馈 Comment 1: 顶栏设置按钮改成弹窗设计 (跟 KB/规律详情同款)
+   — 居中 + 全屏遮罩 + rise 动画
+   — 跟 .sb2-ptn-detail-overlay / .sb2-kb-detail-overlay 视觉一致 (跨浮层一致) */
+.sb2-model-picker-overlay{
+  position:fixed; inset:0; z-index:99;
+  background:rgba(10,10,14,.55); backdrop-filter:blur(4px); -webkit-backdrop-filter:blur(4px);
+  display:none;
+  animation:sb2-ptn-fade-in .2s ease;
+}
+.sb2-model-picker-overlay.open{ display:block; }
+.sb2-model-picker-panel{
+  position:fixed; left:50%; top:50%; transform:translate(-50%,-50%);
+  width:480px; max-width:90vw; max-height:70vh;
+  background:var(--sb2-s1); border:1px solid var(--sb2-border);
+  border-radius:var(--sb2-r-lg, 14px);
+  box-shadow:0 12px 40px rgba(0,0,0,.18);
+  display:none; flex-direction:column; z-index:100;
+  animation:sb2-rise-in .22s ease;
+}
+.sb2-model-picker-panel.open{ display:flex; }
+.sb2-model-picker-header{
+  display:flex; align-items:center; gap:12px;
+  padding:14px 20px; border-bottom:1px solid var(--sb2-border); flex-shrink:0;
+}
+.sb2-model-picker-title{
+  margin:0; font:600 14px/1.3 "PingFang SC",sans-serif; color:var(--sb2-t1);
+  flex:1; min-width:0;
+}
+.sb2-model-picker-close{
+  width:28px; height:28px; border:none; background:transparent; cursor:pointer;
+  font-size:18px; line-height:1; color:var(--sb2-t3);
+  border-radius:var(--sb2-r-sm); flex-shrink:0;
+}
+.sb2-model-picker-close:hover{ background:var(--sb2-s3); color:var(--sb2-t1); }
+.sb2-model-picker-list{
+  padding:8px; overflow-y:auto; flex:1; min-height:0;
+}
+.sb2-model-picker-item{
+  display:flex; align-items:center; gap:10px;
+  padding:10px 12px; border-radius:var(--sb2-r-sm);
+  cursor:pointer; transition:background .15s;
+}
+.sb2-model-picker-item:hover{ background:var(--sb2-s2); }
+.sb2-model-picker-item.active{ background:var(--sb2-brand-soft); }
+.sb2-model-picker-item-body{ flex:1; min-width:0; }
+.sb2-model-picker-item-name{
+  font:500 13px/1.4 "PingFang SC",sans-serif; color:var(--sb2-t1);
+}
+.sb2-model-picker-item.active .sb2-model-picker-item-name{ color:var(--sb2-brand); }
+.sb2-model-picker-item-desc{
+  font:400 11px/1.3 "PingFang SC",sans-serif; color:var(--sb2-t3);
+  margin-top:2px;
+}
+.sb2-model-picker-item-check{
+  flex-shrink:0; color:var(--sb2-brand); font-size:14px;
+  display:none;
+}
+.sb2-model-picker-item.active .sb2-model-picker-item-check{ display:block; }
+}
 .sb2-ptn-detail-close:hover{ background:var(--sb2-s3); color:var(--sb2-t1); }
 
 .sb2-ptn-detail-body{
@@ -11706,8 +11767,13 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
   border-radius:10px; padding:1px 9px; font-variant-numeric:tabular-nums;
 }
 .sb2-tasks-col-empty{
+  /* 〔r73 反馈 Comment 3 老大 17:44「任务看板底部还是空着给我」: 空状态列内居中
+     — 修前: 列内顶部对齐, 空状态在列顶, 列底部大空白 (~400px)
+     — 修后: margin-top:auto + margin-bottom:auto, 空状态居中显示, 列底部空状态占位
+     — 跟 .sb2-tasks-board stretch + 列内 flex column 高度链生效 */
   text-align:center; padding:24px 12px; color:var(--sb2-t3);
   font-size:11px;
+  margin-top:auto; margin-bottom:auto;
 }
 
 /* --- 卡片 --- */
@@ -15995,12 +16061,15 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
     </div>
     <div class="sb2-chat-topbar-right">
       <button class="sb2-chat-topbar-ghost" type="button" id="sb2ChatTopbarProfile" title="员工档案" onclick="sb2_openEmpProfile()">员工档案</button>
-      <button class="sb2-chat-topbar-ghost" type="button" id="sb2ChatTopbarSettings" title="会话设置 (请求级模型指定)" onclick="sb2_renderModelMenu()">设置</button>
-      <!-- ★ r71 反向修法 (老大 17:08 走查截图) — 撤回 r70 项① 误删的「设置」按钮:
-        - r70 项① 我理解反了「把输入框上面那个去掉」, 误删了顶栏「设置」按钮
-        - 老大实际期望: 删输入框下方 model pill (跟状态行/顶栏设置功能重复), 顶栏「设置」按钮保留
-        - 教训: 派单模糊时按走查截图决策, 不是按文字理解 (r70 项⑧ pageSize 误读同款根因)
-        - 状态行 span 才是常态的 model 切换入口 (id 共用 sb2ChatPickModel, 删 button 后自动 fallback) -->
+      <button class="sb2-chat-topbar-ghost" type="button" id="sb2ChatTopbarSettings" title="点击切换模型 (请求级)" onclick="sb2_openModelPicker()" data-default-text="选择模型">选择模型</button>
+      <!-- ★ r73 反馈 Comment 1 老大 17:44「不要设置这两个字, 改成当前模型的名字, 点开改成弹窗」:
+        — r71 反向修法恢复了「设置」按钮; r73 老大再走查: 不要「设置」字, 改成 modelName + 弹窗
+        — 修前: 静态文本「设置」, 点击是 popup (锚输入框上方小框)
+        — 修后: 动态文本 (当前模型名, JS 渲染), 点击弹居中浮窗 .sb2-model-picker-overlay
+        — 跟 KB 详情浮层 (line 12712+) + 规律详情浮层 (line 10229+) 同款 precedent (居中 + 全屏遮罩 + rise)
+        — 跨 3 轮连环反向 (r70 项① 删 → r71 反向修法恢复 → r73 改成模型名):
+          派单模糊时走查截图才是最终标准, 文字描述容易理解反
+        — 状态行 sb2ChatPickModel 仍是 model name 反馈 (id 共用不影响, 删 button 后 fallback 到 span) -->
     </div>
   </header>
 
@@ -16054,6 +16123,20 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
 
     <!-- §2 浮层容器: slash / @mention / model 三功能共用 (绝对定位锚输入框上方) -->
     <div class="sb2-chat-tasks-popup" id="sb2ChatTasksPopup" hidden></div>
+
+    <!-- ★ r73 反馈 Comment 1 老大 17:44「点开之后别给我弄个小框出来, 给我改成弹窗设计」:
+      — 跟 KB 详情浮层 (line 12712+) + 规律详情浮层 (line 10229+) 同款 precedent (居中 + 全屏遮罩 + rise)
+      — 修前: sb2_renderModelMenu 弹 #sb2ChatTasksPopup (锚输入框上方小框)
+      — 修后: 居中浮窗 .sb2-model-picker-overlay + .sb2-model-picker-panel, 列出所有模型 + 居中显示
+      — 点击外部 / 点关闭按钮 / 选完模型 自动关闭 -->
+    <div class="sb2-model-picker-overlay" id="sb2ModelPickerOverlay" onclick="closeModelPicker()"></div>
+    <div class="sb2-model-picker-panel" id="sb2ModelPickerPanel">
+      <div class="sb2-model-picker-header">
+        <span class="sb2-model-picker-title">切换模型 (请求级)</span>
+        <button class="sb2-model-picker-close" onclick="closeModelPicker()" aria-label="关闭">×</button>
+      </div>
+      <div class="sb2-model-picker-list" id="sb2ModelPickerList"></div>
+    </div>
   </div>
 </main>
 
@@ -18441,7 +18524,7 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
      - localStorage.sb2_current_model 持久化当前模型
      - 旧 slashMenu/mentionDropdown/modelDropdown DOM 100% 不动 (隐藏兜底)
 -->
-<script src="js/inline-11.js?v=f8454c9487"></script>
+<script src="js/inline-11.js?v=aac84a1032"></script>
 
 <script src="js/inline-12.js?v=eb4c5ce645"></script>
 <!-- 〔r39-19 ⑤C 老大拍板〕窄屏提示页: ≤768px 全屏提示桌面端打开 (旧系统回退已摘除) -->
