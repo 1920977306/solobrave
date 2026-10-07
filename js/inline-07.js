@@ -2054,9 +2054,14 @@ function sb2TalentsRenderTable(){
 function sb2TalentsToggleRow(id){
   if (!id) return;
   var wasSelected = (_sb2TalentsSelectedRowId === id);
-  _sb2TalentsSelectedRowId = wasSelected ? '' : id;
+  var overlay = (typeof document !== 'undefined') ? document.getElementById('sb2TlnDetailOverlay') : null;
+  var drawerOpen = !!(overlay && overlay.classList.contains('open'));
+  /* ★ fix(r82 补): 首行默认选中时 drawer 并未开 — 点首行应开 drawer 而非走关闭分支
+     关闭条件收紧为「该行已选中 且 drawer 已开」 */
+  var shouldClose = wasSelected && drawerOpen;
+  _sb2TalentsSelectedRowId = shouldClose ? '' : id;
   sb2TalentsRenderTable();
-  if (wasSelected) {
+  if (shouldClose) {
     if (typeof window !== 'undefined' && typeof window.sb2TlnCloseDetail === 'function') window.sb2TlnCloseDetail();
   } else {
     if (typeof window !== 'undefined' && typeof window.sb2TlnOpenDetail === 'function') window.sb2TlnOpenDetail(id);
