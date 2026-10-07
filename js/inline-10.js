@@ -122,12 +122,35 @@
     var container = document.getElementById('sb2ChatMessages');
     if (!container) return;
     if (!_sb2Chat.messages || _sb2Chat.messages.length === 0) {
-      container.innerHTML = ''
-        + '<div class="sb2-chat-empty">'
-        + '  <div class="sb2-chat-empty-icon">💬</div>'
-        + '  <div>暂无消息,说点什么吧</div>'
-        + '  <div class="sb2-chat-empty-tip">Enter 发送 / Shift+Enter 换行 / 📎 附件</div>'
-        + '</div>';
+      /* 〔chat-opt-4 2026-10-08 老大批注〕空对话给快捷派活建议 (能力卡片同款思路, 点击预填输入框):
+         已选员工 → 问候 + 3 个快捷 prompt chips (按角色换一组); 未选员工 → 原提示 */
+      if (_sb2Chat.agentId) {
+        var _empQ = _sb2GetEmpById(_sb2Chat.agentId);
+        var _empQName = (_empQ && _empQ.name) ? _empQ.name : '员工';
+        var _roleQ = (_empQ && _empQ.role) ? String(_empQ.role) : '';
+        var _promptsQ = ['帮我汇总一下当前任务进度', '最近有什么值得关注的新动态？', '给我列一份本周重点工作清单'];
+        if (/达人|商务|选品|运营/.test(_roleQ)) {
+          _promptsQ = ['分析一下最近达人的合作表现', '基于已合作达人推荐下一波选品', '给团队写一份本周工作简报'];
+        }
+        var _chipsQ = '';
+        for (var _qi = 0; _qi < _promptsQ.length; _qi++) {
+          _chipsQ += '<button type="button" class="sb2-chat-empty-chip" onclick="sb2QuickPrompt(' + JSON.stringify(_promptsQ[_qi]).replace(/"/g, '&quot;') + ')">' + _sb2EscapeHtml(_promptsQ[_qi]) + '</button>';
+        }
+        container.innerHTML = ''
+          + '<div class="sb2-chat-empty">'
+          + '  <div class="sb2-chat-empty-icon">💬</div>'
+          + '  <div>和 ' + _sb2EscapeHtml(_empQName) + ' 说点什么吧</div>'
+          + '  <div class="sb2-chat-empty-prompts">' + _chipsQ + '</div>'
+          + '  <div class="sb2-chat-empty-tip">Enter 发送 / Shift+Enter 换行 / 📎 附件</div>'
+          + '</div>';
+      } else {
+        container.innerHTML = ''
+          + '<div class="sb2-chat-empty">'
+          + '  <div class="sb2-chat-empty-icon">💬</div>'
+          + '  <div>暂无消息,说点什么吧</div>'
+          + '  <div class="sb2-chat-empty-tip">Enter 发送 / Shift+Enter 换行 / 📎 附件</div>'
+          + '</div>';
+      }
       return;
     }
     var html = '';
@@ -534,6 +557,16 @@
       sendBtn.disabled = inp.value.trim().length === 0;
     }
   }
+
+  /* 〔chat-opt-4 2026-10-08〕空对话快捷 prompt: 点击 chip → 预填输入框 + 聚焦 (不直接发送, 可改) */
+  function sb2QuickPrompt(text) {
+    var inp = document.getElementById('sb2ChatInput');
+    if (!inp) return;
+    inp.value = text || '';
+    inp.dispatchEvent(new Event('input'));
+    inp.focus();
+  }
+  window.sb2QuickPrompt = sb2QuickPrompt;
 
   /* 〔chat-opt-2 2026-10-07〕发送失败占位 → 错误气泡 + 重试按钮 */
   function sb2_failBubble(placeholderEl) {

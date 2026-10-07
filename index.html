@@ -14300,6 +14300,30 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
   font-size: 12px;
   color: var(--sb2-chat-empty-tip);
 }
+/* 〔chat-opt-4 2026-10-08〕空对话快捷派活 chips: 点击预填输入框 */
+.sb2-chat-empty-prompts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+  margin-top: 14px;
+  max-width: 420px;
+}
+.sb2-chat-empty-chip {
+  padding: 7px 14px;
+  border-radius: 999px;
+  background: var(--sb2-s1);
+  border: 1px solid var(--sb2-border);
+  color: var(--sb2-t2);
+  font: 400 13px/1.4 "PingFang SC", sans-serif;
+  cursor: pointer;
+  transition: all .15s;
+}
+.sb2-chat-empty-chip:hover {
+  border-color: var(--sb2-brand);
+  color: var(--sb2-brand);
+  background: var(--sb2-brand-soft);
+}
 
 /* ===== Input wrap (P0-2 还原旧版: 灰底胶囊 + 圆形品牌发送键) ===== */
 .sb2-chat-input-wrap {
@@ -18777,7 +18801,7 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
      - 旧 chatArea + 老 JS 函数 100% 不动, 新 sb2 完全独立
      - _sb2Chat state + renderChatMain dispatcher
 -->
-<script src="js/inline-10.js?v=chatopt2c20261007"></script>
+<script src="js/inline-10.js?v=chatopt4a20261008"></script>
 
 <!-- ★ feat/sb2-chat-tasks: §2 聊天进阶 JS (slash 命令 + @mention + 模型选择)
      - 复用 §1 的 _sb2Chat state + sb2_doSend + renderChatMain dispatcher
