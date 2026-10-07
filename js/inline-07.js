@@ -1799,7 +1799,11 @@ var _sb2TalentsTotal = 0;
    apply when: 任何「侧栏聚合需全库数据」必须服务端 GROUP BY 一次拿, 禁前端从当前页算 */
 var _sb2TalentsFacets = null;
 var _sb2TalentsPage = 1;
-var _sb2TalentsLimit = 10;
+/* ★ r70 批注⑧ 老大 16:25「我都说了变成12个, 怎么还是10个达人展示」: 达人库 pageSize 10→12
+   — r66 项④ 我误读了「增加两个达人, 意思就是一页12个」是规律库 (实际是达人库, 跟图片 4 达人库截图对应)
+   — 跟规律库 _sb2PtnLimit 12 统一 (都是「一页 12 个」), 跨模块 pageSize 一致
+   — 跟 28 终态铁律一致 (页面 fit-in, 内容密度合理) */
+var _sb2TalentsLimit = 12;
 var _sb2TalentsFilterRating = '';   // '' / 'A' / 'B' / 'C' / 'D'
 var _sb2TalentsFilterCategory = ''; // '' / 类目字符串
 var _sb2TalentsFilterStatus = '';   // '' / 7 枚举之一
@@ -3856,7 +3860,7 @@ function sb2PdsRender(){
     var adminPart = '';
     if (p.createdByName) adminPart = '<span class="sb2-pds-cell-name-admin">· 👤 ' + escHtml(p.createdByName) + '</span>';
 
-    var priceHtml = '<span class="sb2-pds-cell-price">¥=' + (typeof p.price === 'number' ? p.price.toFixed(2) : escHtml(String(p.price || '-'))) + '</span>';
+    var priceHtml = '<span class="sb2-pds-cell-price">¥' + (typeof p.price === 'number' ? p.price.toFixed(2) : escHtml(String(p.price || '-'))) + '</span>';
 
     var commHtml;
     if (p.commission_rates && typeof p.commission_rates === 'object' && Object.keys(p.commission_rates).length > 0) {
@@ -4002,22 +4006,22 @@ function _sb2PdsDetailHtml(p){
 
   h += '<div class="sb2-pds-detail-section">';
   h += '<div class="sb2-pds-detail-section-title">价格 · 佣金</div>';
-  h += _sb2PdsDetailRow('价格', '¥=' + (typeof p.price === 'number' ? p.price.toFixed(2) : '-'));
-  if (p.original_price && p.original_price > 0) h += _sb2PdsDetailRow('原价', '¥=' + p.original_price.toFixed(2));
+  h += _sb2PdsDetailRow('价格', '¥' + (typeof p.price === 'number' ? p.price.toFixed(2) : '-'));
+  if (p.original_price && p.original_price > 0) h += _sb2PdsDetailRow('原价', '¥' + p.original_price.toFixed(2));
   if (p.commission_rates && Object.keys(p.commission_rates).length) {
     var ratesStr = Object.keys(p.commission_rates).map(function(k){ return k + ': ' + p.commission_rates[k] + '%'; }).join(' · ');
     h += _sb2PdsDetailRow('佣金档', ratesStr);
   } else if (p.commission_rate) h += _sb2PdsDetailRow('佣金率', p.commission_rate + '%');
   else h += _sb2PdsDetailRow('佣金率', '待设置');
-  if (p.commission_amount) h += _sb2PdsDetailRow('佣金金额', '¥=' + p.commission_amount.toFixed(2));
+  if (p.commission_amount) h += _sb2PdsDetailRow('佣金金额', '¥' + p.commission_amount.toFixed(2));
   h += '</div>';
 
   h += '<div class="sb2-pds-detail-section">';
   h += '<div class="sb2-pds-detail-section-title">销售数据</div>';
   h += _sb2PdsDetailRow('月销', String(p.monthly_sales || 0));
-  h += _sb2PdsDetailRow('月 GMV', p.monthly_gmv ? '¥=' + p.monthly_gmv.toFixed(2) : '-');
+  h += _sb2PdsDetailRow('月 GMV', p.monthly_gmv ? '¥' + p.monthly_gmv.toFixed(2) : '-');
   if (p.conversion_rate) h += _sb2PdsDetailRow('转化率', p.conversion_rate + '%');
-  if (p.avg_order_value) h += _sb2PdsDetailRow('客单价', '¥=' + p.avg_order_value.toFixed(2));
+  if (p.avg_order_value) h += _sb2PdsDetailRow('客单价', '¥' + p.avg_order_value.toFixed(2));
   h += '</div>';
 
   h += '<div class="sb2-pds-detail-section">';
@@ -4447,14 +4451,18 @@ function sb2PtnRender(){
     if (lvCount[lv] == null) lvCount[lv] = 0;
     lvCount[lv]++;
   });
-  if (heroSub) heroSub.textContent = total + ' 条规律 · 📐 verified ' + lvCount.verified + ' · 🔬 candidate ' + lvCount.candidate + ' · 🧪 hypothesis ' + lvCount.hypothesis;
+  /* ★ r70 批注⑥ 老大 16:25「你看看好多英文」: 规律库 hero 副标 / chips 英文 → 中文
+     — 原 verified/candidate/hypothesis 是后端英文枚举值, 跟后端契约一致
+     — 但用户面应显示中文 (跟 r39-5 UI 文案禁止开发黑话铁律一致, 跟 legacy renderPatternsList line 5116 levelLabel 同款)
+     — 映射: hypothesis→假设, candidate→候选, verified→已验证 (跟 inline-06.js line 5116 共享语义) */
+  if (heroSub) heroSub.textContent = total + ' 条规律 · 📐 已验证 ' + lvCount.verified + ' · 🔬 候选 ' + lvCount.candidate + ' · 🧪 假设 ' + lvCount.hypothesis;
   // chips 渲染 (一次性, 后续只更新计数)
   var chipsEl = document.getElementById('sb2PtnChips');
   var chipsData = [
     { level: '', label: '全部', icon: '', count: total },
-    { level: 'verified', label: 'verified', icon: '📐', count: lvCount.verified },
-    { level: 'candidate', label: 'candidate', icon: '🔬', count: lvCount.candidate },
-    { level: 'hypothesis', label: 'hypothesis', icon: '🧪', count: lvCount.hypothesis }
+    { level: 'verified', label: '已验证', icon: '📐', count: lvCount.verified },
+    { level: 'candidate', label: '候选', icon: '🔬', count: lvCount.candidate },
+    { level: 'hypothesis', label: '假设', icon: '🧪', count: lvCount.hypothesis }
   ];
   if (chipsEl) {
     if (!chipsEl.dataset.rendered) {
@@ -4507,7 +4515,8 @@ function sb2PtnRender(){
     var evCount = p.evidence_count || 0;
     var time = p.created_at ? formatRelativeTime(p.created_at * 1000) : '-';
     var lvIcon = lv === 'verified' ? '📐' : (lv === 'candidate' ? '🔬' : '🧪');
-    var lvLabel = lv === 'verified' ? 'verified' : (lv === 'candidate' ? 'candidate' : 'hypothesis');
+    /* ★ r70 批注⑥ 老大 16:25「你看看好多英文」: card level label 英文 → 中文 */
+    var lvLabel = lv === 'verified' ? '已验证' : (lv === 'candidate' ? '候选' : '假设');
     html += '<div class="sb2-ptn-card" data-pid="' + escapeAttr(p.id) + '" onclick="sb2PtnOpenDetail(\'' + escapeAttr(p.id).replace(/'/g, "\\'") + '\')">';
     html += '<div class="sb2-ptn-card-top">';
     html += '<span class="sb2-ptn-card-cat">' + escapeHtml(p.category || '未分类') + '</span>';
@@ -4631,7 +4640,9 @@ function _sb2PtnDetailRender(p){
   // meta grid (8 项, 2 列布局)
   var lv = p.verification_level || 'hypothesis';
   var lvIcon = lv === 'verified' ? '📐' : (lv === 'candidate' ? '🔬' : '🧪');
-  var lvLabel = lv === 'verified' ? 'verified' : (lv === 'candidate' ? 'candidate' : 'hypothesis');
+  /* ★ r70 批注⑤ 老大 16:25「你自己看看, 好多英文」: 规律详情浮层 level label 英文 → 中文
+     (跟 hero / chips / card 同款映射, 跨 4 处一致) */
+  var lvLabel = lv === 'verified' ? '已验证' : (lv === 'candidate' ? '候选' : '假设');
   var confScore = p.confidence_score != null ? p.confidence_score : (p.confidence != null ? Math.round(p.confidence * 100) : 0);
   var statusLabel = { draft: '待确认', confirmed: '已确认', rejected: '已拒绝', deprecated: '已废弃' };
   var timeCreated = p.created_at ? formatRelativeTime(p.created_at * 1000) : '-';
@@ -4669,13 +4680,35 @@ function _sb2PtnDetailRender(p){
     if (Array.isArray(parsed) && parsed.length > 0) {
       // array 渲染
       evLabel.textContent = '证据 (' + parsed.length + ' 条)';
-      var ulHtml = '<ol class="sb2-ptn-evidence-list">';
-      parsed.forEach(function(ev, idx){
-        var evStr = (typeof ev === 'string') ? ev : (ev != null ? String(ev) : '-');
-        ulHtml += '<li class="sb2-ptn-evidence-item"><span class="sb2-ptn-evidence-item-num">' + (idx + 1) + '.</span>' + escapeHtml(evStr) + '</li>';
+      /* ★ r70 批注⑤ 老大 16:25「你自己看看, 好多英文, 证据那是什么」: 证据显示原 ID (ke_xxx) 用户看不懂
+         跟 legacy renderPatternsList line 5167-5183 同款: 调 /api/knowledge-events/{eid} 取事件 title
+         — 改前: 显示 evStr (ke_xxx ID)
+         — 改后: 显示事件 title, 拿不到 title fallback ID + tooltip (只丢不造, 第 12 条铁律)
+         — Promise.all 并发拉, 失败 → null 过滤, 跟 precedent 同款 */
+      evBody.innerHTML = '<ol class="sb2-ptn-evidence-list">' +
+        parsed.map(function(_, idx){ return '<li class="sb2-ptn-evidence-item sb2-ptn-evidence-item-loading"><span class="sb2-ptn-evidence-item-num">' + (idx + 1) + '.</span><span class="sb2-ptn-evidence-item-text">载入中…</span></li>'; }).join('') +
+        '</ol>';
+      Promise.all(parsed.map(function(ev){
+        var evId = (typeof ev === 'string') ? ev : (ev != null ? String(ev) : null);
+        if (!evId) return Promise.resolve(null);
+        return apiFetch('/api/knowledge-events/' + encodeURIComponent(evId))
+          .then(function(r){ return (r && r.ok) ? r.json() : null; })
+          .catch(function(){ return null; })
+          .then(function(data){ return { id: evId, title: (data && data.title) || null, time: (data && data.created_at) || null }; });
+      })).then(function(rows){
+        var valid = rows.filter(Boolean);
+        var html = '<ol class="sb2-ptn-evidence-list">';
+        rows.forEach(function(r, idx){
+          if (!r) {
+            html += '<li class="sb2-ptn-evidence-item"><span class="sb2-ptn-evidence-item-num">' + (idx + 1) + '.</span><span class="sb2-ptn-evidence-item-text muted" title="事件数据未取到">' + escapeHtml(parsed[idx] || '-') + '</span></li>';
+          } else {
+            var titleStr = r.title || ('（无标题 - ' + r.id + '）');
+            html += '<li class="sb2-ptn-evidence-item"><span class="sb2-ptn-evidence-item-num">' + (idx + 1) + '.</span><span class="sb2-ptn-evidence-item-text" title="' + escapeAttr(r.id) + '">' + escapeHtml(titleStr) + '</span></li>';
+          }
+        });
+        html += '</ol>';
+        evBody.innerHTML = html;
       });
-      ulHtml += '</ol>';
-      evBody.innerHTML = ulHtml;
     } else {
       // 解析失败 / 非数组 / 空数组 → 按原文展示
       evLabel.textContent = '证据 (原文)';

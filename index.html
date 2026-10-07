@@ -15690,7 +15690,12 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
     </div>
     <div class="sb2-chat-topbar-right">
       <button class="sb2-chat-topbar-ghost" type="button" id="sb2ChatTopbarProfile" title="员工档案" onclick="sb2_openEmpProfile()">员工档案</button>
-      <button class="sb2-chat-topbar-ghost" type="button" id="sb2ChatTopbarSettings" title="会话设置 (请求级模型指定)" onclick="sb2_renderModelMenu()">设置</button>
+      <!-- ★ r70 批注① 老大 16:25「把输入框上面那个去掉」: 删顶栏「设置」按钮 (跟 r65 输入框模型切换重复)
+        - r68 协调人改了「设置」按钮 (onclick=sb2_renderModelMenu 调请求级模型菜单)
+        - r65 加输入框模型切换 pill (跟「设置」功能重复, 用户两个地方都能切模型)
+        - 老大走查发现: 输入框有切换模型 → 顶栏「设置」按钮多余
+        - 删 DOM + 删 inline-11.js 引用 (r38 IIFE onclick 铁律: 改 onclick 函数必双向核对, 不留死引用)
+        - 保留 sb2_openEmpProfile 员工档案按钮 (单功能入口, 不重复) -->
     </div>
   </header>
 
@@ -18065,7 +18070,7 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
      v2 (202609241444): 初始破缓存 + skip-device 守卫
      v3 (202609241420): probe 误导文案澄清 (fingerprint fallback → token-only) -->
 <script src="openclaw-client.js?v=202609301548"></script>
-<script src="js/inline-07.js?v=ce9d047010"></script>
+<script src="js/inline-07.js?v=d468d11fa7"></script>
 
 <!-- Match Result Modal -->
 <div class="product-modal-overlay" id="matchModalOverlay" onclick="closeMatchModal()">
@@ -18126,7 +18131,7 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
      - localStorage.sb2_current_model 持久化当前模型
      - 旧 slashMenu/mentionDropdown/modelDropdown DOM 100% 不动 (隐藏兜底)
 -->
-<script src="js/inline-11.js?v=dc052dc7a5"></script>
+<script src="js/inline-11.js?v=8f1479793b"></script>
 
 <script src="js/inline-12.js?v=eb4c5ce645"></script>
 <!-- 〔r39-19 ⑤C 老大拍板〕窄屏提示页: ≤768px 全屏提示桌面端打开 (旧系统回退已摘除) -->
