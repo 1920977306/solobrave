@@ -2756,6 +2756,9 @@ function sb2TlnOpenDetail(id){
   if (!id) return;
   _sb2TlnDetailCurrentId = id;
   _sb2TlnDetailCurrentTab = 'overview';
+  /* ★ r78-④: 重置懋加载 cache (开新达人 = 全部 tab 重新加载, 避免老达人 cache 污染) */
+  _sb2TlnDetailLoadedTabs = {};
+  _sb2TlnDetailCache = {};
   var overlay = document.getElementById('sb2TlnDetailOverlay');
   var titleEl = document.getElementById('sb2TlnDetailTitle');
   var subEl = document.getElementById('sb2TlnDetailSub');
@@ -2777,6 +2780,8 @@ function sb2TlnOpenDetail(id){
   }).then(function(t){
     if (!t) return;
     _sb2TlnDetailCurrentData = t;
+    /* ★ r78-④: 把当前 talent 挂到 window 供懒加载 fetch 函数读 (避免再次传参链路断) */
+    window._sb2TlnDetailCurrentTalent = t;
     if (titleEl) titleEl.textContent = t.name || '达人详情';
     if (subEl) subEl.textContent = (t.douyin_id ? '@' + t.douyin_id + ' · ' : '') +
       (t.city ? t.city + ' · ' : '') +
@@ -2797,6 +2802,10 @@ function sb2TlnCloseDetail(){
   _sb2TlnDetailCurrentId = '';
   _sb2TlnDetailCurrentData = null;
   _sb2TlnDetailLoaded = false;
+  /* ★ r78-④: 清 cache + window.* talent 引用 */
+  _sb2TlnDetailLoadedTabs = {};
+  _sb2TlnDetailCache = {};
+  if (typeof window !== 'undefined') window._sb2TlnDetailCurrentTalent = null;
 }
 
 /* 重置 7 panel + tab 状态 */
@@ -2810,13 +2819,23 @@ function sb2TlnResetPanels(){
   tabs.forEach(function(t){ t.classList.toggle('active', t.dataset.tab === 'overview'); });
 }
 
-/* 切 tab */
+/* 切 tab + 懋加载钩子 (r78-④)
+   - tab 1-3 已在 sb2TlnRenderAllPanels 一次拉过 (走 talent 详情缓存), 直接 toggle active
+   - tab 4/5/7 首次切才 fetch (sales/products/knowledge 三个端点各拉一次)
+   - tab 6 (Records) 静态空态文案, 不 fetch
+   apply when: 任何「详情 tab 懋加载」必须 toggle active class + 检查 _loaded flag + 未拉才 fetch, 拉完 cache + 重 render 当前 panel */
 function sb2TlnSwitchTab(tab){
   _sb2TlnDetailCurrentTab = tab;
   var tabs = document.querySelectorAll('#sb2TlnDetailTabs .sb2-tln-tab');
   tabs.forEach(function(t){ t.classList.toggle('active', t.dataset.tab === tab); });
   var panels = document.querySelectorAll('#sb2TlnDetailBody .sb2-tln-tab-panel');
   panels.forEach(function(p){ p.classList.toggle('active', p.dataset.panel === tab); });
+  /* 懋加载钩子: tab 4 (products) / 5 (followups) / 7 (knowledge) 首次切才 fetch */
+  var t = window._sb2TlnDetailCurrentTalent;
+  if (!t || !t.id) return;
+  if (tab === 'products' && !_sb2TlnDetailLoadedTabs.products) sb2TlnFetchPanelProducts(t.id);
+  else if (tab === 'followups' && !_sb2TlnDetailLoadedTabs.followups) sb2TlnFetchPanelFollowUps(t.id);
+  else if (tab === 'knowledge' && !_sb2TlnDetailLoadedTabs.knowledge) sb2TlnFetchPanelKnowledge(t.id);
 }
 
 /* 渲染所有 7 panel (简版, 字段名抄实测) */
@@ -2963,26 +2982,204 @@ function sb2TlnRenderPanelFans(t){
   el.innerHTML = html;
 }
 
-/* Panel 4-7: 占位 (数据待后续派单补齐) — 派单只要求 7 tab 可切 + 0 pageerror, 不要求内容完整 */
+/* Panel 4-7: 真数据 (r78 派单补齐)
+   - tab 4 商品: GET /api/talents/:id/products → 商品卡 (名称/类目/match_score/理由/销量)
+   - tab 5 跟进: GET /api/talents/:id/follow-ups → 时间线 (时间/内容/下次跟进)
+   - tab 6 待办: 方案 (a) 保留空态文案 (派单推荐, 最小入侵, 等任务-达人关联需要时再 ALTER)
+   - tab 7 知识库: GET /api/talents/:id/knowledge-events → 事件列表 (类型/时间/标题/摘要截断)
+   - 懒加载: 切到 tab 才请求 (避免一次全拉), 用 _sb2TlnDetailLoadedTabs 缓存
+   - 空数据: 只丢不造 (真实 0 / 空态, 不造假)
+   - 字段名铁律: 实测抄 JSON 真字段名 (products[i].match_score / .match_reason / .sales_volume / .conversion_rate / .is_ai_recommended; follow_ups[i].follow_up_at / .next_follow_up_at / .content / .status; events[i].title / .content_summary / .event_type / .created_at)
+   apply when: 任何「列表 + 详情 tab」必须懒加载 (切到 tab 才 fetch) + 空态文案保留真实 0, 禁 await + renderAllPanels 一次拉 */
+
+/* lazy-load fetch state: {products: bool, followups: bool, records: bool, knowledge: bool} */
+var _sb2TlnDetailLoadedTabs = {};
+
 function sb2TlnRenderPanelProducts(t){
   var el = document.getElementById('sb2TlnPanelProducts');
   if (!el) return;
-  el.innerHTML = '<div class="sb2-tln-empty">带货商品列表数据待后续派单接入 (现依赖 r39-P0 匹配商品 cell, 需新建 /api/talents/{id}/products 端点或复用 r39 撮合链).</div>';
+  /* 首次渲染占位 + loading (切到 tab 才 fetch) */
+  if (!_sb2TlnDetailLoadedTabs.products) {
+    el.innerHTML = '<div class="sb2-tln-empty">商品列表加载中…</div>';
+    sb2TlnFetchPanelProducts(t.id);
+    return;
+  }
+  /* 二次走不重渲染 (cache) */
+  var cached = _sb2TlnDetailCache.products;
+  if (!cached || !Array.isArray(cached.products) || cached.products.length === 0) {
+    el.innerHTML = '<div class="sb2-tln-empty">暂无匹配商品</div>';
+    return;
+  }
+  var html = '<div class="sb2-tln-section"><div class="sb2-tln-section-title">匹配商品 · ' + cached.products.length + ' 件</div>';
+  cached.products.forEach(function(p){
+    var name = p.name || '-';
+    var cat = p.category || '';
+    var matchScore = (typeof p.match_score === 'number') ? p.match_score : 0;
+    var reason = p.match_reason || '';
+    var salesVol = (typeof p.sales_volume === 'number') ? p.sales_volume : 0;
+    var price = (typeof p.price === 'number') ? p.price : 0;
+    html += '<div class="sb2-tln-product-card">';
+    html += '<div class="sb2-tln-product-card-head">';
+    html += '<div class="sb2-tln-product-card-name">' + sb2TlnEsc(name) + '</div>';
+    if (cat) html += '<div class="sb2-tln-product-card-cat">' + sb2TlnEsc(cat) + '</div>';
+    html += '</div>';
+    html += '<div class="sb2-tln-product-card-scores">';
+    html += '<span class="score-rule">匹配 ' + matchScore.toFixed(1) + '</span>';
+    html += '<span>¥' + price.toFixed(0) + '</span>';
+    html += '<span>月销 ' + salesVol + '</span>';
+    html += '</div>';
+    if (reason) html += '<div class="sb2-tln-product-card-reason">' + sb2TlnEsc(reason) + '</div>';
+    html += '</div>';
+  });
+  html += '</div>';
+  el.innerHTML = html;
 }
-function sb2TlnRenderPanelRecords(t){
-  var el = document.getElementById('sb2TlnPanelRecords');
-  if (!el) return;
-  el.innerHTML = '<div class="sb2-tln-empty">跟进记录数据待后续派单接入 (现 follow_up_note/next_follow_up_at 字段在前端未串联, 需新建 /api/talents/{id}/records 端点).</div>';
-}
+
 function sb2TlnRenderPanelFollowUps(t){
   var el = document.getElementById('sb2TlnPanelFollowUps');
   if (!el) return;
-  el.innerHTML = '<div class="sb2-tln-empty">待办数据待后续派单接入 (需新建 /api/talents/{id}/followups 端点).</div>';
+  if (!_sb2TlnDetailLoadedTabs.followups) {
+    el.innerHTML = '<div class="sb2-tln-empty">跟进记录加载中…</div>';
+    sb2TlnFetchPanelFollowUps(t.id);
+    return;
+  }
+  var cached = _sb2TlnDetailCache.followups;
+  if (!cached || !Array.isArray(cached.follow_ups) || cached.follow_ups.length === 0) {
+    el.innerHTML = '<div class="sb2-tln-empty">暂无跟进记录</div>';
+    return;
+  }
+  var html = '<div class="sb2-tln-section"><div class="sb2-tln-section-title">跟进记录 · ' + cached.follow_ups.length + ' 条</div>';
+  cached.follow_ups.forEach(function(f){
+    var time = sb2TlnFmtTime(f.follow_up_at);
+    var nextTime = f.next_follow_up_at ? sb2TlnFmtTime(f.next_follow_up_at) : '';
+    var content = f.content || '(无内容)';
+    var by = f.follow_up_by || '';
+    html += '<div class="sb2-tln-timeline-item">';
+    html += '<div class="sb2-tln-timeline-time">' + sb2TlnEsc(time) + (by ? ' · ' + sb2TlnEsc(by) : '') + '</div>';
+    html += '<div class="sb2-tln-timeline-content">' + sb2TlnEsc(content) + '</div>';
+    if (nextTime) html += '<div class="sb2-tln-timeline-next">下次跟进: ' + sb2TlnEsc(nextTime) + '</div>';
+    html += '</div>';
+  });
+  html += '</div>';
+  el.innerHTML = html;
 }
+
+function sb2TlnRenderPanelRecords(t){
+  /* 方案 (a) 保留空态文案: 待办-达人关联需新增 talent_id 字段, 下轮再派
+     派单推荐 (a) 最小入侵, 不擅自 ALTER TABLE; 等任务-达人关联需要时再增字段 */
+  var el = document.getElementById('sb2TlnPanelRecords');
+  if (!el) return;
+  el.innerHTML = '<div class="sb2-tln-empty">待办-达人关联待下轮派单: 需在 tasks 表新增 talent_id 字段 (方案 b), 本期方案 (a) 保留空态 (派单推荐, 最小入侵).</div>';
+}
+
 function sb2TlnRenderPanelKnowledge(t){
   var el = document.getElementById('sb2TlnPanelKnowledge');
   if (!el) return;
-  el.innerHTML = '<div class="sb2-tln-empty">知识库数据待后续派单接入 (需新建 /api/talents/{id}/knowledge 端点).</div>';
+  if (!_sb2TlnDetailLoadedTabs.knowledge) {
+    el.innerHTML = '<div class="sb2-tln-empty">知识库事件加载中…</div>';
+    sb2TlnFetchPanelKnowledge(t.id);
+    return;
+  }
+  var cached = _sb2TlnDetailCache.knowledge;
+  if (!cached || !Array.isArray(cached.events) || cached.events.length === 0) {
+    el.innerHTML = '<div class="sb2-tln-empty">暂无知识库事件</div>';
+    return;
+  }
+  var html = '<div class="sb2-tln-section"><div class="sb2-tln-section-title">知识库事件 · ' + cached.events.length + ' 条</div>';
+  cached.events.forEach(function(e){
+    var type = e.event_type || 'event';
+    var time = sb2TlnFmtTime(e.created_at);
+    var title = e.title || '(无标题)';
+    var summary = e.content_summary || '';
+    html += '<div class="sb2-tln-event-item">';
+    html += '<div class="sb2-tln-event-type">' + sb2TlnEsc(type) + '</div>';
+    html += '<div class="sb2-tln-event-time">' + sb2TlnEsc(time) + '</div>';
+    html += '<div class="sb2-tln-event-title">' + sb2TlnEsc(title) + '</div>';
+    if (summary) html += '<div class="sb2-tln-event-summary">' + sb2TlnEsc(summary) + '</div>';
+    html += '</div>';
+  });
+  html += '</div>';
+  el.innerHTML = html;
+}
+
+/* cache: {_tabName: data} */
+var _sb2TlnDetailCache = {};
+
+async function sb2TlnFetchPanelProducts(talentId){
+  if (!talentId) return;
+  try {
+    var resp = await apiFetch('/api/talents/' + talentId + '/products?limit=20');
+    if (!resp || !resp.ok) {
+      var el = document.getElementById('sb2TlnPanelProducts');
+      if (el) el.innerHTML = '<div class="sb2-tln-empty">商品加载失败 (HTTP ' + (resp ? resp.status : 'no resp') + ')</div>';
+      _sb2TlnDetailLoadedTabs.products = true;
+      return;
+    }
+    var data = await resp.json();
+    _sb2TlnDetailCache.products = data;
+    _sb2TlnDetailLoadedTabs.products = true;
+    /* 修复: fetch 完成后无条件重渲染 panel (切到 tab 时 fetch 已发, 但 overview 还是 active, 现在切到 products 看到已 ready)
+       之前的「检查 active panel 才 render」导致切到 tab 后 panel 还是占位 (切回不重 render) — 这是 bug */
+    var t = window._sb2TlnDetailCurrentTalent || {id: talentId};
+    sb2TlnRenderPanelProducts(t);
+  } catch (e) {
+    var el = document.getElementById('sb2TlnPanelProducts');
+    if (el) el.innerHTML = '<div class="sb2-tln-empty">网络错误: ' + sb2TlnEsc(e && e.message || e) + '</div>';
+    _sb2TlnDetailLoadedTabs.products = true;
+  }
+}
+
+async function sb2TlnFetchPanelFollowUps(talentId){
+  if (!talentId) return;
+  try {
+    var resp = await apiFetch('/api/talents/' + talentId + '/follow-ups');
+    if (!resp || !resp.ok) {
+      var el = document.getElementById('sb2TlnPanelFollowUps');
+      if (el) el.innerHTML = '<div class="sb2-tln-empty">跟进记录加载失败 (HTTP ' + (resp ? resp.status : 'no resp') + ')</div>';
+      _sb2TlnDetailLoadedTabs.followups = true;
+      return;
+    }
+    var data = await resp.json();
+    _sb2TlnDetailCache.followups = data;
+    _sb2TlnDetailLoadedTabs.followups = true;
+    var t = window._sb2TlnDetailCurrentTalent || {id: talentId};
+    sb2TlnRenderPanelFollowUps(t);
+  } catch (e) {
+    var el = document.getElementById('sb2TlnPanelFollowUps');
+    if (el) el.innerHTML = '<div class="sb2-tln-empty">网络错误: ' + sb2TlnEsc(e && e.message || e) + '</div>';
+    _sb2TlnDetailLoadedTabs.followups = true;
+  }
+}
+
+async function sb2TlnFetchPanelKnowledge(talentId){
+  if (!talentId) return;
+  try {
+    var resp = await apiFetch('/api/talents/' + talentId + '/knowledge-events');
+    if (!resp || !resp.ok) {
+      var el = document.getElementById('sb2TlnPanelKnowledge');
+      if (el) el.innerHTML = '<div class="sb2-tln-empty">知识库事件加载失败 (HTTP ' + (resp ? resp.status : 'no resp') + ')</div>';
+      _sb2TlnDetailLoadedTabs.knowledge = true;
+      return;
+    }
+    var data = await resp.json();
+    _sb2TlnDetailCache.knowledge = data;
+    _sb2TlnDetailLoadedTabs.knowledge = true;
+    var t = window._sb2TlnDetailCurrentTalent || {id: talentId};
+    sb2TlnRenderPanelKnowledge(t);
+  } catch (e) {
+    var el = document.getElementById('sb2TlnPanelKnowledge');
+    if (el) el.innerHTML = '<div class="sb2-tln-empty">网络错误: ' + sb2TlnEsc(e && e.message || e) + '</div>';
+    _sb2TlnDetailLoadedTabs.knowledge = true;
+  }
+}
+
+/* 时间戳格式化 (毫米 → YYYY/MM/DD HH:MM) */
+function sb2TlnFmtTime(ms){
+  var n = Number(ms) || 0;
+  if (!n) return '-';
+  var d = new Date(n);
+  function pad(x){ return x < 10 ? '0' + x : String(x); }
+  return d.getFullYear() + '/' + pad(d.getMonth() + 1) + '/' + pad(d.getDate()) + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes());
 }
 
 /* 初始化: 监听 Esc 键 + ✕ + 遮罩点击关闭 (派单明文 3 个关闭入口) */
@@ -3016,6 +3213,10 @@ window.sb2TlnOpenDetail = sb2TlnOpenDetail;
 window.sb2TlnCloseDetail = sb2TlnCloseDetail;
 window.sb2TlnSwitchTab = sb2TlnSwitchTab;
 window.sb2TlnDetailInit = sb2TlnDetailInit;
+/* ★ r78-④: tab 4/5/7 fetch 函数挂 window (onclick 内联 / 外部 调用 / 调试入口) */
+window.sb2TlnFetchPanelProducts = sb2TlnFetchPanelProducts;
+window.sb2TlnFetchPanelFollowUps = sb2TlnFetchPanelFollowUps;
+window.sb2TlnFetchPanelKnowledge = sb2TlnFetchPanelKnowledge;
 /* 自启: 绑 Esc/✕/遮罩 关闭入口 (派单明文 3 个) — DOMContentLoaded 后 init */
 (function () {
   function _boot() {

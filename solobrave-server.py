@@ -7700,6 +7700,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                     if parts[1] == 'follow-ups' and len(parts) == 2:
                         self._handle_get_talent_follow_ups(talent_id)
                         return
+                    # ★ r78-④: GET /api/talents/:id/knowledge-events — 达人关联知识库事件 (drawer tab 7)
+                    if parts[1] == 'knowledge-events':
+                        self._handle_get_talent_knowledge_events(talent_id)
+                        return
                 self._handle_get_talent(rest)
             return
 
@@ -18754,6 +18758,36 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         finally:
             conn.close()
         self._send_json(200, {'follow_ups': follow_ups})
+
+    # ★ r78-④: GET /api/talents/:id/knowledge-events — 达人关联知识库事件 (drawer tab 7)
+    #   索引 idx_ke_entity (entity_type, entity_id) 已建 (line 3520), 薄端点照 _handle_get_talent_follow_ups 模式
+    #   字段: title (DB 真有 title 列 line 3510) / content_summary / event_type / created_at (派单要求抄实测)
+    def _handle_get_talent_knowledge_events(self, talent_id):
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'influencers'): return
+        conn = _db_conn()
+        try:
+            exists = conn.execute('SELECT 1 FROM talents WHERE id = ?', (talent_id,)).fetchone()
+            if not exists:
+                self._send_json_error(404, 'Talent not found')
+                return
+            rows = conn.execute(
+                "SELECT id, title, content_summary, event_type, created_at FROM knowledge_events WHERE entity_type = 'talent' AND entity_id = ? ORDER BY created_at DESC LIMIT 50",
+                (talent_id,)
+            ).fetchall()
+            events = [{
+                'id': r['id'],
+                'title': r['title'] or '',
+                'content_summary': r['content_summary'] or '',
+                'event_type': r['event_type'] or '',
+                'created_at': r['created_at'] or 0
+            } for r in rows]
+        finally:
+            conn.close()
+        self._send_json(200, {'events': events, 'total': len(events)})
 
     def _handle_post_talent_follow_up(self, talent_id):
         """POST /api/talents/:id/follow-ups — 新增跟进记录"""

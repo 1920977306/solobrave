@@ -11641,6 +11641,72 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
   white-space:pre-wrap;
 }
 
+/* ★ r78-④: tab 4-7 真数据面板样式 (仿 r39 弹窗商品卡 + 时间线 + 事件列表, 0 hex) */
+.sb2-tln-product-card{
+  background:var(--sb2-s2); padding:12px 14px; border-radius:var(--sb2-r-md);
+  border:1px solid var(--sb2-border); margin-bottom:10px;
+}
+.sb2-tln-product-card-head{
+  display:flex; align-items:center; gap:8px; margin-bottom:6px;
+}
+.sb2-tln-product-card-name{
+  flex:1; min-width:0; font:600 13px/1.3 "PingFang SC",sans-serif; color:var(--sb2-t1);
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+.sb2-tln-product-card-cat{
+  font:500 11px/1 "PingFang SC",sans-serif; color:var(--sb2-t2);
+  background:var(--sb2-s3); padding:3px 8px; border-radius:var(--sb2-r-full);
+}
+.sb2-tln-product-card-scores{
+  display:flex; gap:12px; font:500 11px/1 "SF Mono",ui-monospace,monospace;
+  color:var(--sb2-t2); margin-bottom:6px;
+}
+.sb2-tln-product-card-scores .score-rule{ color:var(--sb2-t1); font-weight:600; }
+.sb2-tln-product-card-reason{
+  font:400 12px/1.6 "PingFang SC",sans-serif; color:var(--sb2-t3);
+}
+.sb2-tln-product-card-meta{
+  display:flex; gap:12px; font:400 11px/1.4 "PingFang SC",sans-serif; color:var(--sb2-t3);
+  margin-top:6px;
+}
+.sb2-tln-timeline-item{
+  background:var(--sb2-s2); padding:12px 14px; border-radius:var(--sb2-r-md);
+  border:1px solid var(--sb2-border); margin-bottom:10px;
+}
+.sb2-tln-timeline-time{
+  font:500 11px/1.4 "SF Mono",ui-monospace,monospace; color:var(--sb2-t3);
+  margin-bottom:4px;
+}
+.sb2-tln-timeline-content{
+  font:400 13px/1.6 "PingFang SC",sans-serif; color:var(--sb2-t1);
+}
+.sb2-tln-timeline-next{
+  font:400 11px/1.4 "PingFang SC",sans-serif; color:var(--sb2-accent);
+  margin-top:4px;
+}
+.sb2-tln-event-item{
+  background:var(--sb2-s2); padding:12px 14px; border-radius:var(--sb2-r-md);
+  border:1px solid var(--sb2-border); margin-bottom:10px;
+}
+.sb2-tln-event-type{
+  display:inline-block; font:500 11px/1 "PingFang SC",sans-serif;
+  color:var(--sb2-t1); background:var(--sb2-s3); padding:3px 8px;
+  border-radius:var(--sb2-r-full); margin-bottom:6px;
+}
+.sb2-tln-event-time{
+  font:500 11px/1.4 "SF Mono",ui-monospace,monospace; color:var(--sb2-t3);
+  margin-bottom:4px;
+}
+.sb2-tln-event-title{
+  font:600 13px/1.4 "PingFang SC",sans-serif; color:var(--sb2-t1);
+  margin-bottom:4px;
+}
+.sb2-tln-event-summary{
+  font:400 12px/1.6 "PingFang SC",sans-serif; color:var(--sb2-t2);
+  display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;
+  overflow:hidden;
+}
+
 /* ★ r39.3-P0: 行操作 cell + 商品侧「找达人」弹窗 (仿 sb2-tln-aimatch precedent 反转,
    命名空间 sb2-pds-findtalent-*, 跟 sb2-tln-aimatch-* / sb2-pds-detail-* 平行)
    跟项 2 对称: 商品行 hover 操作区 cell + 居中 720 弹窗 + sb2-pds-rise 动画
