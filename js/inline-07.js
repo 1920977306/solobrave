@@ -3169,6 +3169,13 @@ function sb2TasksRender(){
     });
     sideSub.textContent = _sb2TasksList.length + ' 项 · ' + overdue + ' 已逾期';
   }
+  /* 〔r71 反馈 Comment 7 老大 17:08「下面空好多」: 侧栏底部 footer summary 同步渲染
+     — 跟 .sb2-tasks-side .sub (顶部) 共享 _sb2TasksList.length + overdue, 信息一致
+     — 但视觉占位: footer 锚点 + margin-top:auto 推到底, 跟 28 终态铁律一致 (不留大空白) */
+  var footerCount = document.getElementById('sb2TasksSideFooterCount');
+  var footerOverdue = document.getElementById('sb2TasksSideFooterOverdue');
+  if (footerCount) footerCount.textContent = String(_sb2TasksList.length);
+  if (footerOverdue) footerOverdue.textContent = String(overdue);
   sb2TasksRenderSide();
   sb2TasksRenderBoard();
   sb2TasksRenderList();
@@ -4901,7 +4908,12 @@ function _sb2PtnRenderDetailTags(p){
   if (!tagsEl) return;
   var lv = p.verification_level || 'hypothesis';
   var lvIcon = lv === 'verified' ? '📐' : (lv === 'candidate' ? '🔬' : '🧪');
-  var lvLabel = lv === 'verified' ? 'verified' : (lv === 'candidate' ? 'candidate' : 'hypothesis');
+  /* ★ r71 反馈 Comment 6 老大 17:08「这是英文」: _sb2PtnRenderDetailTags header 双大标签漏改
+     (跟 r70 项⑤ 同款 lvLabel 跨处映射, 当时 4 处改了一处漏了一处)
+     修法: lvLabel 跟 _sb2PtnDetailRender (line 4771) + _sb2PtnRenderList (line 4645) + 晋升链路 (line 4495) 同源
+     — hypothesis→假设, candidate→候选, verified→已验证 (跟 inline-06.js line 5116 共享语义)
+     — 教训: 跨 4 处映射应抽 helper 函数, 改一处生效全处 (待 P1 优化) */
+  var lvLabel = lv === 'verified' ? '已验证' : (lv === 'candidate' ? '候选' : '假设');
   var status = p.status || 'draft';
   var statusLabel = { draft: '待确认', confirmed: '已确认', rejected: '已拒绝', deprecated: '已废弃' };
   var html = '';

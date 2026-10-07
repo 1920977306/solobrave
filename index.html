@@ -5559,13 +5559,19 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 }
 
 /* ========================================
-   DRAWER OVERLAY - 遮罩层
+   DRAWER OVERLAY - 遮罩层 (r71 反馈 Comment 2 老大 17:08「员工详情页重新设计」)
+   跟 KB 详情浮层 (line 12692+) / 规律详情浮层 (line 10229+) 同款 precedent
+   — 遮罩 rgba(10,10,14,.55) + backdrop-filter:blur(4px) (跟 KB/规律同款)
+   — panel max-width 560 → 680 (跟 KB/规律同款, 信息密度更高)
+   — header padding 20px → 14px 20px (跟 KB 详情同款紧凑度)
+   — content padding 16/20 → 14/20 (紧凑 + 跟 KB 详情同款)
+   — footer padding 16/20 → 12/20 (跟 KB 详情同款)
    ======================================== */
-.emp-detail-overlay { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.6); backdrop-filter: blur(8px); opacity: 0; visibility: hidden; transition: all 0.3s; z-index: 250; }
+.emp-detail-overlay { position: fixed; inset: 0; background: rgba(10, 10, 14, 0.55); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); opacity: 0; visibility: hidden; transition: all 0.3s; z-index: 250; }
 .emp-detail-overlay.open { opacity: 1; visibility: visible; }
-.emp-detail-panel { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 90%; max-width: 560px; max-height: 85vh; background: var(--bg-primary); border-radius: 16px; box-shadow: 0 20px 60px rgba(0,0,0,0.25); z-index: 251; display: flex; flex-direction: column; overflow: hidden; opacity: 0; visibility: hidden; transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1); }
-.emp-detail-content { flex: 1; overflow-y: auto; }
-.emp-detail-actions { flex-shrink: 0; }
+.emp-detail-panel { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 90%; max-width: 680px; max-height: 80vh; background: var(--bg-primary); border-radius: 16px; box-shadow: 0 20px 60px rgba(0,0,0,0.25); z-index: 251; display: flex; flex-direction: column; overflow: hidden; opacity: 0; visibility: hidden; transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1); }
+.emp-detail-content { flex: 1; overflow-y: auto; padding: 14px 20px; }
+.emp-detail-actions { flex-shrink: 0; padding: 12px 20px; }
 .emp-detail-overlay.open .emp-detail-panel { opacity: 1; visibility: visible; transform: translate(-50%, -50%) scale(1); }
 /* V2.1 脏状态指示器: 红色 ● 未保存 chip(与紧急标记体系一致,12px / #FF3B30 / SF Mono) */
 .emp-dirty-indicator {
@@ -5587,7 +5593,8 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 @media (max-width: 768px) {
   .emp-detail-panel { width: 95%; max-height: 90vh; }
 }
-.emp-detail-header { display: flex; align-items: center; gap: 12px; padding: 20px; border-bottom: 0.5px solid var(--separator); }
+/* 〔r71 反馈 Comment 2〕header padding 20px → 14px 20px, 跟 KB 详情同款紧凑度 */
+.emp-detail-header { display: flex; align-items: center; gap: 12px; padding: 14px 20px; border-bottom: 0.5px solid var(--separator); }
 .emp-detail-header.emp-detail-header-v3 {
   background: linear-gradient(135deg, var(--color-ai-bg-soft, #EEF0FF) 0%, var(--color-bg, var(--bg-primary,#ffffff)) 60%);
 }
@@ -5744,7 +5751,8 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .emp-detail-tab { flex: 1; padding: 12px 8px; border: none; background: transparent; cursor: pointer; font-size: 13px; color: var(--text-secondary); border-bottom: 2px solid transparent; transition: all 0.2s; }
 .emp-detail-tab:hover { color: var(--text-primary); }
 .emp-detail-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
-.emp-detail-content { flex: 1; overflow-y: auto; padding: 16px 20px; }
+/* 〔r71 反馈 Comment 2〕content padding 16/20 → 14/20, 跟 KB 详情同款 (line 12770 .sb2-kb-detail-content padding 14 16) */
+.emp-detail-content { flex: 1; overflow-y: auto; padding: 14px 20px; }
 .emp-tab-pane { display: none; }
 .emp-tab-pane.active { display: block; }
 .emp-stat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 20px; }
@@ -5794,7 +5802,8 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .emp-action-btn:hover { background: var(--bg-tertiary); }
 .emp-action-btn.primary { background: var(--accent); color: white; border-color: var(--accent); }
 .emp-action-btn.primary:hover { background: var(--accent-hover); }
-.emp-detail-actions { display: flex; gap: 12px; padding: 16px 20px; border-top: 0.5px solid var(--separator); }
+/* 〔r71 反馈 Comment 2〕footer padding 16/20 → 12/20, 跟 KB 详情同款 (.sb2-kb-detail-footer line 12777) */
+.emp-detail-actions { display: flex; gap: 12px; padding: 12px 20px; border-top: 0.5px solid var(--separator); }
 .emp-detail-actions .emp-action-btn { flex: 1; }
 
 /* Group Detail Panel */
@@ -10220,32 +10229,37 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
 #inductResultModalOverlay{ display:none !important; }
 
 /* ============================================================
- * sb2-patterns MVP2: 详情右滑面板
- * - 复用知识库 .sb2-kb-detail-* 同模式 (fixed right 480px slide-in)
+ * sb2-patterns MVP2: 详情居中弹窗 (r71 反馈 Comment 5 老大 17:08「做成弹窗」)
+ * - 复用知识库 .sb2-kb-detail-* 同款 precedent (居中 + 全屏遮罩 + rise 动画)
+ * - 修前: fixed right:0 bottom:0 width:480px 抽屉右滑 (legacy prototype 抽屉视觉)
+ * - 修后: fixed left:50% top:50% translate 居中 + width:680px + max-height:80vh (跟 KB 详情同款)
+ * - 遮罩同步跟 KB 同款: rgba(10,10,14,.55) + backdrop-filter:blur(4px)
  * - evidence 字段处理: 先探 JSON.parse, 成功 array of strings,
  *   失败按原文展示 (老大 2026-10-03 00:22 提醒: 别猜, 失败按原文)
  * - footer: MVP2 仅「关闭」, 编辑/删除转 MVP3, 投票转 MVP4
  * ============================================================ */
 .sb2-ptn-detail-overlay{
-  position:fixed; inset:48px 0 0 0; z-index:89;
-  background:rgba(10,10,14,.3); display:none;
+  position:fixed; inset:0; z-index:89;
+  background:rgba(10,10,14,.55); backdrop-filter:blur(4px); -webkit-backdrop-filter:blur(4px);
+  display:none;
   animation:sb2-ptn-fade-in .2s ease;
 }
 .sb2-ptn-detail-overlay.open{ display:block; }
 @keyframes sb2-ptn-fade-in{ from{ opacity:0; } to{ opacity:1; } }
 
 .sb2-ptn-detail-panel{
-  position:fixed; top:48px; right:0; bottom:0;
-  width:480px; max-width:90vw;
-  background:var(--sb2-s1); border-left:1px solid var(--sb2-border);
-  box-shadow:-8px 0 24px rgba(0,0,0,.08);
+  position:fixed; left:50%; top:50%; transform:translate(-50%,-50%);
+  width:680px; max-width:90vw; max-height:80vh;
+  background:var(--sb2-s1); border-radius:var(--sb2-r-lg);
+  border:1px solid var(--sb2-border);
+  box-shadow:0 12px 40px rgba(0,0,0,.18);
   display:none; flex-direction:column; z-index:90;
-  animation:sb2-ptn-slide-in .22s ease;
+  animation:sb2-rise-in .22s ease;
 }
 .sb2-ptn-detail-panel.open{ display:flex; }
-@keyframes sb2-ptn-slide-in{
-  from{ transform:translateX(100%); }
-  to{ transform:translateX(0); }
+@keyframes sb2-rise-in{
+  from{ opacity:0; transform:translate(-50%,-50%) scale(.96); }
+  to{ opacity:1; transform:translate(-50%,-50%) scale(1); }
 }
 
 .sb2-ptn-detail-header{
@@ -11543,9 +11557,30 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
 /* --- 布局: 侧栏 + 主区 --- */
 .sb2-tasks-layout{ display:flex; flex:1 1 auto; min-height:0; min-width:0; }
 .sb2-tasks-side{
+  /* 〔r71 反馈 Comment 7 老大 17:08「下面空好多」: 侧栏 flex column + footer summary 锚点
+     — 修前: 默认 stretch 让侧栏撑满 layout (~750px), 但 4 group 内容只 ~350px, 底部 400px 大空白
+     — 修后: display:flex flex-direction:column 让子元素可用 margin-top:auto 推到底
+     — 配套 .sb2-tasks-side-footer (margin-top:auto 推到底 + border-top 分隔)
+     — 跟 r66 项⑥ .sb2-tasks-board stretch 同源 (同模块布局铁律: 内容撑满不留大空白)
+     — 28 终态铁律: 侧栏内容由 group (顶部 4 个) + footer (底部 summary) 撑满 layout */
   width:236px; flex-shrink:0; background:var(--sb2-s1);
   border-right:1px solid var(--sb2-border);
   padding:16px 14px; overflow-y:auto;
+  display:flex; flex-direction:column;
+}
+.sb2-tasks-side-footer{
+  /* 〔r71〕侧栏底部 summary 锚点 (margin-top:auto 推到底)
+     — 显示总任务数 / 已逾期数, 跟 .sb2-tasks-side .sub (顶部) 共享信息但视觉占位
+     — 颜色弱化 (t3) 不喧宾夺主, 跟 group label 同款色阶 */
+  margin-top:auto; padding:14px 0 0;
+  border-top:1px solid var(--sb2-border);
+  font:400 11px/1.4 "PingFang SC",sans-serif;
+  color:var(--sb2-t3);
+}
+.sb2-tasks-side-footer .n{
+  font:500 12px/1 "SF Mono",monospace;
+  color:var(--sb2-t2);
+  font-variant-numeric:tabular-nums;
 }
 .sb2-tasks-side h1{ font-size:16px; font-weight:600; }
 .sb2-tasks-side .sub{ font-size:11px; color:var(--sb2-t3); margin:3px 0 14px; }
@@ -12692,9 +12727,13 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
 .sb2-kb-detail-overlay{
   /* 〔fix/sb2-side-restore 22 轮批注③〕遮罩改 inset:0 全屏 (含顶栏后方, 视觉吞掉整个 viewport):
      — 修前 inset:48px 0 0 0 (顶栏位置不遮, 抽屉 slide 视觉配套)
-     — 修后 inset:0 (居中弹窗配套, 全屏遮罩更稳) */
+     — 修后 inset:0 (居中弹窗配套, 全屏遮罩更稳)
+     〔r71 反馈 Comment 3 老大 17:08「上面搜索/新建为什么不变淡」: 遮罩加深 + 模糊背景
+     — 修前 background:rgba(10,10,14,.3) (遮罩太弱, 上面工具栏视觉穿透明显)
+     — 修后 rgba(10,10,14,.55) + backdrop-filter:blur(4px) (真暗, 配套 28 终态「dim 衬托浮层」原则) */
   position:fixed; inset:0; z-index:89;
-  background:rgba(10,10,14,.3); display:none;
+  background:rgba(10,10,14,.55); backdrop-filter:blur(4px); -webkit-backdrop-filter:blur(4px);
+  display:none;
   animation:sb2-kb-fade-in .2s ease;
 }
 .sb2-kb-detail-overlay.open{ display:block; }
@@ -12767,11 +12806,14 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
 }
 .sb2-kb-meta-value.muted{ color:var(--sb2-t3); font-style:italic; }
 .sb2-kb-detail-content{
+  /* 〔r71 反馈 Comment 4 老大 17:08「优先展示内容, 这种滑动不好」: 删 max-height:300px + overflow-y
+     — 修前: 内容限定 300px 高度 + 内部滚动 (局部优先于整体, 体验割裂)
+     — 修后: 内容由 .sb2-kb-detail-body max-height:60vh 统一管理 (整层滚动一处)
+     — 28 终态铁律: KB 详情内容应优先 fit-in, 不应在内容区二次套滚动 */
   padding:14px 16px; background:var(--sb2-s2);
   border-radius:var(--sb2-r-sm); border:1px solid var(--sb2-border);
   font:400 13px/1.6 "PingFang SC",sans-serif; color:var(--sb2-t1);
   white-space:pre-wrap; word-break:break-word;
-  max-height:300px; overflow-y:auto;
 }
 .sb2-kb-detail-content.muted{ color:var(--sb2-t3); font-style:italic; }
 .sb2-kb-detail-footer{
@@ -15101,6 +15143,13 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
         <div class="sb2-tasks-side-group-label">项目</div>
         <div class="sb2-tasks-side-list" id="sb2TasksSideProject"></div>
       </div>
+      <!-- ★ r71 反馈 Comment 7 老大 17:08「下面空好多」: 侧栏底部 summary 锚点 (margin-top:auto 推到底)
+        - 跟 .sb2-tasks-side .sub (顶部 X 项 · Y 已逾期) 共享信息, 但视觉占位撑满侧栏底部
+        - 颜色弱化 (t3) 不喧宾夺主, 跟 group label 同款色阶
+        - 28 终态铁律: 侧栏内容由 group (顶部 4 个) + footer (底部 summary) 撑满 layout -->
+      <div class="sb2-tasks-side-footer" id="sb2TasksSideFooter">
+        <span class="n" id="sb2TasksSideFooterCount">-</span> 项 · <span id="sb2TasksSideFooterOverdue">-</span> 已逾期
+      </div>
     </aside>
     <div class="sb2-tasks-pane">
       <div class="sb2-tasks-hero">
@@ -15946,12 +15995,12 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
     </div>
     <div class="sb2-chat-topbar-right">
       <button class="sb2-chat-topbar-ghost" type="button" id="sb2ChatTopbarProfile" title="员工档案" onclick="sb2_openEmpProfile()">员工档案</button>
-      <!-- ★ r70 批注① 老大 16:25「把输入框上面那个去掉」: 删顶栏「设置」按钮 (跟 r65 输入框模型切换重复)
-        - r68 协调人改了「设置」按钮 (onclick=sb2_renderModelMenu 调请求级模型菜单)
-        - r65 加输入框模型切换 pill (跟「设置」功能重复, 用户两个地方都能切模型)
-        - 老大走查发现: 输入框有切换模型 → 顶栏「设置」按钮多余
-        - 删 DOM + 删 inline-11.js 引用 (r38 IIFE onclick 铁律: 改 onclick 函数必双向核对, 不留死引用)
-        - 保留 sb2_openEmpProfile 员工档案按钮 (单功能入口, 不重复) -->
+      <button class="sb2-chat-topbar-ghost" type="button" id="sb2ChatTopbarSettings" title="会话设置 (请求级模型指定)" onclick="sb2_renderModelMenu()">设置</button>
+      <!-- ★ r71 反向修法 (老大 17:08 走查截图) — 撤回 r70 项① 误删的「设置」按钮:
+        - r70 项① 我理解反了「把输入框上面那个去掉」, 误删了顶栏「设置」按钮
+        - 老大实际期望: 删输入框下方 model pill (跟状态行/顶栏设置功能重复), 顶栏「设置」按钮保留
+        - 教训: 派单模糊时按走查截图决策, 不是按文字理解 (r70 项⑧ pageSize 误读同款根因)
+        - 状态行 span 才是常态的 model 切换入口 (id 共用 sb2ChatPickModel, 删 button 后自动 fallback) -->
     </div>
   </header>
 
@@ -15998,7 +16047,6 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h16"/><path d="m6 16 6-12"/><path d="m18 16-6-12"/></svg>
           </button>
         </div>
-        <button class="sb2-chat-model-pill" id="sb2ChatPickModel" type="button" title="切换模型 (请求级, 必须经 OpenClaw Gateway)" onclick="sb2_renderModelMenu()">模型</button>
         <button class="sb2-btn sb2-btn-ink sb2-chat-send-btn" id="sb2ChatSendBtn" type="button" disabled title="发送" aria-label="发送消息">发送</button>
       </div>
     </div>
@@ -18326,7 +18374,7 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
      v2 (202609241444): 初始破缓存 + skip-device 守卫
      v3 (202609241420): probe 误导文案澄清 (fingerprint fallback → token-only) -->
 <script src="openclaw-client.js?v=202609301548"></script>
-<script src="js/inline-07.js?v=98e970ea88"></script>
+<script src="js/inline-07.js?v=63a4973b62"></script>
 
 <!-- Match Result Modal -->
 <div class="product-modal-overlay" id="matchModalOverlay" onclick="closeMatchModal()">
@@ -18387,7 +18435,7 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
      - localStorage.sb2_current_model 持久化当前模型
      - 旧 slashMenu/mentionDropdown/modelDropdown DOM 100% 不动 (隐藏兜底)
 -->
-<script src="js/inline-11.js?v=8f1479793b"></script>
+<script src="js/inline-11.js?v=f8454c9487"></script>
 
 <script src="js/inline-12.js?v=eb4c5ce645"></script>
 <!-- 〔r39-19 ⑤C 老大拍板〕窄屏提示页: ≤768px 全屏提示桌面端打开 (旧系统回退已摘除) -->
