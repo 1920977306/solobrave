@@ -12722,9 +12722,41 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
   display:flex; flex-direction:column; gap:18px;
 }
 .sb2-kb-meta-grid{
-  display:grid; grid-template-columns:1fr 1fr; gap:14px;
+  /* ★ r70 项③ 老大 16:25「这个设计还是不行」: meta grid 改 3 列 (字段多, 紧凑显示)
+     — 原 2 列 × 4 行, 8 字段占满 2 行 (空)
+     — 改 3 列 × 3 行 (字段 + 1 空, 跟商品/规律详情浮层视觉一致)
+     — 跟 28 终态 + 视口守卫铁律一致 (信息密度合理, fit-in 不留白) */
+  display:grid; grid-template-columns:repeat(3,1fr); gap:12px 16px;
 }
 .sb2-kb-meta-item{ display:flex; flex-direction:column; gap:4px; min-width:0; }
+
+/* ★ r70 项③ hero chips: title 下方一行 chip 行 (scope / status / category)
+   — 视觉层级: 标题大字 (16-18px) + chips 副标 (12px chip 标签)
+   — 跟商品详情 / 规律详情浮层 chip 行同款 precedent */
+.sb2-kb-detail-hero-chips{
+  display:flex; gap:6px; flex-wrap:wrap;
+  padding:0 0 14px 0;
+  border-bottom:1px solid var(--sb2-border);
+  margin-bottom:14px;
+}
+.sb2-kb-detail-chip{
+  display:inline-flex; align-items:center;
+  padding:3px 10px; border-radius:var(--sb2-r-full);
+  font:500 11px/1.3 "PingFang SC",sans-serif;
+  border:1px solid; background:var(--sb2-s2);
+}
+.sb2-kb-detail-chip.scope{
+  color:var(--sb2-brand); border-color:var(--sb2-brand);
+  background:var(--sb2-brand-soft);
+}
+.sb2-kb-detail-chip.status{
+  color:var(--sb2-success); border-color:var(--sb2-success);
+  background:var(--sb2-success-soft);
+}
+.sb2-kb-detail-chip.category{
+  color:var(--sb2-t2); border-color:var(--sb2-border-strong);
+  background:var(--sb2-s1);
+}
 .sb2-kb-meta-label{
   font:500 11px/1 "PingFang SC",sans-serif; color:var(--sb2-t3);
   letter-spacing:0.05em;
@@ -12784,6 +12816,30 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
   font:400 13px/1.5 "PingFang SC",sans-serif; color:var(--sb2-t1);
 }
 .sb2-kb-edit-field{ margin-bottom:14px; }
+
+/* ★ r70 项④ 老大 16:25「这个编辑更是丑, 重新设计」: 字段分 4 段 + 视觉分段
+   — section-title: 段标题 (字号 12px + 灰色 + 大写字母间距, 跟全模块 section title 同款)
+   — section-gap: 段间距 (24px, 跟视觉层级一致)
+   — field-hint: 提示文字 (12px 灰色, scope 切换时引导用户)
+   — 必填项视觉强化: input[required] 边框 + focus 边框 (已有 focus 样式保留) */
+.sb2-kb-edit-section{ margin-bottom:24px; }
+.sb2-kb-edit-section:last-child{ margin-bottom:0; }
+.sb2-kb-edit-section-title{
+  font:600 12px/1 "PingFang SC",sans-serif;
+  color:var(--sb2-t3); letter-spacing:.05em;
+  text-transform:uppercase;
+  margin-bottom:12px; padding-bottom:8px;
+  border-bottom:1px solid var(--sb2-border);
+}
+.sb2-kb-edit-field-hint{
+  font:400 11px/1.5 "PingFang SC",sans-serif;
+  color:var(--sb2-t3); margin-top:-4px;
+  padding:8px 12px;
+  background:var(--sb2-s2);
+  border-radius:var(--sb2-r-sm);
+  border-left:3px solid var(--sb2-brand);
+}
+
 .sb2-kb-edit-field-label{
   display:block; font-size:12px; font-weight:500;
   color:var(--sb2-t2); margin-bottom:6px;
@@ -14518,6 +14574,10 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
   </div>
   <div class="sb2-kb-detail-body">
     <div class="sb2-kb-loading" id="sb2KbDetailLoading">载入中…</div>
+    <!-- ★ r70 项③ 老大 16:25「这个设计还是不行, 你去找一下有没有详情页的设计」: hero chips
+      — title 下方一行: scope chip + status chip + category chip
+      — 视觉层级: 标题大字 + chips 副标, 跟详情页 precedent 同款 -->
+    <div class="sb2-kb-detail-hero-chips" id="sb2KbDetailHeroChips"></div>
     <div class="sb2-kb-meta-grid" id="sb2KbDetailMeta" style="display:none"></div>
     <div id="sb2KbDetailContentWrap" style="display:none">
       <div class="sb2-kb-meta-label">内容</div>
@@ -14539,54 +14599,78 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
       <button class="sb2-kb-edit-modal-close" onclick="sb2KbCloseEditor()" aria-label="关闭编辑器">×</button>
     </div>
     <div class="sb2-kb-edit-modal-body">
-      <div class="sb2-kb-edit-field">
-        <label class="sb2-kb-edit-field-label">标题<span class="req">*</span></label>
-        <input type="text" id="sb2KbEditFieldTitle" placeholder="一句话说清这条知识">
-      </div>
-      <div class="sb2-kb-edit-field">
-        <label class="sb2-kb-edit-field-label">内容<span class="req">*</span></label>
-        <textarea id="sb2KbEditFieldContent" placeholder="完整内容"></textarea>
-      </div>
-      <div class="sb2-kb-edit-field-row">
+      <!-- ★ r70 项④ 老大 16:25「这个编辑更是丑, 重新设计」: 字段分 4 段 (基础 / 分类 / 范围 / 高级)
+        - 基础段: 标题 + 内容 (核心字段, 大字号 + 必填强化)
+        - 分类段: 分类 (必填) + 分类 ID + 项目 ID (3 字段横向并排)
+        - 范围段: 范围 (必填) + 状态 (2 字段横向)
+        - 高级段: 团队 ID / 项目组 ID (条件字段, 按 scope 动态显示, 默认隐藏)
+        - 视觉层级: section 标题 + section 内容, 用 section-gap 分组
+        - 必填项视觉强化: label 星号 + input focus 边框 + 必填边框 (跟 CSS var(--sb2-danger) 配合) -->
+      <div class="sb2-kb-edit-section">
+        <div class="sb2-kb-edit-section-title">基础信息</div>
         <div class="sb2-kb-edit-field">
-          <label class="sb2-kb-edit-field-label">分类<span class="req">*</span></label>
-          <input type="text" id="sb2KbEditFieldCategory" placeholder="如: 公共知识 / 达人库 / 商品知识 / 工作流">
+          <label class="sb2-kb-edit-field-label">标题<span class="req">*</span></label>
+          <input type="text" id="sb2KbEditFieldTitle" placeholder="一句话说清这条知识">
         </div>
         <div class="sb2-kb-edit-field">
-          <label class="sb2-kb-edit-field-label">分类 ID（数字，可选）</label>
-          <input type="text" id="sb2KbEditFieldCategoryId" placeholder="如: 1">
+          <label class="sb2-kb-edit-field-label">内容<span class="req">*</span></label>
+          <textarea id="sb2KbEditFieldContent" placeholder="完整内容"></textarea>
         </div>
       </div>
-      <div class="sb2-kb-edit-field">
-        <label class="sb2-kb-edit-field-label">所属项目（projectId，可选）</label>
-        <input type="text" id="sb2KbEditFieldProjectId" placeholder="项目 ID，留空表示无项目">
-      </div>
-      <div class="sb2-kb-edit-field-row">
-        <div class="sb2-kb-edit-field">
-          <label class="sb2-kb-edit-field-label">范围<span class="req">*</span></label>
-          <select id="sb2KbEditFieldScope">
-            <option value="global">全员 (global)</option>
-            <option value="team">团队 (team)</option>
-            <option value="group">分组 (group)</option>
-            <option value="personal">个人 (personal)</option>
-          </select>
-        </div>
-        <div class="sb2-kb-edit-field">
-          <label class="sb2-kb-edit-field-label">状态</label>
-          <select id="sb2KbEditFieldStatus">
-            <option value="ok">已确认 (ok)</option>
-            <option value="pending">待审核 (pending)</option>
-          </select>
+
+      <div class="sb2-kb-edit-section">
+        <div class="sb2-kb-edit-section-title">分类归属</div>
+        <div class="sb2-kb-edit-field-row">
+          <div class="sb2-kb-edit-field">
+            <label class="sb2-kb-edit-field-label">分类<span class="req">*</span></label>
+            <input type="text" id="sb2KbEditFieldCategory" placeholder="如: 公共知识 / 达人库">
+          </div>
+          <div class="sb2-kb-edit-field">
+            <label class="sb2-kb-edit-field-label">分类 ID（可选）</label>
+            <input type="text" id="sb2KbEditFieldCategoryId" placeholder="如: 1">
+          </div>
+          <div class="sb2-kb-edit-field">
+            <label class="sb2-kb-edit-field-label">所属项目（可选）</label>
+            <input type="text" id="sb2KbEditFieldProjectId" placeholder="项目 ID，留空表示无">
+          </div>
         </div>
       </div>
-      <div class="sb2-kb-edit-field">
-        <label class="sb2-kb-edit-field-label">团队 ID（scope=team 时填）</label>
-        <input type="text" id="sb2KbEditFieldTeamId" placeholder="team ID, 留空表示无">
+
+      <div class="sb2-kb-edit-section">
+        <div class="sb2-kb-edit-section-title">范围 · 状态</div>
+        <div class="sb2-kb-edit-field-row">
+          <div class="sb2-kb-edit-field">
+            <label class="sb2-kb-edit-field-label">范围<span class="req">*</span></label>
+            <select id="sb2KbEditFieldScope" onchange="sb2KbEditUpdateScopeFields()">
+              <option value="global">全员 (global)</option>
+              <option value="team">团队 (team)</option>
+              <option value="group">分组 (group)</option>
+              <option value="personal">个人 (personal)</option>
+            </select>
+          </div>
+          <div class="sb2-kb-edit-field">
+            <label class="sb2-kb-edit-field-label">状态</label>
+            <select id="sb2KbEditFieldStatus">
+              <option value="ok">已确认 (ok)</option>
+              <option value="pending">待审核 (pending)</option>
+            </select>
+          </div>
+        </div>
       </div>
-      <div class="sb2-kb-edit-field">
-        <label class="sb2-kb-edit-field-label">项目组 ID 列表（scope=group 时填, 逗号分隔）</label>
-        <input type="text" id="sb2KbEditFieldGroupIds" placeholder="如: grp_001,grp_002, 留空表示无">
+
+      <div class="sb2-kb-edit-section" id="sb2KbEditAdvancedSection">
+        <div class="sb2-kb-edit-section-title">高级 · 范围限定</div>
+        <div class="sb2-kb-edit-field" id="sb2KbEditTeamIdField" style="display:none">
+          <label class="sb2-kb-edit-field-label">团队 ID（scope=team 时填）</label>
+          <input type="text" id="sb2KbEditFieldTeamId" placeholder="team ID, 留空表示无">
+        </div>
+        <div class="sb2-kb-edit-field" id="sb2KbEditGroupIdsField" style="display:none">
+          <label class="sb2-kb-edit-field-label">项目组 ID 列表（scope=group 时填, 逗号分隔）</label>
+          <input type="text" id="sb2KbEditFieldGroupIds" placeholder="如: grp_001,grp_002">
+        </div>
+        <div class="sb2-kb-edit-field-hint" id="sb2KbEditScopeHint">💡 选择「团队」或「分组」范围时, 下方会显示对应字段</div>
       </div>
+
       <div class="sb2-kb-edit-status" id="sb2KbEditStatus"></div>
     </div>
     <div class="sb2-kb-edit-modal-footer">
@@ -18242,7 +18326,7 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
      v2 (202609241444): 初始破缓存 + skip-device 守卫
      v3 (202609241420): probe 误导文案澄清 (fingerprint fallback → token-only) -->
 <script src="openclaw-client.js?v=202609301548"></script>
-<script src="js/inline-07.js?v=823e1e0ca6"></script>
+<script src="js/inline-07.js?v=98e970ea88"></script>
 
 <!-- Match Result Modal -->
 <div class="product-modal-overlay" id="matchModalOverlay" onclick="closeMatchModal()">

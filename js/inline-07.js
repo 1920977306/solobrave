@@ -1108,13 +1108,27 @@ function sb2KbRenderDetail(doc){
     // 隐藏 loading
     document.getElementById('sb2KbDetailLoading').style.display = 'none';
 
-    // meta grid: 分类 / scope / chunks / 状态 / 创建者 / 创建时间 / 更新时间 / id
+    /* ★ r70 项③ 老大 16:25「这个设计还是不行, 你去找一下有没有详情页的设计」: 详情浮层重设计
+       — meta grid 改 3 列 (字段多, 3 列更紧凑, 跟商品/规律详情浮层一致)
+       — 增加 hero section: title + status chip + scope chip (视觉层级, 跟详情页 precedent 同款)
+       — 内容块改进: 加大字号 + 加 border + padding (跟商品详情 / 规律详情浮层一致)
+       — 8 字段分组 (基础/分类/范围), 跟编辑浮层段分视觉一致 */
+    var heroChips = document.getElementById('sb2KbDetailHeroChips');
+    if (heroChips) {
+      var chipsHtml = '';
+      chipsHtml += '<span class="sb2-kb-detail-chip scope">' + escapeHtml(_sb2KbScopeLabel(doc.scope || 'global')) + '</span>';
+      chipsHtml += '<span class="sb2-kb-detail-chip status">' + escapeHtml(_sb2KbOrDash(doc.status)) + '</span>';
+      if (doc.category) chipsHtml += '<span class="sb2-kb-detail-chip category">📁 ' + escapeHtml(doc.category || doc.category_name || '') + '</span>';
+      heroChips.innerHTML = chipsHtml;
+    }
+
+    // meta grid: 8 项, 3 列布局 (字段多, 紧凑显示)
     var meta = document.getElementById('sb2KbDetailMeta');
     var items = [
-      { label: '分类',     value: _sb2KbOrDash(doc.category || doc.category_name) },
-      { label: '范围',     value: _sb2KbScopeLabel(doc.scope || 'global') },
       { label: 'Chunks',   value: _sb2KbFmtNum(doc.chunkCount) },
-      { label: '状态',     value: _sb2KbOrDash(doc.status) },
+      { label: '分类 ID',  value: _sb2KbOrDash(doc.categoryId) },
+      { label: '项目 ID',  value: _sb2KbOrDash(doc.projectId) },
+      { label: '团队 ID',  value: _sb2KbOrDash(doc.teamId) },
       { label: '创建者',   value: _sb2KbOrDash(doc.createdBy) },
       { label: '创建时间', value: _sb2KbFmtTs(doc.createdAt) },
       { label: '更新时间', value: _sb2KbFmtTs(doc.updatedAt) },
@@ -1124,7 +1138,7 @@ function sb2KbRenderDetail(doc){
       var muted = it.value === '-' ? ' muted' : '';
       return '<div class="sb2-kb-meta-item">' +
         '<div class="sb2-kb-meta-label">' + escapeHtml(it.label) + '</div>' +
-        '<div class="sb2-kb-meta-value' + muted + '">' + escapeHtml(it.value) + '</div>' +
+        '<div class="sb2-kb-meta-value' + muted + '" title="' + escapeAttr(it.value) + '">' + escapeHtml(it.value) + '</div>' +
       '</div>';
     }).join('');
     meta.style.display = 'grid';
@@ -1245,6 +1259,21 @@ function sb2KbRenderEditor(doc){
   var status = document.getElementById('sb2KbEditStatus');
   status.textContent = '已载入, 可编辑保存';
   status.className = 'sb2-kb-edit-status ok';
+  /* ★ r70 项④ 字段分组 + 条件字段: scope 切换后立即更新条件字段可见性 */
+  sb2KbEditUpdateScopeFields();
+}
+
+/* ★ r70 项④ 老大 16:25「这个编辑更是丑, 重新设计」: 条件字段按 scope 动态显示
+   — scope=global/personal: 隐藏 team_id + group_ids 字段 (默认)
+   — scope=team: 显示 team_id, 隐藏 group_ids
+   — scope=group: 隐藏 team_id, 显示 group_ids
+   — 提示文字保持可见 (引导用户理解为什么显示/隐藏) */
+function sb2KbEditUpdateScopeFields(){
+  var scope = (document.getElementById('sb2KbEditFieldScope') || {}).value || 'global';
+  var teamField = document.getElementById('sb2KbEditTeamIdField');
+  var groupField = document.getElementById('sb2KbEditGroupIdsField');
+  if (teamField) teamField.style.display = (scope === 'team') ? '' : 'none';
+  if (groupField) groupField.style.display = (scope === 'group') ? '' : 'none';
 }
 
 function sb2KbCloseEditor(){
