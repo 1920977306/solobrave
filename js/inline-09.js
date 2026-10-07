@@ -1480,8 +1480,13 @@ function renderSideFor(moduleId){
          修后: ' · '+escHtml(it.role) — 与原版对齐 "Helen · 商务"
          配套: 删 .sb2-side-item-role margin-left:6px (line 10300), 让排版走 inline 自然空格 */
       var roleSpan = it.role ? '<span class="sb2-side-item-role"> · '+escHtml(it.role)+'</span>' : '';
+      /* 〔r80 补刀 老大 00:12 批注「怎么有乱码」〕escHtml 后白名单还原图标标签
+         — 根因: r80 图标体系把 name 里的 emoji 换成 <i class=sb2-ico-…>, 但渲染走 escHtml → 标签变字面文本
+         — 修法: 只还原转义后的 sb2-ico 图标标签 (正则全匹配, 无属性注入面), 其余文本保持转义 */
+      var safeName = escHtml(it.name || '-')
+        .replace(/&lt;i class=sb2-ico-([a-z]+)&gt;&lt;\/i&gt;/g, '<i class="sb2-ico-$1"></i>');
       html += '<div class="sb2-side-item'+(it.active ? ' active' : '')+'" onclick="'+escAttr(it.onClick || '')+'">'
-              + dot+'<span class="name">'+escHtml(it.name || '-')+roleSpan+'</span>'+badge+'</div>';
+              + dot+'<span class="name">'+safeName+roleSpan+'</span>'+badge+'</div>';
     });
   });
   html += '</div>';
