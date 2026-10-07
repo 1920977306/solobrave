@@ -673,7 +673,7 @@ function sb2KbRenderHero(stats, entries){
   if (!sub) return;
   var total = (stats && stats.total) || entries.length || 0;
   var chunks = (stats && stats.totalChunks) || 0;
-  sub.textContent = total + ' 条 · ' + chunks + ' chunks · 语义检索已切换';
+  sub.textContent = total + ' 条 · ' + chunks + ' 片段 · 语义检索已切换';
 }
 
 /* 〔fix/sb2-side-restore 22 轮批注①〕hero 标题动态化 (方案 A)
@@ -921,7 +921,7 @@ function sb2KbRenderList(entries){
   var cardsHtml = pageSlice.map(function(e){
     var title = e.title || '(无标题)';
     var id = e.id || '';
-    var chunks = ((e.chunk_count != null ? e.chunk_count : 0)) + ' chunks';
+    var chunks = ((e.chunk_count != null ? e.chunk_count : 0)) + ' 片段';
     /* 〔fix/sb2-side-restore commit 13〕16 轮批注⑤: 知识库条目卡片对齐原版
        原型 line 767 meta 格式: 'kb_xxxx · N chunks · 更新于 x' (t3 micro)
        修法: updated_at 转「更新于 2 小时前」相对时间格式 (跟 sb2_relativeTime 统一),
@@ -1806,6 +1806,15 @@ var _sb2PtnPage = 1;
    — 跟达人库 pageSize 10 / 商品库动态 pageSize 跨模块对齐 (28 终态 + 视口守卫, fit-in 不滚动) */
 var _sb2PtnLimit = 12;
 var _sb2PtnFilteredTotal = 0; // sb2PtnRender 每次刷新, sb2PtnGoPage 翻页上限用
+var _sb2PtnSearchQ = '';      // 〔r70 批注③〕规律库专属搜索词 (hero 搜索框, 过滤 pattern_text/category)
+
+/* 〔r70 批注③ 老大 15:22「弄个专属搜索」: hero 搜索框 oninput 入口
+   — 文本过滤 (pattern_text + category 包含匹配), 搜索时回到第 1 页, 复用 sb2PtnRender 渲染链 */
+function sb2PtnSearchInput(q){
+  _sb2PtnSearchQ = (q || '').trim();
+  _sb2PtnPage = 1;
+  if (typeof sb2PtnRender === 'function') sb2PtnRender();
+}
 
 /* ============================================================
  * sb2-talents MVP1: 端点契约 / 三维筛选现场聚合 / 评级分档 / 状态映射 / GPM 归一 / 表格 + 分页
@@ -3896,7 +3905,22 @@ function sb2PdsRender(){
     var adminPart = '';
     if (p.createdByName) adminPart = '<span class="sb2-pds-cell-name-admin">· 👤 ' + escHtml(p.createdByName) + '</span>';
 
-    var priceHtml = '<span class="sb2-pds-cell-price">¥' + (typeof p.price === 'number' ? p.price.toFixed(2) : escHtml(String(p.price || '-'))) + '</span>';
+    /* 〔r70 批注⑤ 老大 15:22「价格有点丑,设计需要优化」: 价格排版重做
+       — ¥ 符号缩小 + 整数主体放大 + 小数降格, 品牌橙强调 (电商惯例)
+       — 有原价且高于现价时, 右侧带划线原价 */
+    var priceHtml;
+    if (typeof p.price === 'number') {
+      var _pi = Math.floor(p.price);
+      var _pd = Math.round((p.price - _pi) * 100);
+      priceHtml = '<span class="sb2-pds-cell-price"><i class="cur">¥</i>' + _pi
+                + (_pd ? '<i class="dec">.' + (_pd < 10 ? '0' + _pd : _pd) + '</i>' : '');
+      if (p.original_price && p.original_price > p.price) {
+        priceHtml += '<s class="orig">¥' + Math.round(p.original_price) + '</s>';
+      }
+      priceHtml += '</span>';
+    } else {
+      priceHtml = '<span class="sb2-pds-cell-price">' + escHtml(String(p.price || '-')) + '</span>';
+    }
 
     var commHtml;
     if (p.commission_rates && typeof p.commission_rates === 'object' && Object.keys(p.commission_rates).length > 0) {
@@ -4625,10 +4649,15 @@ function sb2PtnRender(){
     if (_sb2PtnLevel && (p.verification_level || 'hypothesis') !== _sb2PtnLevel) return false;
     if (_sb2PtnCat && (p.category || '未分类') !== _sb2PtnCat) return false;
     if (_sb2PtnStatus && (p.status || 'draft') !== _sb2PtnStatus) return false;
+    /* 〔r70 批注③〕专属搜索: 命中规律全文或类目才算 (大小写不敏感) */
+    if (_sb2PtnSearchQ) {
+      var hay = ((p.pattern_text || '') + ' ' + (p.category || '')).toLowerCase();
+      if (hay.indexOf(_sb2PtnSearchQ.toLowerCase()) === -1) return false;
+    }
     return true;
   });
   if (filtered.length === 0) {
-    listEl.innerHTML = '<div class="sb2-ptn-empty">' + ((_sb2PtnLevel || _sb2PtnCat || _sb2PtnStatus) ? '当前筛选下暂无规律' : '暂无规律记录') + '</div>';
+    listEl.innerHTML = '<div class="sb2-ptn-empty">' + ((_sb2PtnLevel || _sb2PtnCat || _sb2PtnStatus || _sb2PtnSearchQ) ? '当前筛选下暂无规律' : '暂无规律记录') + '</div>';
     _sb2PtnRenderPagerUI(0, 1);
     return;
   }
@@ -4985,10 +5014,12 @@ function _sb2PtnRenderProgress(prog){
   var csCls = csShort > 0 ? 'warning' : '';
   var html = '';
   html += '<div class="sb2-ptn-progress-current">';
-  html += '<span class="sb2-ptn-level ' + escapeAttr(curLv) + '">' + lvIcon(curLv) + ' ' + escapeHtml(curLv) + '</span>';
+  var lvName = function(lv){ return ({hypothesis:'假设',candidate:'候选',verified:'已验证',proven:'成熟',deprecated:'已废弃'})[lv] || lv; };
+  var stName = function(st){ return ({draft:'待确认',confirmed:'已确认',rejected:'已拒绝',deprecated:'已废弃'})[st] || st; };
+  html += '<span class="sb2-ptn-level ' + escapeAttr(curLv) + '">' + lvIcon(curLv) + ' ' + escapeHtml(lvName(curLv)) + '</span>';
   html += '<span class="sb2-ptn-progress-arrow">→</span>';
-  html += '<span class="sb2-ptn-level ' + escapeAttr(nextLv) + '">' + lvIcon(nextLv) + ' ' + escapeHtml(nextLv) + '</span>';
-  html += '<span class="sb2-ptn-progress-next">(当前 status: ' + escapeHtml(prog.status || '-') + ')</span>';
+  html += '<span class="sb2-ptn-level ' + escapeAttr(nextLv) + '">' + lvIcon(nextLv) + ' ' + escapeHtml(lvName(nextLv)) + '</span>';
+  html += '<span class="sb2-ptn-progress-next">(当前状态: ' + escapeHtml(stName(prog.status)) + ')</span>';
   html += '</div>';
   // 命中进度
   html += '<div class="sb2-ptn-progress-row">';

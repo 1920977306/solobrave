@@ -312,7 +312,9 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   min-width: 0;
   background: var(--right-content-bg);
   position: relative;
-  padding-bottom: 28px;
+  /* 〔r70 批注⑥ 老大 15:22「下面留大空白」: 删 padding-bottom 28px
+     — 根因: sb2 各模块 height:100% 撑到 content-box 底, 与边框底之间露 28px 灰底
+     — 修后: 模块撑满, 底部不再留白 (聊天壳 .sb2-chat-shell absolute inset 28px 自带内距, 不受影响) */
 }
 
 /* ===== 修复聊天布局顺序 ===== */
@@ -10163,9 +10165,20 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
 
 .sb2-ptn-list{
   display:grid; grid-template-columns:1fr 1fr; gap:12px;
-  /* 〔r39-16 批注③〕列表区吃掉剩余高度 + 内部滚动 (分页条钉底部不被滚走) */
-  flex:1; min-height:0; overflow-y:auto; align-content:start;
+  /* 〔r70 批注③ 老大 15:22「去掉滑动,有分页了」: 列表区不内部滚动
+     — 修前: flex:1 + overflow-y:auto, 一页 12 条在容器内滚
+     — 修后: 高度随内容, 翻页切换整页内容 (分页条仍是底部锚点) */
+  flex:0 0 auto; align-content:start;
 }
+/* 〔r70 批注③〕规律库专属搜索框: hero 标题行右侧, 跟达人库 hero 搜索同款口径 */
+.sb2-ptn-hero-search{
+  width:220px; padding:8px 12px;
+  border:1px solid var(--sb2-border); border-radius:var(--sb2-r-md,8px);
+  background:var(--sb2-s1); color:var(--sb2-t1);
+  font:400 13px/1.4 "PingFang SC",sans-serif; outline:none;
+}
+.sb2-ptn-hero-search::placeholder{ color:var(--sb2-t3); }
+.sb2-ptn-hero-search:focus{ border-color:var(--sb2-brand); }
 /* 〔r39-16 批注③〕底栏分页条: 对齐达人库 .sb2-talents-footer 样式 (四边 20 口径) */
 .sb2-ptn-footer{
   display:flex; align-items:center; gap:12px; flex-shrink:0;
@@ -11151,9 +11164,17 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
   font:400 10px/1.3 "PingFang SC",sans-serif; color:var(--sb2-t3);
   margin-left:4px;
 }
+/* 〔r70 批注⑤ 老大 15:22「价格有点丑」: 品牌橙 + ¥/小数降格排版 (电商惯例) */
 .sb2-pds-cell-price{
-  font:600 14px/1.2 "SF Mono",ui-monospace,monospace;
-  color:var(--sb2-t1);
+  font:600 16px/1.2 "SF Mono",ui-monospace,monospace;
+  color:var(--sb2-brand);
+  font-variant-numeric:tabular-nums;
+}
+.sb2-pds-cell-price .cur{ font-style:normal; font-size:12px; font-weight:500; margin-right:1px; }
+.sb2-pds-cell-price .dec{ font-style:normal; font-size:12px; font-weight:500; }
+.sb2-pds-cell-price .orig{
+  font:400 12px/1.2 "SF Mono",ui-monospace,monospace;
+  color:var(--sb2-t3); text-decoration:line-through; margin-left:6px;
 }
 .sb2-pds-cell-commission{
   font:400 12px/1.3 "SF Mono",ui-monospace,monospace; color:var(--sb2-t2);
@@ -14949,7 +14970,9 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
       <div class="sb2-ptn-hero-sub" id="sb2PtnHeroSub">载入中…</div>
     </div>
     <div class="sb2-ptn-hero-actions">
-      <button class="sb2-btn sb2-btn-ghost" onclick="sb2PtnPromotionExplain()" title="晋升链: hypothesis → candidate → verified (evidence ≥ 30 且置信度 ≥ 80 自动触发)">晋升链路说明</button>
+      <!-- 〔r70 批注③ 老大 15:22「弄个专属搜索」: 规律库 hero 搜索框, 文本过滤 pattern_text/category -->
+      <input type="text" class="sb2-ptn-hero-search" id="sb2PtnSearch" placeholder="搜索规律…" oninput="sb2PtnSearchInput(this.value)">
+      <button class="sb2-btn sb2-btn-ghost" onclick="sb2PtnPromotionExplain()" title="晋升链: 假设 → 候选 → 已验证 (证据 ≥ 30 且置信度 ≥ 80 自动触发)">晋升链路说明</button>
       <button class="sb2-btn sb2-btn-ink" onclick="sb2PtnOpenInduceModal()" title="从历史分析事件中 LLM 归纳规律, 结果进入「待确认」">⚡ 触发归纳</button>
     </div>
   </div>
@@ -18470,7 +18493,7 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
      v2 (202609241444): 初始破缓存 + skip-device 守卫
      v3 (202609241420): probe 误导文案澄清 (fingerprint fallback → token-only) -->
 <script src="openclaw-client.js?v=202609301548"></script>
-<script src="js/inline-07.js?v=dc793d65f4"></script>
+<script src="js/inline-07.js?v=3d01f12616"></script>
 
 <!-- Match Result Modal -->
 <div class="product-modal-overlay" id="matchModalOverlay" onclick="closeMatchModal()">
@@ -18515,7 +18538,7 @@ body.sb2-no-side .sb2-topbar-crumb{ display:flex; }
 </div>
 
 <script src="js/inline-08.js?v=f2d73f6b57"></script>
-<script src="js/inline-09.js?v=9693383e0a"></script>
+<script src="js/inline-09.js?v=5821692eed"></script>
 
 <!-- ★ feat/sb2-chat: SoloBrave 2.0 聊天模块 JS (核心链: 消息流 + 发送框)
      - 复用老 /api/chat/:agentId 接口契约, 零后端改动

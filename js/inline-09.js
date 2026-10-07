@@ -675,9 +675,9 @@ function sb2_renderInsights(patterns){
                 + '<div class="sb2-dash2-insight-main-text">'+escapeHtml((main.pattern_text || '').slice(0, 80))+'</div>'
                 + '<div class="sb2-dash2-insight-main-meta">'
                 +   '<span><b>'+(main.confidence_score != null ? main.confidence_score.toFixed(1) : '-')+'%</b> 置信</span>'
-                +   '<span>evidence <b>'+(main.evidence_count || 0)+'</b></span>'
+                +   '<span>证据 <b>'+(main.evidence_count || 0)+'</b></span>'
                 +   '<span>命中 <b>'+(main.hit_count || 0)+'</b> 次</span>'
-                +   '<span>'+(main.verification_level === 'verified' ? '✓ verified' : '○ ' + (main.verification_level || 'hypothesis'))+'</span>'
+                +   '<span>'+(main.verification_level === 'verified' ? '✓ 已验证' : '○ ' + ({hypothesis:'假设',candidate:'候选',verified:'已验证',proven:'成熟'}[main.verification_level] || '假设'))+'</span>'
                 + '</div>'
                 + '</div>';
   var subsHtml = subs.map(function(p){
@@ -1128,7 +1128,7 @@ var SB2_SIDE_RENDERERS = {
     if (catsTree.length === 0 && totalDocs === 0) {
       sub = '加载中…';
     } else if (totalDocs > 0 || chunksTotal > 0) {
-      sub = totalDocs + ' 条 · ' + chunksTotal + ' chunks';
+      sub = totalDocs + ' 条 · ' + chunksTotal + ' 片段';
     } else {
       sub = catsTree.length + ' 分类';
     }
