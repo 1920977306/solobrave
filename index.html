@@ -10141,6 +10141,9 @@ body.sb2-no-side .sb2-topbar-crumb{ display:none; }
      收起 → #sb2Side display:none + 顶栏/dash/主区让位 60px (三组规则照抄 sb2-no-side)
    〔feat(r77)-2 老大 22:20 批注〕折叠键挪到顶栏全局搜索左边 (#sb2SideToggle):
      收起态图标旋 180° 变展开方向, 一个钮管收/展; 侧栏头内旧折叠钮 + 浮动展开钮同步移除
+   〔feat(r77)-3 老大 22:27 批注〕工作台收起后内容要跟知识库一样变宽:
+     根因 .sb2-wrap max-width:1240 居中 (r39-19 老大拍板, 展开态保持不动),
+     收起态解除 1240 上限 → KPI 栅格 / feed 栅格都是 1fr 流式, 自动铺满
    守卫: 布局覆盖规则包在 @media (min-width:769px) — ≤768 移动端既有回退 (margin-left:0 全宽)
      优先级更高, 不抢; >1100 侧栏本 display:none, 收起/展开同 60px, 无冲突 */
 @media (min-width:769px){
@@ -10148,6 +10151,7 @@ body.sb2-no-side .sb2-topbar-crumb{ display:none; }
   body.sb2-side-collapsed .sb2-topbar{ left:60px; }
   body.sb2-side-collapsed .sb2-dash{ left:60px; }
   body.sb2-side-collapsed .app-container{ margin-left:60px; }
+  body.sb2-side-collapsed .sb2-dash-main .sb2-wrap{ max-width:none; }
 }
 /* 收起动画: 内容区让位过渡 (.sb2-side 本体 display:none 不参与, 跟 sb2-no-side 一致) */
 .sb2-topbar,.sb2-dash,.app-container{ transition:left .18s ease,margin-left .18s ease; }
