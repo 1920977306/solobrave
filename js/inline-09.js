@@ -1427,6 +1427,9 @@ function renderSideFor(moduleId){
   if (moduleId === 'lobster' || moduleId === 'tasks') {
     side.style.display = 'none';
     if (typeof document !== 'undefined' && document.body) document.body.classList.add('sb2-no-side');
+    /* 〔feat(r78) 批注①〕任务模块侧栏可收起: 打 body.sb2-tasks-active 标记,
+       顶栏折叠钮 #sb2SideToggle 的 CSS 显隐守卫据此在任务页也生效 (lobster 保持原样) */
+    if (moduleId === 'tasks' && typeof document !== 'undefined' && document.body) document.body.classList.add('sb2-tasks-active');
     /* 〔fix/sb2-side-restore commit 26〕17 轮追加 3 项 C: 任务模块 crumb 不同步
        修前 bug: renderSideFor 对 tasks / lobster 早退 (line 46518 原) 没设 SB2_CURRENT_MODULE,
          导致 sb2Go('tasks') 流程中 updateCrumb() 读 SB2_CURRENT_MODULE 仍是旧值 'products',
@@ -1442,7 +1445,7 @@ function renderSideFor(moduleId){
     return;
   }
   side.style.display = '';
-  if (typeof document !== 'undefined' && document.body) document.body.classList.remove('sb2-no-side');
+  if (typeof document !== 'undefined' && document.body) document.body.classList.remove('sb2-no-side', 'sb2-tasks-active');
   var fn = SB2_SIDE_RENDERERS[moduleId];
   var data = fn ? fn() : { title: moduleId, sub:'-', items:[] };
   var html = '';
