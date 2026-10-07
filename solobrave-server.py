@@ -2510,6 +2510,9 @@ def _get_localhost_auth_result(headers, parsed_body=None):
                 # ★ 审计：本地 AI 员工调用打日志
                 logger.info(f'  [Auth] localhost AI 调用: agent_id={agent_id} created_by={created_by}')
                 result = AuthResult(user_info={'userId': created_by, 'role': 'admin'})
+                result.load_user_record()
+                if result.tenant_id:
+                    _set_request_tenant(result.tenant_id)
                 # 标记为 AI 员工的本地调用：数据接口（如达人列表）需按创建者过滤，
                 # 不能让 AI 员工以 admin 身份绕过权限拉取全量数据
                 result.localhost_agent_id = agent_id
@@ -2633,6 +2636,7 @@ def _authenticate(headers, client_ip=None, request_handler=None):
     # 创建 AuthResult 并加载用户记录以获取 team 信息
     result = AuthResult(user_info=user_info)
     result.load_user_record()
+    _set_request_tenant(result.tenant_id)
     # ★ Token 失效校验：密码改过（pwdVersion 递增）后旧 token 自动失效
     if result.user_record is not None:
         current_pwd_version = int(result.user_record.get('pwdVersion', 0))
@@ -3047,13 +3051,67 @@ def format_rag_context(docs, products):
 # SQLite 数据库初始化与知识库 ORM
 # ═══════════════════════════════════════════════════
 
+# ═══ M2: 租户 DB 路由（thread-local，唯一信任边界）═══
+# 规则:
+#  - tid 只能由 _authenticate 显式写入（请求线程），子线程/后台任务无 tid → 默认租户
+#  - t_default 永远落在 legacy DB_PATH（存量零拷贝，回滚=删 tenants.json 里的新租户）
+#  - 非默认租户库在首次连接时惰性建文件 + 跑 init_db 全量 schema
+_db_state = threading.local()
+
+def _current_tenant_id():
+    return getattr(_db_state, 'tid', None) or DEFAULT_TENANT_ID
+
+def _set_request_tenant(tid):
+    """_authenticate 成功后调用：把本请求线程钉到租户库上。"""
+    _db_state.tid = tid or DEFAULT_TENANT_ID
+
+def _run_as_tenant(tid, fn, *args, **kwargs):
+    """后台线程/子任务以指定租户上下文执行 fn。
+    用法: 提交 heavy_jobs 等后台工作时, 在请求线程 capture tid = _current_tenant_id(),
+    子线程入口 _run_as_tenant(captured_tid, real_fn, ...)。"""
+    prev = getattr(_db_state, 'tid', None)
+    _db_state.tid = tid or DEFAULT_TENANT_ID
+    try:
+        return fn(*args, **kwargs)
+    finally:
+        _db_state.tid = prev
+
+def _tenant_db_path(tid):
+    if not tid or tid == DEFAULT_TENANT_ID:
+        return DB_PATH
+    return os.path.join(DATA_DIR, 'tenants', tid, 'solobrave.db')
+
+def _tenant_initialized():
+    return getattr(_db_state, 'db_inited', None)
+
+def _mark_tenant_initialized(tid):
+    _db_state.db_inited = tid
+
 def _db_conn():
     """获取 SQLite 数据库连接（线程安全，启用 WAL + 同步模式 NORMAL + 忙等待 5000ms）
     dev/feat: knowledge_chunks 修复 — 显式 PRAGMA foreign_keys=ON
     SQLite 默认 OFF, 即使表定义了 FOREIGN KEY ... ON DELETE CASCADE 也不生效.
     必须在每个 conn 上开启, 否则 knowledge 删除时不会级联删 chunks (历史 122 orphan 根因).
+
+    ★ M2 租户路由: 连接落点 = _tenant_db_path(_current_tenant_id())。
+    tid 仅由认证层写入; 无 tid 的线程(后台任务)恒落默认租户 ——
+    后台任务要写非默认租户库必须用 _run_as_tenant(tid) 包裹（见下）。
     """
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    tid = _current_tenant_id()
+    path = _tenant_db_path(tid)
+    if (tid != DEFAULT_TENANT_ID and _tenant_initialized() != tid
+            and not getattr(_db_state, 'db_bootstrapping', False)):
+        # 首次触碰该租户库: 建目录 + 建文件 + 全量 schema（幂等 CREATE IF NOT EXISTS）
+        # db_bootstrapping 防递归: init_db 内部走 _db_conn 时直接放行
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        _db_state.db_bootstrapping = True
+        try:
+            init_db()
+        finally:
+            _db_state.db_bootstrapping = False
+        _mark_tenant_initialized(tid)
+        logger.info(f'[MT] 租户库初始化完成: {path}')
+    conn = sqlite3.connect(path, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute('PRAGMA journal_mode=WAL;')
     conn.execute('PRAGMA synchronous=NORMAL;')
@@ -3264,7 +3322,7 @@ def _migrate_talent_categories(conn):
 def init_db():
     """初始化数据库，创建 products 等表（启动时调用）。旧 knowledge 表已废弃，不再建表。"""
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
-    logger.info(f'[DB] init_db 使用数据库文件: {os.path.abspath(DB_PATH)}')
+    logger.info(f'[DB] init_db 使用数据库文件: {os.path.abspath(_tenant_db_path(_current_tenant_id()))}')
     conn = _db_conn()
     try:
         # 项目组对话消息表（团队动态：同组 AI 互相可见）
