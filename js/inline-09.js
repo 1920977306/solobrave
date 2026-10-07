@@ -1488,6 +1488,13 @@ function renderSideFor(moduleId){
    IIFE 内 renderSideFor 是私有, 达人块 (line 39648-45014) typeof renderSideFor === 'function' 恒 false
    挂 window 后跨块调用生效 */
 window.renderSideFor = renderSideFor;
+/* 〔r74 反馈 Comment 1 老大 19:01「任务页面出现商品库的侧边栏」:
+   - 修前: switchModule (老 nav .nav-item active 同步) 不同步新 .sb2-rail-btn active
+     → 用户从 products 切到 tasks, 老 nav 高亮切到 navTasks, 新 rail 仍高亮商品库 → 视觉错位
+   - 修法: window.setActive 暴露, 让 switchModule (inline-07.js) 同步新 rail active
+   - 跟 r37 r38 r39 rail 对齐原版的设计债务同步:
+     老 .nav-item + 新 .sb2-rail-btn 两套 nav 并存, active 同步路径必须双向打通 */
+window.setActive = setActive;
 
 function escHtml(s){ return String(s==null?'':s).replace(/[&<>\"']/g, function(c){ return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]; }); }
 function escAttr(s){ return String(s==null?'':s).replace(/[&<>\"']/g, function(c){ return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]; }); }

@@ -5353,10 +5353,16 @@ function switchModule(module) {
   }
   currentModule = module;
 
-  // Update left nav active state
+  // Update left nav active state (老 .nav-item 系统)
   document.querySelectorAll('.nav-item').forEach(function(el) { el.classList.remove('active'); });
   var navEl = document.getElementById('nav' + module.charAt(0).toUpperCase() + module.slice(1));
   if (navEl) navEl.classList.add('active');
+
+  // ★ r74 反馈 Comment 1 老大 19:01「任务页面出现商品库的侧边栏」: 同步新 .sb2-rail active
+  // 修前: 用户从 products 切到 tasks, 老 nav active 切到 navTasks, 新 rail 仍高亮商品库 → 视觉错位
+  // 修法: setActive 同步新 .sb2-rail-btn active, 跨两套 nav 视觉一致
+  // 跟 r37 r38 r39 rail 对齐原版的设计债务同步 (老 .nav-item + 新 .sb2-rail-btn 双 nav 双向打通)
+  if (typeof window.setActive === 'function') window.setActive(module);
 
   // Reset global search state
   resetGlobalSearch(module);
