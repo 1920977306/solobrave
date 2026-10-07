@@ -504,4 +504,35 @@
   window.sb2_execSlashCommand = sb2_execSlashCommand;
   window.sb2_renderMentionMenu = sb2_renderMentionMenu;
   window._sb2ChatTasks = _sb2ChatTasks;  // F12 调试
+
+  /* 〔r65 批注① 2026-10-07〕输入框工具钮三助手 — 老大批注「缺以前的输入框功能」
+     slash/mention/model 菜单本体本 IIFE 早已实现 (上方), 缺的只是触发按钮 (index.html 输入行)
+     HTML onclick 够不到 IIFE 内部 → 按 IIFE+onclick 铁律 window 显式暴露 */
+  window.sb2_insertEmoji = function() {
+    var inp = document.getElementById('sb2ChatInput');
+    if (!inp) return;
+    var start = inp.selectionStart || 0;
+    var end = inp.selectionEnd || 0;
+    inp.value = inp.value.substring(0, start) + '😊' + inp.value.substring(end);
+    inp.selectionStart = inp.selectionEnd = start + 2;
+    inp.focus();
+    var sendBtn = document.getElementById('sb2ChatSendBtn');
+    if (sendBtn) sendBtn.disabled = inp.value.trim().length === 0;
+  };
+  window.sb2_openMentionBtn = function() {
+    var inp = document.getElementById('sb2ChatInput');
+    _sb2ChatTasks.mention.filter = '';
+    if (inp) {
+      var pos = inp.selectionStart || inp.value.length;
+      inp.value = inp.value.substring(0, pos) + '@' + inp.value.substring(pos);
+      inp.selectionStart = inp.selectionEnd = pos + 1;
+      inp.focus();
+      _sb2ChatTasks.mention.triggerPos = pos;
+    }
+    sb2_renderMentionMenu();
+  };
+  window.sb2_openSlashBtn = function() {
+    _sb2ChatTasks.slash.filter = '';
+    sb2_renderSlashMenu();
+  };
 })();
