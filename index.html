@@ -14438,10 +14438,14 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
   color: var(--sb2-t1);
 }
 .sb2-chat-composer-bar .sb2-chat-send-btn {
-  width: auto;
-  height: 30px;
-  padding: 0 14px !important;
-  border-radius: var(--sb2-r-md);
+  /* 〔chat-opt-3 2026-10-08 老大批注「这样好看吗」〕图标+文字挤 30px 小钮 → 圆形纯图标钮 (IM 惯例) */
+  width: 32px;
+  height: 32px;
+  padding: 0 !important;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
 }
 .sb2-chat-composer-bar .sb2-chat-model-pill {
   padding: 5px 10px;
@@ -16367,7 +16371,7 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h16"/><path d="m6 16 6-12"/><path d="m18 16-6-12"/></svg>
           </button>
         </div>
-        <button class="sb2-btn sb2-btn-ink sb2-chat-send-btn" id="sb2ChatSendBtn" type="button" disabled title="发送" aria-label="发送消息"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>发送</button>
+        <button class="sb2-btn sb2-btn-ink sb2-chat-send-btn" id="sb2ChatSendBtn" type="button" disabled title="发送 (Enter)" aria-label="发送消息"><svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg></button>
       </div>
     </div>
     <input type="file" id="sb2ChatFileInput" accept="image/*" multiple style="display:none;">
