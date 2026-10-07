@@ -993,27 +993,27 @@ def init_db():
             )
         ''')
 
-        # 兼容：给旧表添加新字段（必须先于索引创建）
-        _add_column_if_not_exists(conn, 'knowledge', 'emp_id', "TEXT DEFAULT ''")
-        _add_column_if_not_exists(conn, 'knowledge', 'status', "TEXT DEFAULT 'ok'")
-        _add_column_if_not_exists(conn, 'knowledge', 'chunk_count', "INTEGER DEFAULT 0")
-        _add_column_if_not_exists(conn, 'knowledge', 'scope', "TEXT DEFAULT 'global'")
-        _add_column_if_not_exists(conn, 'knowledge', 'team_id', "TEXT DEFAULT ''")
-        # FIXME: 项目组维度改造：新增 group_ids 字段（JSON 数组字符串，支持一条知识属于多个项目组）
-        _add_column_if_not_exists(conn, 'knowledge', 'group_ids', "TEXT DEFAULT '[]'")
+            # 兼容：给旧表添加新字段（必须先于索引创建）
+            _add_column_if_not_exists(conn, 'knowledge', 'emp_id', "TEXT DEFAULT ''")
+            _add_column_if_not_exists(conn, 'knowledge', 'status', "TEXT DEFAULT 'ok'")
+            _add_column_if_not_exists(conn, 'knowledge', 'chunk_count', "INTEGER DEFAULT 0")
+            _add_column_if_not_exists(conn, 'knowledge', 'scope', "TEXT DEFAULT 'global'")
+            _add_column_if_not_exists(conn, 'knowledge', 'team_id', "TEXT DEFAULT ''")
+            # FIXME: 项目组维度改造：新增 group_ids 字段（JSON 数组字符串，支持一条知识属于多个项目组）
+            _add_column_if_not_exists(conn, 'knowledge', 'group_ids', "TEXT DEFAULT '[]'")
 
-        # 创建索引
-        conn.execute('CREATE INDEX IF NOT EXISTS idx_knowledge_emp ON knowledge(emp_id)')
-        conn.execute('CREATE INDEX IF NOT EXISTS idx_knowledge_category ON knowledge(category)')
-        conn.execute('CREATE INDEX IF NOT EXISTS idx_knowledge_status ON knowledge(status)')
-        conn.execute('CREATE INDEX IF NOT EXISTS idx_knowledge_created ON knowledge(created_at)')
-        conn.execute('CREATE INDEX IF NOT EXISTS idx_knowledge_scope ON knowledge(scope)')
-        conn.execute('CREATE INDEX IF NOT EXISTS idx_knowledge_team_id ON knowledge(team_id)')
+            # 创建索引
+            conn.execute('CREATE INDEX IF NOT EXISTS idx_knowledge_emp ON knowledge(emp_id)')
+            conn.execute('CREATE INDEX IF NOT EXISTS idx_knowledge_category ON knowledge(category)')
+            conn.execute('CREATE INDEX IF NOT EXISTS idx_knowledge_status ON knowledge(status)')
+            conn.execute('CREATE INDEX IF NOT EXISTS idx_knowledge_created ON knowledge(created_at)')
+            conn.execute('CREATE INDEX IF NOT EXISTS idx_knowledge_scope ON knowledge(scope)')
+            conn.execute('CREATE INDEX IF NOT EXISTS idx_knowledge_team_id ON knowledge(team_id)')
 
-        # 分段表
-        # dev/feat: knowledge_chunks 修复 — knowledge_id 加 FOREIGN KEY ON DELETE CASCADE
-        # 防止 knowledge 删除时遗留 orphan chunks (历史 122 orphan 已清理).
-        conn.execute('''
+            # 分段表
+            # dev/feat: knowledge_chunks 修复 — knowledge_id 加 FOREIGN KEY ON DELETE CASCADE
+            # 防止 knowledge 删除时遗留 orphan chunks (历史 122 orphan 已清理).
+            conn.execute('''
             CREATE TABLE IF NOT EXISTS knowledge_chunks (
                 id TEXT PRIMARY KEY,
                 knowledge_id TEXT NOT NULL REFERENCES knowledge(id) ON DELETE CASCADE,
@@ -1025,12 +1025,12 @@ def init_db():
                 created_at INTEGER
             )
         ''')
-        conn.execute('CREATE INDEX IF NOT EXISTS idx_chunks_kid ON knowledge_chunks(knowledge_id)')
-        conn.execute('CREATE INDEX IF NOT EXISTS idx_chunks_emp ON knowledge_chunks(emp_id)')
+            conn.execute('CREATE INDEX IF NOT EXISTS idx_chunks_kid ON knowledge_chunks(knowledge_id)')
+            conn.execute('CREATE INDEX IF NOT EXISTS idx_chunks_emp ON knowledge_chunks(emp_id)')
 
-        # 兼容：给旧 chunks 表添加 embedding_model 字段
-        _add_column_if_not_exists(conn, 'knowledge_chunks', 'embedding_model', "TEXT DEFAULT ''")
-        conn.execute('CREATE INDEX IF NOT EXISTS idx_chunks_model ON knowledge_chunks(embedding_model)')
+            # 兼容：给旧 chunks 表添加 embedding_model 字段
+            _add_column_if_not_exists(conn, 'knowledge_chunks', 'embedding_model', "TEXT DEFAULT ''")
+            conn.execute('CREATE INDEX IF NOT EXISTS idx_chunks_model ON knowledge_chunks(embedding_model)')
 
         # embedding 缓存表
         conn.execute('''
