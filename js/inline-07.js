@@ -1559,7 +1559,8 @@ var SB2_SETTINGS_VIEWS = ['sb2ViewCredit','sb2ViewSearch','sb2ViewBrain','sb2Vie
 function sb2SettingsActivate(viewId){
   SB2_SETTINGS_VIEWS.forEach(function(id){
     var el = document.getElementById(id);
-    if (el) el.style.display = (id === viewId) ? '' : 'none';
+    /* 显式 block: .sb2-settings-view 类规则 display:none, 置空串会被类规则压回隐藏 (真机实测 0a54919 翻修) */
+    if (el) el.style.display = (id === viewId) ? 'block' : 'none';
   });
   var mainEl = document.getElementById('sb2SettingsMain');
   if (mainEl) mainEl.scrollTop = 0;
@@ -1591,7 +1592,7 @@ function sb2SettingsOpenCategory(id){
   document.getElementById('sb2SettingsLegacyActions').innerHTML = actsEl ? actsEl.innerHTML : '';
   /* 〔settings-redesign 2026-10-08〕统一视图激活: 系统管理承接区是唯一可见视图 */
   if (typeof sb2SettingsActivate === 'function') sb2SettingsActivate('sb2SettingsLegacyArea');
-  else { area.style.display = ''; }
+  else { area.style.display = 'block'; }
   /* 镜像后二次触发分类数据加载 (真机实测补):
      renderSettingsRight 内已触发过一发, 但部分 loader (loadNotificationSwitches /
      renderNotificationHistory 等) 函数第一行同步 getElementById 捕获元素引用 ——
