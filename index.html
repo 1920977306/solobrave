@@ -10965,6 +10965,22 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
   font:400 12px/1.4 "PingFang SC",sans-serif; color:var(--sb2-t3); margin-top:2px;
 }
 .sb2-dash2-greet-acts{ margin-left:auto; display:flex; gap:8px; }
+/* 〔dash-credit 2026-10-08〕工作台 hero 紧凑签到条 */
+.sb2-dash2-credit-chip{
+  display:flex; align-items:center; gap:10px;
+  padding:6px 14px; border-radius:999px;
+  background:var(--sb2-brand-soft); color:var(--sb2-brand);
+  font:500 13px/1.4 "PingFang SC",sans-serif;
+}
+.sb2-dash2-credit-bal{ display:flex; align-items:center; gap:5px; font-weight:600; font-variant-numeric:tabular-nums; }
+.sb2-dash2-credit-sub{ font-size:11px; opacity:.75; }
+.sb2-dash2-credit-btn{
+  padding:4px 14px; border-radius:999px; border:none; cursor:pointer;
+  background:var(--sb2-brand); color:var(--sb2-on-brand,#fff);
+  font:600 12px/1.5 "PingFang SC",sans-serif;
+}
+.sb2-dash2-credit-btn.done{ background:rgba(142,142,147,0.18); color:var(--sb2-t2,#6E6E73); cursor:default; }
+
 
 /* KPI 卡 (沿用 .sb2-kpis 4 列 grid, 升级 .sb2-dash2-kpi 内层)
    ★ fix/sb2-full-restore (commit B): 补回卡片容器 (现完全裸排, 老实测差距最大项)
@@ -19174,7 +19190,7 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
      v2 (202609241444): 初始破缓存 + skip-device 守卫
      v3 (202609241420): probe 误导文案澄清 (fingerprint fallback → token-only) -->
 <script src="openclaw-client.js?v=ocowner1a20261008"></script>
-<script src="js/inline-07.js?v=settingsredesign1c20261008"></script>
+<script src="js/inline-07.js?v=dashcredit1a20261008"></script>
 
 <!-- Match Result Modal -->
 <div class="product-modal-overlay" id="matchModalOverlay" onclick="closeMatchModal()">
@@ -19219,7 +19235,7 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
 </div>
 
 <script src="js/inline-08.js?v=f2d73f6b57"></script>
-<script src="js/inline-09.js?v=railicons1a20261008"></script>
+<script src="js/inline-09.js?v=dashcredit1b20261008"></script>
 
 <!-- ★ feat/sb2-chat: SoloBrave 2.0 聊天模块 JS (核心链: 消息流 + 发送框)
      - 复用老 /api/chat/:agentId 接口契约, 零后端改动

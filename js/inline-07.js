@@ -6852,6 +6852,8 @@ async function doCreditCheckin(){
   }
   loadCreditCheckin();
   if (typeof loadComputeStats === 'function') loadComputeStats();
+  /* 〔dash-credit 2026-10-08〕工作台 hero 签到条同步刷新 */
+  if (typeof loadDashCreditChip === 'function') loadDashCreditChip();
 }
 /* 用量曲线: records 按天聚合 → SVG 折线 (今日/昨日单点区间不画; total>page_size 诚实标注样本量) */
 function _creditUsageCurveHtml(records, dr, usageTotal){

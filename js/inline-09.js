@@ -220,10 +220,10 @@ function buildDashboard(){
     +     '<div><div class="sb2-dash2-greet-date" id="sb2GreetDate"></div>'
     +     '<h1 class="sb2-dash2-greet-title" id="sb2GreetTitle">工作台</h1>'
     /* ★ fix/sb2-proto-align (commit 2): 删 sub「今日智能协作 · 数据概览」(原型 line 369-371 没有 sub 元素) */ + '</div>'
-    /* 〔dash-opt-1 2026-10-08 老大拍板方向 A: 工作台 = 待办指挥中心〕
-        删「达人跟进」纯导航钮 (左侧导航栏已有同功能入口, 老大多此一举批注);
-        「进入 AI 办公室」保留为唯一主 CTA */
-    +     '<div class="sb2-dash2-greet-acts"><button class="sb2-btn sb2-btn-brand" onclick="sb2Go(\'messages\')">进入 AI 办公室</button></div>'
+    /* 〔dash-credit 2026-10-08 老大批注 15:48「把积分中心移到这里, 这里改成进入积分中心」〕
+        hero 主 CTA 改为直达设置页积分中心视图 (sb2SettingsShow 默认落积分中心);
+        左侧嵌紧凑签到条 (#sb2DashCreditChip, 真余额 + 签到钮, loadDashCreditChip 填充) */
+    +     '<div class="sb2-dash2-greet-acts"><div class="sb2-dash2-credit-chip" id="sb2DashCreditChip"></div><button class="sb2-btn sb2-btn-brand" onclick="sb2Go(\'settings\')">进入积分中心</button></div>'
     +   '</div>'
     /* 〔dash-opt-1〕等你拍板 hero 区: 待审批提案 inline 拍板 (复用 P1b 提案卡 6 态管线, 零新交互逻辑)
         空态整块隐藏 (JS 控制), 不渲占屏占位
@@ -269,6 +269,34 @@ function buildDashboard(){
   try { user = JSON.parse(localStorage.getItem('sb_current_user') || 'null'); } catch(e){}
   var name = (user && (user.displayName || user.username || user.name)) || '';
   document.getElementById('sb2GreetTitle').textContent = greet + (name ? '，' + name : '');
+  /* 〔dash-credit 2026-10-08〕hero 紧凑签到条: 真余额 + 签到钮 (积分中心日常入口移到工作台) */
+  if (typeof loadDashCreditChip === 'function') loadDashCreditChip();
+}
+/* 工作台 hero 紧凑签到条: 与设置屏签到卡同源口径 (/api/credits/checkin/status),
+   零编造: 余额/距上限/签到态全部来自接口; 签到走 doCreditCheckin (inline-07, 成功后双侧刷新) */
+function loadDashCreditChip(){
+  var chip = document.getElementById('sb2DashCreditChip');
+  if (!chip) return;
+  var t = (typeof _creditCheckinTarget === 'function') ? _creditCheckinTarget() : null;
+  if (!t) { chip.innerHTML = ''; chip.style.display = 'none'; return; }
+  chip.style.display = '';
+  fetch('/api/credits/checkin/status' + (t.id ? '?agent_id=' + encodeURIComponent(t.id) : ''), {
+    headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('sb_auth_token') || '') }
+  }).then(function(r){ return r.ok ? r.json() : null; }).then(function(d){
+    if (!d) { chip.innerHTML = ''; chip.style.display = 'none'; return; }
+    var btn;
+    if (d.already_checked_in) {
+      btn = '<button type="button" class="sb2-dash2-credit-btn done" disabled><i class=sb2-ico-check></i> 已签到</button>';
+    } else if ((d.remaining_to_limit || 0) <= 0) {
+      btn = '<button type="button" class="sb2-dash2-credit-btn done" disabled>已达上限</button>';
+    } else {
+      btn = '<button type="button" class="sb2-dash2-credit-btn" onclick="doCreditCheckin()">签到 +' + (d.reward || 10) + '</button>';
+    }
+    chip.innerHTML = '<span class="sb2-dash2-credit-bal"><i class=sb2-ico-zap></i> '
+      + formatNumber(d.balance || 0) + ' 积分</span>'
+      + '<span class="sb2-dash2-credit-sub">距上限 ' + formatNumber(d.remaining_to_limit || 0) + '</span>'
+      + btn;
+  }).catch(function(){ chip.innerHTML = ''; chip.style.display = 'none'; });
 }
 function kpi(id, label, sub){
   return '<div class="sb2-dash2-kpi" id="'+id+'">'
