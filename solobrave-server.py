@@ -29911,80 +29911,120 @@ def _repair_misattributed_credits(conn, active_ids):
     return fixed
 
 
-def _sync_token_usage_from_trajectories():
-    """扫描 trajectory 文件并写入 token_usage 表，按 ts+session_key 去重"""
-    files = _glob_trajectory_files()
-    scanned_events = 0
-    inserted = 0
+def _write_trajectory_events(evs, active_ids):
+    """单租户写入阶段（P0-2 审计#2）: 必须在调用方 _run_as_tenant(tid) 上下文内执行。
 
+    - repair（历史错记归属修复，幂等）照旧先跑先 commit —— evs 为空也执行
+    - active_ids 传本租户员工集合：repair/扣账的合法域 = 本租户员工，
+      顺带清掉别的租户误入本库的行（FK 顺序: 先下游 credit_usage_log 后 credit_accounts）
+    - INSERT OR IGNORE 去重 + 仅新插入才扣积分，幂等语义与旧实现一致"""
     conn = _db_conn()
     try:
-        # 先修复历史错记归属（降级 main 的会话被记到 main 名下）；即使没有新 trajectory 也要执行
-        active_ids = _get_active_agent_ids()
-        repaired = _repair_misattributed_credits(conn, active_ids)
+        repaired = _repair_misattributed_credits(conn, active_ids) if active_ids else 0
         if repaired:
             logger.info(f'  [Credits] 错记归属修复完成: {repaired} 条')
             conn.commit()
-        if not files:
-            return {'scannedFiles': 0, 'scannedEvents': 0, 'inserted': 0, 'repaired': repaired}
-        for filepath in files:
+        inserted = 0
+        for ev in evs:
             try:
-                with open(filepath, 'r', encoding='utf-8', errors='replace') as f:
-                    for line in f:
-                        line = line.strip()
-                        if not line:
-                            continue
-                        ev = _parse_trajectory_event(line)
-                        if not ev:
-                            continue
-                        scanned_events += 1
-                        try:
-                            before = conn.total_changes
-                            conn.execute('''
-                                INSERT OR IGNORE INTO token_usage
-                                (id, user_id, agent_id, model_id, session_key,
-                                 prompt_tokens, completion_tokens, cache_read_tokens,
-                                 total_tokens, ts, source, created_at)
-                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                            ''', (
-                                uuid.uuid4().hex[:12],
-                                '',
-                                ev['agent_id'],
-                                ev['model_id'],
-                                ev['session_key'],
-                                ev['input_tokens'],
-                                ev['output_tokens'],
-                                ev['cache_read_tokens'],
-                                ev['total_tokens'],
-                                ev['ts'],
-                                'trajectory',
-                                int(time.time() * 1000)
-                            ))
-                            if conn.total_changes > before:
-                                inserted += 1
-                                # 积分制算力管控：1 积分=1000 tokens（向上取整），写入消耗明细并扣减余额
-                                # （仅在新插入时扣减，沿用 INSERT OR IGNORE 去重保证幂等）
-                                try:
-                                    # 只给正式员工扣积分；main 等非员工会话只记 token_usage，不产生积分账户
-                                    if ev['agent_id'] and ev['agent_id'] in active_ids:
-                                        credit_created_at = datetime.fromtimestamp(ev['ts'] / 1000).strftime('%Y-%m-%d %H:%M:%S')
-                                        _record_credit_usage(
-                                            conn, ev['agent_id'],
-                                            ev['input_tokens'], ev['output_tokens'], ev['cache_read_tokens'],
-                                            session_id=ev['session_key'], created_at=credit_created_at
-                                        )
-                                    elif ev['agent_id']:
-                                        logger.info(f'  [Credits] 跳过非员工会话积分扣减: agent_id={ev["agent_id"]} session={ev["session_key"]}')
-                                except Exception as credit_err:
-                                    logger.error(f'  [Credits] trajectory 积分扣减失败: {credit_err}')
-                        except Exception as e:
-                            logger.info(f'  [TrajectorySync] insert skipped: {e}')
+                before = conn.total_changes
+                conn.execute('''
+                    INSERT OR IGNORE INTO token_usage
+                    (id, user_id, agent_id, model_id, session_key,
+                     prompt_tokens, completion_tokens, cache_read_tokens,
+                     total_tokens, ts, source, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (
+                    uuid.uuid4().hex[:12],
+                    '',
+                    ev['agent_id'],
+                    ev['model_id'],
+                    ev['session_key'],
+                    ev['input_tokens'],
+                    ev['output_tokens'],
+                    ev['cache_read_tokens'],
+                    ev['total_tokens'],
+                    ev['ts'],
+                    'trajectory',
+                    int(time.time() * 1000)
+                ))
+                if conn.total_changes > before:
+                    inserted += 1
+                    # 积分制算力管控：1 积分=1000 tokens（向上取整），写入消耗明细并扣减余额
+                    # （仅在新插入时扣减，沿用 INSERT OR IGNORE 去重保证幂等）
+                    try:
+                        # 只给正式员工扣积分；main 等非员工会话只记 token_usage，不产生积分账户
+                        if ev['agent_id'] and ev['agent_id'] in active_ids:
+                            credit_created_at = datetime.fromtimestamp(ev['ts'] / 1000).strftime('%Y-%m-%d %H:%M:%S')
+                            _record_credit_usage(
+                                conn, ev['agent_id'],
+                                ev['input_tokens'], ev['output_tokens'], ev['cache_read_tokens'],
+                                session_id=ev['session_key'], created_at=credit_created_at
+                            )
+                        elif ev['agent_id']:
+                            logger.info(f'  [Credits] 跳过非员工会话积分扣减: agent_id={ev["agent_id"]} session={ev["session_key"]}')
+                    except Exception as credit_err:
+                        logger.error(f'  [Credits] trajectory 积分扣减失败: {credit_err}')
             except Exception as e:
-                logger.error(f'  [TrajectorySync] read failed {filepath}: {e}')
+                logger.info(f'  [TrajectorySync] insert skipped: {e}')
         conn.commit()
+        return {'inserted': inserted, 'repaired': repaired}
     finally:
         conn.close()
-    return {'scannedFiles': len(files), 'scannedEvents': scanned_events, 'inserted': inserted}
+
+
+def _sync_token_usage_from_trajectories():
+    """扫描 trajectory 文件并写入 token_usage 表，按 ts+session_key 去重。
+
+    ★ P0-2 (审计#2): 落库按 agent→tenant 映射分流。trajectory 目录（~/.openclaw/agents）
+    是全局共享的，而本函数可能在无 tid 的守护线程（CreditSyncLoop）或任意租户请求里被调 ——
+    旧实现单连接 _db_conn() 会把所有租户的账记进调用方所在库（守护线程 = 默认租户库，
+    租户 B 的 token 消耗就记到老大的积分账上）。修复后：解析阶段纯函数无 DB，
+    写入阶段按事件 agent 的租户分组，每组 _run_as_tenant + 独立连接；
+    repair 扩展到全部活跃租户（幂等，合法域 = 各租户自己的员工）；未知 agent 归默认租户（旧行为）。"""
+    files = _glob_trajectory_files()
+
+    # agent → tenant 映射（平台 agents.json 全局，M1 起带 tenant_id 章；无章 = 默认租户）
+    _agents = _load_agents().get('agents', [])
+    agent_tenant = {a.get('id'): (a.get('tenant_id') or DEFAULT_TENANT_ID)
+                    for a in _agents if a.get('id')}
+    tenant_agent_ids = {}
+    for _aid, _tid in agent_tenant.items():
+        tenant_agent_ids.setdefault(_tid, set()).add(_aid)
+
+    # 第一阶段: 纯解析（无 DB）
+    scanned_events = 0
+    groups = {}  # tid -> [ev, ...]
+    for filepath in files:
+        try:
+            with open(filepath, 'r', encoding='utf-8', errors='replace') as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    ev = _parse_trajectory_event(line)
+                    if not ev:
+                        continue
+                    scanned_events += 1
+                    groups.setdefault(agent_tenant.get(ev['agent_id']) or DEFAULT_TENANT_ID, []).append(ev)
+        except Exception as e:
+            logger.error(f'  [TrajectorySync] read failed {filepath}: {e}')
+
+    # 第二阶段: repair 覆盖全部活跃租户（旧行为 = 每次同步都 repair，扩展为多租户版）
+    inserted = 0
+    repaired = 0
+    repair_targets = set(tenant_agent_ids.keys()) | set(groups.keys())
+    for tid in repair_targets:
+        evs = groups.get(tid, [])
+        try:
+            r = _run_as_tenant(tid, _write_trajectory_events, evs, tenant_agent_ids.get(tid, set()))
+            inserted += r['inserted']
+            repaired += r['repaired']
+        except Exception as e:
+            logger.error(f'  [TrajectorySync] 租户 {tid} 写入失败: {e}')
+
+    return {'scannedFiles': len(files), 'scannedEvents': scanned_events,
+            'inserted': inserted, 'repaired': repaired}
 
 
 def _sync_credits_from_token_usage():
