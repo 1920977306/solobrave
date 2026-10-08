@@ -3642,6 +3642,17 @@ def init_db():
 
         # 用户飞书多维表格配置（每个员工绑定自己的飞书表格）
         conn.execute('''
+            CREATE TABLE IF NOT EXISTS tenant_feishu_config (
+                tenant_id TEXT PRIMARY KEY,
+                app_id TEXT DEFAULT '',
+                app_secret TEXT DEFAULT '',
+                status TEXT DEFAULT 'pending',
+                error TEXT DEFAULT '',
+                bound_at TEXT DEFAULT '',
+                updated_at INTEGER DEFAULT 0
+            )
+        ''')
+        conn.execute('''
             CREATE TABLE IF NOT EXISTS user_feishu_config (
                 user_id TEXT PRIMARY KEY,
                 app_id TEXT DEFAULT '',
@@ -7669,6 +7680,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if path == '/api/tenants':
             self._handle_get_tenants()
             return
+        if path.startswith('/api/tenants/') and path.endswith('/feishu-bind'):
+            self._handle_get_tenant_feishu_bind(path.split('/')[3])
+            return
         if path == '/api/users':
             self._handle_get_users()
             return
@@ -8355,6 +8369,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         # Teams API (V2)
         if path == '/api/tenants':
             self._handle_post_tenants()
+            return
+        if path.startswith('/api/tenants/') and path.endswith('/feishu-bind'):
+            self._handle_post_tenant_feishu_bind(path.split('/')[3])
             return
         if path == '/api/teams':
             self._handle_create_team()
@@ -9797,6 +9814,117 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         logger.info(f'[MT] 租户开通: {tid} name={name} admin={admin_username} by={auth.user_id}')
         self._send_json(200, {'tenantId': tid, 'adminUserId': uid,
                               'tenantDb': os.path.relpath(_tenant_db_path(tid), DATA_DIR)})
+
+    def _tenant_feishu_status(self, tid):
+        """读租户库 tenant_feishu_config 状态（调用方保证已切租户上下文）。无表/无记录 → pending。"""
+        try:
+            conn = _db_conn()
+            try:
+                conn.execute('''
+                    CREATE TABLE IF NOT EXISTS tenant_feishu_config (
+                        tenant_id TEXT PRIMARY KEY, app_id TEXT DEFAULT '',
+                        app_secret TEXT DEFAULT '', status TEXT DEFAULT 'pending',
+                        error TEXT DEFAULT '', bound_at TEXT DEFAULT '',
+                        updated_at INTEGER DEFAULT 0)
+                ''')
+                row = conn.execute('SELECT app_id, status, error, bound_at FROM tenant_feishu_config WHERE tenant_id = ?', (tid,)).fetchone()
+            finally:
+                conn.close()
+            if row:
+                return {'status': row['status'], 'appId': row['app_id'],
+                        'error': row['error'], 'boundAt': row['bound_at']}
+        except Exception:
+            pass
+        return {'status': 'unbound', 'appId': '', 'error': '', 'boundAt': ''}
+
+    def _handle_get_tenant_feishu_bind(self, tid):
+        """GET /api/tenants/<id>/feishu-bind — 绑定状态（平台超管 或 本租户管理员）"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not (auth.is_platform_admin or auth.tenant_id == tid):
+            self._send_json_error(403, '仅平台超管或本租户管理员可查看')
+            return
+        def _read():
+            return self._tenant_feishu_status(tid)
+        st = _run_as_tenant(tid, _read)
+        st['tenantId'] = tid
+        self._send_json(200, st)
+
+    def _handle_post_tenant_feishu_bind(self, tid):
+        """POST /api/tenants/<id>/feishu-bind — 异步绑定飞书 Bot 凭证
+        流程: 校验 → 租户库存密(随删租户即毁) → 异步线程验签(tenant_access_token) → 回写状态。
+        ★ 诚实边界: 消息路由到本租户 agent 需要 OpenClaw 网关多租户改造, 本轮只到
+        「凭证已存+连通已验证」; 路由接通前状态为 verified 而非 routed。"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not (auth.is_platform_admin or auth.tenant_id == tid):
+            self._send_json_error(403, '仅平台超管或本租户管理员可绑定')
+            return
+        tenants = _load_tenants()
+        if not any(t.get('id') == tid for t in tenants if isinstance(t, dict)):
+            self._send_json_error(404, '租户不存在')
+            return
+        body = self._read_body() or {}
+        app_id = (body.get('appId') or '').strip()
+        app_secret = (body.get('appSecret') or '').strip()
+        if not app_id.startswith('cli_') or len(app_secret) < 8:
+            self._send_json_error(400, 'appId 需 cli_ 开头, appSecret ≥8 位')
+            return
+
+        def _save():
+            conn = _db_conn()
+            try:
+                conn.execute('''
+                    CREATE TABLE IF NOT EXISTS tenant_feishu_config (
+                        tenant_id TEXT PRIMARY KEY, app_id TEXT DEFAULT '',
+                        app_secret TEXT DEFAULT '', status TEXT DEFAULT 'pending',
+                        error TEXT DEFAULT '', bound_at TEXT DEFAULT '',
+                        updated_at INTEGER DEFAULT 0)
+                ''')
+                conn.execute(
+                    'INSERT OR REPLACE INTO tenant_feishu_config (tenant_id, app_id, app_secret, status, error, updated_at) VALUES (?, ?, ?, ?, ?, ?)',
+                    (tid, app_id, app_secret, 'pending', '', int(time.time())))
+                conn.commit()
+            finally:
+                conn.close()
+        try:
+            _run_as_tenant(tid, _save)
+        except Exception as e:
+            self._send_json_error(500, f'凭证落库失败: {e}')
+            return
+
+        def _verify_async():
+            """异步验签: 拿 tenant_access_token 成功 → verified; 失败 → failed+error。"""
+            def _work():
+                ok, err = False, ''
+                try:
+                    token = _feishu_get_tenant_access_token(app_id, app_secret)
+                    ok = bool(token)
+                    if not ok:
+                        err = 'tenant_access_token 获取失败(检查 app 权限/发布状态)'
+                except Exception as e:
+                    err = str(e)[:200]
+                def _writeback():
+                    conn = _db_conn()
+                    try:
+                        conn.execute(
+                            'UPDATE tenant_feishu_config SET status = ?, error = ?, bound_at = ?, updated_at = ? WHERE tenant_id = ?',
+                            ('verified' if ok else 'failed', err,
+                             datetime.now().isoformat() if ok else '', int(time.time()), tid))
+                        conn.commit()
+                    finally:
+                        conn.close()
+                _run_as_tenant(tid, _writeback)
+                logger.info(f'[MT] 租户 {tid} 飞书验签: {"verified" if ok else "failed: " + err}')
+            _run_as_tenant(tid, _work)
+
+        threading.Thread(target=_verify_async, daemon=True, name=f'FeishuBind-{tid}').start()
+        logger.info(f'[MT] 租户 {tid} 飞书绑定受理 by={auth.user_id}')
+        self._send_json(200, {'accepted': True, 'tenantId': tid, 'status': 'pending'})
 
     def _handle_get_users(self):
         """GET /api/users（需要 admin）"""

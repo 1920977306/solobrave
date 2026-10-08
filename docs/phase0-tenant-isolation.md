@@ -225,7 +225,12 @@ function provision_tenant(admin_email, plan):
 ### 设计决定
 - embedding_cache **不加盐**：文件缓存走 `_td` 已租户分目录，表缓存在各租户库内——M2+M5 后天然无跨租户共享，加盐属多余复杂度
 
+### M6 已落地
+- 飞书 Bot 绑定异步化：`POST /api/tenants/<id>/feishu-bind`（平台超管或本租户管理员）→ 凭证落租户库 `tenant_feishu_config`（随删租户即毁）→ 异步线程真调飞书验签 → 状态回写（pending/verified/failed+error）
+- `GET` 同路径查状态（不回显 secret）；沙箱实测假凭证 → 飞书 API 真实返回 10003 → failed+错误信息 ✅
+- ★ 诚实边界：消息路由到本租户 agent 需 OpenClaw 网关多租户改造，本轮到「凭证已存+连通已验证」为止
+
 ### 遗留（下一轮）
-- Bot 绑定（飞书）异步流程化（M4 留了 heavy_jobs 挂点）
+- OpenClaw 网关多租户消息路由（verified → routed 的最后一跳）
 - 存量 dirs 的 `emp_001`/`{empId}` 模板残留清洗
 - 其他后台线程逐点审计（OpenClaw 队列 / BrainScheduler / PatternInduce-Cron 均为平台级守护，默认租户语义正确，多租户化时再逐个 `_run_as_tenant`）
