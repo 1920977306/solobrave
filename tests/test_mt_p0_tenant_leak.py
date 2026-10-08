@@ -131,12 +131,16 @@ def test_p0_1_memory_induction_routes_to_tenant_db(tokens, emp_b):
     emp_id = emp_b
 
     # 1. 种 4 条带 marker 的 auto 记忆（阈值 knowledge_induction_min=3）
-    #    注意: 内容必须真实不同 —— ms3 add_memory 有相似去重，仅换序号的 4 条会被折叠成 1 条
+    #    注意1: 内容必须真实不同 —— ms3 add_memory 有相似去重，仅换序号的 4 条会被折叠成 1 条
+    #    注意2: 去重对纯拉丁/数字 marker 不敏感（重复跑同文案会被折叠→不触发归纳→假阴性），
+    #            每条嵌一个由 run 派生的中文 nonce 保证跨 run 不撞
+    _seed = int(run, 16)
+    nonce = ''.join(chr(0x4e00 + ((_seed >> (6 * i)) % 5000)) for i in range(3))
     seed_values = [
-        f'{marker} ACME 客户只接受凉鞋类目，佣金区间 18-22%',
-        f'{marker} ACME 客户直播档期只有工作日晚 8 点后，周末全天可排',
-        f'{marker} ACME 客户退货率红线 10%，超线需商务介入谈判',
-        f'{marker} ACME 客户要求短视频种草在发布前 48 小时给审片',
+        f'{marker} 批次{nonce} ACME 客户只接受凉鞋类目，佣金区间 18-22%',
+        f'{marker} 批次{nonce} ACME 客户直播档期只有工作日晚 8 点后，周末全天可排',
+        f'{marker} 批次{nonce} ACME 客户退货率红线 10%，超线需商务介入谈判',
+        f'{marker} 批次{nonce} ACME 客户要求短视频种草在发布前 48 小时给审片',
     ]
     for value in seed_values:
         _post(BASE, f'/api/memory/{emp_id}', {'key': 'auto', 'value': value}, tokens['b'])
