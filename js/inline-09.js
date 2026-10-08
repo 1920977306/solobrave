@@ -222,12 +222,9 @@ function buildDashboard(){
         「进入 AI 办公室」保留为唯一主 CTA */
     +     '<div class="sb2-dash2-greet-acts"><button class="sb2-btn sb2-btn-brand" onclick="sb2Go(\'messages\')">进入 AI 办公室</button></div>'
     +   '</div>'
-    /* 〔dash-opt-1〕等你拍板 hero 区: 待审批提案 inline 拍板 (复用 P1b 提案卡 6 态管线, 零新交互逻辑)
-        空态整块隐藏 (JS 控制), 不渲占屏占位 */
-    +   '<div class="sb2-dash2-todo" id="sb2Dash2Todo" style="display:none">'
-    +     '<div class="sb2-dash2-feed-hd"><h2>等你拍板</h2><span class="hint">来自 AI 员工的提案, 同意后立即执行</span></div>'
-    +     '<div id="sb2Dash2TodoList" class="sb2-dash2-todo-list"></div>'
-    +   '</div>'
+    /* 〔2026-10-08 老大批注「这个怎么还是在啊」〕等你拍板 hero 区整条下线:
+        DOM 已撤 (此处不再渲染), sb2_loadDashboardTodo() 首行 return; 不拉数据;
+        下方处理函数 (sb2DashTodoRemoveRow 等) 全部带空守卫, 调用安全空转, 保留作回滚参照 */
     +   '<div class="sb2-kpis">'
     +     kpi('sb2KpiInject','近 7 天知识注入','')
     +     kpi('sb2KpiTalents','在库达人','')
@@ -470,6 +467,8 @@ function buildFocus(){
    空态: 四块全空 → section display:none (不占屏, 老大「多此一举」红线 — 没待办就不渲 hero)
    拍板后: 提案卡就地切结果态; KB/任务卡在 DOM 内移除该行并重算, 全空收 section */
 function sb2_loadDashboardTodo(){
+  /* 〔2026-10-08 老大批注「这个怎么还是在啊」〕等你拍板条已下线, 拉取与渲染全停 */
+  return;
   var tok = localStorage.getItem('sb_auth_token') || '';
   var headers = { 'Authorization': 'Bearer ' + tok };
   var xid = (window.SB2 && SB2.agentId) || localStorage.getItem('sb_agent_id') || '';
