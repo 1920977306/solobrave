@@ -21,13 +21,16 @@ var ICONS = {
   book:   icon('<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>'),
   sigma:  icon('<path d="M18 4H6l6 8-6 8h12"/>'),
   box:    icon('<path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="M3.3 7l8.7 5 8.7-5"/><path d="M12 22V12"/>'),
-  users:  icon('<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>'),
+  users:  icon('<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="m19 2 1 2.2 2.2 1-2.2 1-1 2.2-1-2.2-2.2-1 2.2-1z"/>'),
   task:   icon('<path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>'),
   gear:   icon('<circle cx="12" cy="12" r="3"/><path d="M12 1v4m0 14v4M4.2 4.2l2.8 2.8m9.9 9.9 2.8 2.8M1 12h4m14 0h4M4.2 19.8l2.8-2.8m9.9-9.9 2.8-2.8"/>'),
   search: icon('<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>'),
   bell:   icon('<path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>'),
-  /* ★ 待办 A 2026-10-08: 项目组 rail 图标 (users-round 风格, lucide 三人头) */
-  groups: icon('<path d="M18 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>')
+  /* ★ 待办 A 2026-10-08: 项目组 rail 图标 (users-round 风格, lucide 三人头)
+     〔老大批注 15:42〕项目组图标与达人库图标撞脸 (都是 users 人头), 双双重做:
+     - groups (项目组): lucide briefcase 公文包 — 「项目/工作包」语义, 与 rail 其余图标零撞脸
+     - influencers (达人库): lucide user-round + 四角星徽标 — 「达人/明星」语义, 与项目组拉开 */
+  groups: icon('<rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><path d="M2 13h20"/>'),
 };
 
 /* ---------- 导航定义(permission = 旧 hasModulePermission 模块名) ---------- */
