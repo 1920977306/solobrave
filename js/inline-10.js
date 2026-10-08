@@ -528,7 +528,12 @@
       timestamp: new Date().toISOString()
     };
     sb2_appendBubble(placeholderMsg, true);
-    var placeholderEl = document.querySelector('#sb2ChatMessages .sb2-chat-bubble[data-role="assistant"]:last-child .sb2-chat-bubble-body');
+    /* 〔stop-fix 2026-10-08〕原选择器用 :last-child 永远匹配不到
+       (bubble 后面还有 time/retry 兄弟节点) → placeholderEl 恒 null。
+       改为和成功路径 592-603 同款「最后一个 msg-row 内取 bubble-body」定位。 */
+    var _phRows = document.querySelectorAll('#sb2ChatMessages .sb2-chat-msg-row');
+    var _phLastRow = _phRows[_phRows.length - 1];
+    var placeholderEl = _phLastRow ? _phLastRow.querySelector('.sb2-chat-bubble-body') : null;
 
     // 3. POST
     // 〔stop-cmd 2026-10-08〕/stop 真中止: AbortController signal 透传 apiFetch (options 展开进 fetch)
