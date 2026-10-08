@@ -31250,6 +31250,21 @@ def _handle_proxy_kimi(self):
         self._send_json_error(400, 'Empty body')
         return
 
+    # ★ 临时：入站请求体抓取（每 agent 最多 2 份，抓完即止；上下文瘦身专项测量用）
+    try:
+        _DUMP_COUNTER = globals().setdefault('_PROXY_BODY_DUMP_COUNT', {})
+        _aid = agent_id or 'unknown'
+        if _DUMP_COUNTER.get(_aid, 0) < 2:
+            _DUMP_COUNTER[_aid] = _DUMP_COUNTER.get(_aid, 0) + 1
+            import tempfile
+            _dump_path = os.path.join(tempfile.gettempdir(),
+                                      f'sb-proxy-body-{_aid}-{_DUMP_COUNTER[_aid]}.json')
+            with open(_dump_path, 'w', encoding='utf-8') as _df:
+                json.dump(body, _df, ensure_ascii=False)
+            logger.info(f'  [ProxyBodyDump] {_aid} 第{_DUMP_COUNTER[_aid]}份 -> {_dump_path}')
+    except Exception as _dump_err:
+        logger.warning(f'  [ProxyBodyDump] 失败: {_dump_err}')
+
     # 4.1 入口日志：记录请求关键信息（agent_id/messages 条数/最后一条用户消息/大小），
     #     便于事后定位是哪一步、哪个请求出问题
     # DIAG: 打印最后一条 user 消息的完整 content 结构
