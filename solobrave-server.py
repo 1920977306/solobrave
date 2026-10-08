@@ -895,7 +895,7 @@ class _BrainScheduler:
         enqueued = 0
         per_emp = {}  # FIXME: 记录每个员工的迁移数量
         # FIXME: v3 记忆目录是 data/memory/（ms3.MEMORY_V3_DIR 已被 main() 覆写为 MEMORY_DIR）
-        memories_dir = MEMORY_DIR
+        memories_dir = _td(MEMORY_DIR)
         if not os.path.isdir(memories_dir):
             logger.info(f'  [BrainScheduler] memory dir not found: {memories_dir}')
             return
@@ -1073,8 +1073,8 @@ JWT_EXPIRE_SECONDS = 7 * 24 * 3600  # 7 天
 def _ensure_data_dir():
     """确保数据目录存在"""
     os.makedirs(DATA_DIR, exist_ok=True)
-    os.makedirs(CHATS_DIR, exist_ok=True)
-    os.makedirs(MEMORY_DIR, exist_ok=True)
+    os.makedirs(_td(CHATS_DIR), exist_ok=True)
+    os.makedirs(_td(MEMORY_DIR), exist_ok=True)
 
 
 def _read_json(filepath, default=None):
@@ -1193,13 +1193,13 @@ def _trash_file(path):
 
 def _load_archive(emp_id):
     """加载某员工的归档记忆（聊天记录归档等仍使用）"""
-    filepath = os.path.join(ARCHIVE_DIR, f'{emp_id}.json')
+    filepath = os.path.join(_td(ARCHIVE_DIR), f'{emp_id}.json')
     return _read_json(filepath, {'memories': [], 'summaries': [], 'version': '1.0'})
 
 
 def _save_archive(emp_id, data):
     """保存某员工的归档记忆（聊天记录归档等仍使用）"""
-    filepath = os.path.join(ARCHIVE_DIR, f'{emp_id}.json')
+    filepath = os.path.join(_td(ARCHIVE_DIR), f'{emp_id}.json')
     data['version'] = '1.0'
     _write_json(filepath, data)
 
@@ -2191,13 +2191,13 @@ def _find_team(teams, key, value):
 
 def _load_chat(agent_id):
     """加载某 Agent 的聊天记录"""
-    filepath = os.path.join(CHATS_DIR, f'{agent_id}.json')
+    filepath = os.path.join(_td(CHATS_DIR), f'{agent_id}.json')
     return _read_json(filepath, [])
 
 
 def _save_chat(agent_id, messages):
     """保存某 Agent 的聊天记录"""
-    filepath = os.path.join(CHATS_DIR, f'{agent_id}.json')
+    filepath = os.path.join(_td(CHATS_DIR), f'{agent_id}.json')
     _write_json(filepath, messages)
 
 
@@ -2840,7 +2840,7 @@ def cosine_similarity(a, b):
 
 
 def _get_embedding_cache_path(entity_type, entity_id):
-    return os.path.join(EMBEDDING_DIR, f'{entity_type}_{entity_id}.json')
+    return os.path.join(_td(EMBEDDING_DIR), f'{entity_type}_{entity_id}.json')
 
 
 def load_embedding(entity_type, entity_id):
@@ -2855,7 +2855,7 @@ def load_embedding(entity_type, entity_id):
 
 def save_embedding(entity_type, entity_id, embedding):
     """保存 embedding 到缓存"""
-    os.makedirs(EMBEDDING_DIR, exist_ok=True)
+    os.makedirs(_td(EMBEDDING_DIR), exist_ok=True)
     path = _get_embedding_cache_path(entity_type, entity_id)
     _write_json(path, {
         'embedding': embedding,
@@ -2929,7 +2929,7 @@ def build_all_embeddings(api_key=None, provider='openai', model=None, base_url=N
         logger.info(f'  [Embedding] 全局未配置 API key，跳过批量构建')
         return
 
-    os.makedirs(EMBEDDING_DIR, exist_ok=True)
+    os.makedirs(_td(EMBEDDING_DIR), exist_ok=True)
     # 知识库文档（从 SQLite 读取，更新 embedding 列）
     conn = _db_conn()
     try:
@@ -3089,6 +3089,28 @@ def _tenant_db_path(tid):
     if not tid or tid == DEFAULT_TENANT_ID:
         return DB_PATH
     return os.path.join(DATA_DIR, 'tenants', tid, 'solobrave.db')
+
+def _td(legacy_path):
+    """目录租户化（M5 物理隔离）: legacy data/<name>... → data/tenants/<tid>/<name>...。
+    - 仅非默认租户重定向；t_default 原样返回（零行为变化）
+    - 基于 DATA_DIR 现值算相对路径, 规避 reload_config 只重赋值部分常量的陈旧路径问题
+    - 返回前幂等建目录, 调用方无需关心租户目录是否存在
+    - 路径在 DATA_DIR 之外（如 --data 切换前的旧项目路径）→ 不重定向, 保持原样"""
+    tid = _current_tenant_id()
+    if tid == DEFAULT_TENANT_ID:
+        return legacy_path
+    try:
+        rel = os.path.relpath(legacy_path, DATA_DIR)
+        if rel == '..' or rel.startswith('..' + os.sep):
+            return legacy_path
+    except Exception:
+        return legacy_path
+    target = os.path.join(DATA_DIR, 'tenants', tid, rel)
+    try:
+        os.makedirs(target, exist_ok=True)
+    except Exception:
+        pass
+    return target
 
 def _tenant_initialized():
     return getattr(_db_state, 'db_inited', None)
@@ -5319,7 +5341,7 @@ def _insert_talent_row(conn, row):
 def _migrate_influencers_json_to_sqlite():
     """把 data/influencers/index.json 里的 legacy 达人记录幂等导入 talents 表（跳过 id 已存在的）。
     统一数据源迁移：导入后 JSON 仅作启动导出的只读缓存，不再是数据源。返回 (导入数, 跳过数)。"""
-    index_path = os.path.join(INFLUENCER_DIR, 'index.json')
+    index_path = os.path.join(_td(INFLUENCER_DIR), 'index.json')
     data = _read_json(index_path, None)
     if not data or not isinstance(data.get('influencers'), list):
         return (0, 0)
@@ -5353,7 +5375,7 @@ def _export_influencers_json_cache():
     """把 SQLite talents 表导出为 data/influencers/ 下的 JSON 只读缓存（index.json + 详情文件）。
     统一数据源后 JSON 仅供旧工具/调试查看，不再作为写入目标。"""
     try:
-        os.makedirs(INFLUENCER_DIR, exist_ok=True)
+        os.makedirs(_td(INFLUENCER_DIR), exist_ok=True)
         conn = _db_conn()
         try:
             rows = conn.execute(
@@ -5361,10 +5383,10 @@ def _export_influencers_json_cache():
         finally:
             conn.close()
         influencers = [_talent_dict_to_influencer(_talent_row_to_dict(r)) for r in rows]
-        _write_json(os.path.join(INFLUENCER_DIR, 'index.json'),
+        _write_json(os.path.join(_td(INFLUENCER_DIR), 'index.json'),
                     {'version': '1.0', 'influencers': influencers})
         for inf in influencers:
-            _write_json(os.path.join(INFLUENCER_DIR, f"{inf['id']}.json"), inf)
+            _write_json(os.path.join(_td(INFLUENCER_DIR), f"{inf['id']}.json"), inf)
     except Exception as e:
         logger.error(f'  [Influencer] 导出 JSON 缓存失败: {e}')
 
@@ -5573,7 +5595,7 @@ def _update_product_talent_count(conn, product_id):
 
 def _migrate_json_products_to_sqlite():
     """将旧版 data/products/index.json 迁移到 SQLite products 表"""
-    old_path = os.path.join(PRODUCT_DIR, 'index.json')
+    old_path = os.path.join(_td(PRODUCT_DIR), 'index.json')
     if not os.path.isfile(old_path):
         return
     logger.info('  [Product] 发现旧版 JSON 商品库，开始迁移到 SQLite...')
@@ -7260,7 +7282,7 @@ def knowledge_search_semantic(query, api_key, provider='openai', limit=3, model=
 
 def knowledge_migrate_from_json():
     """从旧版 JSON 知识库迁移到 SQLite（启动时调用）"""
-    json_path = os.path.join(KNOWLEDGE_DIR, 'index.json')
+    json_path = os.path.join(_td(KNOWLEDGE_DIR), 'index.json')
     if not os.path.exists(json_path):
         return 0
     data = _read_json(json_path, {'docs': []})
@@ -10272,6 +10294,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             'leadAgentId': lead_agent_id,
             'description': body.get('description', ''),
             'createdBy': auth.user_info['userId'],
+            'tenant_id': auth.tenant_id or DEFAULT_TENANT_ID,  # ★ M5 租户章
             'createdAt': datetime.now().isoformat()
         }
 
@@ -10391,7 +10414,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         _save_groups(groups)
 
         # 删除群组聊天记录（先备份到 data/backups/deleted/ 再删除）
-        chat_file = os.path.join(CHATS_DIR, f'group_{group_id}.json')
+        chat_file = os.path.join(_td(CHATS_DIR), f'group_{group_id}.json')
         if os.path.isfile(chat_file):
             try:
                 _trash_file(chat_file)
@@ -12039,6 +12062,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         # ★ 不再 require_module_permission('employees'), 所有登录用户都能创建自己的 AI 员工
 
         body = self._read_body()
+        # ★ M5: agent 盖租户章 — 平台侧 agents.json 不带 tenant_id 的话,
+        #   删租户 sweep 会漏收, 员工成孤儿配置
         if not body:
             self._send_json(400, {'error': '无效的请求体'})
             return
@@ -12073,6 +12098,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             'permission': body.get('permission', 'dev'),
             'visibility': body.get('visibility', 'creator'),
             'createdBy': auth.user_info['userId'],
+            'tenant_id': auth.tenant_id or DEFAULT_TENANT_ID,  # ★ M5 租户章
             'createdAt': datetime.now().isoformat(),
             'connectionType': body.get('connectionType', ''),
             'apiProvider': body.get('apiProvider', ''),
@@ -12418,7 +12444,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
     def _cleanup_agent_data(self, agent_id):
         """彻底删除员工时清理其聊天记录、记忆文件、归档文件、数据库沉淀及缓存等残留数据"""
         # 清理聊天记录（先备份到 data/backups/deleted/ 再删除）
-        chat_file = os.path.join(CHATS_DIR, f'{agent_id}.json')
+        chat_file = os.path.join(_td(CHATS_DIR), f'{agent_id}.json')
         if os.path.isfile(chat_file):
             try:
                 _trash_file(chat_file)
@@ -12426,7 +12452,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 logger.error(f'  [Cleanup] 删除聊天文件失败 {chat_file}: {e}')
 
         # 清理聊天摘要（先备份到 data/backups/deleted/ 再删除）
-        summary_file = os.path.join(CHATS_DIR, f'{agent_id}_summary.json')
+        summary_file = os.path.join(_td(CHATS_DIR), f'{agent_id}_summary.json')
         if os.path.isfile(summary_file):
             try:
                 _trash_file(summary_file)
@@ -12534,7 +12560,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             logger.error(f'  [Cleanup] 扫描项目组记忆失败: {e}')
 
         # 清理归档文件
-        archive_file = os.path.join(ARCHIVE_DIR, f'{agent_id}.json')
+        archive_file = os.path.join(_td(ARCHIVE_DIR), f'{agent_id}.json')
         if os.path.isfile(archive_file):
             try:
                 os.remove(archive_file)
@@ -12544,7 +12570,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         # 清理群聊归档（L3 overflow）中该 AI 员工发送的消息
         try:
             import glob as _glob
-            for group_arc_file in _glob.glob(os.path.join(ARCHIVE_DIR, 'group_*.json')):
+            for group_arc_file in _glob.glob(os.path.join(_td(ARCHIVE_DIR), 'group_*.json')):
                 try:
                     with open(group_arc_file, 'r', encoding='utf-8') as f:
                         ga_data = json.load(f)
@@ -12573,7 +12599,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         # 清理群聊中该 AI 员工发送的消息
         try:
             import glob as _glob
-            for group_chat_file in _glob.glob(os.path.join(CHATS_DIR, 'group_*.json')):
+            for group_chat_file in _glob.glob(os.path.join(_td(CHATS_DIR), 'group_*.json')):
                 try:
                     with open(group_chat_file, 'r', encoding='utf-8') as f:
                         gc_data = json.load(f)
@@ -13083,7 +13109,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             if not initial_memories:
                 return
             
-            filepath = os.path.join(MEMORY_DIR, f'{agent_id}.json')
+            filepath = os.path.join(_td(MEMORY_DIR), f'{agent_id}.json')
             memories = _read_json(filepath, [])
             
             for mem_value in initial_memories:
@@ -14271,12 +14297,12 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _load_knowledge(self):
         """加载全局知识库文档列表"""
-        filepath = os.path.join(KNOWLEDGE_DIR, 'index.json')
+        filepath = os.path.join(_td(KNOWLEDGE_DIR), 'index.json')
         return _read_json(filepath, {'docs': [], 'version': '1.0'})
 
     def _save_knowledge(self, data):
         """保存全局知识库文档列表"""
-        filepath = os.path.join(KNOWLEDGE_DIR, 'index.json')
+        filepath = os.path.join(_td(KNOWLEDGE_DIR), 'index.json')
         data['version'] = '1.0'
         _write_json(filepath, data)
 
@@ -16389,7 +16415,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
-        if not auth.is_admin:
+        if not (auth.is_admin or auth.is_tenant_admin):  # ★ M5: 租户管理员可管内务
             self._send_json_error(403, '仅管理员可分配积分')
             return
         body = self._read_body()
@@ -16500,7 +16526,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
-        if not auth.is_admin:
+        if not (auth.is_admin or auth.is_tenant_admin):  # ★ M5: 租户管理员可管内务
             self._send_json_error(403, '仅管理员可充值积分')
             return
         body = self._read_body()
@@ -16537,7 +16563,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
-        if not auth.is_admin:
+        if not (auth.is_admin or auth.is_tenant_admin):  # ★ M5: 租户管理员可管内务
             self._send_json_error(403, '仅管理员可充值积分')
             return
         body = self._read_body()
@@ -27921,7 +27947,7 @@ def _call_ai_api(agent, user_message, user_info=None, include_history=True, grou
     # 注入摘要
     if agent_id:
         try:
-            summary_file = os.path.join(CHATS_DIR, f'{agent_id}_summary.json')
+            summary_file = os.path.join(_td(CHATS_DIR), f'{agent_id}_summary.json')
             summary_data = _read_json(summary_file, {})
             if summary_data.get('summary'):
                 system_prompt += f'\n\n【历史对话摘要】\n{summary_data["summary"]}'
@@ -28205,7 +28231,7 @@ def _handle_clear_chat(self, agent_id):
         self._send_json(status, {'error': err})
         return
 
-    chat_file = os.path.join(CHATS_DIR, f'{agent_id}.json')
+    chat_file = os.path.join(_td(CHATS_DIR), f'{agent_id}.json')
     if os.path.isfile(chat_file):
         try:
             _trash_file(chat_file)
@@ -28231,7 +28257,7 @@ def _handle_get_summarize(self, agent_id):
         self._send_json(status, {'error': err})
         return
 
-    summary_file = os.path.join(CHATS_DIR, f'{agent_id}_summary.json')
+    summary_file = os.path.join(_td(CHATS_DIR), f'{agent_id}_summary.json')
     data = _read_json(summary_file, {})
     summary = data.get('summary', '')
     self._send_json(200, {'summary': summary, 'createdAt': data.get('createdAt', '')})
@@ -28270,7 +28296,7 @@ def _handle_summarize_chat(self, agent_id):
     summary = self._call_ai_for_summary(agent, chat_text)
 
     # 保存摘要到单独文件
-    summary_file = os.path.join(CHATS_DIR, f'{agent_id}_summary.json')
+    summary_file = os.path.join(_td(CHATS_DIR), f'{agent_id}_summary.json')
     _write_json(summary_file, {'summary': summary, 'createdAt': datetime.now().isoformat()})
 
     # v2：同时保存到 L3 归档层（后端可访问，跨设备共享）
@@ -33133,7 +33159,7 @@ def main():
 
     # 同步记忆服务 v3 配置（在 main() 中执行，避免模块导入时的 NameError）
     # 注意：v2 数据目录是 'memory'（单数），复用同一目录避免迁移
-    ms3.MEMORY_V3_DIR = MEMORY_DIR
+    ms3.MEMORY_V3_DIR = _td(MEMORY_DIR)
     ms3.MEMORY_V3_CONFIG['core_max'] = MEMORY_CONFIG['core_max']
     ms3.MEMORY_V3_CONFIG['daily_max'] = MEMORY_CONFIG['daily_max']
     ms3.MEMORY_V3_CONFIG['daily_ttl_days'] = MEMORY_CONFIG['daily_ttl_days']
