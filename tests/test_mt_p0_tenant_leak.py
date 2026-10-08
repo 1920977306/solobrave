@@ -100,18 +100,25 @@ def tokens():
 def emp_b(tokens):
     """模块级共享租户 B 测试员工。
 
-    建员工有每用户硬上限 3 个 —— 每测试新建会几次跑满配额永久 403，
-    所以共享一个 + 模块结束删除（删除走 owner 权限，tenant_admin 可用）。
+    建员工有每用户硬上限 3 个，且 DELETE 走软删仍会留档 —— 每次新建几次就跑满配额永久 403。
+    策略: 优先复用既有 'emp_p0b_shared'，没有再建；跨 run 共享，永不删除（沙箱专用）。
     """
-    emp_id = f'emp_p0b_{uuid.uuid4().hex[:8]}'
-    _post(BASE, '/api/agents', {'id': emp_id, 'name': f'P0测试员工{emp_id[-4:]}'}, tokens['b'])
-    yield emp_id
-    req = urllib.request.Request(BASE + f'/api/agents/{emp_id}', method='DELETE')
-    req.add_header('Authorization', 'Bearer ' + tokens['b'])
+    shared_id = 'emp_p0b_shared'
+    req = urllib.request.Request(BASE + '/api/agents', headers={'Authorization': 'Bearer ' + tokens['b']})
+    with urllib.request.urlopen(req, timeout=15) as r:
+        existing = {a.get('id') for a in json.loads(r.read().decode())}
+    if shared_id in existing:
+        return shared_id
     try:
-        urllib.request.urlopen(req, timeout=15)
-    except Exception as e:
-        print(f'[warn] 测试员工 {emp_id} 删除失败（不影响断言）: {e}')
+        _post(BASE, '/api/agents', {'id': shared_id, 'name': 'P0共享测试员工'}, tokens['b'])
+    except urllib.error.HTTPError as e:
+        if e.code == 403:
+            # 配额已满（历史 run 残留）→ 退而求其次复用本租户任一既有员工
+            fallback = sorted(existing)[0] if existing else None
+            assert fallback, '租户 B 无可用员工且配额满，无法测试'
+            return fallback
+        raise
+    return shared_id
 
 
 def test_p0_1_memory_induction_routes_to_tenant_db(tokens, emp_b):

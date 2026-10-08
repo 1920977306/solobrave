@@ -29985,7 +29985,7 @@ def _sync_token_usage_from_trajectories():
     files = _glob_trajectory_files()
 
     # agent → tenant 映射（平台 agents.json 全局，M1 起带 tenant_id 章；无章 = 默认租户）
-    _agents = _load_agents().get('agents', [])
+    _agents = _load_agents()  # 返回 list（已过滤 archived），不是 dict
     agent_tenant = {a.get('id'): (a.get('tenant_id') or DEFAULT_TENANT_ID)
                     for a in _agents if a.get('id')}
     tenant_agent_ids = {}
