@@ -3120,6 +3120,19 @@ def _tenant_initialized():
 def _mark_tenant_initialized(tid):
     _db_state.db_inited = tid
 
+def _bootstrap_schema():
+    """库 schema 全量幂等初始化: server 表 + knowledge_service 表（CREATE IF NOT EXISTS）。
+
+    P0 前置修复: M2 租户惰性建库只跑 server init_db()，漏了 ks.init_db() /
+    ks.init_kb_entries_db() —— 新租户库缺 knowledge / knowledge_chunks / knowledge_versions /
+    embedding_cache / kb_entries / kb_entry_chunks / kb_operation_log / token_usage 等 9 张表，
+    租户内任何知识创建/积分回放直接炸（或静默写错库）。老租户库由 main() 启动时
+    对本机活跃租户重跑本函数补齐（幂等，代价是启动时几轮 CREATE IF NOT EXISTS）。"""
+    init_db()
+    ks.init_db()
+    ks.init_kb_entries_db()
+
+
 def _db_conn():
     """获取 SQLite 数据库连接（线程安全，启用 WAL + 同步模式 NORMAL + 忙等待 5000ms）
     dev/feat: knowledge_chunks 修复 — 显式 PRAGMA foreign_keys=ON
@@ -3139,7 +3152,7 @@ def _db_conn():
         os.makedirs(os.path.dirname(path), exist_ok=True)
         _db_state.db_bootstrapping = True
         try:
-            init_db()
+            _bootstrap_schema()
         finally:
             _db_state.db_bootstrapping = False
         _mark_tenant_initialized(tid)
@@ -33487,6 +33500,17 @@ def main():
     ks.init_db()
     # 新版知识库表
     ks.init_kb_entries_db()
+
+    # ★ MT schema 补齐: 老租户库缺 knowledge_service 9 张表（M2 惰性建库只跑 server init_db 的历史欠账），
+    # 启动时对本机活跃租户幂等重跑全量 schema（CREATE IF NOT EXISTS，不动数据）
+    for _mt_tid in _active_tenant_ids():
+        if _mt_tid == DEFAULT_TENANT_ID:
+            continue
+        try:
+            _run_as_tenant(_mt_tid, _bootstrap_schema)
+            logger.info(f'[MT] 租户库 schema 补齐完成: {_mt_tid}')
+        except Exception as _mt_e:
+            logger.error(f'[MT] 租户库 schema 补齐失败 {_mt_tid}: {_mt_e}')
 
     # 达人库统一数据源：先把 legacy JSON（data/influencers/）幂等迁入 SQLite talents 表
     # （跳过 id 已存在的），再把 SQLite 导出回 JSON 作为只读缓存。顺序不能反，
