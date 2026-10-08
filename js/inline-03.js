@@ -12433,10 +12433,10 @@ function selectAvatar(el) {
   selectedAvatar = parseInt(el.dataset.avatar);
 }
 function selectColor(color) {
-  document.querySelectorAll('.color-option').forEach(function (c) {
-    return c.style.boxShadow = 'none';
+  document.querySelectorAll('#emp-tab-avatar .color-option').forEach(function (c) {
+    return c.classList.remove('selected');
   });
-  event.target.style.boxShadow = '0 0 0 2px white, 0 2px 8px rgba(0,0,0,0.3)';
+  event.target.classList.add('selected');
   selectedColor = color;
 }
 function saveEmpAvatar() {

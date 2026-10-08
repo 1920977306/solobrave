@@ -6107,6 +6107,14 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .emp-conn-label{ font-size:12px; font-weight:500; color:var(--sb2-t2); }
 .emp-conn-hint{ font-size:11px; color:var(--sb2-t3); }
 .emp-conn-foot{ padding:12px 16px; border-top:1px solid var(--sb2-border); display:flex; justify-content:flex-end; }
+/* — r82 推广 · 技能/头像 tab 卡片化 (同 emp-conn-card 语言) — */
+.emp-sk-card{ border:1px solid var(--sb2-border); border-radius:12px; overflow:hidden; margin-bottom:14px; }
+.emp-sk-head{ display:flex; align-items:center; justify-content:space-between; gap:12px; padding:12px 16px; background:var(--sb2-s2); border-bottom:1px solid var(--sb2-border); }
+.emp-sk-title{ font-size:13px; font-weight:600; color:var(--sb2-t1); display:flex; align-items:center; gap:6px; }
+.emp-sk-hint{ font-size:11px; color:var(--sb2-t3); white-space:nowrap; }
+.emp-sk-body{ padding:14px 16px; }
+/* 头像底色色块选中环 (JS 在 inline-03 切 .selected; 基底样式见上方 .color-option) */
+.color-option.selected{ box-shadow:0 0 0 2px var(--sb2-s1), 0 0 0 4px var(--sb2-brand); }
 
 .drawer-overlay { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.6); backdrop-filter: blur(4px); opacity: 0; visibility: hidden; transition: all 0.3s; z-index: 250; }
 .drawer-overlay.open { opacity: 1; visibility: visible; }
@@ -17429,12 +17437,22 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
 
 <!-- Avatar Tab -->
 <div class="emp-tab-pane" id="emp-tab-avatar">
-<div class="emp-doc-section">
-<div class="emp-doc-title">选择头像</div>
+<!-- 〔r82 推广 老大 15:45〕头像 tab 卡片化: 选形象 + 底色 各成一张卡, 网格本体不动 -->
+<div class="emp-sk-card">
+<div class="emp-sk-head">
+<div class="emp-sk-title">选择头像</div>
+<span class="emp-sk-hint">点选形象，选中带色环</span>
+</div>
+<div class="emp-sk-body">
 <div class="avatar-grid" id="avatarGrid"></div>
 </div>
-<div class="emp-doc-section">
-<div class="emp-doc-title">自定义颜色</div>
+</div>
+<div class="emp-sk-card">
+<div class="emp-sk-head">
+<div class="emp-sk-title"><i class=sb2-ico-flame></i> 自定义颜色</div>
+<span class="emp-sk-hint">头像底色</span>
+</div>
+<div class="emp-sk-body">
 <div class="color-picker">
 <div class="color-option" style="background:#FF6B35" onclick="selectColor('#FF6B35')"></div>
 <div class="color-option" style="background:#1677ff" onclick="selectColor('#1677ff')"></div>
@@ -17446,6 +17464,7 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
 <div class="color-option" style="background:#1C1C1E" onclick="selectColor('#1C1C1E')"></div>
 </div>
 </div>
+</div>
 <button class="emp-action-btn primary" onclick="saveEmpAvatar()">
 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
 保存头像
@@ -17455,10 +17474,13 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
 <!-- Skills Tab -->
 <div class="emp-tab-pane" id="emp-tab-skills">
 <!-- V3 升级:4 真实能力卡片(系统已实现可执行, 点击 → switchModule('messages') + openChat(currentEmpId) + 预填 prompt) -->
-<div class="ai-emp-ability-section">
-  <div class="ai-emp-ability-section-title">
-    <span>能力清单</span><span class="badge-4-of-4">4 / 4 真实已实现</span>
+<!-- 〔r82 推广 老大 15:45〕技能 tab 卡片化: 三段各自成卡(头+体), 全部 id/onclick 保留 -->
+<div class="emp-sk-card">
+  <div class="emp-sk-head">
+    <div class="emp-sk-title">能力清单</div>
+    <span class="badge-4-of-4">4 / 4 真实已实现</span>
   </div>
+  <div class="emp-sk-body">
   <div class="ai-emp-ability-grid">
     <div class="ai-emp-ability" onclick="onAbilityClick('vision')">
       <div class="ai-emp-ability-head"><div class="ai-emp-ability-mark">入</div><div class="ai-emp-ability-name">截图录入</div></div>
@@ -17481,19 +17503,20 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
       <div class="ai-emp-ability-prompt"><span class="ai-emp-ability-prompt-tag">试试</span>给搭配师W 重新评级</div>
     </div>
   </div>
+  </div>
 </div>
 <!-- OpenClaw技能区域 -->
-<div class="emp-doc-section" style="margin-bottom:20px;">
-<div class="skills-header">
-<div class="skills-title"><i class=sb2-ico-wrench></i> OpenClaw技能</div>
+<div class="emp-sk-card">
+<div class="emp-sk-head">
+<div class="emp-sk-title"><i class=sb2-ico-wrench></i> OpenClaw 技能</div>
 <button class="skills-add-btn" onclick="searchOpenClawSkills()">
 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
 搜索技能
 </button>
 </div>
+<div class="emp-sk-body">
 <!-- 搜索框 -->
-<div style="display:flex;gap:8px;margin-bottom:12px;" id="ocSkillSearchBox">
-<input type="text" id="ocSkillSearchInput" placeholder="搜索ClawHub技能..." style="flex:1;padding:8px 12px;border:1px solid var(--separator);border-radius:8px;font-size:13px;" onkeydown="if(event.key==='Enter')searchOpenClawSkills()">
+<div style="display:flex;gap:8px;margin-bottom:12px;" id="ocSkillSearchBox"><input type="text" id="ocSkillSearchInput" placeholder="搜索ClawHub技能..." style="flex:1;padding:8px 12px;border:1px solid var(--separator);border-radius:8px;font-size:13px;" onkeydown="if(event.key==='Enter')searchOpenClawSkills()">
 <button onclick="searchOpenClawSkills()" style="padding:8px 16px;background:var(--accent);color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer;">搜索</button>
 </div>
 <!-- 搜索结果 -->
@@ -17509,16 +17532,18 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
 暂未安装OpenClaw技能
 </div>
 </div>
+</div>
 
 <!-- 自定义标签区域（保留原有功能） -->
-<div class="emp-doc-section">
-<div class="skills-header">
-<div class="skills-title"><i class=sb2-ico-tag></i> 自定义标签</div>
+<div class="emp-sk-card">
+<div class="emp-sk-head">
+<div class="emp-sk-title"><i class=sb2-ico-tag></i> 自定义标签</div>
 <button class="skills-add-btn" onclick="addSkill()">
 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
 添加标签
 </button>
 </div>
+<div class="emp-sk-body">
 <div class="skills-list" id="skillsList"></div>
 <div class="skills-empty" id="skillsEmpty">
 <div class="skills-empty-icon"><i class=sb2-ico-tag></i></div>
@@ -17528,6 +17553,7 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
 <div class="skills-presets">
 <div class="skills-presets-title">快速添加</div>
 <div class="skills-presets-grid" id="skillsPresets"></div>
+</div>
 </div>
 </div>
 </div>
