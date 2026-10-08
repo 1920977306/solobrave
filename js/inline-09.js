@@ -222,9 +222,14 @@ function buildDashboard(){
         「进入 AI 办公室」保留为唯一主 CTA */
     +     '<div class="sb2-dash2-greet-acts"><button class="sb2-btn sb2-btn-brand" onclick="sb2Go(\'messages\')">进入 AI 办公室</button></div>'
     +   '</div>'
-    /* 〔2026-10-08 老大批注「这个怎么还是在啊」〕等你拍板 hero 区整条下线:
-        DOM 已撤 (此处不再渲染), sb2_loadDashboardTodo() 首行 return; 不拉数据;
-        下方处理函数 (sb2DashTodoRemoveRow 等) 全部带空守卫, 调用安全空转, 保留作回滚参照 */
+    /* 〔dash-opt-1〕等你拍板 hero 区: 待审批提案 inline 拍板 (复用 P1b 提案卡 6 态管线, 零新交互逻辑)
+        空态整块隐藏 (JS 控制), 不渲占屏占位
+        〔2026-10-08 老大批注「这个怎么还是在啊」复盘: 批注对象是 5 天前的陈旧「等你回复」卡
+        赖着不走, 非删整条 — 条恢复; 陈旧根治在 sb2_loadDashboardTodo() 第 4 路加 48h 新鲜度窗〕 */
+    +   '<div class="sb2-dash2-todo" id="sb2Dash2Todo" style="display:none">'
+    +     '<div class="sb2-dash2-feed-hd"><h2>等你拍板</h2><span class="hint">来自 AI 员工的提案, 同意后立即执行</span></div>'
+    +     '<div id="sb2Dash2TodoList" class="sb2-dash2-todo-list"></div>'
+    +   '</div>'
     +   '<div class="sb2-kpis">'
     +     kpi('sb2KpiInject','近 7 天知识注入','')
     +     kpi('sb2KpiTalents','在库达人','')
@@ -467,8 +472,6 @@ function buildFocus(){
    空态: 四块全空 → section display:none (不占屏, 老大「多此一举」红线 — 没待办就不渲 hero)
    拍板后: 提案卡就地切结果态; KB/任务卡在 DOM 内移除该行并重算, 全空收 section */
 function sb2_loadDashboardTodo(){
-  /* 〔2026-10-08 老大批注「这个怎么还是在啊」〕等你拍板条已下线, 拉取与渲染全停 */
-  return;
   var tok = localStorage.getItem('sb_auth_token') || '';
   var headers = { 'Authorization': 'Bearer ' + tok };
   var xid = (window.SB2 && SB2.agentId) || localStorage.getItem('sb_agent_id') || '';
@@ -518,9 +521,13 @@ function sb2_loadDashboardTodo(){
     .then(function(r){ return r.json(); })
     .then(function(d){
       var items = (d && Array.isArray(d.items)) ? d.items : [];
+      /* ★ fix 2026-10-08 (老大批注「怎么还是在啊」): 48h 新鲜度窗 — 陈旧未读回复
+         (如 5 天前的 Helen) 不再是「当前待办」, 不再赖在拍板条上; 点「去回复」仍正常置已读 */
+      var freshCutoff = Date.now() - 48 * 3600 * 1000;
       var byAgent = {};
       items.forEach(function(n){
         if (!n || n.type !== 'message' || !n.agent_id) return;
+        if ((n.created_at || 0) < freshCutoff) return;
         if (!byAgent[n.agent_id] || (n.created_at || 0) > (byAgent[n.agent_id].created_at || 0)) {
           byAgent[n.agent_id] = n;
         }
