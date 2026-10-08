@@ -5929,6 +5929,10 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 /* r83 状态点胶囊: 细边 + 浅底, 圆点语义色来自 .status-dot */
 .emp-idcard-side{ margin-left:auto; flex-shrink:0; }
 .emp-status-pill{ display:inline-flex; align-items:center; gap:6px; padding:3px 10px; border:1px solid var(--sb2-border); border-radius:999px; background:var(--sb2-s1); font-size:12px; color:var(--sb2-t2); white-space:nowrap; }
+/* r83 推广到员工列表行: 紧凑版胶囊 + 创建者标签(去 emoji, hairline 999) */
+.emp-status-pill-sm{ padding:2px 8px; font-size:11px; }
+.emp-status-pill-sm .status-dot{ width:6px; height:6px; box-shadow:none; }
+.emp-creator-tag{ display:inline-flex; align-items:center; margin-left:6px; padding:1px 8px; border:1px solid var(--sb2-border); background:var(--sb2-s1); border-radius:999px; font-size:11px; color:var(--sb2-t3); vertical-align:middle; font-weight:500; white-space:nowrap; }
 /* — 员工详情 · stats 条: 卡片 → 透明分栏 — */
 .ai-emp-stats-bar{ background:transparent; gap:0; padding:10px 20px; }
 .ai-emp-stat{ background:transparent; border:none; padding:2px 16px; }
@@ -19334,7 +19338,7 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
      v2 (202609241444): 初始破缓存 + skip-device 守卫
      v3 (202609241420): probe 误导文案澄清 (fingerprint fallback → token-only) -->
 <script src="openclaw-client.js?v=ocowner1a20261008"></script>
-<script src="js/inline-07.js?v=settingsdedup1a20261008"></script>
+<script src="js/inline-07.js?v=settingsdedup1b20261008"></script>
 
 <!-- Match Result Modal -->
 <div class="product-modal-overlay" id="matchModalOverlay" onclick="closeMatchModal()">

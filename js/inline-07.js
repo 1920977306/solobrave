@@ -45,7 +45,7 @@ function _applyRenderEmployeePatch() {
     // 全空时不再渲染空 span 假装没事，直接显"创建者"占位，避免 admin 列表看到空白行像 bug）
     if (showCreator && (isAdmin() || isLeader()) && e.createdBy && e.createdBy !== (currentUser && currentUser.id)) {
       var creatorName = e.createdByName || e._createdByName || e.role || '创建者';
-      creatorTag = '<span style="display:inline-flex;align-items:center;margin-left:6px;padding:1px 6px;background:#E8E8E8;border-radius:4px;font-size:11px;color:#999999;vertical-align:middle;font-weight:500;"><i class=sb2-ico-user></i> ' + escapeHtml(creatorName) + '</span>';
+      creatorTag = '<span class="emp-creator-tag"><i class=sb2-ico-user></i> ' + escapeHtml(creatorName) + '</span>';
     }
 
     // 新版 Badge
@@ -53,7 +53,7 @@ function _applyRenderEmployeePatch() {
 
     // 组装头像容器（含 Badge）
     var avatarContainer = '<div class="item-avatar" style="position:relative;width:' + size + 'px;height:' + size + 'px;flex-shrink:0;"><div class="avatar small ' + (e.badge && e.badge.level === 'urgent' ? 'pulse-urgent' : e.badge && e.badge.level === 'important' ? 'pulse-important' : '') + '" style="background:' + escapeAttr(e.bg || '') + ';width:' + size + 'px;height:' + size + 'px;overflow:hidden;">' + avatarHtml + badgeHtml + '</div><div class="status-dot ' + escapeAttr(e.status || 'offline') + '" style="position:absolute;bottom:0;right:0;width:11px;height:11px;border:2px solid var(--bg-primary);border-radius:50%;box-shadow:0 0 0 0.5px rgba(0,0,0,0.06);transition:transform 0.2s;"></div></div>';
-    return avatarContainer + '<div class="item-info" style="flex:1;min-width:0;"><div class="item-name" style="font-weight:500;font-size:14px;letter-spacing:-0.01em;">' + escapeHtml(e.name || '') + creatorTag + '</div><div class="item-msg" style="font-size:12px;color:var(--text-secondary);margin-top:2px;">' + getStatusIcon(e.status) + ' ' + escapeHtml(e.msg || '') + '</div></div>';
+    return avatarContainer + '<div class="item-info" style="flex:1;min-width:0;"><div class="item-name" style="font-weight:500;font-size:14px;letter-spacing:-0.01em;">' + escapeHtml(e.name || '') + creatorTag + '</div><div class="item-msg" style="font-size:12px;color:var(--text-secondary);margin-top:2px;">' + escapeHtml(e.msg || '暂无消息') + '</div></div>';
   };
   return true;
 }

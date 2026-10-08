@@ -4704,7 +4704,7 @@ function renderEmployeeItem(e, showCreator) {
   // 全空时不再渲染空 span 假装没事，直接显"创建者"占位，避免 admin 列表看到空白行像 bug）
   if (showCreator && (isAdmin() || isLeader()) && e.createdBy && e.createdBy !== (currentUser && currentUser.id)) {
     var creatorName = e.createdByName || e._createdByName || e.role || '创建者';
-    creatorTag = '<span style="display:inline-flex;align-items:center;margin-left:6px;padding:1px 6px;background:#E8E8E8;border-radius:4px;font-size:11px;color:#999999;vertical-align:middle;font-weight:500;">👤 ' + escapeHtml(creatorName) + '</span>';
+    creatorTag = '<span class="emp-creator-tag">' + escapeHtml(creatorName) + '</span>';
   }
 
   var statusClass = escapeAttr(e.status || 'offline');
@@ -4716,7 +4716,7 @@ function renderEmployeeItem(e, showCreator) {
     ? '<div class="emp-preview" style="margin-top:2px;">' + lastMsgPreview + '</div>'
     : '<div class="emp-preview" style="color:var(--text-tertiary);">暂无消息</div>';
   var statusLabel = e.status === 'online' ? '在线' : e.status === 'busy' ? '忙碌' : '离线';
-  return '<div class="emp-avatar-wrap" style="position:relative;flex-shrink:0;width:40px;height:40px;"><div class="emp-avatar" style="width:40px;height:40px;border-radius:50%;overflow:hidden;display:flex;align-items:center;justify-content:center;">' + avatarContent + '</div><div class="status-dot ' + statusClass + '" style="position:absolute;bottom:0px;right:0px;width:10px;height:10px;border-radius:50%;border:2px solid #ffffff;"></div></div><div class="emp-info" style="flex:1;min-width:0;"><div class="emp-name" style="font-size:14px;font-weight:500;color:var(--text-primary);display:flex;align-items:center;">' + escapeHtml(e.name || '') + creatorTag + '</div>' + previewHtml + '</div><div class="emp-meta" style="flex-shrink:0;text-align:right;margin-left:8px;"><div class="status-text" style="font-size:12px;color:var(--text-secondary);">' + statusLabel + '</div></div>';
+  return '<div class="emp-avatar-wrap" style="position:relative;flex-shrink:0;width:40px;height:40px;"><div class="emp-avatar" style="width:40px;height:40px;border-radius:50%;overflow:hidden;display:flex;align-items:center;justify-content:center;">' + avatarContent + '</div><div class="status-dot ' + statusClass + '" style="position:absolute;bottom:0px;right:0px;width:10px;height:10px;border-radius:50%;border:2px solid #ffffff;"></div></div><div class="emp-info" style="flex:1;min-width:0;"><div class="emp-name" style="font-size:14px;font-weight:500;color:var(--text-primary);display:flex;align-items:center;">' + escapeHtml(e.name || '') + creatorTag + '</div>' + previewHtml + '</div><div class="emp-meta" style="flex-shrink:0;text-align:right;margin-left:8px;"><span class="emp-status-pill emp-status-pill-sm"><span class="status-dot ' + statusClass + '"></span>' + statusLabel + '</span></div>';
 }
 function bindListEvents() {
   // data-id = 员工（个人聊天）
