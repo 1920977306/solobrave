@@ -548,16 +548,30 @@
       }
       var reply = await resp.json();
       // server 返 {userMessage, aiMessage:{id, role, content, ...}, archived, ...}
-      // 缺值: content/message/aiMessage.content 全空 → '-'
-      var replyText = '-';
+      // ★ 止血 2026-10-08 (派单条件2): 服务端 error 或 AI 无回复时不再显示「-」装死,
+      //    走 sb2_failBubble 错误态 (含后端给的明确原因)。
+      if (reply && reply.error && !(reply.aiMessage && reply.aiMessage.content)) {
+        sb2_failBubble(placeholderEl);
+        if (typeof showToast === 'function') showToast('❌ ' + reply.error);
+        return;
+      }
+      var replyText = '';
+      var _hasContent = false;
       if (reply) {
         if (reply.aiMessage && (reply.aiMessage.content !== undefined && reply.aiMessage.content !== null)) {
           replyText = reply.aiMessage.content;
+          _hasContent = true;
         } else if (reply.content !== undefined && reply.content !== null) {
           replyText = reply.content;
+          _hasContent = true;
         } else if (reply.message !== undefined && reply.message !== null) {
           replyText = reply.message;
+          _hasContent = true;
         }
+      }
+      if (!_hasContent || !String(replyText).trim()) {
+        sb2_failBubble(placeholderEl);
+        return;
       }
       if (placeholderEl) {
         placeholderEl.textContent = replyText;

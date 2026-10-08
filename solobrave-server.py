@@ -28155,7 +28155,10 @@ def _call_ai_api(agent, user_message, user_info=None, include_history=True, grou
     agent_id = agent.get('id', '')
 
     if not api_key:
-        return None
+        # ★ 止血 2026-10-08 (派单条件2): 不再静默返回 None —— 调用方 ChatPOST 拿不到任何
+        #    回复时前端只能显示「-」装死。kimi/kimicode 员工在下方已先走 KimiProxy 密钥池,
+        #    能走到这里说明池也不可用或非 kimi 系未配 key, 明说原因让管理员能定位。
+        return '⚠️ 该员工未配置 AI 凭证（apiKey 为空），请联系管理员。'
 
     system_prompt = f'你是 {agent.get("name", "AI")}，一个 {agent.get("role", "助手")}。请用第一人称回复，保持角色一致性。'
     soul_doc = agent.get('soulDoc', '')
@@ -28556,8 +28559,11 @@ def _call_ai_for_summary(self, agent, chat_text):
     prompt = '请将以下对话历史压缩成一段简洁的摘要（200字以内），保留关键信息、决策和重要事实：\n\n' + chat_text
     try:
         result = _call_ai_api(agent, prompt, include_history=False)
-        if result:
+        # ★ 止血配套: _call_ai_api 现在可能返回显式错误串 (⚠️ 开头), 不能把错误存进摘要
+        if result and not result.startswith('⚠️'):
             return result[:500]
+        if result:
+            logger.warning(f'  [Summary] {agent.get("id", "?")} AI 返回错误提示, 走文本截取降级: {result[:80]}')
     except Exception as e:
         logger.error(f'  [Summary] AI摘要失败: {e}')
 
