@@ -238,5 +238,5 @@ function provision_tenant(admin_email, plan):
 
 ### 遗留（下一轮）
 - 租户 agent 的网关注册时机打通（agent 在网关注册前绑定 → 保持 verified，重绑即 routed）
-- 存量 dirs 的 `emp_001`/`{empId}` 模板残留清洗
+- 存量 dirs 的 `emp_001`/`{empId}` 模板残留清洗 → **已完成**：`scripts/cleanup_template_residue.py`（dry-run 默认，--execute 先打包 `backups/residue-cleanup-<ts>.tar.gz` 再删；安全闸：agents.json 出现 emp_001 即拒执行）
 - 其他后台线程逐点审计（OpenClaw 队列 / BrainScheduler / PatternInduce-Cron 均为平台级守护，默认租户语义正确，多租户化时再逐个 `_run_as_tenant`）
