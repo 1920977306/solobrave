@@ -1616,7 +1616,47 @@ var SB2_SIDE_RENDERERS = {
     return { title:'任务', sub:'看板 · 列表双视图', items:[] };
   },
   settings: function(){
-    return { title:'设置', sub:'4 项系统工具', items:[] };
+    /* 〔settings-side 2026-10-08 老大批注「侧边栏咋啥都没有 / 设置页面还差」〕侧栏填充:
+       日常 = 新屏 5 张卡锚点滚动 (sb2SettingsScrollTo);
+       系统管理 = 旧版 8 分类 (sb2SettingsOpenCategory 桥接 renderSettingsRight 承接进 sb2 屏)。
+       权限口径照抄 renderSettingsMid (inline-07): 权限/违禁词/团队=管理员, 用户/成员=管理员或有 employees 权限。
+       active 态读 window._sb2SettingsSideSel (桥接函数维护, 重渲侧栏时保持高亮)。 */
+    var isAdm = (typeof isAdmin === 'function') ? !!isAdmin() : false;
+    var canEmp = (typeof hasModulePermission === 'function') ? !!hasModulePermission('employees') : false;
+    var sel = (typeof window._sb2SettingsSideSel === 'string') ? window._sb2SettingsSideSel : 'daily:sb2CreditArea';
+    var daily = [
+      { name:'<i class=sb2-ico-receipt></i> 积分签到与仪表盘', t:'sb2CreditArea' },
+      { name:'<i class=sb2-ico-search></i> 语义搜索', t:'sb2FeatCardSearch' },
+      { name:'<i class=sb2-ico-brain></i> AI 大脑调度', t:'sb2FeatCardBrain' },
+      { name:'<i class=sb2-ico-dna></i> RAG 索引重建', t:'sb2FeatCardRag' },
+      { name:'<i class=sb2-ico-bookmark></i> 知识事件查询', t:'sb2FeatCardEvents' }
+    ].map(function(d){
+      return { name:d.name, active: sel === 'daily:'+d.t, onClick:"sb2SettingsScrollTo('"+d.t+"')" };
+    });
+    var sys = [
+      { name:'<i class=sb2-ico-bell></i> 通知', cat:'notification' },
+      { name:'<i class=sb2-ico-user></i> 账号', cat:'account' },
+      { name:'<i class=sb2-ico-gear></i> 权限管理', cat:'permission', adm:true },
+      { name:'<i class=sb2-ico-xcircle></i> 违禁词管理', cat:'forbidden', adm:true },
+      { name:'<i class=sb2-ico-users></i> 用户管理', cat:'users' },
+      { name:'<i class=sb2-ico-briefcase></i> 团队管理', cat:'teams', adm:true },
+      { name:'<i class=sb2-ico-robot></i> 成员管理', cat:'members' },
+      { name:'<i class=sb2-ico-refresh></i> 飞书配置', cat:'feishu' }
+    ].filter(function(s){
+      if (s.adm && !isAdm) return false;
+      if ((s.cat === 'users' || s.cat === 'members') && !isAdm && !canEmp) return false;
+      return true;
+    }).map(function(s){
+      return { name:s.name, active: sel === s.cat, onClick:"sb2SettingsOpenCategory('"+s.cat+"')" };
+    });
+    return {
+      title:'设置',
+      sub: isAdm ? '日常工具 + 系统管理' : '日常工具',
+      items:[
+        { label:'日常', items: daily },
+        { label:'系统管理', items: sys.length ? sys : [{ name:'无可用管理项' }] }
+      ]
+    };
   }
 };
 

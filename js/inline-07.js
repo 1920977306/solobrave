@@ -1550,6 +1550,45 @@ function sb2SettingsShow(){
   if (typeof loadComputeStats === 'function') loadComputeStats();
 }
 
+/* 〔settings-side 2026-10-08 老大批注〕侧栏桥接: 旧版系统分类承接进 sb2 设置屏
+   - 点「系统管理」项: renderSettingsRight 渲进隐藏 #settingsRightContent 并触发分类数据加载,
+     再把 innerHTML 镜像到 sb2 可见承接区 (#sb2SettingsLegacyArea)。
+     renderSettingsRight 内部 loader (loadUserList 等) 按 getElementById 写数据,
+     sb2SettingsMain 在文档序早于 #settingsRight → 先命中可见副本 → 旧函数零改动。
+   - 权限口径照抄 selectSettingsCategory (inline-07 尾部): 权限/违禁词/团队=管理员,
+     用户/成员=管理员或有 employees 模块权限。 */
+function sb2SettingsOpenCategory(id){
+  var adminOnlyCats = ['permission','forbidden','teams'];
+  var empCats = ['users','members'];
+  if (typeof isAdmin === 'function' && !isAdmin()) {
+    if (adminOnlyCats.indexOf(id) >= 0) return;
+    if (empCats.indexOf(id) >= 0 && typeof hasModulePermission === 'function' && !hasModulePermission('employees')) return;
+  }
+  if (typeof _settingsSelectedCategory !== 'undefined') _settingsSelectedCategory = id;
+  if (typeof renderSettingsRight === 'function') renderSettingsRight();
+  var src = document.getElementById('settingsRightContent');
+  var area = document.getElementById('sb2SettingsLegacyArea');
+  if (!src || !area) return;
+  var titleEl = document.getElementById('settingsRightTitle');
+  var actsEl = document.getElementById('settingsRightActions');
+  document.getElementById('sb2SettingsLegacyContent').innerHTML = src.innerHTML;
+  document.getElementById('sb2SettingsLegacyTitle').textContent = titleEl ? titleEl.textContent : '设置';
+  document.getElementById('sb2SettingsLegacyActions').innerHTML = actsEl ? actsEl.innerHTML : '';
+  area.style.display = '';
+  area.scrollIntoView({behavior:'smooth', block:'start'});
+  if (typeof window !== 'undefined') { window._sb2SettingsSideSel = id; }
+  if (typeof window.renderSideFor === 'function') window.renderSideFor('settings');
+}
+/* 侧栏「日常」项: 隐藏承接区 + 滚动到新屏对应卡片 */
+function sb2SettingsScrollTo(targetId){
+  var area = document.getElementById('sb2SettingsLegacyArea');
+  if (area) area.style.display = 'none';
+  var el = document.getElementById(targetId);
+  if (el) el.scrollIntoView({behavior:'smooth', block:'start'});
+  if (typeof window !== 'undefined') { window._sb2SettingsSideSel = 'daily:' + targetId; }
+  if (typeof window.renderSideFor === 'function') window.renderSideFor('settings');
+}
+
 // 卡 1: 语义搜索
 async function sb2SettingsRunSearch(){
   var inp = document.getElementById('sb2FeatSearchInput');

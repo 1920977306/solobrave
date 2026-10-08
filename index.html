@@ -15491,6 +15491,17 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
       <div class="sb2-settings-feature-card-result" id="sb2FeatEventsResult"></div>
     </div>
   </div>
+  <!-- 〔settings-side 2026-10-08 老大批注「侧边栏咋啥都没有 / 设置页面还差」〕
+       旧版 8 个系统分类承接区: 侧栏点「系统管理」项时, renderSettingsRight 渲染结果镜像至此。
+       renderSettingsRight 渲进隐藏的 #settingsRightContent 并触发分类数据加载 (loadUserList 等按 ID 写入,
+       getElementById 按文档序先命中本副本 → 异步加载器写入可见副本, 旧函数零改动)。 -->
+  <div id="sb2SettingsLegacyArea" style="display:none; margin-top:28px;">
+    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;">
+      <h1 id="sb2SettingsLegacyTitle" style="margin:0; font:600 18px/1.3 'PingFang SC',sans-serif; color:var(--sb2-ink);">-</h1>
+      <div id="sb2SettingsLegacyActions" style="display:flex; gap:8px;"></div>
+    </div>
+    <div id="sb2SettingsLegacyContent"></div>
+  </div>
 </div>
 
 <!-- ★ 待办 A 2026-10-08: 项目组主导航屏 — rail 图标 + 群列表/群动态卡片网格
@@ -19135,7 +19146,7 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
      v2 (202609241444): 初始破缓存 + skip-device 守卫
      v3 (202609241420): probe 误导文案澄清 (fingerprint fallback → token-only) -->
 <script src="openclaw-client.js?v=ocowner1a20261008"></script>
-<script src="js/inline-07.js?v=settingsreskin1a20261008"></script>
+<script src="js/inline-07.js?v=settingsside1a20261008"></script>
 
 <!-- Match Result Modal -->
 <div class="product-modal-overlay" id="matchModalOverlay" onclick="closeMatchModal()">
@@ -19180,7 +19191,7 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
 </div>
 
 <script src="js/inline-08.js?v=f2d73f6b57"></script>
-<script src="js/inline-09.js?v=dashhdoff1a20261008"></script>
+<script src="js/inline-09.js?v=settingsside1b20261008"></script>
 
 <!-- ★ feat/sb2-chat: SoloBrave 2.0 聊天模块 JS (核心链: 消息流 + 发送框)
      - 复用老 /api/chat/:agentId 接口契约, 零后端改动
