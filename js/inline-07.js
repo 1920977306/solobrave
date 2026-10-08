@@ -41,9 +41,9 @@ function _applyRenderEmployeePatch() {
     var avatarHtml = renderAvatar(e, size);
     var creatorTag = '';
 
-    // admin/leader视图：显示创建者标签（回退链 createdByName → _createdByName → role → "创建者"，
-    // 全空时不再渲染空 span 假装没事，直接显"创建者"占位，避免 admin 列表看到空白行像 bug）
-    if (showCreator && (isAdmin() || isLeader()) && e.createdBy && e.createdBy !== (currentUser && currentUser.id)) {
+    // 〔r83c 老大 18:51〕创建者小 chips 清掉: 回退链落到 role 导致每行重复显示职能,
+    // 员工能力唯一口径 = 职能(role), 列表行不再渲染任何标签 chips
+    if (false && showCreator && (isAdmin() || isLeader()) && e.createdBy && e.createdBy !== (currentUser && currentUser.id)) {
       var creatorName = e.createdByName || e._createdByName || e.role || '创建者';
       creatorTag = '<span class="emp-creator-tag"><i class=sb2-ico-user></i> ' + escapeHtml(creatorName) + '</span>';
     }

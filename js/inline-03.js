@@ -577,16 +577,13 @@ function renderOnboardMembers() {
     var checked = m.enabled ? ' checked' : '';
     var disabled = m.enabled ? '' : ' disabled';
     var checkMark = m.enabled ? '✓' : '';
-    var skillsHtml = (m.skills || []).map(function (s) {
-      return '<span style="display:inline-block;padding:2px 8px;border-radius:6px;background:var(--bg-primary);font-size:11px;color:var(--text-secondary);margin-right:4px;">' + escapeHtml(s) + '</span>';
-    }).join('');
+    /* 〔r83c 老大 18:51〕标签小 chips 清掉: 员工能力唯一展示口径 = 职能(roleLabel), 不再渲染 skills chips */
     return '<div class="onboard-member-row' + disabled + '">'
       + '<div class="onboard-member-check' + checked + '" onclick="onboardToggleMember(' + idx + ')">' + checkMark + '</div>'
       + '<div class="onboard-member-avatar">' + m.avatar + '</div>'
       + '<div class="onboard-member-info">'
       + '<div class="onboard-member-role">' + escapeHtml(m.roleLabel) + '</div>'
       + '<input class="onboard-member-name-input" type="text" value="' + escapeHtml(m.customName) + '" oninput="onboardRenameMember(' + idx + ', this.value)" maxlength="20" />'
-      + '<div style="margin-top:4px;">' + skillsHtml + '</div>'
       + '</div>'
       + '</div>';
   }).join('');
@@ -4694,9 +4691,9 @@ function renderEmployeeItem(e, showCreator) {
   var avatarContent = renderAvatar(e, size);
   var creatorTag = '';
 
-  // admin/leader视图：显示创建者标签（回退链 createdByName → _createdByName → role → "创建者"，
-  // 全空时不再渲染空 span 假装没事，直接显"创建者"占位，避免 admin 列表看到空白行像 bug）
-  if (showCreator && (isAdmin() || isLeader()) && e.createdBy && e.createdBy !== (currentUser && currentUser.id)) {
+  // 〔r83c 老大 18:51〕创建者小 chips 清掉: 回退链落到 role 导致每行重复显示职能,
+  // 员工能力唯一口径 = 职能(role), 列表行不再渲染任何标签 chips
+  if (false && showCreator && (isAdmin() || isLeader()) && e.createdBy && e.createdBy !== (currentUser && currentUser.id)) {
     var creatorName = e.createdByName || e._createdByName || e.role || '创建者';
     creatorTag = '<span class="emp-creator-tag">' + escapeHtml(creatorName) + '</span>';
   }
