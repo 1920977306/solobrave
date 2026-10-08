@@ -2978,107 +2978,6 @@ def build_all_embeddings(api_key=None, provider='openai', model=None, base_url=N
     logger.info(f'  [Embedding] 批量构建完成')
 
 
-def rag_retrieve(query, api_key, provider='openai', top_k_docs=3, top_k_products=3, model=None, base_url=None,
-                 requester_id=None, is_admin=False, team_ids=None, group_ids=None):
-    """RAG 检索：基于向量相似度返回相关知识库文档和产品（支持 group 隔离）"""
-    if not query or not query.strip() or not api_key:
-        return {'docs': [], 'products': [], 'context': ''}
-
-    # 1. 获取 query 的 embedding
-    query_emb = get_embedding(query, api_key, provider, model=model, base_url=base_url)
-    if not query_emb:
-        return {'docs': [], 'products': [], 'context': ''}
-
-    results = {'docs': [], 'products': [], 'context': ''}
-
-    # 2. 知识库文档检索（从 SQLite 读取带 embedding 的知识，按 scope 做权限过滤）
-    conn = _db_conn()
-    doc_scores = []
-    try:
-        sql = '''
-            SELECT id, title, content, category, scope, emp_id, team_id, group_ids, embedding, created_at, updated_at
-            FROM knowledge
-            WHERE embedding IS NOT NULL AND status = 'ok'
-        '''
-        params = []
-        if requester_id is not None and not is_admin:
-            clauses = [
-                "scope IS NULL OR scope = 'global'",
-                "(scope = 'personal' AND emp_id = ?)"
-            ]
-            params.append(requester_id)
-            if team_ids:
-                clauses.append("(scope = 'team' AND team_id IN ({}))".format(', '.join('?' for _ in team_ids)))
-                params.extend(team_ids)
-            if group_ids:
-                clauses.append("(scope = 'group' AND EXISTS (SELECT 1 FROM json_each(group_ids) WHERE value IN ({})))".format(', '.join('?' for _ in group_ids)))
-                params.extend(group_ids)
-            sql += ' AND (' + ' OR '.join(clauses) + ')'
-        rows = conn.execute(sql, params).fetchall()
-    finally:
-        conn.close()
-    for row in rows:
-        try:
-            emb = json.loads(row['embedding'])
-            score = cosine_similarity(query_emb, emb)
-            if score > 0.0:
-                doc_scores.append((score, _knowledge_row_to_dict(row)))
-        except Exception:
-            continue
-    doc_scores.sort(key=lambda x: x[0], reverse=True)
-    results['docs'] = [d for _, d in doc_scores[:top_k_docs]]
-
-    # 3. 产品库检索（从 SQLite 读取）
-    conn = _db_conn()
-    try:
-        rows = conn.execute('SELECT * FROM products WHERE status != ?', ('archived',)).fetchall()
-        products = [_product_row_to_dict(r) for r in rows]
-    finally:
-        conn.close()
-    product_scores = []
-    for product in products:
-        emb = load_embedding('product', product.get('id', ''))
-        if emb:
-            score = cosine_similarity(query_emb, emb)
-            if score > 0.0:
-                product_scores.append((score, product))
-    product_scores.sort(key=lambda x: x[0], reverse=True)
-    results['products'] = [p for _, p in product_scores[:top_k_products]]
-
-    # 4. 格式化上下文
-    results['context'] = format_rag_context(results['docs'], results['products'])
-    return results
-
-
-def format_rag_context(docs, products):
-    """将检索结果格式化为注入 system prompt 的文本"""
-    lines = []
-    if docs:
-        lines.append('【知识库文档】')
-        for d in docs:
-            content = (d.get('content') or '')[:1200]
-            lines.append(f"━━━ {d.get('icon', '📄')} {d.get('name', '未命名')} ━━━")
-            lines.append(content)
-            if len(d.get('content', '')) > 1200:
-                lines.append('...（内容已截取）')
-            lines.append('')
-    if products:
-        lines.append('【产品信息】')
-        for p in products:
-            lines.append(f"━━━ 📦 {p.get('name', '未命名')} ━━━")
-            lines.append(f"价格: ¥{p.get('price', 0)} | 分类: {p.get('category', '未分类')} | SKU: {p.get('sku', 'N/A')}")
-            if p.get('description'):
-                lines.append(f"描述: {p.get('description')[:400]}")
-            if p.get('selling_points'):
-                lines.append(f"卖点: {p.get('selling_points')[:300]}")
-            if p.get('tags'):
-                lines.append(f"标签: {', '.join(p.get('tags', []))}")
-            if p.get('commission_rate'):
-                lines.append(f"佣金: {p.get('commission_rate')}%")
-            lines.append('')
-    return '\n'.join(lines)
-
-
 # ═══════════════════════════════════════════════════
 # SQLite 数据库初始化与知识库 ORM
 # ═══════════════════════════════════════════════════
@@ -7791,11 +7690,6 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._handle_get_chat_model()
             return
 
-        # RAG 知识库 backfill 状态查询 (GET — admin 调试用)
-        if path == '/api/admin/knowledge/backfill-embeddings' and self.command == 'GET':
-            self._handle_get_backfill_status()
-            return
-
         # FIXME: 大脑知识中枢 API
         if path == '/api/brain/status':
             self._handle_get_brain_status()
@@ -8294,14 +8188,6 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 self._handle_get_chat_model()
             elif self.command == 'POST':
                 self._handle_post_chat_model()
-            else:
-                self._send_json_error(405, 'Method Not Allowed')
-            return
-
-        # RAG 知识库 backfill (POST — dev/feat: #1 修复 RAG 空命中)
-        if path == '/api/admin/knowledge/backfill-embeddings':
-            if self.command == 'POST':
-                self._handle_post_backfill_embeddings()
             else:
                 self._send_json_error(405, 'Method Not Allowed')
             return
@@ -9701,90 +9587,6 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             logger.error(f'  [ChatModel] POST exception: {e}')
             self._send_json_error(500, f'recommend failed: {e}')
 
-    # ─────────────────────────────────────────────────────────
-    # RAG Knowledge Embedding Backfill (dev/feat: #1)
-    # 根因: knowledge_chunks.embedding 全 NULL → RAG SQL 永远空命中
-    # 修复: POST 触发遍历所有 chunks, 调 get_embedding_cached 生成 embedding
-    #       并 UPDATE 到 knowledge_chunks.embedding + embedding_model
-    # 安全: get_embedding() 已加 retry (commit a4a4ea1), 单条失败不阻断整批
-    # 性能: 187 个 chunks × ~1.5s/each ≈ 5 分钟; force=true 时跑一次
-    # ─────────────────────────────────────────────────────────
-
-    def _handle_get_backfill_status(self):
-        """GET /api/admin/knowledge/backfill-embeddings — 查看 chunks 状态"""
-        auth = _authenticate(self.headers, self.client_address[0], self)
-        if not auth.is_authenticated:
-            self._send_auth_error(auth.error, auth.status)
-            return
-        err, status = _require_admin(auth)
-        if err:
-            self._send_auth_error(err, status)
-            return
-        try:
-            conn = ks._db_conn()
-            try:
-                total = conn.execute(
-                    "SELECT COUNT(*) FROM knowledge_chunks c "
-                    "JOIN knowledge k ON c.knowledge_id = k.id WHERE k.status='ok'"
-                ).fetchone()[0]
-                with_emb = conn.execute(
-                    "SELECT COUNT(*) FROM knowledge_chunks c "
-                    "JOIN knowledge k ON c.knowledge_id = k.id "
-                    "WHERE k.status='ok' AND c.embedding IS NOT NULL"
-                ).fetchone()[0]
-                empty_emb_model = conn.execute(
-                    "SELECT COUNT(*) FROM knowledge_chunks c "
-                    "JOIN knowledge k ON c.knowledge_id = k.id "
-                    "WHERE k.status='ok' AND c.embedding IS NOT NULL "
-                    "AND (c.embedding_model = '' OR c.embedding_model IS NULL)"
-                ).fetchone()[0]
-            finally:
-                conn.close()
-            emb_cfg = ks.get_embedding_config(None)
-            self._send_json(200, {
-                'total_chunks': total,
-                'chunks_with_embedding': with_emb,
-                'chunks_need_backfill': total - with_emb,
-                'chunks_with_empty_model': empty_emb_model,
-                'embedding_provider': emb_cfg.get('provider'),
-                'embedding_model': emb_cfg.get('model'),
-                'note': 'POST 触发 backfill; body {force: false} 只补 IS NULL, force=true 重生成全部',
-            })
-        except Exception as e:
-            logger.error(f'  [Backfill-Status] {e}')
-            self._send_json_error(500, f'status failed: {e}')
-
-    def _handle_post_backfill_embeddings(self):
-        """POST /api/admin/knowledge/backfill-embeddings — 触发批量回填
-
-        body 可选: {force: false, emp_id: ""}
-        响应: {total, success, skipped, failed, errors, elapsed_sec, embedding_model}
-        """
-        auth = _authenticate(self.headers, self.client_address[0], self)
-        if not auth.is_authenticated:
-            self._send_auth_error(auth.error, auth.status)
-            return
-        err, status = _require_admin(auth)
-        if err:
-            self._send_auth_error(err, status)
-            return
-        body = self._read_body() or {}
-        force = bool(body.get('force', False))
-        emp_id = (body.get('emp_id') or '').strip() or None
-
-        logger.warning(
-            f'  [Backfill] admin={auth.user_id} client_ip={self.client_address[0]} '
-            f'started force={force} emp_id={emp_id or "(all)"}'
-        )
-        try:
-            result = ks.backfill_embeddings(emp_id=emp_id, force=force)
-            self._send_json(200, result)
-        except Exception as e:
-            logger.error(f'  [Backfill] failed: {e}')
-            import traceback; traceback.print_exc()
-            self._send_json_error(500, f'backfill failed: {e}')
-
-    def _handle_csp_report(self):
         """POST /api/csp-report — 接收浏览器 CSP 违规报告（report-only 模式）
 
         浏览器在 report-only 模式下检测到违规时自动 POST 一份 csp-report JSON。
