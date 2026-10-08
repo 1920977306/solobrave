@@ -7050,6 +7050,16 @@ function toggleNotificationPanel() {
   panel.classList.toggle('show');
   if (willShow) renderNotificationPanelBody();
 }
+/* 〔side-tidy 2026-10-08 老大批注②〕通知设置入口挪到铃铛面板:
+   收起面板 → 进设置页 → 直接打开「通知」分类视图 (实现仍复用 settings 通知视图, 单一数据源) */
+function sb2OpenNotifSettings(){
+  var panel = document.getElementById('notificationPanel');
+  if (panel) panel.classList.remove('show');
+  if (typeof window.sb2Go === 'function') window.sb2Go('settings');
+  setTimeout(function(){
+    if (typeof sb2SettingsOpenCategory === 'function') sb2SettingsOpenCategory('notification');
+  }, 80);
+}
 
 // ⑤ 渲染通知面板列表(fetch 最新 20 条, 倒序)
 // ★ fix/notification-panel-polish: 内容截断 (line-clamp 3 + 展开按钮) + 友好时间格式

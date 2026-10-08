@@ -1523,13 +1523,18 @@ var SB2_SIDE_RENDERERS = {
     });
     return {
       title:'知识库', sub:sub,
-      searchInput:'语义搜索…',
+      /* 〔side-tidy 批注①〕原占位「语义搜索…」名不副实 (sb2SideFilter 只过滤侧栏分类名) → 正名;
+         真·语义搜索挪到下方「工具」组, 展开主区搜索面板 */
+      searchInput:'搜索分类…',
       items:[
         { label:'分类', items: catItems },
         { label:'范围', items:[
           { name:'全员可读',  onClick:"switchKnowledgeScope && switchKnowledgeScope('global')" },
           { name:'我创建的',  onClick:"switchKnowledgeScope && switchKnowledgeScope('personal')" },
           { name:'项目组共享', onClick:"switchKnowledgeScope && switchKnowledgeScope('group')" }
+        ]},
+        { label:'工具', items:[
+          { name:'<i class=sb2-ico-search></i> 语义搜索', onClick:"sb2KbSemanticSearchToggle && sb2KbSemanticSearchToggle()" }
         ]},
         { label:' ', items:[
           { name:'<i class=sb2-ico-ruler></i> 规律库入口 →', onClick:"sb2Go && sb2Go('patterns')" }
@@ -1675,24 +1680,30 @@ var SB2_SIDE_RENDERERS = {
   },
   settings: function(){
     /* 〔settings-side 2026-10-08 老大批注「侧边栏咋啥都没有 / 设置页面还差」〕侧栏填充:
-       日常 = 新屏 5 张卡锚点滚动 (sb2SettingsScrollTo);
-       系统管理 = 旧版 8 分类 (sb2SettingsOpenCategory 桥接 renderSettingsRight 承接进 sb2 屏)。
+       〔side-tidy 2026-10-08 老大批注①②③ 重组〕
+       日常 = 积分中心 (语义搜索已移到知识库侧栏, 通知已移到通知面板);
+       维护工具 = 仅管理员 (知识自动整理/RAG/知识事件, 日常视角降噪);
+       系统管理 = 旧版 7 分类 (sb2SettingsOpenCategory 桥接 renderSettingsRight 承接进 sb2 屏)。
        权限口径照抄 renderSettingsMid (inline-07): 权限/违禁词/团队=管理员, 用户/成员=管理员或有 employees 权限。
        active 态读 window._sb2SettingsSideSel (桥接函数维护, 重渲侧栏时保持高亮)。 */
     var isAdm = (typeof isAdmin === 'function') ? !!isAdmin() : false;
     var canEmp = (typeof hasModulePermission === 'function') ? !!hasModulePermission('employees') : false;
     var sel = (typeof window._sb2SettingsSideSel === 'string') ? window._sb2SettingsSideSel : 'daily:sb2CreditArea';
     var daily = [
-      { name:'<i class=sb2-ico-receipt></i> 积分中心', t:'sb2CreditArea' },
-      { name:'<i class=sb2-ico-search></i> 语义搜索', t:'sb2FeatCardSearch' },
-      { name:'<i class=sb2-ico-brain></i> AI 大脑调度', t:'sb2FeatCardBrain' },
+      { name:'<i class=sb2-ico-receipt></i> 积分中心', t:'sb2CreditArea' }
+    ].map(function(d){
+      return { name:d.name, active: sel === 'daily:'+d.t, onClick:"sb2SettingsScrollTo('"+d.t+"')" };
+    });
+    /* 维护工具 (管理员): 老大批注③「AI 大脑调度是什么」→ 改名「知识自动整理」 */
+    var maint = isAdm ? [
+      { name:'<i class=sb2-ico-brain></i> 知识自动整理', t:'sb2FeatCardBrain' },
       { name:'<i class=sb2-ico-dna></i> RAG 索引重建', t:'sb2FeatCardRag' },
       { name:'<i class=sb2-ico-bookmark></i> 知识事件查询', t:'sb2FeatCardEvents' }
     ].map(function(d){
       return { name:d.name, active: sel === 'daily:'+d.t, onClick:"sb2SettingsScrollTo('"+d.t+"')" };
-    });
+    }) : [];
     var sys = [
-      { name:'<i class=sb2-ico-bell></i> 通知', cat:'notification' },
+      /* 〔side-tidy 批注②〕通知已移到右上角铃铛面板 (notification-panel-footer ⚙ 通知设置) */
       { name:'<i class=sb2-ico-user></i> 账号', cat:'account' },
       { name:'<i class=sb2-ico-gear></i> 权限管理', cat:'permission', adm:true },
       { name:'<i class=sb2-ico-xcircle></i> 违禁词管理', cat:'forbidden', adm:true },
@@ -1709,14 +1720,57 @@ var SB2_SIDE_RENDERERS = {
     });
     return {
       title:'设置',
-      sub: isAdm ? '日常工具 + 系统管理' : '日常工具',
+      sub: isAdm ? '日常 · 维护 · 系统管理' : '日常工具',
       items:[
         { label:'日常', items: daily },
+        maint.length ? { label:'维护工具 (管理员)', items: maint } : null,
         { label:'系统管理', items: sys.length ? sys : [{ name:'无可用管理项' }] }
-      ]
+      ].filter(Boolean)
     };
   }
 };
+
+/* 〔side-tidy 2026-10-08 老大批注①〕知识库真·语义搜索面板:
+   侧栏「工具 → 语义搜索」展开/收起 #sb2KbSearchPanel (在知识库主区 chips 下方)。
+   查询走 POST /api/knowledge/search (与设置页旧语义搜索视图同一端点, 元素 ID 独立不撞)。
+   零编造: 结果全部来自接口返回 docs。 */
+function sb2KbSemanticSearchToggle(){
+  var panel = document.getElementById('sb2KbSearchPanel');
+  if (!panel) return;
+  var show = getComputedStyle(panel).display === 'none';
+  panel.style.display = show ? 'block' : 'none';
+  if (show) {
+    var inp = document.getElementById('sb2KbSearchInput');
+    if (inp) inp.focus();
+  }
+}
+async function sb2KbRunSearch(){
+  var inp = document.getElementById('sb2KbSearchInput');
+  var query = (inp && inp.value || '').trim();
+  var resultEl = document.getElementById('sb2KbSearchResult');
+  if (!resultEl) return;
+  if (!query) { resultEl.className = 'sb2-settings-feature-card-result err active'; resultEl.textContent = '请输入要搜索的内容'; return; }
+  var btn = document.getElementById('sb2KbSearchBtn');
+  if (btn) btn.disabled = true;
+  resultEl.className = 'sb2-settings-feature-card-result active';
+  resultEl.textContent = '搜索中…';
+  try {
+    var resp = await apiFetch('/api/knowledge/search', { method:'POST', body: JSON.stringify({ query:query, limit:10 }) });
+    if (!resp || !resp.ok) { resultEl.className = 'sb2-settings-feature-card-result err active'; resultEl.textContent = '搜索失败: HTTP ' + (resp ? resp.status : 'no response'); return; }
+    var data = await resp.json();
+    var docs = (data && data.docs) || [];
+    if (!docs.length) { resultEl.className = 'sb2-settings-feature-card-result active'; resultEl.textContent = '没有命中相关知识'; return; }
+    resultEl.className = 'sb2-settings-feature-card-result ok active';
+    resultEl.textContent = '命中 ' + ((data && data.count) || docs.length) + ' 条\n'
+      + docs.slice(0, 5).map(function(d, i){ return (i+1) + '. ' + (d.title || d.id || '-'); }).join('\n')
+      + (docs.length > 5 ? '\n... 还有 ' + (docs.length - 5) + ' 条' : '');
+  } catch(e) {
+    resultEl.className = 'sb2-settings-feature-card-result err active';
+    resultEl.textContent = '搜索失败: ' + (e && e.message ? e.message : e);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
 
 /* 〔fix/sb2-side-restore commit 2〕工作台 badge 数据源 (proposals 待办 + kb 待审)
    老大硬指令: 对应模块加载时写入, renderer 兜底 0 = 不显示 badge.

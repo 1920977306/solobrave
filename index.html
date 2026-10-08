@@ -15263,6 +15263,16 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
     </div>
   </div>
   <div class="sb2-kb-chips" id="sb2KbChips"></div>
+  <!-- 〔side-tidy 2026-10-08 老大批注①「语义搜索移到知识库」〕真·语义搜索面板:
+       侧栏「语义搜索」项展开, 走 POST /api/knowledge/search 真接口; 元素独立 ID 不跟设置页撞 -->
+  <div class="sb2-kb-search-panel" id="sb2KbSearchPanel" style="display:none;">
+    <div class="sb2-settings-search-input-row">
+      <input type="text" id="sb2KbSearchInput" placeholder="用一句话描述你想找的知识，回车搜索" onkeydown="if(event.key==='Enter')sb2KbRunSearch()">
+      <button class="sb2-btn sb2-btn-ink" id="sb2KbSearchBtn" onclick="sb2KbRunSearch()">语义搜索</button>
+      <button class="sb2-btn sb2-btn-ghost" onclick="sb2KbSemanticSearchToggle()">收起</button>
+    </div>
+    <div class="sb2-settings-feature-card-result" id="sb2KbSearchResult"></div>
+  </div>
   <div class="sb2-kb-list" id="sb2KbList">
     <div class="sb2-kb-empty">载入中…</div>
   </div>
@@ -15486,13 +15496,13 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
     </div>
     <div class="sb2-settings-feature-card-result" id="sb2FeatSearchResult"></div>
   </div>
-  <!-- 视图 3: AI 大脑调度 -->
+  <!-- 视图 3: 知识自动整理 (原「AI 大脑调度」, 老大批注③「这个是什么」改名释义) -->
   <div class="sb2-settings-view" id="sb2ViewBrain">
     <div class="sb2-settings-view-head">
       <div class="sb2-settings-view-head-icon"><i class=sb2-ico-brain></i></div>
       <div class="sb2-settings-view-head-txt">
-        <h1>AI 大脑调度</h1>
-        <p>AI 大脑的调度器：查看运行统计，必要时手动触发一次全量处理。</p>
+        <h1>知识自动整理</h1>
+        <p>AI 定期把新录入的知识自动分类、去重、归档；在这里查看处理进度，必要时手动触发一次。</p>
       </div>
       <span class="sb2-settings-view-head-status" id="sb2FeatBrainStatus">-</span>
     </div>
@@ -19177,6 +19187,7 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
     </div>
   </div>
   <div class="notification-panel-footer">
+    <button class="notification-panel-viewall" onclick="sb2OpenNotifSettings()">⚙ 通知设置</button>
     <button class="notification-panel-viewall" onclick="viewAllNotifications()">查看全部 →</button>
   </div>
 </div>
@@ -19190,7 +19201,7 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
      v2 (202609241444): 初始破缓存 + skip-device 守卫
      v3 (202609241420): probe 误导文案澄清 (fingerprint fallback → token-only) -->
 <script src="openclaw-client.js?v=ocowner1a20261008"></script>
-<script src="js/inline-07.js?v=dashcredit1a20261008"></script>
+<script src="js/inline-07.js?v=sidetidy1a20261008"></script>
 
 <!-- Match Result Modal -->
 <div class="product-modal-overlay" id="matchModalOverlay" onclick="closeMatchModal()">
@@ -19235,7 +19246,7 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
 </div>
 
 <script src="js/inline-08.js?v=f2d73f6b57"></script>
-<script src="js/inline-09.js?v=dashcredit1c20261008"></script>
+<script src="js/inline-09.js?v=sidetidy1b20261008"></script>
 
 <!-- ★ feat/sb2-chat: SoloBrave 2.0 聊天模块 JS (核心链: 消息流 + 发送框)
      - 复用老 /api/chat/:agentId 接口契约, 零后端改动
