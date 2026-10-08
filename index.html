@@ -5866,40 +5866,45 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .emp-detail-actions { display: flex; gap: 12px; padding: 12px 20px; border-top: 0.5px solid var(--separator); }
 .emp-detail-actions .emp-action-btn { flex: 1; }
 
-/* Group Detail Panel */
-.group-detail-overlay { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.6); backdrop-filter: blur(4px); opacity: 0; visibility: hidden; transition: all 0.3s; z-index: 250; }
+/* Group Detail Panel — 2026-10-08 批注②重设计: 右侧抽屉改居中弹窗, 全量 --sb2-* token */
+.group-detail-overlay { position: fixed; inset: 0; background: var(--sb2-mask-strong, rgba(0,0,0,0.45)); opacity: 0; visibility: hidden; transition: opacity .25s ease, visibility .25s; z-index: 250; display: flex; align-items: center; justify-content: center; padding: 24px; }
 .group-detail-overlay.open { opacity: 1; visibility: visible; }
-.group-detail-panel { position: fixed; right: 0; top: 0; bottom: 0; width: 380px; max-width: 100%; background: var(--bg-primary); box-shadow: var(--shadow-modal); transform: translateX(100%); transition: transform 0.3s cubic-bezier(0.25, 0.1, 0.25, 1); display: flex; flex-direction: column; }
-.group-detail-overlay.open .group-detail-panel { transform: translateX(0); }
-.group-detail-header { display: flex; align-items: center; gap: 12px; padding: 20px; border-bottom: 0.5px solid var(--separator); }
-.group-detail-avatar { width: 56px; height: 56px; border-radius: 16px; display: flex; align-items: center; justify-content: center; font-size: 28px; flex-shrink: 0; }
+.group-detail-panel { width: 520px; max-width: 100%; max-height: 85vh; background: var(--sb2-s1); border: 1px solid var(--sb2-border); border-radius: var(--sb2-r-lg); box-shadow: var(--sb2-sh3); transform: translateY(12px) scale(0.98); transition: transform .25s cubic-bezier(0.25, 0.1, 0.25, 1); display: flex; flex-direction: column; overflow: hidden; }
+.group-detail-overlay.open .group-detail-panel { transform: none; }
+.group-detail-header { display: flex; align-items: center; gap: 12px; padding: 16px 20px; border-bottom: 1px solid var(--sb2-border); }
+.group-detail-avatar { width: 48px; height: 48px; border-radius: 14px; display: flex; align-items: center; justify-content: center; font-size: 24px; flex-shrink: 0; }
 .group-detail-info { flex: 1; min-width: 0; }
-.group-detail-name { font-size: 18px; font-weight: 600; margin-bottom: 2px; }
-.group-detail-role { font-size: 13px; color: var(--text-secondary); margin-bottom: 4px; }
-.group-detail-status { font-size: 12px; display: flex; align-items: center; gap: 4px; color: var(--text-secondary); }
-.group-detail-close { width: 32px; height: 32px; border: none; background: transparent; cursor: pointer; display: flex; align-items: center; justify-content: center; border-radius: 8px; color: var(--text-secondary); }
-.group-detail-close:hover { background: var(--bg-secondary); }
-.group-detail-tabs { display: flex; padding: 0 20px; border-bottom: 0.5px solid var(--separator); }
-.group-detail-tab { flex: 1; padding: 12px 8px; border: none; background: transparent; cursor: pointer; font-size: 13px; color: var(--text-secondary); border-bottom: 2px solid transparent; transition: all 0.2s; }
-.group-detail-tab:hover { color: var(--text-primary); }
-.group-detail-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+.group-detail-name { font: 600 16px/1.3 "PingFang SC", sans-serif; color: var(--sb2-ink); margin-bottom: 2px; }
+.group-detail-role { font: 400 12px/1.4 "PingFang SC", sans-serif; color: var(--sb2-t3); margin-bottom: 2px; }
+.group-detail-status { font: 400 12px/1.4 "PingFang SC", sans-serif; display: flex; align-items: center; gap: 4px; color: var(--sb2-t3); }
+.group-detail-close { width: 32px; height: 32px; border: none; background: transparent; cursor: pointer; display: flex; align-items: center; justify-content: center; border-radius: var(--sb2-r-md); color: var(--sb2-t3); }
+.group-detail-close:hover { background: var(--sb2-s2); }
+.group-detail-tabs { display: flex; padding: 0 20px; border-bottom: 1px solid var(--sb2-border); }
+.group-detail-tab { flex: 1; padding: 10px 8px; border: none; background: transparent; cursor: pointer; font: 500 13px/1.4 "PingFang SC", sans-serif; color: var(--sb2-t3); border-bottom: 2px solid transparent; transition: all 0.2s; }
+.group-detail-tab:hover { color: var(--sb2-t1); }
+.group-detail-tab.active { color: var(--sb2-brand); border-bottom-color: var(--sb2-brand); }
 .group-detail-content { flex: 1; overflow-y: auto; padding: 16px 20px; }
 .group-tab-pane { display: none; }
 .group-tab-pane.active { display: block; }
 .group-member-list { display: flex; flex-direction: column; gap: 8px; }
-.group-member-item { display: flex; align-items: center; gap: 12px; padding: 10px 12px; background: var(--bg-secondary); border-radius: var(--radius-md); transition: all 0.2s; }
-.group-member-item:hover { background: var(--bg-tertiary); }
+.group-member-item { display: flex; align-items: center; gap: 12px; padding: 10px 12px; background: var(--sb2-s2); border: 1px solid var(--sb2-border); border-radius: var(--sb2-r-md); transition: all 0.2s; }
+.group-member-item:hover { border-color: var(--sb2-border-strong); }
 .group-member-avatar { width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 16px; flex-shrink: 0; overflow: hidden; }
 .group-member-info { flex: 1; min-width: 0; }
-.group-member-name { font-size: 14px; font-weight: 500; }
-.group-member-role { font-size: 12px; color: var(--text-secondary); }
-.group-member-remove { width: 28px; height: 28px; border-radius: 6px; background: transparent; border: none; cursor: pointer; color: var(--text-tertiary); display: flex; align-items: center; justify-content: center; transition: all 0.2s; opacity: 0; }
+.group-member-name { font: 500 14px/1.4 "PingFang SC", sans-serif; color: var(--sb2-ink); }
+.group-member-role { font: 400 12px/1.4 "PingFang SC", sans-serif; color: var(--sb2-t3); }
+.group-member-remove { width: 28px; height: 28px; border-radius: var(--sb2-r-sm); background: transparent; border: none; cursor: pointer; color: var(--sb2-t3); display: flex; align-items: center; justify-content: center; transition: all 0.2s; opacity: 0; }
 .group-member-item:hover .group-member-remove { opacity: 1; }
-.group-member-remove:hover { background: rgba(255, 59, 48, 0.1); color: #FF3B30; }
-.group-detail-actions { display: flex; gap: 12px; padding: 16px 20px; border-top: 0.5px solid var(--separator); }
+.group-member-remove:hover { background: var(--sb2-danger-soft); color: var(--sb2-danger); }
+.group-detail-actions { display: flex; gap: 12px; padding: 14px 20px; border-top: 1px solid var(--sb2-border); }
 .group-detail-actions .emp-action-btn { flex: 1; }
-.group-add-member-btn { display: flex; align-items: center; justify-content: center; gap: 6px; padding: 10px; background: var(--accent-light); color: var(--accent); border: 1.5px dashed var(--accent); border-radius: var(--radius-md); font-size: 13px; cursor: pointer; transition: all 0.2s; margin-bottom: 12px; }
-.group-add-member-btn:hover { background: var(--accent); color: white; }
+.group-add-member-btn { display: flex; align-items: center; justify-content: center; gap: 6px; padding: 10px; background: var(--sb2-brand-soft); color: var(--sb2-brand); border: 1.5px dashed var(--sb2-brand); border-radius: var(--sb2-r-md); font: 500 13px/1.4 "PingFang SC", sans-serif; cursor: pointer; transition: all 0.2s; margin-bottom: 12px; }
+.group-add-member-btn:hover { background: var(--sb2-brand); color: var(--sb2-on-brand); }
+/* 弹窗内 legacy 控件 sb2 化 (scoped 到本弹窗, 不动员工详情等其他页面同款) */
+.group-detail-panel .emp-action-btn { border-radius: var(--sb2-r-md); border: 1px solid var(--sb2-border); background: var(--sb2-s2); color: var(--sb2-t1); font: 500 13px/1.4 "PingFang SC",sans-serif; }
+.group-detail-panel .emp-action-btn.primary { background: var(--sb2-brand); border-color: var(--sb2-brand); color: var(--sb2-on-brand); }
+.group-detail-panel .form-label { color: var(--sb2-t2); font: 500 12px/1.4 "PingFang SC",sans-serif; }
+.group-detail-panel .form-input { background: var(--sb2-s2); border: 1px solid var(--sb2-border); border-radius: var(--sb2-r-md); color: var(--sb2-t1); }
 
 /* ===== 添加成员弹窗 ===== */
 .member-modal { background: var(--bg-primary,#ffffff); border-radius: 16px; box-shadow: 0 20px 60px rgba(0,0,0,0.15); width: 90%; max-width: 400px; overflow: hidden; }
@@ -13571,12 +13576,8 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
   font:400 13px/1.5 "PingFang SC",sans-serif;
 }
 /* ============ 群聊模式顶栏 (2026-10-08 重新设计, sb2 原生) ============
- * - .sb2-group-mode 切顶栏: 私聊信息块隐, 群信息块显; 员工档案/选择模型隐, 群详情显
- * - 成员头像栈 + 群emoji渐变方块, 全部 --sb2-* token, 0 硬编码颜色 */
-.sb2-chat-shell.sb2-group-mode #sb2ChatTopbarInfo{ display:none; }
-.sb2-chat-shell.sb2-group-mode #sb2ChatTopbarProfile,
-.sb2-chat-shell.sb2-group-mode #sb2ChatTopbarSettings{ display:none; }
-.sb2-chat-shell.sb2-group-mode #sb2GroupTopbarDetail{ display:inline-flex; }
+ * - 独立 #sb2GroupChatMain (批注①: 不占私聊面板), composer 物理搬入, 成员头像栈
+ * - 全部 --sb2-* token, 0 硬编码颜色 */
 #sb2GroupTopbarAvatar{ border-radius:10px; font-size:18px; background:var(--sb2-s2); }
 .sb2-group-topbar-members{ display:flex; align-items:center; margin-left:8px; }
 .sb2-group-topbar-members .mini-avatar{
@@ -13587,7 +13588,7 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
 .sb2-group-topbar-members .mini-avatar:first-child{ margin-left:0; }
 .sb2-group-topbar-members .mini-more{ background:var(--sb2-s2); color:var(--sb2-t3); }
 /* 群聊消息行: AI 名签 (复用 .sb2-chat-msg-meta), 头像底色跟随成员 */
-.sb2-chat-shell.sb2-group-mode .sb2-chat-msg-avatar.assistant{ font-size:12px; }
+#sb2GroupChatMain .sb2-chat-msg-avatar.assistant{ font-size:12px; }
 #sb2GroupAnnouncementBar{
   display:flex; align-items:center; gap:8px;
   padding:8px 16px; font:400 12px/1.5 "PingFang SC",sans-serif;
@@ -16681,22 +16682,12 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
         </div>
       </div>
     </div>
-    <!-- ★ 群聊模式顶栏 (2026-10-08 重新设计): sb2 原生群聊信息, 切群时切换显隐 (JS 控制) -->
-    <div class="sb2-chat-topbar-info" id="sb2GroupTopbarInfo" hidden>
-      <span class="sb2-chat-topbar-avatar" id="sb2GroupTopbarAvatar">👥</span>
-      <div class="sb2-chat-topbar-meta">
-        <div class="sb2-chat-topbar-name" id="sb2GroupTopbarName">-</div>
-        <div class="sb2-chat-topbar-status"><span id="sb2GroupTopbarSub">群聊</span></div>
-      </div>
-      <div class="sb2-group-topbar-members" id="sb2GroupTopbarMembers"></div>
-    </div>
     <div class="sb2-chat-topbar-right">
       <!-- 〔dash/credit-checkin 2026-10-08 派单 B〕积分余额芯片: loadChatCredits 灌数据 (inline-03 _renderChatCredits 双写), 点击跳积分仪表盘 -->
       <button class="sb2-chat-topbar-ghost sb2-chat-topbar-credits" type="button" id="sb2ChatTopbarCredits" title="积分余额, 点击打开积分仪表盘" onclick="sb2JumpToCreditDashboard()" style="display:none;">
         <i class=sb2-ico-gem></i> <span id="sb2ChatTopbarCreditsNum">-</span>
       </button>
       <button class="sb2-chat-topbar-ghost" type="button" id="sb2ChatTopbarProfile" title="员工档案" onclick="sb2_openEmpProfile()">员工档案</button>
-      <button class="sb2-chat-topbar-ghost" type="button" id="sb2GroupTopbarDetail" title="查看/编辑群组" style="display:none;">群详情</button>
       <button class="sb2-chat-topbar-ghost" type="button" id="sb2ChatTopbarSettings" title="点击切换模型 (请求级)" onclick="sb2_openModelPicker()" data-default-text="选择模型">选择模型</button>
       <!-- ★ r73 反馈 Comment 1 老大 17:44「不要设置这两个字, 改成当前模型的名字, 点开改成弹窗」:
         — r71 反向修法恢复了「设置」按钮; r73 老大再走查: 不要「设置」字, 改成 modelName + 弹窗
@@ -16708,12 +16699,6 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
         — 状态行 sb2ChatPickModel 仍是 model name 反馈 (id 共用不影响, 删 button 后 fallback 到 span) -->
     </div>
   </header>
-
-  <!-- ★ 群聊模式公告栏 (2026-10-08 重新设计): slim 条, 群公告真数据, 无公告整条隐藏 -->
-  <div id="sb2GroupAnnouncementBar" hidden>
-    <span class="sb2-group-ann-icon">📢</span>
-    <span class="sb2-group-ann-text" id="sb2GroupAnnouncementText"></span>
-  </div>
 
   <!-- 流式进度条 (顶部, 仅在 AI 生成时显示) -->
   <div class="sb2-chat-progress" id="sb2ChatProgress" hidden>
@@ -16780,6 +16765,39 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
       <div class="sb2-model-picker-list" id="sb2ModelPickerList"></div>
     </div>
   </div>
+</main>
+
+<!-- ★ 2026-10-08 批注①: 群聊独立聊天界面 — 不占 AI 办公室私聊面板 (#sb2ChatMain 保持纯私聊)
+     结构照抄 sb2ChatMain (同 .sb2-chat-shell, 绝对定位同位, hidden 互斥)
+     composer (输入框/工具钮/发送) 不克隆: 群模式下把整个 .sb2-chat-input-wrap 物理搬进来,
+     id 全不动 → inline-11 的 @/表情/命令/附件逻辑零改动继续工作, 退出再搬回 -->
+<main id="sb2GroupChatMain" class="sb2-chat-shell" hidden>
+  <!-- 群顶栏: emoji 渐变方块 + 群名 + 成员数 + 头像栈 + 群详情 -->
+  <header class="sb2-chat-topbar">
+    <div class="sb2-chat-topbar-info">
+      <span class="sb2-chat-topbar-avatar" id="sb2GroupTopbarAvatar">👥</span>
+      <div class="sb2-chat-topbar-meta">
+        <div class="sb2-chat-topbar-name" id="sb2GroupTopbarName">-</div>
+        <div class="sb2-chat-topbar-status"><span id="sb2GroupTopbarSub">群聊</span></div>
+      </div>
+      <div class="sb2-group-topbar-members" id="sb2GroupTopbarMembers"></div>
+    </div>
+    <div class="sb2-chat-topbar-right">
+      <button class="sb2-chat-topbar-ghost" type="button" id="sb2GroupTopbarDetail" title="查看/编辑群组">群详情</button>
+    </div>
+  </header>
+
+  <!-- slim 群公告栏: 真数据, 无公告整条隐藏 -->
+  <div id="sb2GroupAnnouncementBar" hidden>
+    <span class="sb2-group-ann-icon">📢</span>
+    <span class="sb2-group-ann-text" id="sb2GroupAnnouncementText"></span>
+  </div>
+
+  <!-- 群消息流 (镜像 legacy #messagesArea, sb2 气泡) -->
+  <div class="sb2-chat-messages" id="sb2GroupMessages"></div>
+
+  <!-- composer 插槽: 群模式下 .sb2-chat-input-wrap 搬入此处 -->
+  <div id="sb2GroupComposerSlot"></div>
 </main>
 
 <!-- Chat Area (feat/sb2-chat: 老 DOM 隐藏兜底, 由 #sb2ChatMain 替代, JS 函数 100% 不动) -->
@@ -19164,7 +19182,7 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
      - 旧 chatArea + 老 JS 函数 100% 不动, 新 sb2 完全独立
      - _sb2Chat state + renderChatMain dispatcher
 -->
-<script src="js/inline-10.js?v=groupredesign1b20261008"></script>
+<script src="js/inline-10.js?v=groupsplit1b20261008"></script>
 
 <!-- ★ feat/sb2-chat-tasks: §2 聊天进阶 JS (slash 命令 + @mention + 模型选择)
      - 复用 §1 的 _sb2Chat state + sb2_doSend + renderChatMain dispatcher

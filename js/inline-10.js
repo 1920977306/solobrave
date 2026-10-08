@@ -663,21 +663,27 @@
   function renderChatMain() {
     var shell = document.getElementById('sb2ChatMain');
     if (!shell) return;
+    var groupMain = document.getElementById('sb2GroupChatMain');
     // 1. 显隐切换
     if (typeof currentModule !== 'undefined' && currentModule === 'messages') {
-      shell.hidden = false;
-      // ★ 群聊模式 (2026-10-08 重新设计): sb2 原生群聊面板
-      //   顶栏切群信息块, 消息经 MutationObserver 从 legacy #messagesArea 镜像成 sb2 气泡
+      // ★ 群聊模式 (2026-10-08 批注①): 独立群聊界面 #sb2GroupChatMain
+      //   不占私聊面板 — #sb2ChatMain 保持纯私聊, 两壳 hidden 互斥, 双顶栏并存 bug 从根上消失
+      //   数据: 消息经 MutationObserver 从 legacy #messagesArea 镜像成 sb2 气泡
       //   (legacy 群聊管线 OpenClaw 流式全保留, 只换视觉; #chatArea 保持 hidden 不显示旧设计)
       if (window._sb2GroupMode) {
-        shell.classList.add('sb2-group-mode');
+        shell.hidden = true;
+        if (groupMain) groupMain.hidden = false;
+        _sb2GroupComposerMove(true);
         try { sb2RenderGroupShell(); } catch (e) { console.error('[sb2 group shell]', e); }
         try { sb2GroupMirrorAll(); } catch (e) { console.error('[sb2 group mirror]', e); }
         return;
       }
-      shell.classList.remove('sb2-group-mode');
+      if (groupMain) groupMain.hidden = true;
+      _sb2GroupComposerMove(false);
+      shell.hidden = false;
     } else {
       shell.hidden = true;
+      if (groupMain) groupMain.hidden = true;
       return;
     }
     // 2. 同步当前员工
@@ -808,7 +814,7 @@
       }
       return;
     }
-    var info = document.getElementById('sb2GroupTopbarInfo');
+    var info = document.getElementById('sb2GroupChatMain');
     if (info) info.hidden = false;
     var av = document.getElementById('sb2GroupTopbarAvatar');
     if (av) {
@@ -833,7 +839,6 @@
     }
     var detailBtn = document.getElementById('sb2GroupTopbarDetail');
     if (detailBtn) {
-      detailBtn.style.display = '';  // 元素自带 inline display:none, CSS 规则盖不过, 这里显式放开
       detailBtn.onclick = function () {
         try { if (typeof openGroupDetail === 'function') openGroupDetail(groupId); } catch (e) {}
       };
@@ -896,10 +901,15 @@
       + '</div></div>';
   }
 
+  // 群消息容器: 独立群聊界面的 #sb2GroupMessages
+  function _sb2GroupMsgContainer() {
+    return document.getElementById('sb2GroupMessages');
+  }
+
   // 全量镜像 (进入/切回时): 清空 sb2 消息区, 逐节点重建
   function sb2GroupMirrorAll() {
     var area = document.getElementById('messagesArea');
-    var container = document.getElementById('sb2ChatMessages');
+    var container = _sb2GroupMsgContainer();
     if (!area || !container) return;
     container.innerHTML = '';
     _sb2GroupNodeMap = [];
@@ -930,7 +940,7 @@
     if (!area || _sb2GroupObs) return;
     _sb2GroupObs = new MutationObserver(function (muts) {
       if (!window._sb2GroupMode) return;
-      var container = document.getElementById('sb2ChatMessages');
+      var container = _sb2GroupMsgContainer();
       if (!container) return;
       muts.forEach(function (mu) {
         // 删除: 移除对应 sb2 行 (typing 占位移除等)
@@ -979,6 +989,29 @@
     _sb2GroupNodeMap = [];
   }
 
+  // composer 搬运 (批注①核心): 群模式把 #sb2ChatMain 里的 .sb2-chat-input-wrap 搬进独立群界面
+  // id 全不动 → inline-11 的 @/表情/命令/附件/模型弹窗逻辑零改动; 退出搬回, 私聊面板原样
+  var _sb2ComposerHome = null;  // {parent, next} 记录原位
+  function _sb2GroupComposerMove(toGroup) {
+    // 全局查找: 群模式下 composer 已不在 #sb2ChatMain 内, 按作用域查会找不到导致搬不回
+    var wrap = document.querySelector('#sb2GroupComposerSlot .sb2-chat-input-wrap') ||
+               document.querySelector('#sb2ChatMain .sb2-chat-input-wrap');
+    if (!wrap) return;
+    if (toGroup) {
+      var slot = document.getElementById('sb2GroupComposerSlot');
+      if (!slot || wrap.parentNode === slot) return;
+      _sb2ComposerHome = { parent: wrap.parentNode, next: wrap.nextSibling };
+      slot.appendChild(wrap);
+    } else {
+      if (!_sb2ComposerHome) return;
+      var home = _sb2ComposerHome;
+      _sb2ComposerHome = null;
+      if (wrap.parentNode === home.parent) return;  // 已在原位
+      if (home.next && home.next.parentNode === home.parent) home.parent.insertBefore(wrap, home.next);
+      else home.parent.appendChild(wrap);
+    }
+  }
+
   function sb2EnterGroupChat(groupId) {
     try { if (typeof switchModule === 'function') switchModule('messages'); } catch (e) {}
     window._sb2GroupMode = groupId || true;
@@ -997,16 +1030,13 @@
     window._sb2GroupMode = null;
     try {
       _sb2GroupObserverStop();
-      var shell = document.getElementById('sb2ChatMain');
-      if (shell) shell.classList.remove('sb2-group-mode');
-      var info = document.getElementById('sb2GroupTopbarInfo');
-      if (info) info.hidden = true;
-      var detailBtn = document.getElementById('sb2GroupTopbarDetail');
-      if (detailBtn) detailBtn.style.display = 'none';
+      var groupMain = document.getElementById('sb2GroupChatMain');
+      if (groupMain) groupMain.hidden = true;
       var annBar = document.getElementById('sb2GroupAnnouncementBar');
       if (annBar) annBar.hidden = true;
       var inp = document.getElementById('sb2ChatInput');
       if (inp) inp.placeholder = '给员工派活…';
+      _sb2GroupComposerMove(false);
       if (typeof currentModule !== 'undefined' && currentModule === 'messages') renderChatMain();
     } catch (e) { /* 守卫 */ }
   }
