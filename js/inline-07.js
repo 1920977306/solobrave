@@ -1575,6 +1575,25 @@ function sb2SettingsOpenCategory(id){
   document.getElementById('sb2SettingsLegacyTitle').textContent = titleEl ? titleEl.textContent : '设置';
   document.getElementById('sb2SettingsLegacyActions').innerHTML = actsEl ? actsEl.innerHTML : '';
   area.style.display = '';
+  /* 镜像后二次触发分类数据加载 (真机实测补):
+     renderSettingsRight 内已触发过一发, 但部分 loader (loadNotificationSwitches /
+     renderNotificationHistory 等) 函数第一行同步 getElementById 捕获元素引用 ——
+     那一刻可见副本还是上一个分类的旧内容, ID 不存在 → 命中隐藏旧容器, 可见副本空。
+     镜像完成后再触发一次: 此时按文档序先命中可见副本 → 数据落可见区。全部只读 GET, 幂等。 */
+  try {
+    if (id === 'compute' && typeof loadComputeStats === 'function') loadComputeStats();
+    if (id === 'notification') {
+      if (typeof loadNotificationSwitches === 'function') loadNotificationSwitches();
+      if (typeof renderNotificationHistory === 'function') renderNotificationHistory();
+    }
+    if (id === 'account' && typeof loadAccountSettings === 'function') loadAccountSettings();
+    if (id === 'permission' && typeof loadPermissionSettings === 'function') loadPermissionSettings();
+    if (id === 'forbidden' && typeof loadForbiddenWords === 'function') loadForbiddenWords();
+    if (id === 'users' && typeof loadUserList === 'function') loadUserList();
+    if (id === 'teams' && typeof loadTeamList === 'function') loadTeamList();
+    if (id === 'members' && typeof renderSettingsMemberList === 'function') renderSettingsMemberList();
+    if (id === 'feishu' && typeof loadFeishuConfig === 'function') loadFeishuConfig();
+  } catch(e){ console.warn('[settings-side] loader re-fire failed:', e); }
   area.scrollIntoView({behavior:'smooth', block:'start'});
   if (typeof window !== 'undefined') { window._sb2SettingsSideSel = id; }
   if (typeof window.renderSideFor === 'function') window.renderSideFor('settings');
