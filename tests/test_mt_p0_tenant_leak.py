@@ -130,10 +130,7 @@ def test_p0_1_memory_induction_routes_to_tenant_db(tokens, emp_b):
     marker = f'P0MARKER{run}'
     emp_id = emp_b
 
-    # 1. 租户 B 管理员建员工
-    _post(BASE, '/api/agents', {'id': emp_id, 'name': f'P0测试员工{run}'}, tokens['b'])
-
-    # 2. 种 4 条带 marker 的 auto 记忆（阈值 knowledge_induction_min=3）
+    # 1. 种 4 条带 marker 的 auto 记忆（阈值 knowledge_induction_min=3）
     #    注意: 内容必须真实不同 —— ms3 add_memory 有相似去重，仅换序号的 4 条会被折叠成 1 条
     seed_values = [
         f'{marker} ACME 客户只接受凉鞋类目，佣金区间 18-22%',
