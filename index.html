@@ -17433,6 +17433,12 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
 </div>
 </div>
 </div>
+<!-- 〔emp-abilities 2026-10-08〕职能分配区: 岗位模板快捷选择 + 逐项勾选, 存 emp.abilities 跟员工走
+     (服务其加入的所有项目, 不锁死在单个项目)。渲染: inline-03 renderEmpAbilityEdit。 -->
+<div class="emp-doc-section" style="margin-top:12px;">
+  <div class="emp-doc-title"><i class=sb2-ico-briefcase></i> 职能</div>
+  <div id="empAbilityEdit"></div>
+</div>
 <!-- 〔r77 批注④ 老大 21:14「重要部分先展示,详细的点击查看」: 高级设置折叠区
      — 核心信息 (emp-info-list  above) 直接展示; 描述/紧急标记/Dreaming 收进折叠区, 默认收起 -->
 <div class="emp-adv-toggle" onclick="toggleEmpAdv()">
@@ -17499,31 +17505,12 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
 <div class="emp-sk-card">
   <div class="emp-sk-head">
     <div class="emp-sk-title">能力清单 <span class="emp-sk-hint">创建时分配的职能 · 每一项都必须精通</span></div>
-    <span class="badge-4-of-4">4 / 4 真实已实现</span>
+    <span class="badge-4-of-4" id="empAbilityBadge">4 / 4 项职能</span>
   </div>
   <div class="emp-sk-body">
-  <div class="ai-emp-ability-grid">
-    <div class="ai-emp-ability" onclick="onAbilityClick('vision')">
-      <div class="ai-emp-ability-head"><div class="ai-emp-ability-mark">入</div><div class="ai-emp-ability-name">截图录入</div></div>
-      <div class="ai-emp-ability-desc">上传一张达人主页截图,自动识别 + OCR + 写入知识库</div>
-      <div class="ai-emp-ability-prompt"><span class="ai-emp-ability-prompt-tag">试试</span>上传一张达人主页截图</div>
-    </div>
-    <div class="ai-emp-ability" onclick="onAbilityClick('match')">
-      <div class="ai-emp-ability-head"><div class="ai-emp-ability-mark">匹</div><div class="ai-emp-ability-name">达人-商品匹配分析</div></div>
-      <div class="ai-emp-ability-desc">6 维度(粉丝画像 / 历史 GPM / 客单价 / 品类契合 / 调性 / 履约)分析达人-商品匹配度</div>
-      <div class="ai-emp-ability-prompt"><span class="ai-emp-ability-prompt-tag">试试</span>分析小菜菜和「运动鞋」的匹配度</div>
-    </div>
-    <div class="ai-emp-ability" onclick="onAbilityClick('selection')">
-      <div class="ai-emp-ability-head"><div class="ai-emp-ability-mark">选</div><div class="ai-emp-ability-name">选品策略建议</div></div>
-      <div class="ai-emp-ability-desc">基于本周已合作达人的粉丝画像,推荐下一波选品(品类 + 价格带)</div>
-      <div class="ai-emp-ability-prompt"><span class="ai-emp-ability-prompt-tag">试试</span>基于本周已合作达人,推荐下一波选品</div>
-    </div>
-    <div class="ai-emp-ability" onclick="onAbilityClick('revalue')">
-      <div class="ai-emp-ability-head"><div class="ai-emp-ability-mark">评</div><div class="ai-emp-ability-name">合作价值重新评级</div></div>
-      <div class="ai-emp-ability-desc">基于最新数据(履约率 / 复购 / GMV)重评达人合作价值等级 A/B/C/D</div>
-      <div class="ai-emp-ability-prompt"><span class="ai-emp-ability-prompt-tag">试试</span>给搭配师W 重新评级</div>
-    </div>
-  </div>
+  <!-- 〔emp-abilities 2026-10-08〕能力卡改 JS 按员工已分配职能渲染 (#empAbilityGrid, inline-03 renderEmpAbilities),
+       未分配的职能不显示 — 不是他的本职。注册表 ABILITY_REGISTRY。 -->
+  <div class="ai-emp-ability-grid" id="empAbilityGrid"></div>
   </div>
 </div>
 <!-- 〔emp-skills-focus 2026-10-08 老大批注「AI 不需要万能, 但他必须会一开始给他的职能」〕
@@ -17949,7 +17936,7 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
 </div>
 </div>
 
-<script src="js/inline-03.js?v=empskills1a20261008"></script>
+<script src="js/inline-03.js?v=empabilities1a20261008"></script>
 
 <!-- Modal Styles -->
 <style>

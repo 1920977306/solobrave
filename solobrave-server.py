@@ -12486,7 +12486,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                          'openclawName', 'aiProvider',
                          'systemPrompt', 'department', 'customEndpoint',
                          'group', 'pinned', 'idDoc', 'soulDoc', 'toolsDoc', 'userDoc',
-                         'badge', 'createdBy', 'createdByName', 'description', 'tagline']
+                         'badge', 'createdBy', 'createdByName', 'description', 'tagline',
+                         'abilities']
             saved_keys = []
             for key in updatable:
                 if key in body:
@@ -12494,6 +12495,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                         agent[key] = _sanitize_role(body[key])
                     elif key == 'apiKey':
                         agent[key] = _sanitize_api_key(body[key])
+                    elif key == 'abilities':
+                        # 〔emp-abilities 2026-10-08〕职能数组: 只收字符串列表 (键值合法性由前端注册表把关)
+                        agent[key] = [str(x) for x in body[key]] if isinstance(body[key], list) else []
                     else:
                         agent[key] = body[key]
                     saved_keys.append(key)

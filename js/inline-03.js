@@ -10069,6 +10069,8 @@ function openEmpDetail(empId) {
   loadEmpWorkActivity(empId);
   loadEmpConnect(emp);
   loadEmpDreaming(empId);
+  /* 〔emp-abilities 2026-10-08〕职能跟员工走 (服务其加入的所有项目): 打开面板即渲染职能编辑区 */
+  if (typeof renderEmpAbilityEdit === 'function') renderEmpAbilityEdit(emp);
   switchEmpDetailTab('basic');
 }
 
@@ -10091,12 +10093,91 @@ function onEmpDetailShowPrompt() {
 }
 
 // 4 真实能力卡片点击:切到 messages + 打开聊天 + 预填 prompt
-var _ABILITY_PROMPTS = {
-  vision:    '上传一张达人主页截图,我帮你 OCR 识别 + 写入知识库',
-  match:     '分析小菜菜和「运动鞋」的匹配度',
-  selection: '基于本周已合作达人,推荐下一波选品(品类 + 价格带)',
-  revalue:   '给搭配师W 重新评级'
-};
+/* ============================================================
+ * 〔emp-abilities 2026-10-08 老大「可以的, 但我们的 AI 服务于很多项目」〕
+ * 职能注册表 + 岗位模板 + 员工档案 abilities 字段:
+ * — AI 不需要万能, 但必须会创建时分配给他的职能;
+ * — 职能存在员工档案上 (emp.abilities), 跟员工走, 不锁死在单个项目,
+ *   他加入的所有项目组都带同一套本职能力;
+ * — 老数据无 abilities 字段 → 兜底全职能 (行为与改造前一致)。
+ * ============================================================ */
+var ABILITY_REGISTRY = [
+  { key: 'vision',    mark: '入', name: '截图录入',         desc: '上传一张达人主页截图,自动识别 + OCR + 写入知识库',                       prompt: '上传一张达人主页截图,我帮你 OCR 识别 + 写入知识库' },
+  { key: 'match',     mark: '匹', name: '达人-商品匹配分析', desc: '6 维度(粉丝画像 / 历史 GPM / 客单价 / 品类契合 / 调性 / 履约)分析达人-商品匹配度', prompt: '分析小菜菜和「运动鞋」的匹配度' },
+  { key: 'selection', mark: '选', name: '选品策略建议',      desc: '基于本周已合作达人的粉丝画像,推荐下一波选品(品类 + 价格带)',              prompt: '基于本周已合作达人,推荐下一波选品(品类 + 价格带)' },
+  { key: 'revalue',   mark: '评', name: '合作价值重新评级',  desc: '基于最新数据(履约率 / 复购 / GMV)重评达人合作价值等级 A/B/C/D',            prompt: '给搭配师W 重新评级' }
+];
+var ABILITY_POSITION_TEMPLATES = [
+  { key: 'all',       name: '全能岗', abilities: ['vision', 'match', 'selection', 'revalue'] },
+  { key: 'merchant',  name: '招商岗', abilities: ['vision', 'match'] },
+  { key: 'operation', name: '运营岗', abilities: ['selection', 'revalue'] }
+];
+function getEmpAbilities(emp){
+  if (emp && Array.isArray(emp.abilities) && emp.abilities.length) return emp.abilities;
+  return ABILITY_REGISTRY.map(function (a) { return a.key; });
+}
+var _ABILITY_PROMPTS = {};
+ABILITY_REGISTRY.forEach(function (a) { _ABILITY_PROMPTS[a.key] = a.prompt; });
+
+/* 技能 tab: 按员工已分配职能渲染能力卡 (未分配的不显示 — 不是他的本职) */
+function renderEmpAbilities(emp){
+  var grid = document.getElementById('empAbilityGrid');
+  if (!grid) return;
+  var abilities = getEmpAbilities(emp);
+  grid.innerHTML = ABILITY_REGISTRY.filter(function (a) {
+    return abilities.indexOf(a.key) >= 0;
+  }).map(function (a) {
+    return '<div class="ai-emp-ability" onclick="onAbilityClick(\'' + escapeAttr(a.key) + '\')">'
+      + '<div class="ai-emp-ability-head"><div class="ai-emp-ability-mark">' + escapeHtml(a.mark) + '</div><div class="ai-emp-ability-name">' + escapeHtml(a.name) + '</div></div>'
+      + '<div class="ai-emp-ability-desc">' + escapeHtml(a.desc) + '</div>'
+      + '<div class="ai-emp-ability-prompt"><span class="ai-emp-ability-prompt-tag">试试</span>' + escapeHtml(a.prompt) + '</div>'
+      + '</div>';
+  }).join('') || '<div style="padding:16px;text-align:center;color:var(--text-tertiary);font-size:12px;">尚未分配职能 — 到「基础」页设置</div>';
+  var badge = document.getElementById('empAbilityBadge');
+  if (badge) badge.textContent = abilities.length + ' / ' + ABILITY_REGISTRY.length + ' 项职能';
+}
+
+/* 基础 tab 职能编辑区: 岗位模板快捷选择 + 逐项勾选 */
+function renderEmpAbilityEdit(emp){
+  var box = document.getElementById('empAbilityEdit');
+  if (!box) return;
+  var abilities = getEmpAbilities(emp);
+  var tmplChips = ABILITY_POSITION_TEMPLATES.map(function (t) {
+    var on = t.abilities.length === abilities.length && t.abilities.every(function (k) { return abilities.indexOf(k) >= 0; });
+    return '<button type="button" class="sb2-credit-chip" style="cursor:pointer;' + (on ? 'background:var(--accent);color:#fff;' : '') + '" onclick="applyAbilityTemplate(\'' + escapeAttr(t.key) + '\')">' + escapeHtml(t.name) + '</button>';
+  }).join('');
+  var checks = ABILITY_REGISTRY.map(function (a) {
+    var on = abilities.indexOf(a.key) >= 0;
+    return '<label style="display:flex;align-items:flex-start;gap:8px;padding:8px 10px;border:1px solid var(--separator);border-radius:8px;margin-bottom:6px;cursor:pointer;">'
+      + '<input type="checkbox" class="emp-ability-check" data-key="' + escapeAttr(a.key) + '"' + (on ? ' checked' : '') + ' style="margin-top:3px;">'
+      + '<span><div style="font-size:13px;font-weight:600;">' + escapeHtml(a.name) + '</div>'
+      + '<div style="font-size:11px;color:var(--text-secondary);margin-top:2px;">' + escapeHtml(a.desc) + '</div></span>'
+      + '</label>';
+  }).join('');
+  box.innerHTML = '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;">' + tmplChips + '</div>' + checks
+    + '<button class="emp-action-btn primary" onclick="saveEmpAbilities()" style="margin-top:6px;">保存职能</button>'
+    + '<div style="font-size:11px;color:var(--text-tertiary);margin-top:6px;">职能跟员工走 — 他加入的所有项目都用这套本职能力</div>';
+}
+function applyAbilityTemplate(tmplKey){
+  var t = ABILITY_POSITION_TEMPLATES.find(function (x) { return x.key === tmplKey; });
+  if (!t) return;
+  document.querySelectorAll('.emp-ability-check').forEach(function (cb) {
+    cb.checked = t.abilities.indexOf(cb.getAttribute('data-key')) >= 0;
+  });
+}
+function saveEmpAbilities(){
+  var emp = emps.find(function (e) { return e.id === currentEmpId; });
+  if (!emp) return;
+  var picked = [];
+  document.querySelectorAll('.emp-ability-check:checked').forEach(function (cb) {
+    picked.push(cb.getAttribute('data-key'));
+  });
+  if (!picked.length) { showToast('至少保留一项职能'); return; }
+  emp.abilities = picked;
+  saveEmployees(emp.id);
+  if (typeof renderEmpAbilities === 'function') renderEmpAbilities(emp);
+  showToast('✅ 职能已保存: ' + picked.length + ' 项');
+}
 function onAbilityClick(abilityKey) {
   if (!currentEmpId) return;
   var prompt = _ABILITY_PROMPTS[abilityKey] || '';
@@ -12269,9 +12350,13 @@ function switchEmpDetailTab(tab) {
   }
   // Update skills when switching to skills tab
   // 〔emp-skills-focus 2026-10-08〕loadOpenClawSkills 已删: AI 不需要万能, 技能 tab 只维护职能清单+自定义标签
+  // 〔emp-abilities 2026-10-08〕能力卡按当前员工已分配职能渲染
   if (tab === 'skills' && currentEmpId) {
     renderSkills();
     renderSkillPresets();
+    if (typeof renderEmpAbilities === 'function') {
+      renderEmpAbilities(emps.find(function (e) { return e.id === currentEmpId; }));
+    }
   }
   // Update memory when switching to memory tab
   if (tab === 'memory' && currentEmpId) {
