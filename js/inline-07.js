@@ -6811,7 +6811,7 @@ function renderCreditCheckin(d, t){
   var pct = d.limit > 0 ? Math.min(100, Math.round((d.balance || 0) / d.limit * 100)) : 0;
   var btn;
   if (d.already_checked_in) {
-    btn = '<button type="button" class="sb2-credit-checkin-btn done" disabled><i class=sb2-ico-check></i> 已签到 +' + (d.reward || 10) + '</button>';
+    btn = '<button type="button" class="sb2-credit-checkin-btn done" disabled><i class=sb2-ico-check></i> 已签到</button>';
   } else if ((d.remaining_to_limit || 0) <= 0) {
     btn = '<button type="button" class="sb2-credit-checkin-btn done" disabled>已达上限</button>';
   } else {

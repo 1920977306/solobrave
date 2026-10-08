@@ -16460,7 +16460,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             return
         conn = _db_conn()
         try:
-            result = _checkin_credits(conn, agent_id)
+            # 〔r84 批注〕owner 级幂等: 客户任一员工当天签过即拒, 钱仍落本次指定员工钱包
+            result = _checkin_credits(conn, agent_id, owner_agents=_get_checkin_owner_agent_ids(auth))
             conn.commit()
             # 已签到返回 200 + already_checked_in=True (前端按钮灰态用, 不是错误)
             # 上限 cap 返回 200 + capped=True (前端提示「已上限」, 不是错误)
@@ -16541,7 +16542,12 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 "SELECT id FROM credit_usage_log WHERE agent_id = ? AND reason = 'checkin' AND created_at LIKE ? LIMIT 1",
                 (agent_id, today + '%')
             ).fetchone()
+            # 〔r84 批注〕owner 口径: 本员工未签但客户其他员工今天签过 → 同样算已签
             already_checked_in = bool(already)
+            if not already_checked_in:
+                _owner_mark = _owner_checkin_today(conn, _get_checkin_owner_agent_ids(auth), today)
+                if _owner_mark is not None:
+                    already_checked_in = True
             reward = DEFAULT_CHECKIN_REWARD
             limit = DEFAULT_CREDIT_LIMIT
             remaining_to_limit = max(0, limit - balance)
@@ -29463,7 +29469,30 @@ def _resolve_credit_target_agent(auth, requested=''):
         return next(iter(accessible)), ''
     return '', '有多个可访问员工, 请指定 agent_id'
 
-def _checkin_credits(conn, agent_id, reward=DEFAULT_CHECKIN_REWARD, limit=DEFAULT_CREDIT_LIMIT):
+def _get_checkin_owner_agent_ids(auth):
+    """签到 owner 口径 (r84 批注 2026-10-09 老大「已经签到了，怎么还显示签到」):
+    「今天是否已签到」按客户(登录人)判定, 不按单个员工 — 客户任一员工签过即算签过。
+    非 admin = 可访问员工全集;
+    admin (accessible=None 本是全局含义) = 本租户全体员工 — 单租户部署下即「每人每天一次签到」。
+    """
+    accessible = _get_accessible_agent_ids(auth)
+    if accessible is not None:
+        return set(accessible)
+    return set(a.get('id') for a in _load_agents() if a.get('id'))
+
+
+def _owner_checkin_today(conn, owner_ids, today):
+    """owner 员工集里今天是否已有 checkin 记录 (空集返回 None 表示无法判定)"""
+    if not owner_ids:
+        return None
+    marks = ','.join('?' for _ in owner_ids)
+    return conn.execute(
+        f"SELECT id FROM credit_usage_log WHERE agent_id IN ({marks}) AND reason = 'checkin' AND created_at LIKE ? LIMIT 1",
+        (*owner_ids, today + '%')
+    ).fetchone()
+
+
+def _checkin_credits(conn, agent_id, reward=DEFAULT_CHECKIN_REWARD, limit=DEFAULT_CREDIT_LIMIT, owner_agents=None):
     """每日签到 (客户主体, 幂等: agent_id + 当天日期唯一).
     返回 dict {ok, already_checked_in, balance, capped, reward, limit, delta}
     - already_checked_in=True → 当天已签到, 不重复加余额
@@ -29473,9 +29502,18 @@ def _checkin_credits(conn, agent_id, reward=DEFAULT_CHECKIN_REWARD, limit=DEFAUL
     ★ 派单更正 (贾维斯 02:03): 签到主体是客户 (user), 不是员工 (emp).
        DB 字段 agent_id 是历史命名, 本场景语义是 agent_id (客户账号).
        派单不要求改 schema, 沿用 agent_id 字段避免破坏既有 recharge 路径.
+
+    ★ r84 批注⑥: owner_agents 传入时, 客户任一员工当天签过即判已签 (owner 级幂等),
+       余额仍落本次指定员工的钱包 (消费计量同 keying 不变)。
     """
     _ensure_credit_account(conn, agent_id)
     today = datetime.now().strftime('%Y-%m-%d')
+    # owner 级幂等守卫: 客户任一员工当天已签 → 整户算签过 (优先于单员工守卫)
+    owner_already = _owner_checkin_today(conn, owner_agents, today)
+    if owner_already:
+        row = conn.execute('SELECT balance FROM credit_accounts WHERE agent_id = ?', (agent_id,)).fetchone()
+        return {'ok': False, 'already_checked_in': True, 'balance': row['balance'] if row else 0,
+                'capped': False, 'reward': reward, 'limit': limit, 'delta': 0}
     # 幂等守卫: 当天 reason='checkin' 已记录则拒绝重复
     already = conn.execute(
         "SELECT id FROM credit_usage_log WHERE agent_id = ? AND reason = 'checkin' AND created_at LIKE ? LIMIT 1",
