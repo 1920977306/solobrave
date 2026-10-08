@@ -883,6 +883,30 @@
         try { if (typeof openGroupDetail === 'function') openGroupDetail(groupId); } catch (e) {}
       };
     }
+    /* 〔discuss-btn 2026-10-08〕存量功能恢复③: 群 /讨论入口。
+       legacy initiateAgentDiscussion (inline-03:7048) 唯一调用点是 legacy 斜杠 /讨论,
+       sb2 群界面零入口。这里挂到群顶栏, 全流程走 legacy 管线:
+       typing/回复/链式@ 全渲染进 hidden #messagesArea → MutationObserver 镜像 sb2 气泡。
+       运行期禁用防连点; currentGroupId 由 openGroupChat 在进群时同步设置。 */
+    var discussBtn = document.getElementById('sb2GroupTopbarDiscuss');
+    if (discussBtn) {
+      discussBtn.onclick = function () {
+        var gid = window._sb2GroupMode;
+        if (!gid || gid === true) return;
+        if (typeof initiateAgentDiscussion !== 'function') return;
+        if (discussBtn.disabled) return;
+        discussBtn.disabled = true;
+        var _origText = discussBtn.textContent;
+        discussBtn.textContent = '讨论中…';
+        var _restore = function () {
+          discussBtn.disabled = false;
+          discussBtn.textContent = _origText;
+        };
+        try {
+          Promise.resolve(initiateAgentDiscussion(gid)).then(_restore, _restore);
+        } catch (e) { _restore(); }
+      };
+    }
     // slim 公告栏: 真数据, 无公告整条隐藏
     var annBar = document.getElementById('sb2GroupAnnouncementBar');
     var annText = document.getElementById('sb2GroupAnnouncementText');

@@ -16961,6 +16961,7 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
       <div class="sb2-group-topbar-members" id="sb2GroupTopbarMembers"></div>
     </div>
     <div class="sb2-chat-topbar-right">
+      <button class="sb2-chat-topbar-ghost" type="button" id="sb2GroupTopbarDiscuss" title="让 AI 成员主动发起一轮讨论">发起讨论</button>
       <button class="sb2-chat-topbar-ghost" type="button" id="sb2GroupTopbarDetail" title="查看/编辑群组">群详情</button>
     </div>
   </header>
@@ -19211,7 +19212,7 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
      - 旧 chatArea + 老 JS 函数 100% 不动, 新 sb2 完全独立
      - _sb2Chat state + renderChatMain dispatcher
 -->
-<script src="js/inline-10.js?v=stopfix1b20261008"></script>
+<script src="js/inline-10.js?v=discuss1a20261008"></script>
 
 <!-- ★ feat/sb2-chat-tasks: §2 聊天进阶 JS (slash 命令 + @mention + 模型选择)
      - 复用 §1 的 _sb2Chat state + sb2_doSend + renderChatMain dispatcher
