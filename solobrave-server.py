@@ -28398,6 +28398,21 @@ def _call_ai_api(agent, user_message, user_info=None, include_history=True, grou
             f'  [AI-Override] {agent_id} 全局 chat 走 {api_provider}/{api_model or "<default>"}'
         )
 
+    # ★ 2026-10-08 派单 (老大 14:29 拍板): 员工私聊并入 KimiProxy 密钥池
+    #   provider=kimi/kimicode 的员工一律走池 (池内优先员工自带 key, 空 key 用池 key),
+    #   与群聊/OpenClaw 共用 ProviderChain 降级 (kimi→MiniMax), 积分硬停+扣费记员工钱包。
+    #   守卫: 全局 env override 生效时不抢; 自定义 endpoint 不抢; 图片消息跳过
+    #   (anthropic 图片块映射未做, 走原直连路径)。
+    if (agent_id and api_provider in ('kimi', 'kimicode') and not custom_endpoint
+            and not (_ai_ov_provider and _ai_ov_key)):
+        _has_imgs = any(isinstance(m.get('content'), list) for m in messages if isinstance(m, dict))
+        if not _has_imgs:
+            _pool_ok, _pool_text, _pool_err = _call_kimiproxy_chat(
+                agent_id, messages, model=api_model or None)
+            if _pool_ok:
+                return _wrap_reply(_pool_text)
+            logger.warning(f'  [ChatPool] {agent_id} 池内调用未成功 ({_pool_err}), 回落直连/settings')
+
     # 优先尝试 agent 自己的 provider 配置；如果失败，走 settings.json 多 provider 降级
     result = _call_chat_completion(api_provider, api_key, api_model, custom_endpoint, messages, timeout=PROXY_TIMEOUT)
     if result is None and not custom_endpoint:
@@ -32204,6 +32219,99 @@ def _make_kimi_400_repair(agent_id, log_prefix='KimiProxy'):
         return new_body
 
     return _repair
+
+
+def _call_kimiproxy_chat(agent_id, messages, model=None, max_tokens=None):
+    """员工私聊并入 KimiProxy 密钥池 (2026-10-08 派单, 老大 14:29 拍板)。
+
+    供 _call_ai_api (私聊 inline / 聊天摘要) 内部调用: 与 OpenClaw/群聊共用同一条
+    密钥池 + ProviderChain 降级链 (kimi→MiniMax), 积分硬停/扣费记员工钱包
+    (agent_id 显式传递, 禁止回落 main)。request_format=anthropic 非流式,
+    write_head/write_chunk 只收集不发送, 从规范化响应里取文本。
+
+    返回 (ok, text, error):
+      - ok=True:  text=模型回复纯文本 (积分已扣)
+      - ok=False: error=用户可读的失败原因 (积分不足/key池空/上游错误, 不静默)"""
+    if not agent_id:
+        return False, '', '缺少 agent_id'
+
+    # 0. 积分硬停前置 (与 ChatPOST line ~21512 同口径; Ray 余额 0 就该 429)
+    _balance, _has = _check_credit_balance(agent_id)
+    if not _has:
+        return False, '', '积分不足，AI 服务已暂停。请联系管理员分配积分，或每日签到领取 +10 积分。'
+
+    # 1. key: 员工自带优先, 空则从池轮询 (与 _handle_proxy_kimi 步骤 2.5 同逻辑)
+    _key = _get_agent_api_key(agent_id) or KIMI_KEY_POOL.get_key()
+    if not _key:
+        return False, '', 'Kimi API Key 池暂时全部不可用，请稍后重试'
+
+    # 2. anthropic 请求体; system 顶层抽取/max_tokens 补齐由适配器 prepare_body 完成
+    body = {
+        'model': model or '',
+        'messages': messages,
+        'stream': False,
+    }
+    if max_tokens:
+        body['max_tokens'] = max_tokens
+
+    # 3. 收集响应 (非流式: 单次 JSON write)
+    _collected = {'head': None, 'chunks': []}
+    def _wh(status, content_type, extra):
+        _collected['head'] = (status, content_type)
+    def _wc(b):
+        if isinstance(b, (bytes, bytearray)):
+            _collected['chunks'].append(bytes(b))
+
+    result = _proxy_chain_forward(
+        body,
+        request_format='anthropic',
+        is_streaming=False,
+        write_head=_wh,
+        write_chunk=_wc,
+        target_path='/v1/messages',
+        primary_key=_key,
+        key_pool=KIMI_KEY_POOL,
+        repair_400=_make_kimi_400_repair(agent_id),
+        log_prefix='KimiProxy')
+
+    # 4. 积分扣减 (与 chain 段步骤 9 同: 成功才扣, 统一计一次)
+    usage = result.get('usage') or {}
+    _in, _out = usage.get('input_tokens', 0), usage.get('output_tokens', 0)
+    if result.get('ok') and (_in or _out):
+        conn = _db_conn()
+        try:
+            _record_credit_usage(conn, agent_id, _in, _out, 0)
+            conn.commit()
+        finally:
+            conn.close()
+
+    if not result.get('ok'):
+        # 从规范化错误 payload 里挖用户可读原因, 挖不到给引擎错误摘要
+        _err = result.get('error') or '上游调用失败'
+        try:
+            _payload = json.loads(b''.join(_collected['chunks']).decode('utf-8', errors='replace'))
+            _msg = ((_payload.get('error') or {}).get('message')) or ''
+            if _msg:
+                _err = _msg
+        except Exception:
+            pass
+        logger.warning(f'  [ChatPool] {agent_id} 池内调用失败: {_err}')
+        return False, '', _err
+
+    # 5. 成功: 从 anthropic 响应 JSON 提取纯文本
+    try:
+        _out_json = json.loads(b''.join(_collected['chunks']).decode('utf-8', errors='replace'))
+        _blocks = _out_json.get('content') or []
+        _text = ''.join(b.get('text', '') for b in _blocks
+                        if isinstance(b, dict) and b.get('type') == 'text')
+        if _text.strip():
+            logger.info(f'  [ChatPool] {agent_id} 池内调用成功 provider={result.get("provider")} '
+                        f'fallback_from={result.get("fallback_from")} in={_in} out={_out} text_len={len(_text)}')
+            return True, _text, ''
+        return False, '', '模型返回了空内容'
+    except Exception as _e:
+        logger.error(f'  [ChatPool] {agent_id} 响应解析失败: {_e}')
+        return False, '', '模型响应解析失败'
 
 
 def _handle_proxy_kimi_chain(self, body, agent_id, agent_api_key, path_suffix, _t_start, _timing):
