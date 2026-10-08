@@ -7854,6 +7854,17 @@ function renderSettingsRight() {
     html += '<button class="module-action-btn" onclick="syncFeishuProductsFromSettings()"><i class=sb2-ico-box></i> 同步商品</button>';
     html += '</div>';
     html += '</div>';
+    /* 〔feat/feishu-retry-ui 2026-10-09 老大「可以」〕租户飞书 Bot 绑定卡: 绑定时 agent 未注册会停在
+       verified, 这里看状态并一键重试路由 (POST /api/tenants/<id>/feishu-bind/retry), 不用重新输凭证。
+       仅平台超管可见 (GET /api/tenants 本身 403 守门)。绑定本身仍走 API, 本卡只做状态+重试。 */
+    if (typeof isAdmin === 'function' && isAdmin()) {
+      html += '<div class="settings-card">';
+      html += '<div class="settings-card-title">租户飞书 Bot 绑定（多租户 · 平台超管）</div>';
+      html += '<div class="settings-form-row"><label class="form-label">租户</label><select id="sb2TfcTenant" class="form-input" onchange="sb2TfcLoadStatus()"><option value="">加载租户列表…</option></select></div>';
+      html += '<div id="sb2TfcStatus" style="font-size:13px;color:var(--text-secondary);line-height:1.8;margin-top:8px;">选择租户后自动查询绑定状态</div>';
+      html += '<div id="sb2TfcActions" style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px;"></div>';
+      html += '</div>';
+    }
     html += '<div class="settings-card">';
     html += '<div class="settings-card-title">使用说明</div>';
     html += '<div style="font-size:13px;color:var(--text-secondary);line-height:1.8;">';
@@ -7874,7 +7885,7 @@ function renderSettingsRight() {
   if (_settingsSelectedCategory === 'users') loadUserList();
   if (_settingsSelectedCategory === 'teams') loadTeamList();
   if (_settingsSelectedCategory === 'members') renderSettingsMemberList();
-  if (_settingsSelectedCategory === 'feishu') loadFeishuConfig();
+  if (_settingsSelectedCategory === 'feishu') { loadFeishuConfig(); sb2TfcInit(); }
 }
 
 function loadFeishuConfig() {
@@ -7906,6 +7917,70 @@ function saveFeishuConfig() {
     .then(function(data) {
       if (data.success) { showToast('飞书配置已保存', 'success'); }
       else { showToast('保存失败: ' + (data.error || '未知错误'), 'error'); }
+    })
+    .catch(function(e) { showToast('网络错误: ' + e, 'error'); });
+}
+
+/* 〔feat/feishu-retry-ui 2026-10-09〕租户飞书 Bot 绑定卡逻辑 (平台超管):
+   状态轮 json: status unbound/pending/verified/failed/routed, appId/error/boundAt/routeAgentId。
+   绑定走 POST /api/tenants/<id>/feishu-bind (API), 本卡只读状态 + verified 时重试路由。 */
+function sb2TfcInit() {
+  var sel = document.getElementById('sb2TfcTenant');
+  if (!sel) return;
+  var token = localStorage.getItem('sb_auth_token');
+  fetch('/api/tenants', { headers: { 'Authorization': 'Bearer ' + token } })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      var list = (data && data.tenants) || [];
+      sel.innerHTML = list.length
+        ? list.map(function(t) { return '<option value="' + escapeHtml(t.id) + '">' + escapeHtml(t.name || t.id) + '</option>'; }).join('')
+        : '<option value="">（无租户）</option>';
+      if (list.length) sb2TfcLoadStatus();
+    })
+    .catch(function(e) {
+      sel.innerHTML = '<option value="">租户列表加载失败</option>';
+      console.error('sb2TfcInit failed:', e);
+    });
+}
+function sb2TfcLoadStatus() {
+  var sel = document.getElementById('sb2TfcTenant');
+  var stEl = document.getElementById('sb2TfcStatus');
+  var actEl = document.getElementById('sb2TfcActions');
+  if (!sel || !stEl || !actEl) return;
+  var tid = sel.value;
+  actEl.innerHTML = '';
+  if (!tid) { stEl.textContent = '选择租户后自动查询绑定状态'; return; }
+  stEl.textContent = '查询中…';
+  var token = localStorage.getItem('sb_auth_token');
+  fetch('/api/tenants/' + encodeURIComponent(tid) + '/feishu-bind', { headers: { 'Authorization': 'Bearer ' + token } })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      var statusMap = { unbound: '未绑定', pending: '验证中', verified: '已验证(路由未通)', failed: '验证失败', routed: '已路由' };
+      var lines = ['状态：' + (statusMap[d.status] || d.status)];
+      if (d.appId) lines.push('App ID：' + d.appId);
+      if (d.routeAgentId) lines.push('路由 Agent：' + d.routeAgentId);
+      if (d.boundAt) lines.push('绑定时间：' + d.boundAt);
+      if (d.error) lines.push('错误：' + d.error);
+      stEl.textContent = lines.join('　·　');
+      /* 老大批准的口径: 只有 verified (凭证已验但 agent 当时未注册) 才给重试按钮 */
+      if (d.status === 'verified') {
+        actEl.innerHTML = '<button class="module-action-btn primary" onclick="sb2TfcRetry()"><i class=sb2-ico-refresh></i> 重试路由</button>';
+      }
+    })
+    .catch(function(e) { stEl.textContent = '状态查询失败: ' + e; });
+}
+function sb2TfcRetry() {
+  var sel = document.getElementById('sb2TfcTenant');
+  if (!sel || !sel.value) return;
+  var token = localStorage.getItem('sb_auth_token');
+  fetch('/api/tenants/' + encodeURIComponent(sel.value) + '/feishu-bind/retry', {
+    method: 'POST', headers: { 'Authorization': 'Bearer ' + token }
+  })
+    .then(function(r) { return r.json().then(function(d) { return { ok: r.ok, d: d }; }); })
+    .then(function(res) {
+      if (res.ok && res.d.status === 'routed') { showToast('路由已接通 (routed)', 'success'); }
+      else { showToast('重试未通: ' + ((res.d && res.d.error) || 'HTTP 失败'), 'error'); }
+      sb2TfcLoadStatus();
     })
     .catch(function(e) { showToast('网络错误: ' + e, 'error'); });
 }
