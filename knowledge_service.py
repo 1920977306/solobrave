@@ -730,63 +730,10 @@ def init_db():
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
     conn = _db_conn()
     try:
-        # 主表（先创建基础结构）
-        # ★ 2026-10-08 归档改造：旧表已改名 knowledge_archive + view 承接旧名。
-        #   CREATE TABLE IF NOT EXISTS 遇同名 view 会 OperationalError，探测到 view 则整段跳过。
-        _legacy_is_view = conn.execute(
-            "SELECT 1 FROM sqlite_master WHERE name = 'knowledge' AND type = 'view'"
-        ).fetchone()
-        if not _legacy_is_view:
-            conn.execute('''
-            CREATE TABLE IF NOT EXISTS knowledge (
-                id TEXT PRIMARY KEY,
-                title TEXT NOT NULL,
-                content TEXT NOT NULL,
-                category TEXT DEFAULT '',
-                embedding TEXT,
-                created_at INTEGER,
-                updated_at INTEGER
-            )
-        ''')
-
-            # 兼容：给旧表添加新字段（必须先于索引创建）
-            _add_column_if_not_exists(conn, 'knowledge', 'emp_id', "TEXT DEFAULT ''")
-            _add_column_if_not_exists(conn, 'knowledge', 'status', "TEXT DEFAULT 'ok'")
-            _add_column_if_not_exists(conn, 'knowledge', 'chunk_count', "INTEGER DEFAULT 0")
-            _add_column_if_not_exists(conn, 'knowledge', 'scope', "TEXT DEFAULT 'global'")
-            _add_column_if_not_exists(conn, 'knowledge', 'team_id', "TEXT DEFAULT ''")
-            # FIXME: 项目组维度改造：新增 group_ids 字段（JSON 数组字符串，支持一条知识属于多个项目组）
-            _add_column_if_not_exists(conn, 'knowledge', 'group_ids', "TEXT DEFAULT '[]'")
-
-            # 创建索引
-            conn.execute('CREATE INDEX IF NOT EXISTS idx_knowledge_emp ON knowledge(emp_id)')
-            conn.execute('CREATE INDEX IF NOT EXISTS idx_knowledge_category ON knowledge(category)')
-            conn.execute('CREATE INDEX IF NOT EXISTS idx_knowledge_status ON knowledge(status)')
-            conn.execute('CREATE INDEX IF NOT EXISTS idx_knowledge_created ON knowledge(created_at)')
-            conn.execute('CREATE INDEX IF NOT EXISTS idx_knowledge_scope ON knowledge(scope)')
-            conn.execute('CREATE INDEX IF NOT EXISTS idx_knowledge_team_id ON knowledge(team_id)')
-
-            # 分段表
-            # dev/feat: knowledge_chunks 修复 — knowledge_id 加 FOREIGN KEY ON DELETE CASCADE
-            # 防止 knowledge 删除时遗留 orphan chunks (历史 122 orphan 已清理).
-            conn.execute('''
-            CREATE TABLE IF NOT EXISTS knowledge_chunks (
-                id TEXT PRIMARY KEY,
-                knowledge_id TEXT NOT NULL REFERENCES knowledge(id) ON DELETE CASCADE,
-                emp_id TEXT NOT NULL,
-                chunk_index INTEGER,
-                content TEXT NOT NULL,
-                embedding BLOB,
-                embedding_model TEXT DEFAULT '',
-                created_at INTEGER
-            )
-        ''')
-            conn.execute('CREATE INDEX IF NOT EXISTS idx_chunks_kid ON knowledge_chunks(knowledge_id)')
-            conn.execute('CREATE INDEX IF NOT EXISTS idx_chunks_emp ON knowledge_chunks(emp_id)')
-
-            # 兼容：给旧 chunks 表添加 embedding_model 字段
-            _add_column_if_not_exists(conn, 'knowledge_chunks', 'embedding_model', "TEXT DEFAULT ''")
-            conn.execute('CREATE INDEX IF NOT EXISTS idx_chunks_model ON knowledge_chunks(embedding_model)')
+        # 〔no-legacy-ddl 2026-10-09〕旧表 knowledge/knowledge_chunks 已彻底退出:
+        #   数据已全量迁移 kb_entries/kb_entry_chunks, archive 表+视图已 DROP。
+        #   init_db 不再建旧表 —— 之前靠「探测到同名 view 则跳过」的守卫
+        #   在视图 DROP 后会重新建出空旧表, 这里整段摘除。
 
         # embedding 缓存表
         conn.execute('''
