@@ -10,6 +10,7 @@
     messages: [],             // 历史消息列表 (从后端 /api/chat/:agentId 读)
     attached: [],             // 附件 (dataURL 数组, base64)
     sending: false,           // 发送中 flag
+    abortCtrl: null,          // 〔stop-cmd 2026-10-08〕发送中的 AbortController (/stop 命令用)
     wsConnected: false,       // OpenClaw 网关连接状态 (顶部状态)
     watchedUntil: 0,          // sb2_watchModule 最多轮询 5 秒
   };
@@ -530,9 +531,12 @@
     var placeholderEl = document.querySelector('#sb2ChatMessages .sb2-chat-bubble[data-role="assistant"]:last-child .sb2-chat-bubble-body');
 
     // 3. POST
+    // 〔stop-cmd 2026-10-08〕/stop 真中止: AbortController signal 透传 apiFetch (options 展开进 fetch)
+    _sb2Chat.abortCtrl = new AbortController();
     try {
       var resp = await apiFetch('/api/chat/' + encodeURIComponent(_sb2Chat.agentId) + '?type=personal', {
         method: 'POST',
+        signal: _sb2Chat.abortCtrl.signal,
         body: JSON.stringify({
           content: text || '',
           role: 'user',
@@ -602,14 +606,31 @@
         if (typeof window.sb2PropMountCards === 'function') window.sb2PropMountCards(_mc);
       }
     } catch (e) {
-      console.error('[sb2_doSend]', e);
-      sb2_failBubble(placeholderEl);
+      if (e && e.name === 'AbortError') {
+        // 〔stop-cmd 2026-10-08〕/stop 中止: 占位气泡标「已停止」——不算失败, 不出重试钮
+        if (placeholderEl) {
+          placeholderEl.textContent = '⏹ 已停止生成';
+          placeholderEl.classList.remove('sb2-chat-bubble-cursor');
+        }
+      } else {
+        console.error('[sb2_doSend]', e);
+        sb2_failBubble(placeholderEl);
+      }
     } finally {
       _sb2Chat.sending = false;
+      _sb2Chat.abortCtrl = null;
       if (progress) progress.hidden = true;
       sendBtn.disabled = inp.value.trim().length === 0;
     }
   }
+
+  /* 〔stop-cmd 2026-10-08〕/stop 命令真中止入口 (inline-11 slash 调):
+     只对私聊 POST 生效; 群聊走 legacy OpenClaw 流式管线, 不在本中止范围。 */
+  window.sb2_stopGeneration = function () {
+    if (!_sb2Chat.sending || !_sb2Chat.abortCtrl) return false;
+    try { _sb2Chat.abortCtrl.abort(); } catch (e) { /* noop */ }
+    return true;
+  };
 
   /* 〔chat-opt-4 2026-10-08〕空对话快捷 prompt: 点击 chip → 预填输入框 + 聚焦 (不直接发送, 可改) */
   function sb2QuickPrompt(text) {

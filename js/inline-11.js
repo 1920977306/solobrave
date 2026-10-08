@@ -14,6 +14,7 @@
       cmds: [
         { cmd: 'help',      desc: '列出所有可用命令' },
         { cmd: 'clear',     desc: '清空当前对话' },
+        { cmd: 'stop',      desc: '停止生成 (中断当前回复)' },
         { cmd: 'model',     desc: '切换模型 (请求级)' },
         { cmd: 'summarize', desc: '压缩历史 (调用记忆池)' },
         { cmd: 'export',    desc: '导出当前对话为 JSON' },
@@ -246,6 +247,12 @@
         } catch (e) {
           _showToast('导出失败: ' + (e && e.message), true);
         }
+        break;
+      }
+      case 'stop': {
+        // 〔stop-cmd 2026-10-08〕真中止: AbortController 断掉进行中的私聊 POST (inline-10 window.sb2_stopGeneration)
+        var stopped = (typeof window.sb2_stopGeneration === 'function') ? window.sb2_stopGeneration() : false;
+        _showToast(stopped ? '⏹ 已停止生成' : '当前没有生成中的回复', !stopped);
         break;
       }
       case 'forbidden': {
