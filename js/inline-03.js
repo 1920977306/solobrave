@@ -12350,6 +12350,9 @@ function switchEmpDetailTab(tab) {
   document.querySelectorAll('.emp-tab-pane').forEach(function (p) {
     return p.classList.toggle('active', p.id === 'emp-tab-' + tab);
   });
+  /* 〔r82 follow-up 老大 15:33 批注②〕stats 条只有基础 tab 显示, 点其他 tab 隐藏 */
+  var _statsBar = document.getElementById('aiEmpStatsBar');
+  if (_statsBar) _statsBar.style.display = (tab === 'basic') ? '' : 'none';
   // Update avatar grid selection when switching to avatar tab
   if (tab === 'avatar' && currentEmpId) {
     const emp = emps.find(function (e) {

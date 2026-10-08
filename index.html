@@ -5929,9 +5929,9 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .ai-emp-stat:first-child{ padding-left:0; }
 .ai-emp-stat + .ai-emp-stat{ border-left:0.5px solid var(--separator); }
 .ai-emp-stat-value{ font-size:18px; }
-/* — 员工详情 · tabs: 均分 → 左对齐紧凑 — */
-.emp-detail-tabs{ gap:4px; }
-.emp-detail-tab{ flex:0 0 auto; padding:10px 12px; }
+/* — 员工详情 · tabs: 铺满均分 (r82 follow-up 老大 15:33 批注①「铺满啊」, 覆盖上一刀左对齐) — */
+.emp-detail-tabs{ gap:0; }
+.emp-detail-tab{ flex:1 1 0; min-width:0; padding:10px 4px; text-align:center; }
 /* — 项目组面板 · 头图收紧 — */
 .group-detail-header{ padding:14px 16px; gap:10px; }
 .group-detail-avatar{ width:44px; height:44px; border-radius:12px; font-size:22px; }
@@ -6074,6 +6074,39 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .memory-empty { text-align: center; padding: 32px 20px; }
 .memory-empty-icon { font-size: 40px; margin-bottom: 8px; opacity: 0.5; }
 .memory-empty-text { font-size: 14px; color: var(--text-tertiary); }
+
+/* ============================================================
+ * 〔r82 follow-up 老大 15:33 批注③④〕记忆 tab + 连接 tab 重设计
+ * 全部元素 id / onclick 保留, 只动视觉层
+ * ============================================================ */
+/* — 记忆 · 4 条提示横幅: 渐变糖果条 → 左色边素色警示行 — */
+.memory-banner{ display:none; margin:8px 0 0; padding:8px 12px; border-radius:8px; cursor:pointer; align-items:center; gap:8px; font-size:13px; color:var(--sb2-t1); background:var(--sb2-s2); border:1px solid var(--sb2-border); border-left:3px solid var(--sb2-t3); }
+.memory-banner strong{ font-weight:600; }
+.mb-warn{ border-left-color:#ED8B00; background:rgba(237,139,0,0.06); }
+.mb-info{ border-left-color:#1677ff; background:rgba(22,119,255,0.06); }
+.mb-ok{ border-left-color:#2E9E4F; background:rgba(46,158,79,0.07); }
+.mb-danger{ border-left-color:var(--sb2-danger,#DC2626); background:rgba(220,38,38,0.06); }
+.memory-banner-cta{ font-size:12px; padding:2px 8px; border-radius:6px; white-space:nowrap; background:var(--sb2-t2); color:#fff; }
+.mb-warn .memory-banner-cta{ background:#ED8B00; }
+.mb-info .memory-banner-cta{ background:#1677ff; }
+.mb-ok .memory-banner-cta{ background:#2E9E4F; }
+.mb-danger .memory-banner-cta{ background:var(--sb2-danger-strong,#B91C1C); }
+/* — 记忆 · 6 个 sub-tab: 胶囊大杂烩 → iOS 分段控件 — */
+.memory-tabs{ display:flex; gap:0; margin:12px 0; padding:3px; background:var(--sb2-s2); border-radius:9px; }
+.memory-tab{ flex:1 1 0; min-width:0; padding:6px 4px; background:transparent; border:none; border-radius:6px; font-size:12px; color:var(--sb2-t2); cursor:pointer; transition:all 0.15s; white-space:nowrap; }
+.memory-tab.active{ background:var(--sb2-s1); color:var(--sb2-t1); font-weight:500; box-shadow:0 1px 2px rgba(0,0,0,0.08); }
+.memory-tab:hover:not(.active){ background:transparent; color:var(--sb2-t1); }
+/* — 连接 · 卡片化配置表单 — */
+.emp-conn-card{ border:1px solid var(--sb2-border); border-radius:12px; overflow:hidden; }
+.emp-conn-head{ display:flex; align-items:center; justify-content:space-between; gap:12px; padding:14px 16px; background:var(--sb2-s2); border-bottom:1px solid var(--sb2-border); }
+.emp-conn-title{ font-size:14px; font-weight:600; color:var(--sb2-t1); display:flex; align-items:center; gap:6px; }
+.emp-conn-sub{ font-size:12px; color:var(--sb2-t3); margin-top:2px; }
+.emp-conn-status{ font-size:12px; font-weight:600; padding:4px 10px; border-radius:999px; background:var(--sb2-s1); border:1px solid var(--sb2-border); color:var(--sb2-t2); white-space:nowrap; }
+.emp-conn-grid{ padding:14px 16px; display:flex; flex-direction:column; gap:12px; }
+.emp-conn-field{ display:flex; flex-direction:column; gap:6px; }
+.emp-conn-label{ font-size:12px; font-weight:500; color:var(--sb2-t2); }
+.emp-conn-hint{ font-size:11px; color:var(--sb2-t3); }
+.emp-conn-foot{ padding:12px 16px; border-top:1px solid var(--sb2-border); display:flex; justify-content:flex-end; }
 
 .drawer-overlay { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.6); backdrop-filter: blur(4px); opacity: 0; visibility: hidden; transition: all 0.3s; z-index: 250; }
 .drawer-overlay.open { opacity: 1; visibility: visible; }
@@ -17522,28 +17555,28 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
 </div>
 </div>
 <!-- 建议归纳提示条 -->
-<div id="memorySummarizeBanner" style="display:none;margin:8px 12px 0;padding:8px 12px;background:linear-gradient(135deg,#FFF3E0 0%,#FFE0B2 100%);border:1px solid #FFB74D;border-radius:10px;cursor:pointer;transition:all 0.2s;align-items:center;gap:8px;font-size:13px;color:#E65100;" onclick="triggerSummarizeFromMemoryPanel()">
+<div id="memorySummarizeBanner" class="memory-banner mb-warn" style="display:none;" onclick="triggerSummarizeFromMemoryPanel()">
 <span style="font-size:16px;"><i class=sb2-ico-pencil></i></span>
 <span style="flex:1;"><strong>建议归纳</strong>：日常记录已≥2条，点击生成摘要以节省上下文</span>
-<span style="font-size:12px;background:#E65100;color:#fff;padding:2px 8px;border-radius:6px;white-space:nowrap;">立即归纳</span>
+<span class="memory-banner-cta">立即归纳</span>
 </div>
 <!-- 核心记忆候选提示条 -->
-<div id="memoryCandidateBanner" style="display:none;margin:8px 12px 0;padding:8px 12px;background:linear-gradient(135deg,#E3F2FD 0%,#BBDEFB 100%);border:1px solid #64B5F6;border-radius:10px;cursor:pointer;transition:all 0.2s;align-items:center;gap:8px;font-size:13px;color:#1565C0;" onclick="openCoreCandidateModal()">
+<div id="memoryCandidateBanner" class="memory-banner mb-info" style="display:none;" onclick="openCoreCandidateModal()">
 <span style="font-size:16px;"><i class=sb2-ico-bulb></i></span>
 <span id="memoryCandidateBannerText" style="flex:1;"><strong>核心记忆候选</strong>：发现 0 条待确认</span>
-<span style="font-size:12px;background:#1565C0;color:#fff;padding:2px 8px;border-radius:6px;white-space:nowrap;">去确认</span>
+<span class="memory-banner-cta">去确认</span>
 </div>
 <!-- 知识库自动归纳提示条 -->
-<div id="memoryInductBanner" style="display:none;margin:8px 12px 0;padding:8px 12px;background:linear-gradient(135deg,#E8F5E9 0%,#C8E6C9 100%);border:1px solid #81C784;border-radius:10px;cursor:pointer;transition:all 0.2s;align-items:center;gap:8px;font-size:13px;color:#2E7D32;" onclick="triggerInductFromMemoryPanel()">
+<div id="memoryInductBanner" class="memory-banner mb-ok" style="display:none;" onclick="triggerInductFromMemoryPanel()">
 <span style="font-size:16px;"><i class=sb2-ico-book></i></span>
 <span id="memoryInductBannerText" style="flex:1;"><strong>知识库归纳</strong>：记忆数量充足，可自动生成知识文档</span>
-<span style="font-size:12px;background:#2E7D32;color:#fff;padding:2px 8px;border-radius:6px;white-space:nowrap;">一键归纳</span>
+<span class="memory-banner-cta">一键归纳</span>
 </div>
 <!-- 记忆冲突提示条 -->
-<div id="memoryConflictBanner" style="display:none;margin:8px 12px 0;padding:8px 12px;background:linear-gradient(135deg,#FFEBEE 0%,#FFCDD2 100%);border:1px solid #EF5350;border-radius:10px;cursor:pointer;transition:all 0.2s;align-items:center;gap:8px;font-size:13px;color:#C62828;" onclick="openMemoryConflictModal()">
+<div id="memoryConflictBanner" class="memory-banner mb-danger" style="display:none;" onclick="openMemoryConflictModal()">
 <span style="font-size:16px;"><i class=sb2-ico-alert></i></span>
 <span id="memoryConflictBannerText" style="flex:1;"><strong>记忆冲突</strong>：发现 0 条核心记忆存在冲突，请点击确认处理</span>
-<span style="font-size:12px;background:#C62828;color:#fff;padding:2px 8px;border-radius:6px;white-space:nowrap;">去处理</span>
+<span class="memory-banner-cta">去处理</span>
 </div>
 <div class="memory-tabs">
 <button class="memory-tab active" data-mtab="core" onclick="switchMemoryTab('core')">核心记忆</button>
@@ -17561,44 +17594,55 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
 </div>
 </div>
 
-<!-- Model Tab -->
 <!-- Connect Tab (OpenClaw Config) -->
+<!-- 〔r82 follow-up 老大 15:33 批注④〕连接 tab 重设计: 卡片化表单; empConnect* / empDreaming* 全部 id 与 onchange 原样保留 -->
 <div class="emp-tab-pane" id="emp-tab-connect">
-<div class="emp-doc-section">
-<div class="emp-doc-title">🦞 OpenClaw 连接配置</div>
-<div class="emp-doc-desc">通过 OpenClaw 网关连接 AI 服务</div>
-<div style="margin-top:12px;">
-<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;padding:8px 12px;border-radius:8px;background:var(--bg-secondary);">
-<div style="font-size:13px;color:var(--text-secondary);">Gateway 状态</div>
-<div id="empConnectGatewayStatus" style="font-size:13px;font-weight:600;">🔴 未连接</div>
+<div class="emp-conn-card">
+  <div class="emp-conn-head">
+    <div>
+      <div class="emp-conn-title"><i class=sb2-ico-zap></i> OpenClaw 连接</div>
+      <div class="emp-conn-sub">通过 OpenClaw 网关连接 AI 服务</div>
+    </div>
+    <div class="emp-conn-status" id="empConnectGatewayStatus">🔴 未连接</div>
+  </div>
+  <div class="emp-conn-grid">
+    <div class="emp-conn-field">
+      <label class="emp-conn-label">Agent 名称</label>
+      <input type="text" class="form-input" id="empConnectOpenclawName" placeholder="留空默认 main">
+      <div class="emp-conn-hint">用于构建 sessionKey: agent:{名称}:main</div>
+    </div>
+    <div class="emp-conn-field">
+      <label class="emp-conn-label">AI 供应商</label>
+      <select class="form-select" id="empConnectAIProvider" onchange="selectAIProvider(this.value)">
+      <option value="kimi">🌙 Kimi (Moonshot)</option>
+      <option value="openai">OpenAI</option>
+      <option value="deepseek">DeepSeek</option>
+      <option value="zhipu">智谱 (GLM)</option>
+      <option value="custom">自定义</option>
+      </select>
+    </div>
+    <div class="emp-conn-field">
+      <label class="emp-conn-label">API Key</label>
+      <input type="password" class="form-input" id="empConnectApiKey" placeholder="输入 AI 供应商的 API Key..." style="font-family:monospace;">
+    </div>
+    <div class="emp-conn-field">
+      <label class="emp-conn-label">模型</label>
+      <select class="form-select" id="empConnectModel">
+      <option value="">-- 选择模型 --</option>
+      </select>
+    </div>
+    <div class="emp-conn-field" id="empConnectBaseUrlGroup" style="display:none;">
+      <label class="emp-conn-label">自定义 Base URL</label>
+      <input type="text" class="form-input" id="empConnectBaseUrl" placeholder="https://api.example.com/v1">
+    </div>
+  </div>
+  <div class="emp-conn-foot">
+    <button class="emp-action-btn primary" onclick="saveEmpConnect()">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+    保存连接配置
+    </button>
+  </div>
 </div>
-<div style="font-weight:600;margin-bottom:8px;font-size:13px;">Agent 名称</div>
-<input type="text" class="form-input" id="empConnectOpenclawName" placeholder="留空默认 main" style="width:100%;margin-bottom:12px;">
-<div style="font-size:11px;color:var(--text-tertiary);margin-top:-8px;margin-bottom:12px;">用于构建 sessionKey: agent:{名称}:main</div>
-<div style="font-weight:600;margin-bottom:8px;font-size:13px;">AI 供应商</div>
-<select class="form-select" id="empConnectAIProvider" style="width:100%;margin-bottom:12px;" onchange="selectAIProvider(this.value)">
-<option value="kimi">🌙 Kimi (Moonshot)</option>
-<option value="openai">OpenAI</option>
-<option value="deepseek">DeepSeek</option>
-<option value="zhipu">智谱 (GLM)</option>
-<option value="custom">自定义</option>
-</select>
-<div style="font-weight:600;margin-bottom:8px;font-size:13px;">API Key</div>
-<input type="password" class="form-input" id="empConnectApiKey" placeholder="输入 AI 供应商的 API Key..." style="width:100%;font-family:monospace;margin-bottom:12px;">
-<div style="font-weight:600;margin-bottom:8px;font-size:13px;">模型</div>
-<select class="form-select" id="empConnectModel" style="width:100%;margin-bottom:12px;">
-<option value="">-- 选择模型 --</option>
-</select>
-<div id="empConnectBaseUrlGroup" style="display:none;">
-<div style="font-weight:600;margin-bottom:8px;font-size:13px;">自定义 Base URL</div>
-<input type="text" class="form-input" id="empConnectBaseUrl" placeholder="https://api.example.com/v1" style="width:100%;margin-bottom:12px;">
-</div>
-</div>
-</div>
-<button class="emp-action-btn primary" onclick="saveEmpConnect()">
-<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
-保存连接配置
-</button>
 </div>
 <!-- Dreaming 开关 -->
 <div class="emp-doc-section" style="margin-top:16px;">
