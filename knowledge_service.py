@@ -119,17 +119,36 @@ def get_embedding_config(emp_id=None):
     }
 
 
+_SERVER = None
+
+
+def register_server(mod):
+    """server 启动时注册自身模块（MT 租户路由）。
+
+    背景: server 文件名带 dash，ks 无法 import 它，旧 fallback 从未生效，
+    DB_PATH 被 set_data_dir 设置后 ks 一直直连默认库 —— 全部知识数据面
+    绕开 M2 线程路由（P0-1 审计#1 的真正根因）。注册后 ks._db_conn 优先
+    走 server._db_conn()（thread-local tid 路由），直连 DB_PATH 降级为
+    独立运行 ks 的 fallback。"""
+    global _SERVER
+    _SERVER = mod
+
+
 def _db_conn(timeout=30):
     """获取 SQLite 数据库连接；启用 WAL 与 busy timeout 降低 database locked 概率
 
-    dev/feat: 修复 _db_conn 用 ks.DBPATH (None) 的 bug —
-    单独运行 knowledge_service 时 DB_PATH=None 会报错.
-    fallback: import solobrave_server 用它的 _db_conn (它用真正的 DB_PATH).
+    ★ MT 租户路由优先: 已注册 server 时一律走 server._db_conn()（M2 thread-local
+    路由，请求线程/包裹过的子线程 tid 正确落租户库）；未注册（独立跑 ks 脚本）才直连。
 
     dev/feat: knowledge_chunks 修复 — 显式 PRAGMA foreign_keys=ON
     SQLite 默认 OFF, 即使表定义了 FOREIGN KEY ... ON DELETE CASCADE 也不生效.
     必须在每个 conn 上开启, 否则 knowledge 删除时不会级联删 chunks (历史 122 orphan 根因).
     """
+    if _SERVER is not None:
+        try:
+            return _SERVER._db_conn()
+        except Exception:
+            pass  # server 连接失败时降级直连，保持旧可用性
     if DB_PATH is None:
         try:
             import solobrave_server as _server

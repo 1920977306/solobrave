@@ -59,6 +59,10 @@ import v3_scorer as v3
 
 # 知识库服务（分段向量化 + 全局公共，独立模块避免循环导入）
 import knowledge_service as ks
+# ★ MT 租户路由注册（P0-1 根因修复）: server 文件名带 dash 无法被 ks import，
+# 旧 fallback `import solobrave_server` 从未生效 → ks 一直直连 DB_PATH（默认库），
+# 全部知识数据面绕开 M2 线程路由。这里由 server 主动注册自身，ks._db_conn 优先走 server 连接。
+ks.register_server(sys.modules[__name__])
 
 # FIXME: 大脑知识中枢新增服务
 import topic_service as ts
