@@ -323,8 +323,9 @@ class OpenClawClient {
 
     // 默认 agentId：网关配置了多个 agent 时，每个请求必须显式带 agentId（"Multiple agents
     // are configured, but this Gateway request has no explicit owner"）。先从 localStorage
-    // 读上次选中的；没有就让 listAgents() 用网关返回的 defaultId 填充；都没有就空着，
-    // send() 就不注入，让网关按"未指定"处理（避免硬编码 'main' 命中错误的 session）。
+    // 读上次选中的；没有就让 listAgents() 用网关返回的 defaultId 填充；都没有就空着。
+    // ★ 2026-10-08 起注入优先级：sessionKey 带 agent:<id>: 前缀时以 key 属主为准
+    //   (网关 2026.9.8 严格归属校验)，_defaultAgentId 只用于无前缀的 session。
     this._defaultAgentId = localStorage.getItem('openclaw_default_agent_id') || '';
     this._agentsCache = null;        // 缓存 list_agents 结果（供 index.html 选默认用）
     this._gatewayDefaultId = null;   // 网关在 agents.list 响应里告诉我们的默认 agent
@@ -763,8 +764,19 @@ class OpenClawClient {
       // 调用方已显式传了就尊重；否则用 _defaultAgentId；如果默认是空（还没拉到
       // agents.list 或没 defaultId），就跳过注入，让网关按"未指定"处理。
       // connect 握手 / 自身认证类请求跳过注入。
-      if (!SKIP_AGENTID_METHODS.has(method) && params && !params.agentId && this._defaultAgentId) {
-        params = Object.assign({}, params, { agentId: this._defaultAgentId });
+      // ★ fix 2026-10-08 (网关 2026.9.8 严格 session 归属, 排查结论): session key 带
+      //   agent:<id>: 前缀时归属以 key 为准 — 注入 key 属主, 不再无脑注入默认 agent,
+      //   否则网关 resolveSessionAgentIdStrict 抛 AGENT_SELECTION_REQUIRED
+      //   ("session key belongs to <id>, not main") 拒掉全部员工会话(私聊+群聊+记忆)。
+      //   chat.send/abort 用 sessionKey 字段, sessions.patch/reset 用 key 字段, 两种都识别。
+      if (!SKIP_AGENTID_METHODS.has(method) && params && !params.agentId) {
+        var _scopedKey = params.sessionKey || params.key || '';
+        var _ownerMatch = /^agent:([^:]+):/.exec(typeof _scopedKey === 'string' ? _scopedKey : '');
+        if (_ownerMatch) {
+          params = Object.assign({}, params, { agentId: _ownerMatch[1] });
+        } else if (this._defaultAgentId) {
+          params = Object.assign({}, params, { agentId: this._defaultAgentId });
+        }
       }
 
       const id = this._generateId();
