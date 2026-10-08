@@ -17560,8 +17560,17 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
 
 <!-- V3 升级:工作记录 tab pane (从 /api/agents/:id/activity 取,5 类事件归一化) -->
 <div class="emp-tab-pane" id="emp-tab-work">
+  <!-- 〔r82 推广 老大 15:53〕工作记录 tab 卡片化: 列表包进 emp-sk-card, aiEmpWorkList id 保留 -->
+  <div class="emp-sk-card">
+  <div class="emp-sk-head">
+  <div class="emp-sk-title"><i class=sb2-ico-activity></i> 工作记录</div>
+  <span class="emp-sk-hint">近 30 天 · 最近 20 条</span>
+  </div>
+  <div class="emp-sk-body" style="padding:8px;">
   <div class="ai-emp-work-list" id="aiEmpWorkList">
     <div class="ai-emp-work-empty">加载中...</div>
+  </div>
+  </div>
   </div>
 </div>
 
