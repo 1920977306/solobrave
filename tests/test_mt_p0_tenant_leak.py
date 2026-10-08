@@ -104,9 +104,12 @@ def emp_b(tokens):
     策略: 优先复用既有 'emp_p0b_shared'，没有再建；跨 run 共享，永不删除（沙箱专用）。
     """
     shared_id = 'emp_p0b_shared'
-    req = urllib.request.Request(BASE + '/api/agents', headers={'Authorization': 'Bearer ' + tokens['b']})
-    with urllib.request.urlopen(req, timeout=15) as r:
-        existing = {a.get('id') for a in json.loads(r.read().decode())}
+    # 直接读沙箱 agents.json 找既有共享员工（tenant_admin 对 GET /api/agents 无权限，走磁盘）
+    with open(os.path.join(DATA_DIR, 'agents.json'), encoding='utf-8') as f:
+        _all = json.load(f)
+    existing = {a.get('id') for a in _all
+                if a.get('tenant_id') == TENANT_B
+                and a.get('status') != 'archived' and not a.get('archived')}
     if shared_id in existing:
         return shared_id
     try:
