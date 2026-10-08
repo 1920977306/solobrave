@@ -223,9 +223,9 @@ function buildDashboard(){
     +     '<h1 class="sb2-dash2-greet-title" id="sb2GreetTitle">工作台</h1>'
     /* ★ fix/sb2-proto-align (commit 2): 删 sub「今日智能协作 · 数据概览」(原型 line 369-371 没有 sub 元素) */ + '</div>'
     /* 〔dash-credit 2026-10-08 老大批注 15:48「把积分中心移到这里, 这里改成进入积分中心」〕
-        hero 主 CTA 改为直达设置页积分中心视图 (sb2SettingsShow 默认落积分中心);
+        〔credit-window 2026-10-08 升级〕hero 主 CTA 直达积分中心悬浮窗 sb2CreditOpen (不再跳设置页);
         左侧嵌紧凑签到条 (#sb2DashCreditChip, 真余额 + 签到钮, loadDashCreditChip 填充) */
-    +     '<div class="sb2-dash2-greet-acts"><div class="sb2-dash2-credit-chip" id="sb2DashCreditChip"></div><button class="sb2-btn sb2-btn-brand" onclick="sb2Go(\'settings\')">进入积分中心</button></div>'
+    +     '<div class="sb2-dash2-greet-acts"><div class="sb2-dash2-credit-chip" id="sb2DashCreditChip"></div><button class="sb2-btn sb2-btn-brand" onclick="sb2CreditOpen()">进入积分中心</button></div>'
     +   '</div>'
     /* 〔dash-opt-1〕等你拍板 hero 区: 待审批提案 inline 拍板 (复用 P1b 提案卡 6 态管线, 零新交互逻辑)
         空态整块隐藏 (JS 控制), 不渲占屏占位
@@ -1688,12 +1688,12 @@ var SB2_SIDE_RENDERERS = {
        active 态读 window._sb2SettingsSideSel (桥接函数维护, 重渲侧栏时保持高亮)。 */
     var isAdm = (typeof isAdmin === 'function') ? !!isAdmin() : false;
     var canEmp = (typeof hasModulePermission === 'function') ? !!hasModulePermission('employees') : false;
-    var sel = (typeof window._sb2SettingsSideSel === 'string') ? window._sb2SettingsSideSel : 'daily:sb2CreditArea';
+    var sel = (typeof window._sb2SettingsSideSel === 'string') ? window._sb2SettingsSideSel : 'daily:sb2FeatCardBrain';
+    /* 〔credit-window 2026-10-08 老大「把积分弄成窗口」〕积分中心项点击直接弹悬浮窗 (sb2CreditOpen),
+       不再激活设置页视图 (视图已删); active 恒 false, 无高亮态。 */
     var daily = [
-      { name:'<i class=sb2-ico-receipt></i> 积分中心', t:'sb2CreditArea' }
-    ].map(function(d){
-      return { name:d.name, active: sel === 'daily:'+d.t, onClick:"sb2SettingsScrollTo('"+d.t+"')" };
-    });
+      { name:'<i class=sb2-ico-receipt></i> 积分中心', active:false, onClick:'sb2CreditOpen()' }
+    ];
     /* 维护工具 (管理员): 老大批注③「AI 大脑调度是什么」→ 改名「知识自动整理」 */
     var maint = isAdm ? [
       { name:'<i class=sb2-ico-brain></i> 知识自动整理', t:'sb2FeatCardBrain' },

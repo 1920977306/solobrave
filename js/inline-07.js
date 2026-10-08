@@ -1541,18 +1541,39 @@ function sb2SettingsShow(){
   _sb2SettingsSetStatus(null, 'sb2FeatEventsStatus', '-');
   var eventsInput = document.getElementById('sb2FeatEventsEntityInput');
   if (eventsInput) eventsInput.value = '';
-  /* 〔dash/credit-checkin 2026-10-08 派单 B〕积分仪表盘同屏加载 (签到卡 + 总览/员工卡) */
+  /* 〔credit-window 2026-10-08 老大「把积分弄成窗口」〕积分中心已迁出设置页 (悬浮窗 sb2CreditPanel),
+     进设置页不再加载积分卡。默认落点: 管理员 → 知识自动整理 (维护工具第一项);
+     非管理员 (无维护工具) → 系统管理「账号」。 */
+  var _isAdm = (typeof isAdmin === 'function') ? !!isAdmin() : false;
+  if (_isAdm) {
+    if (typeof sb2SettingsActivate === 'function') sb2SettingsActivate('sb2ViewBrain');
+    if (typeof window !== 'undefined') { window._sb2SettingsSideSel = 'daily:sb2FeatCardBrain'; }
+  } else {
+    if (typeof sb2SettingsOpenCategory === 'function') sb2SettingsOpenCategory('account');
+  }
+}
+
+/* ★ credit-window 2026-10-08 老大「把积分弄成窗口」: 积分中心悬浮窗开关
+   覆盖面板体系复用 sb2-kb-detail (overlay + panel .open), 内容容器/loader 原样来自原设置页视图。 */
+function sb2CreditOpen(){
+  var ov = document.getElementById('sb2CreditOverlay');
+  var p = document.getElementById('sb2CreditPanel');
+  if (ov) ov.classList.add('open');
+  if (p) p.classList.add('open');
   if (typeof loadCreditCheckin === 'function') loadCreditCheckin();
   if (typeof loadComputeStats === 'function') loadComputeStats();
-  /* 〔settings-redesign 2026-10-08〕回设置模块默认落积分中心视图 */
-  if (typeof sb2SettingsActivate === 'function') sb2SettingsActivate('sb2ViewCredit');
-  if (typeof window !== 'undefined') { window._sb2SettingsSideSel = 'daily:sb2CreditArea'; }
+}
+function sb2CreditClose(){
+  var ov = document.getElementById('sb2CreditOverlay');
+  var p = document.getElementById('sb2CreditPanel');
+  if (ov) ov.classList.remove('open');
+  if (p) p.classList.remove('open');
 }
 
 /* 〔settings-redesign 2026-10-08 老大批注「太杂了」〕统一视图激活:
    设置屏全部视图互斥, 同屏只显示一个, 滚动条归零。 */
-/* 〔settings-dedup 2026-10-08〕语义搜索视图已删 (与知识库侧栏重复), 从互斥清单移除 */
-var SB2_SETTINGS_VIEWS = ['sb2ViewCredit','sb2ViewBrain','sb2ViewRag','sb2ViewEvents','sb2SettingsLegacyArea'];
+/* 〔settings-dedup 2026-10-08〕语义搜索视图已删 (与知识库侧栏重复); 〔credit-window 2026-10-08〕积分中心迁悬浮窗 — 均已从互斥清单移除 */
+var SB2_SETTINGS_VIEWS = ['sb2ViewBrain','sb2ViewRag','sb2ViewEvents','sb2SettingsLegacyArea'];
 function sb2SettingsActivate(viewId){
   SB2_SETTINGS_VIEWS.forEach(function(id){
     var el = document.getElementById(id);
@@ -1614,11 +1635,13 @@ function sb2SettingsOpenCategory(id){
 }
 /* 侧栏「日常」项: 激活对应工具视图 (目标卡片 → 视图映射, 元素 ID 保留在视图内) */
 function sb2SettingsScrollTo(targetId){
+  /* 〔credit-window 2026-10-08〕积分中心不再走视图激活 (sb2CreditOpen 悬浮窗, 由侧栏 onClick 直接调),
+     viewMap 移除 sb2CreditArea; 兜底落点改维护工具首项。 */
   var viewMap = {
-    sb2CreditArea:'sb2ViewCredit', sb2FeatCardBrain:'sb2ViewBrain',
+    sb2FeatCardBrain:'sb2ViewBrain',
     sb2FeatCardRag:'sb2ViewRag', sb2FeatCardEvents:'sb2ViewEvents'
   };
-  var viewId = viewMap[targetId] || 'sb2ViewCredit';
+  var viewId = viewMap[targetId] || 'sb2ViewBrain';
   if (typeof sb2SettingsActivate === 'function') sb2SettingsActivate(viewId);
   if (typeof window !== 'undefined') { window._sb2SettingsSideSel = 'daily:' + targetId; }
   if (typeof window.renderSideFor === 'function') window.renderSideFor('settings');

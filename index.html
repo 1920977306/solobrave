@@ -13806,6 +13806,9 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
 .sb2-kb-search-card-title{ font:600 12px/1.4 "PingFang SC",sans-serif; color:var(--sb2-t1); }
 .sb2-kb-search-card-meta{ font:400 10px/1.5 "PingFang SC",sans-serif; color:var(--sb2-t3); margin-top:2px; }
 .sb2-kb-search-card-snippet{ font:400 11px/1.5 "PingFang SC",sans-serif; color:var(--sb2-t2); margin-top:3px; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+/* credit-window 2026-10-08: 积分中心悬浮窗 (复用 sb2-kb-detail 面板体系, body 容器间距补丁) */
+.sb2-credit-panel-body{ padding:14px 18px; }
+.sb2-credit-panel-body #sb2CreditCheckinArea{ margin-bottom:16px; }
 
 /* MVP6 内嵌 search input (语义搜索用) */
 .sb2-settings-search-input-row{
@@ -15431,9 +15434,23 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
   </div>
 </div>
 
+<!-- ★ credit-window 2026-10-08 老大「把积分弄成窗口」: 积分中心悬浮窗
+     结构复用 sb2-kb-detail 覆盖面板体系 (overlay + panel .open 控制), sb2CreditOpen/Close 在 inline-07。
+     容器 sb2CreditCheckinArea / sb2CreditComputeArea 从设置页视图原样迁来, loader 零改动。 -->
+<div class="sb2-kb-detail-overlay" id="sb2CreditOverlay" onclick="sb2CreditClose()"></div>
+<div class="sb2-kb-detail-panel sb2-credit-panel" id="sb2CreditPanel">
+  <div class="sb2-kb-detail-header">
+    <h2 class="sb2-kb-detail-title">积分中心</h2>
+    <button class="sb2-kb-detail-close" onclick="sb2CreditClose()" aria-label="关闭积分中心">×</button>
+  </div>
+  <div class="sb2-kb-detail-body sb2-credit-panel-body">
+    <div id="sb2CreditCheckinArea"></div>
+    <div id="sb2CreditComputeArea"></div>
+  </div>
+</div>
+
 <!-- ★ sb2-knowledge MVP4: 详情右滑面板 (只读先行) -->
-<div class="sb2-kb-detail-overlay" id="sb2KbDetailOverlay" onclick="sb2KbCloseDetail()"></div>
-<div class="sb2-kb-detail-panel" id="sb2KbDetailPanel">
+<div class="sb2-kb-detail-overlay" id="sb2KbDetailOverlay" onclick="sb2KbCloseDetail()"></div><div class="sb2-kb-detail-panel" id="sb2KbDetailPanel">
   <div class="sb2-kb-detail-header">
     <h2 class="sb2-kb-detail-title" id="sb2KbDetailTitle">-</h2>
     <button class="sb2-kb-detail-close" onclick="sb2KbCloseDetail()" aria-label="关闭详情">×</button>
@@ -15580,20 +15597,10 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
      设置屏重构为侧栏驱动多视图 — 积分中心 / 语义搜索 / AI 大脑调度 / RAG 索引重建 / 知识事件 / 系统管理承接区,
      同屏只显示一个视图 (sb2SettingsActivate 互斥), 统一视图头 (图标+标题+描述+状态)。元素 ID 全部保留, 旧 JS 零改动。 -->
 <div class="sb2-settings-main" id="sb2SettingsMain">
-  <!-- 视图 1: 积分中心 (默认视图) -->
-  <div class="sb2-settings-view" id="sb2ViewCredit" style="display:block;">
-    <div class="sb2-settings-view-head">
-      <div class="sb2-settings-view-head-icon"><i class=sb2-ico-receipt></i></div>
-      <div class="sb2-settings-view-head-txt">
-        <h1>积分中心</h1>
-        <p>每日签到领积分，查看用量总览与员工余额。</p>
-      </div>
-    </div>
-    <div id="sb2CreditArea">
-      <div id="sb2CreditCheckinArea"></div>
-      <div id="sb2CreditComputeArea"></div>
-    </div>
-  </div>
+  <!-- 〔credit-window 2026-10-08 老大「把积分弄成窗口」〕视图 1「积分中心」迁出设置页:
+       改为悬浮窗 #sb2CreditPanel (结构见 kb 详情面板后), 入口 = 工作台 hero「进入积分中心」按钮 +
+       设置侧栏「日常 → 积分中心」。容器 ID (sb2CreditCheckinArea/sb2CreditComputeArea) 原样保留,
+       loadCreditCheckin/loadComputeStats 按 getElementById 命中悬浮窗, 零改动。 -->
   <!-- 〔settings-dedup 2026-10-08 老大批注「设置页有很多在外面展示就不用放设置里面」〕
        视图 2「语义搜索」整视图删除: 与知识库侧栏「语义搜索」面板完全重复 (侧栏版已卡片化, b9506ba),
        保留入口 = 知识库 → 侧栏「语义搜索」。 -->
@@ -19338,7 +19345,7 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
      v2 (202609241444): 初始破缓存 + skip-device 守卫
      v3 (202609241420): probe 误导文案澄清 (fingerprint fallback → token-only) -->
 <script src="openclaw-client.js?v=ocowner1a20261008"></script>
-<script src="js/inline-07.js?v=settingsdedup1b20261008"></script>
+<script src="js/inline-07.js?v=creditwindow1b20261008"></script>
 
 <!-- Match Result Modal -->
 <div class="product-modal-overlay" id="matchModalOverlay" onclick="closeMatchModal()">
@@ -19383,7 +19390,7 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
 </div>
 
 <script src="js/inline-08.js?v=f2d73f6b57"></script>
-<script src="js/inline-09.js?v=kbsearchcards1a20261008"></script>
+<script src="js/inline-09.js?v=creditwindow1a20261008"></script>
 
 <!-- ★ feat/sb2-chat: SoloBrave 2.0 聊天模块 JS (核心链: 消息流 + 发送框)
      - 复用老 /api/chat/:agentId 接口契约, 零后端改动
