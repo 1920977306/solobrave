@@ -1355,24 +1355,20 @@ var SB2_SIDE_RENDERERS = {
   },
   dashboard: function(){
     /* 〔fix/sb2-side-restore commit 2〕工作台侧栏还原原型 (line 678-687)
-       - 快捷入口: 今日概览 (active) / 紧急待办 [badge=_sb2PendingProposals] / 数据看板 (toast) / 审核队列 [badge=_sb2PendingKbReviews]
+       - 快捷入口: 今日概览 (active) / 数据看板 (页内滚 KPI) — 紧急待办/审核队列两条纯模块跳转
+         已于 side-xlink-del 2026-10-08 删除 (rail 重复, 老大 18:49 口径)
        - 我的项目组: window.projects 真数据 (照抄 messages renderer 模式)
-       - badge 兜底 0 = 不显示 (老大硬指令)
        - 删: 原 6 个 quick 按钮 (即时通讯/龙虾办公室/知识库/规律库/达人库/任务), 已被模块轨替代 */
-    var pending = (typeof window._sb2PendingProposals === 'number') ? window._sb2PendingProposals : 0;
-    var kbPending = (typeof window._sb2PendingKbReviews === 'number') ? window._sb2PendingKbReviews : 0;
     var groups = (typeof window.projects !== 'undefined' && Array.isArray(window.projects)) ? window.projects : [];
     return {
       title:'工作台', sub:'每天先看这里',
       items:[
         { label:'快捷入口', items:[
           { name:'<i class=sb2-ico-chart></i> 今日概览', active: true },
-          { name:'<i class=sb2-ico-flame></i> 紧急待办', badge: pending > 0 ? String(pending) : '',
-            onClick:"sb2Go('messages')" },
+          /* 〔side-xlink-del 2026-10-08 老大 18:51 批准全仓清扫〕删「紧急待办→messages」「审核队列→knowledge」
+             两条纯模块跳转与 rail 重复 (同 18:49 三批注口径); 待办/待审信息不丢: 今日关注 feed 同屏呈现 */
           { name:'<i class=sb2-ico-trend></i> 数据看板',
-            onClick:"(typeof sb2SideScrollKpi==='function' ? sb2SideScrollKpi() : (typeof showToast==='function' ? showToast('数据看板 — 后续版本开放') : null))" },
-          { name:'<i class=sb2-ico-receipt></i> 审核队列', badge: kbPending > 0 ? String(kbPending) : '',
-            onClick:"sb2Go('knowledge')" }
+            onClick:"(typeof sb2SideScrollKpi==='function' ? sb2SideScrollKpi() : (typeof showToast==='function' ? showToast('数据看板 — 后续版本开放') : null))" }
         ]},
         { label:'我的项目组', items: groups.length ? groups.slice(0, 10).map(function(g){
           return { name: (g.name || g.display_name || '-'),
