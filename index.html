@@ -15415,6 +15415,9 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
 
 <!-- ★ MVP6: 设置屏 — 功能入口卡片列表 (语义搜索 / 大脑知识 / RAG) -->
 <div class="sb2-settings-main" id="sb2SettingsMain">
+  <!-- 〔settings-swap 2026-10-08 老大批注「不能全部塞一个页面」〕日常区整体包一层,
+       与系统管理承接区互斥切换: 侧栏点日常项显本区, 点系统管理项隐本区 -->
+  <div id="sb2SettingsDailyArea">
   <div class="sb2-settings-hero">
     <h1>设置</h1>
     <p>日常：积分签到与用量仪表盘。维护工具（面向管理员）：知识搜索测试、AI 大脑调度、向量索引重建、知识事件查询。</p>
@@ -15491,6 +15494,7 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
       <div class="sb2-settings-feature-card-result" id="sb2FeatEventsResult"></div>
     </div>
   </div>
+  </div><!-- /sb2SettingsDailyArea -->
   <!-- 〔settings-side 2026-10-08 老大批注「侧边栏咋啥都没有 / 设置页面还差」〕
        旧版 8 个系统分类承接区: 侧栏点「系统管理」项时, renderSettingsRight 渲染结果镜像至此。
        renderSettingsRight 渲进隐藏的 #settingsRightContent 并触发分类数据加载 (loadUserList 等按 ID 写入,
@@ -19146,7 +19150,7 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
      v2 (202609241444): 初始破缓存 + skip-device 守卫
      v3 (202609241420): probe 误导文案澄清 (fingerprint fallback → token-only) -->
 <script src="openclaw-client.js?v=ocowner1a20261008"></script>
-<script src="js/inline-07.js?v=settingsside1c20261008"></script>
+<script src="js/inline-07.js?v=settingsside1d20261008"></script>
 
 <!-- Match Result Modal -->
 <div class="product-modal-overlay" id="matchModalOverlay" onclick="closeMatchModal()">

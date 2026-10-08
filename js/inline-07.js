@@ -1548,6 +1548,12 @@ function sb2SettingsShow(){
   /* 〔dash/credit-checkin 2026-10-08 派单 B〕积分仪表盘同屏加载 (签到卡 + 总览/员工卡) */
   if (typeof loadCreditCheckin === 'function') loadCreditCheckin();
   if (typeof loadComputeStats === 'function') loadComputeStats();
+  /* 〔settings-swap 2026-10-08〕回设置模块默认落日常区 (互斥视图复位) */
+  var _dailyArea = document.getElementById('sb2SettingsDailyArea');
+  if (_dailyArea) _dailyArea.style.display = '';
+  var _legacyArea = document.getElementById('sb2SettingsLegacyArea');
+  if (_legacyArea) _legacyArea.style.display = 'none';
+  if (typeof window !== 'undefined') { window._sb2SettingsSideSel = 'daily:sb2CreditArea'; }
 }
 
 /* 〔settings-side 2026-10-08 老大批注〕侧栏桥接: 旧版系统分类承接进 sb2 设置屏
@@ -1574,7 +1580,13 @@ function sb2SettingsOpenCategory(id){
   document.getElementById('sb2SettingsLegacyContent').innerHTML = src.innerHTML;
   document.getElementById('sb2SettingsLegacyTitle').textContent = titleEl ? titleEl.textContent : '设置';
   document.getElementById('sb2SettingsLegacyActions').innerHTML = actsEl ? actsEl.innerHTML : '';
+  /* 〔settings-swap 2026-10-08 老大批注「不能全部塞一个页面」〕互斥切换:
+     显承接区 + 隐日常区 (主区只剩该分类内容); 滚动条归零由 sb2SettingsMain 承载 */
+  var daily = document.getElementById('sb2SettingsDailyArea');
+  if (daily) daily.style.display = 'none';
   area.style.display = '';
+  var mainEl = document.getElementById('sb2SettingsMain');
+  if (mainEl) mainEl.scrollTop = 0;
   /* 镜像后二次触发分类数据加载 (真机实测补):
      renderSettingsRight 内已触发过一发, 但部分 loader (loadNotificationSwitches /
      renderNotificationHistory 等) 函数第一行同步 getElementById 捕获元素引用 ——
@@ -1598,10 +1610,12 @@ function sb2SettingsOpenCategory(id){
   if (typeof window !== 'undefined') { window._sb2SettingsSideSel = id; }
   if (typeof window.renderSideFor === 'function') window.renderSideFor('settings');
 }
-/* 侧栏「日常」项: 隐藏承接区 + 滚动到新屏对应卡片 */
+/* 侧栏「日常」项: 互斥切回日常区 (隐承接区) + 滚动到新屏对应卡片 */
 function sb2SettingsScrollTo(targetId){
   var area = document.getElementById('sb2SettingsLegacyArea');
   if (area) area.style.display = 'none';
+  var daily = document.getElementById('sb2SettingsDailyArea');
+  if (daily) daily.style.display = '';
   var el = document.getElementById(targetId);
   if (el) el.scrollIntoView({behavior:'smooth', block:'start'});
   if (typeof window !== 'undefined') { window._sb2SettingsSideSel = 'daily:' + targetId; }
