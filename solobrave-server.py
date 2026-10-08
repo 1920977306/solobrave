@@ -13896,9 +13896,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if key in ('auto', 'auto_extract'):
             try:
                 agent = _get_agent_by_id(emp_id) or {}
+                # ★ P0-1 (审计#1): 请求线程捕获租户上下文，子线程 _run_as_tenant 包裹 ——
+                # 裸线程 _db_conn() 恒落默认租户库，租户 B 归纳出的知识会写进老大全局知识库
+                _induct_req_tid = _current_tenant_id()
                 threading.Thread(
-                    target=_induct_knowledge_for_agent,
-                    args=(agent, auth.user_id),
+                    target=lambda: _run_as_tenant(_induct_req_tid, _induct_knowledge_for_agent, agent, auth.user_id),
                     daemon=True
                 ).start()
             except Exception as e:
