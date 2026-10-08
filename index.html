@@ -5773,16 +5773,18 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .ai-emp-work-icon.followup { background: var(--color-status-talking, #FFCC00); color: #1C1C1E; }
 .ai-emp-work-icon.task { background: var(--color-status-active, #34C759); }
 .ai-emp-work-icon.deal { background: var(--color-rating-b, #1677ff); }
-.ai-emp-work-time { font-size: 12px; color: var(--color-text-tertiary, #8E8E93); font-variant-numeric: tabular-nums; min-width: 84px; }
+/* r83 工作记录行: 等宽日期前缀 + 发丝边状态胶囊 (tint 底 + hairline 边) */
+.ai-emp-work-time { font-size: 11px; color: var(--color-text-tertiary, #8E8E93); font-family: var(--font-num, ui-monospace, 'SF Mono', monospace); font-variant-numeric: tabular-nums; min-width: 84px; }
+.ai-emp-work-badge { font-size: 10px; padding: 2px 8px; border-radius: 999px; margin-left: 6px; color: var(--status-color, var(--sb2-t3)); background: var(--status-bg, transparent); border: 1px solid var(--status-border, var(--sb2-border)); white-space: nowrap; }
 .ai-emp-work-content { font-size: 13px; color: var(--color-text-primary); }
 .ai-emp-work-content .target { color: var(--accent, #1677ff); font-weight: 500; }
 .ai-emp-work-source { font-size: 10px; color: var(--color-text-tertiary, #8E8E93); font-family: var(--font-num, monospace); }
-/* work-item 状态变量宿主(让未来 .badge-status 在 work-item 内能继承状态色) */
-.ai-emp-work-item[data-status="pending"] { --status-color: var(--color-status-pending, #8E8E93); --status-bg: var(--color-status-pending-bg, rgba(142,142,147,0.1)); }
-.ai-emp-work-item[data-status="talking"] { --status-color: var(--color-status-talking, #FFCC00); --status-bg: var(--color-status-talking-bg, rgba(255,204,0,0.12)); }
-.ai-emp-work-item[data-status="active"]  { --status-color: var(--color-status-active, #34C759); --status-bg: var(--color-status-active-bg, rgba(52,199,89,0.12)); }
-.ai-emp-work-item[data-status="lost"]    { --status-color: var(--color-status-lost, #FF3B30); --status-bg: var(--color-status-lost-bg, rgba(255,59,48,0.12)); }
-.ai-emp-work-item[data-status="paused"]  { --status-color: var(--color-status-paused, #AF52DE); --status-bg: var(--color-status-paused-bg, rgba(175,82,222,0.12)); }
+/* work-item 状态变量宿主(让 .ai-emp-work-badge 在 work-item 内继承状态色) */
+.ai-emp-work-item[data-status="pending"] { --status-color: var(--color-status-pending, #8E8E93); --status-bg: var(--color-status-pending-bg, rgba(142,142,147,0.1)); --status-border: rgba(142,142,147,0.35); }
+.ai-emp-work-item[data-status="talking"] { --status-color: #B8860B; --status-bg: var(--color-status-talking-bg, rgba(255,204,0,0.12)); --status-border: rgba(255,204,0,0.55); }
+.ai-emp-work-item[data-status="active"]  { --status-color: #248A3D; --status-bg: var(--color-status-active-bg, rgba(52,199,89,0.12)); --status-border: rgba(52,199,89,0.4); }
+.ai-emp-work-item[data-status="lost"]    { --status-color: var(--color-status-lost, #FF3B30); --status-bg: var(--color-status-lost-bg, rgba(255,59,48,0.12)); --status-border: rgba(255,59,48,0.35); }
+.ai-emp-work-item[data-status="paused"]  { --status-color: var(--color-status-paused, #AF52DE); --status-bg: var(--color-status-paused-bg, rgba(175,82,222,0.12)); --status-border: rgba(175,82,222,0.35); }
 
 /* 工作记录 tab pane 默认空态/错误态 */
 .ai-emp-work-empty { padding: 40px 20px; text-align: center; color: var(--color-text-tertiary, #8E8E93); font-size: 13px; }
@@ -5820,9 +5822,10 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .emp-stat-value { font-size: 20px; font-weight: 600; color: var(--accent); }
 .emp-stat-label { font-size: 11px; color: var(--text-secondary); margin-top: 2px; }
 .emp-info-list { display: flex; flex-direction: column; gap: 8px; }
-.emp-info-item { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--sb2-border); }
-.emp-info-label { font-size: 13px; color: var(--sb2-t3); }
-.emp-info-value { font-size: 13px; font-family: 'SF Mono', monospace; color: var(--sb2-t1); }
+/* r83 基础信息改 3+9 栅格: 标签定宽左列, 内容右列(参考 experience grid 手法) */
+.emp-info-item { display: grid; grid-template-columns: 88px 1fr; gap: 12px; align-items: center; padding: 8px 0; border-bottom: 0.5px solid var(--sb2-border); }
+.emp-info-label { font-size: 12px; color: var(--sb2-t3); }
+.emp-info-value { font-size: 13px; font-family: 'SF Mono', monospace; color: var(--sb2-t1); text-align: left; }
 /* V2.1 quota-meter 横条进度条(上下文用量, 复用 --separator 轨道 + accent 填充 + SF Mono 数字) */
 .quota-meter {
   position: relative;
@@ -5923,6 +5926,9 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .emp-idcard-info{ min-width:0; }
 .emp-idcard-name{ font-size:14px; font-weight:600; color:var(--sb2-t1); }
 .emp-idcard-role{ font-size:12px; color:var(--sb2-t3); margin-top:2px; }
+/* r83 状态点胶囊: 细边 + 浅底, 圆点语义色来自 .status-dot */
+.emp-idcard-side{ margin-left:auto; flex-shrink:0; }
+.emp-status-pill{ display:inline-flex; align-items:center; gap:6px; padding:3px 10px; border:1px solid var(--sb2-border); border-radius:999px; background:var(--sb2-s1); font-size:12px; color:var(--sb2-t2); white-space:nowrap; }
 /* — 员工详情 · stats 条: 卡片 → 透明分栏 — */
 .ai-emp-stats-bar{ background:transparent; gap:0; padding:10px 20px; }
 .ai-emp-stat{ background:transparent; border:none; padding:2px 16px; }
@@ -17377,6 +17383,10 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
 <div class="emp-idcard-info">
 <div class="emp-idcard-name" id="empIdCardName">-</div>
 <div class="emp-idcard-role" id="empIdCardRole">-</div>
+</div>
+<!-- 〔r83 老大 15:59〕状态收编细边点胶囊, 挪到身份卡右端 -->
+<div class="emp-idcard-side">
+<span class="emp-status-pill" id="empStatusPill"><span class="status-dot" id="empStatusDot"></span><span id="empStatusPillText">-</span></span>
 </div>
 </div>
 <div class="emp-info-list">

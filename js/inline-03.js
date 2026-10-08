@@ -10001,7 +10001,13 @@ function openEmpDetail(empId) {
   document.getElementById('empDetailModel').textContent = emp.model || 'gpt-4o';
   document.getElementById('empDetailGroup').textContent = emp.group || emp.subCategory || '职能组';
   document.getElementById('empDetailSubCategory').textContent = emp.subCategory || emp.group || '技术团队';
-  document.getElementById('empDetailStatusText').textContent = getStatusText(emp.status) || '在线';
+  var _stText = getStatusText(emp.status) || '在线';
+  document.getElementById('empDetailStatusText').textContent = _stText;
+  /* 〔r83〕身份卡右端状态点胶囊同步(胶囊自带圆点, 剥掉文案里的 emoji) */
+  var _pillDot = document.getElementById('empStatusDot');
+  if (_pillDot) _pillDot.className = 'status-dot ' + escapeAttr(emp.status || 'offline');
+  var _pillText = document.getElementById('empStatusPillText');
+  if (_pillText) _pillText.textContent = _stText.replace(/^\S+\s/, '');
   document.getElementById('empDetailCreated').textContent = emp.createdAt || emp.created || new Date().toLocaleDateString('zh-CN');
   // V3 升级:3 个 Math.random 编造 stats 已从 DOM 移除(零编造规则),改由 header 下方 stats 独立条统一从 /api/agents/:id/stats 取真实数据
   // 上下文进度条:解析 emp.ctx(总窗口,如 8K / 32K) + emp.tokenUsage(已用 tokens,无则 0 → 0% 显占位)
@@ -10235,7 +10241,7 @@ function renderEmpWorkList(items) {
     var cls = it.type === 'follow_up' ? 'followup' : (it.type === 'ingest' ? 'analysis' : it.type);
     var statusAttr = it.status ? ' data-status="' + escapeAttr(it.status) + '"' : '';
     var timeStr = it.ts ? new Date(it.ts * 1000).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '';
-    var statusBadge = it.status ? '<span style="font-size:10px;color:var(--status-color, var(--color-text-tertiary));background:var(--status-bg, transparent);padding:2px 6px;border-radius:8px;margin-left:6px;">' + (statusLabel[it.status] || it.status) + '</span>' : '';
+    var statusBadge = it.status ? '<span class="ai-emp-work-badge">' + (statusLabel[it.status] || it.status) + '</span>' : '';
     var detail = it.detail ? '<div style="font-size:11px;color:var(--color-text-tertiary);margin-top:2px;">' + escapeHtml(it.detail) + '</div>' : '';
     return '<div class="ai-emp-work-item"' + statusAttr + '>'
       + '<div class="ai-emp-work-icon ' + cls + '">' + ic + '</div>'
