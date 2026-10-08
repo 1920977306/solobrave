@@ -700,6 +700,10 @@ class _BrainScheduler:
 
     def request_clean(self, emp_id, mem_id):
         """FIXME: 请求延迟清洗；同员工落入 30 秒窗口"""
+        # ★ P2: 调度器停用（start 被注释）时不再入队 —— 否则每条记忆 POST 都堆积，
+        # 队列只入不消无限增长（审计#3 顺手项，与 BrainScheduler 租户化不捆绑）
+        if not self._running:
+            return
         now = int(time.time() * 1000)
         with self._lock:
             batch = self._clean_batches.get(emp_id)
