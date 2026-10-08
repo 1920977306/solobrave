@@ -3194,8 +3194,6 @@ async function sb2TlnFetchPanelRecords(talentId){
     }
     var data = await resp.json();
     _sb2TlnDetailCache.records = data;
-    _sb2TlnLoadedTabs = _sb2TlnLoadedTabs || {};
-    _sb2TlnLoadedTabs.records = true;
     _sb2TlnDetailLoadedTabs.records = true;
     var t = window._sb2TlnDetailCurrentTalent || {id: talentId};
     sb2TlnRenderPanelRecords(t);
@@ -3272,8 +3270,6 @@ async function sb2TlnFetchPanelTasks(talentId){
     }
     var data = await resp.json();
     _sb2TlnDetailCache.tasks = data;
-    _sb2TlnLoadedTabs = _sb2TlnLoadedTabs || {};
-    _sb2TlnLoadedTabs.tasks = true;
     _sb2TlnDetailLoadedTabs.tasks = true;
     var t = window._sb2TlnDetailCurrentTalent || {id: talentId};
     sb2TlnRenderPanelTasks(t);
