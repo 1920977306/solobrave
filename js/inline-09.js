@@ -1535,9 +1535,6 @@ var SB2_SIDE_RENDERERS = {
         ]},
         { label:'工具', items:[
           { name:'<i class=sb2-ico-search></i> 语义搜索', onClick:"sb2KbSemanticSearchToggle && sb2KbSemanticSearchToggle()" }
-        ]},
-        { label:' ', items:[
-          { name:'<i class=sb2-ico-ruler></i> 规律库入口 →', onClick:"sb2Go && sb2Go('patterns')" }
         ]}
       ]
     };
@@ -1555,13 +1552,9 @@ var SB2_SIDE_RENDERERS = {
           { name:'待确认',   onClick:"switchPtnSideStatus && switchPtnSideStatus('draft')" },
           { name:'已确认',   onClick:"switchPtnSideStatus && switchPtnSideStatus('confirmed')" },
           { name:'已废弃',   onClick:"switchPtnSideStatus && switchPtnSideStatus('deprecated')" }
-        ]},
-        /* 〔27 轮批注① 2026-10-06〕「返回知识库 →」入口 (老大「规律库没做这个」)
-           原型 patterns 侧栏底部同款 (solobrave-redesign line 721-722, hr + accent dot + 返回知识库 →)
-           写法对齐 knowledge 侧栏「规律库入口 →」(line 46880 同款 label:' ' + 单 item) */
-        { label:' ', items:[
-          { name:'返回知识库 →', onClick:"sb2Go && sb2Go('knowledge')" }
         ]}
+        /* 〔side-xlink-del 2026-10-08 老大批注①②③ 18:49「去掉,不需要」〕删侧栏底部「返回知识库 →」
+           理由: rail 已承担全部模块跳转, 侧栏跨模块入口多此一举 (老大 00:24 同口径) */
       ]
     };
   },
@@ -1668,10 +1661,8 @@ var SB2_SIDE_RENDERERS = {
       items:[
         { label:'类目', items: (cats.length ? cats : [{name:'加载中…'}]).slice(0, 30).map(function(c){
           return { name:(c.name || c.display_name || '-'), onClick:"switchProductsCategory && switchProductsCategory('"+(c.id || c.name)+"')" };
-        })},
-        { label:' ', items:[
-          { name:'<i class=sb2-ico-book></i> 返回知识库 →', onClick:"sb2Go && sb2Go('knowledge')" }
-        ]}
+        })}
+        /* 〔side-xlink-del 2026-10-08 老大批注③ 18:49「去掉」〕删底部「返回知识库 →」, 同规律库/知识库口径 */
       ]
     };
   },
