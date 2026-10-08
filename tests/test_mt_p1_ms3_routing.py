@@ -73,14 +73,17 @@ def test_ms3_delete_routes_to_tenant_db():
     mem_id = created.get('id')
     assert mem_id, f'记忆创建未返回 id: {created}'
 
-    # 2. SQL 预置 t_acme 库 memory 表同 id 行（模拟 BrainScheduler 已同步状态）
+    # 2. 确保 t_acme 库 memory 表有同 id 行（模拟 BrainScheduler 已同步状态）。
+    #    修复后 ms3 写路径已路由租户库, POST 阶段可能已写入 → INSERT OR IGNORE 幂等
     conn = sqlite3.connect(TENANT_B_DB)
     try:
         conn.execute(
-            "INSERT INTO memory (id, emp_id, value, pool, created_at, is_filler, is_duplicate, cleaned_at, status) "
+            "INSERT OR IGNORE INTO memory (id, emp_id, value, pool, created_at, is_filler, is_duplicate, cleaned_at, status) "
             "VALUES (?, ?, ?, 'daily', ?, 0, 0, 0, 'active')",
             (mem_id, SHARED_EMP, value, int(time.time() * 1000)))
         conn.commit()
+        pre = conn.execute('SELECT COUNT(*) FROM memory WHERE id=?', (mem_id,)).fetchone()[0]
+        assert pre == 1, f'预置失败: t_acme 库无该记忆行 (id={mem_id})'
     finally:
         conn.close()
 
