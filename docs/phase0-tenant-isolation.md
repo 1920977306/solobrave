@@ -216,10 +216,16 @@ function provision_tenant(admin_email, plan):
 | M3 行级校验 | talents 详情 + 3 个子资源端点镜像列表可见性（404 不暴露 id）；proposals 详情对齐列表 admin-only；deals 详情 JOIN 归属校验；`_talent_visible_to_auth()` 统一 helper。tasks 复核本就有校验；products 为共享货盘语义不动 | f5d4119 | 员工越权 404/admin 200/proposals 403✅ |
 | M4 一键开通 | `POST /api/tenants`（平台超管专属）：开户 + 冷启动（惰性建库）+ 积分种子（tenant_pool）；`GET /api/tenants`（userCount）；重名 409 | 7501e2a | 开通→登录→积分 800→tenant_admin 403→跨租户不可见✅ |
 
+### M5 已落地（fa984a2 起）
+- 目录物理隔离：`_td()` 目录租户化（30 处调用点替换，t_default 零行为变化），chat 文件实测落 `tenants/<tid>/chats/`
+- 删租户：`scripts/tenant_delete.py`（dry-run/--execute/--purge），收号双口径（tenant_id 章 + createdBy∈租户用户），sweep 扣默认库种子 id 防误删
+- 员工/群组创建盖 tenant_id 章；积分内务 3 端点放行 tenant_admin；tenant_admin 租户内全权
+- heavy 子线程两处（HeavyPipe/Reanalysis）`_run_as_tenant` 包裹
+
+### 设计决定
+- embedding_cache **不加盐**：文件缓存走 `_td` 已租户分目录，表缓存在各租户库内——M2+M5 后天然无跨租户共享，加盐属多余复杂度
+
 ### 遗留（下一轮）
-- 目录物理隔离（chats/memory 等仍在全局目录，按 agent_id 天然无碰撞，删租户需 sweep 脚本）
-- 后台子线程租户上下文传递（heavy_jobs 等用 `_run_as_tenant` 逐点接线）
-- 角色模板拆分（tenant_admin 的权限模板进 permissions.json）
-- Bot 绑定（飞书）异步流程化
-- embedding_cache 租户盐（防侧信道）
+- Bot 绑定（飞书）异步流程化（M4 留了 heavy_jobs 挂点）
 - 存量 dirs 的 `emp_001`/`{empId}` 模板残留清洗
+- 其他后台线程逐点审计（OpenClaw 队列 / BrainScheduler / PatternInduce-Cron 均为平台级守护，默认租户语义正确，多租户化时再逐个 `_run_as_tenant`）

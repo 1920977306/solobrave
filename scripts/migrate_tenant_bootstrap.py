@@ -81,6 +81,25 @@ def ensure_tenant_id_field(data_dir, fname, ts, platform_rule=None):
         backup_and_write(path, items, ts)
     return changed, len(items)
 
+def ensure_tenant_admin_template(data_dir, ts):
+    """permissions.json 补 tenant_admin 角色模板（dict 路径用户解析用）"""
+    path = os.path.join(data_dir, 'permissions.json')
+    perms = load_json(path, {})
+    if not isinstance(perms, dict):
+        return
+    tpls = perms.get('roleTemplates', [])
+    if any(t.get('id') == 'tenant_admin' for t in tpls if isinstance(t, dict)):
+        return
+    all_mods = next((dict(t.get('modules', {})) for t in tpls
+                     if isinstance(t, dict) and t.get('id') == 'admin'), None)
+    if all_mods is None:
+        from collections import OrderedDict
+        all_mods = {}
+    tpls.append({'id': 'tenant_admin', 'name': '租户管理员',
+                 'modules': all_mods, 'knowledgeCategories': ['*']})
+    perms['roleTemplates'] = tpls
+    backup_and_write(path, perms, ts)
+
 def ensure_internal_secret(data_dir):
     import secrets as _secrets
     cert_dir = os.path.join(data_dir, 'certs')
@@ -116,6 +135,7 @@ def main():
     log(f'  teams.json: {c3}/{n3} 条补 tenant_id')
     c4, n4 = ensure_tenant_id_field(data_dir, 'groups.json', ts)
     log(f'  groups.json: {c4}/{n4} 条补 tenant_id')
+    ensure_tenant_admin_template(data_dir, ts)
     ensure_internal_secret(data_dir)
 
     # 幂等自检：重跑一遍应零改动

@@ -1790,7 +1790,9 @@ def _get_role_template(permissions, role_or_template_id):
 
 def _get_effective_permissions(user_or_auth):
     """合并角色模板 + 用户覆盖，返回 {modules, knowledgeCategories}"""
-    if hasattr(user_or_auth, 'is_admin') and user_or_auth.is_admin:
+    # ★ M5: tenant_admin 租户内全权（跨租户隔离由 DB 路由+平台超管端点保证, 不是这里）
+    if hasattr(user_or_auth, 'is_admin') and (user_or_auth.is_admin
+            or getattr(user_or_auth, 'is_tenant_admin', False)):
         return {'modules': {m: True for m in AVAILABLE_MODULES}, 'knowledgeCategories': ['*']}
     permissions = _load_permissions()
     if hasattr(user_or_auth, 'user_record') and user_or_auth.user_record:
@@ -21414,9 +21416,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         images = body.get('images', [])
         if _should_heavy_bypass(role, images, agent):
             job_id = _heavy_job_create(agent_id)
+            # ★ M5: 捕获请求租户, 子线程用 _run_as_tenant 包裹, 否则 heavy 写库全落默认租户
+            _req_tid = auth.tenant_id or DEFAULT_TENANT_ID
             threading.Thread(
-                target=_heavy_pipe_worker,
-                args=(job_id, agent, body.get('content', ''), images, auth.user_id),
+                target=lambda: _run_as_tenant(_req_tid, _heavy_pipe_worker,
+                                              job_id, agent, body.get('content', ''), auth.user_id),
                 daemon=True, name=f'HeavyPipe-{job_id}',
             ).start()
             placeholder_msg = {
@@ -21776,9 +21780,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         extra = {}
         if vision_event:
             job_id = _heavy_job_create(agent_id)
+            # ★ M5: 同 HeavyPipe — 捕获租户包裹子线程
+            _req_tid = auth.tenant_id or DEFAULT_TENANT_ID
             threading.Thread(
-                target=_reanalysis_worker,
-                args=(job_id, agent, content, name, intent['entity_id'], vision_event, auth.user_id),
+                target=lambda: _run_as_tenant(_req_tid, _reanalysis_worker,
+                                              job_id, agent, content, name, intent['entity_id'], vision_event, auth.user_id),
                 daemon=True, name=f'Reanalysis-{job_id}',
             ).start()
             extra = {'heavyPipe': True, 'jobId': job_id}
