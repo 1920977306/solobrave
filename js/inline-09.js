@@ -1744,6 +1744,9 @@ function sb2KbSemanticSearchToggle(){
     if (inp) inp.focus();
   }
 }
+/* 挂 window: inline-09 在 IIFE 内, 侧栏 onClick 属性走全局作用域 (同款: window.renderSideFor) */
+window.sb2KbSemanticSearchToggle = sb2KbSemanticSearchToggle;
+window.sb2KbRunSearch = sb2KbRunSearch;
 async function sb2KbRunSearch(){
   var inp = document.getElementById('sb2KbSearchInput');
   var query = (inp && inp.value || '').trim();
