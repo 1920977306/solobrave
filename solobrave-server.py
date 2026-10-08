@@ -5402,6 +5402,13 @@ def _feishu_gateway_unroute(account_id):
     except Exception as e:
         return False, str(e)[:120]
 
+def _tfc_ensure_col(conn):
+    """tenant_feishu_config 缺 route_agent_id 列时幂等补上（老库升级路径）。"""
+    try:
+        conn.execute("ALTER TABLE tenant_feishu_config ADD COLUMN route_agent_id TEXT DEFAULT ''")
+    except Exception:
+        pass  # 列已存在
+
 def _feishu_get_tenant_access_token(app_id=None, app_secret=None):
     app_id = app_id or FEISHU_BITABLE_APP_ID
     app_secret = app_secret or FEISHU_BITABLE_APP_SECRET
@@ -8350,6 +8357,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if path == '/api/tenants':
             self._handle_post_tenants()
             return
+        if path.startswith('/api/tenants/') and path.endswith('/feishu-bind/retry'):
+            self._handle_post_tenant_feishu_bind_retry(path.split('/')[3])
+            return
         if path.startswith('/api/tenants/') and path.endswith('/feishu-bind'):
             self._handle_post_tenant_feishu_bind(path.split('/')[3])
             return
@@ -9723,15 +9733,17 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                         error TEXT DEFAULT '', bound_at TEXT DEFAULT '',
                         updated_at INTEGER DEFAULT 0)
                 ''')
-                row = conn.execute('SELECT app_id, status, error, bound_at FROM tenant_feishu_config WHERE tenant_id = ?', (tid,)).fetchone()
+                _tfc_ensure_col(conn)
+                row = conn.execute('SELECT app_id, status, error, bound_at, route_agent_id FROM tenant_feishu_config WHERE tenant_id = ?', (tid,)).fetchone()
             finally:
                 conn.close()
             if row:
                 return {'status': row['status'], 'appId': row['app_id'],
-                        'error': row['error'], 'boundAt': row['bound_at']}
+                        'error': row['error'], 'boundAt': row['bound_at'],
+                        'routeAgentId': row['route_agent_id'] or ''}
         except Exception:
             pass
-        return {'status': 'unbound', 'appId': '', 'error': '', 'boundAt': ''}
+        return {'status': 'unbound', 'appId': '', 'error': '', 'boundAt': '', 'routeAgentId': ''}
 
     def _handle_get_tenant_feishu_bind(self, tid):
         """GET /api/tenants/<id>/feishu-bind — 绑定状态（平台超管 或 本租户管理员）"""
@@ -9806,9 +9818,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                         error TEXT DEFAULT '', bound_at TEXT DEFAULT '',
                         updated_at INTEGER DEFAULT 0)
                 ''')
+                _tfc_ensure_col(conn)
                 conn.execute(
-                    'INSERT OR REPLACE INTO tenant_feishu_config (tenant_id, app_id, app_secret, status, error, updated_at) VALUES (?, ?, ?, ?, ?, ?)',
-                    (tid, app_id, app_secret, 'pending', '', int(time.time())))
+                    'INSERT OR REPLACE INTO tenant_feishu_config (tenant_id, app_id, app_secret, status, error, updated_at, route_agent_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                    (tid, app_id, app_secret, 'pending', '', int(time.time()), route_agent_id))
                 conn.commit()
             finally:
                 conn.close()
@@ -9856,6 +9869,98 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         threading.Thread(target=_verify_async, daemon=True, name=f'FeishuBind-{tid}').start()
         logger.info(f'[MT] 租户 {tid} 飞书绑定受理 by={auth.user_id}')
         self._send_json(200, {'accepted': True, 'tenantId': tid, 'status': 'pending'})
+
+    def _handle_post_tenant_feishu_bind_retry(self, tid):
+        """POST /api/tenants/<id>/feishu-bind/retry — 不重新输凭证重试网关路由
+        场景: 绑定时 agent 未在网关注册 → 状态停在 verified; agent 注册好后点重试即 routed。
+        用租户库存的凭证 + route_agent_id, 同步调 _feishu_gateway_route。"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not (auth.is_platform_admin or auth.tenant_id == tid):
+            self._send_json_error(403, '仅平台超管或本租户管理员可操作')
+            return
+        tenants = _load_tenants()
+        if not any(t.get('id') == tid for t in tenants if isinstance(t, dict)):
+            self._send_json_error(404, '租户不存在')
+            return
+
+        def _load_cfg():
+            conn = _db_conn()
+            try:
+                conn.execute('''
+                    CREATE TABLE IF NOT EXISTS tenant_feishu_config (
+                        tenant_id TEXT PRIMARY KEY, app_id TEXT DEFAULT '',
+                        app_secret TEXT DEFAULT '', status TEXT DEFAULT 'pending',
+                        error TEXT DEFAULT '', bound_at TEXT DEFAULT '',
+                        updated_at INTEGER DEFAULT 0)
+                ''')
+                _tfc_ensure_col(conn)
+                return conn.execute(
+                    'SELECT app_id, app_secret, status, route_agent_id FROM tenant_feishu_config WHERE tenant_id = ?',
+                    (tid,)).fetchone()
+            finally:
+                conn.close()
+        try:
+            row = _run_as_tenant(tid, _load_cfg)
+        except Exception as e:
+            self._send_json_error(500, f'读取绑定配置失败: {e}')
+            return
+        if not row:
+            self._send_json_error(409, '尚未绑定凭证, 请先走 feishu-bind')
+            return
+        app_id, app_secret, status, stored_agent = row['app_id'], row['app_secret'], row['status'], (row['route_agent_id'] or '')
+        if status in ('unbound', 'pending'):
+            self._send_json_error(409, f'当前状态 {status}, 请先完成绑定验证')
+            return
+        if not app_id or not app_secret:
+            self._send_json_error(409, '存储凭证缺失, 请重新绑定')
+            return
+
+        route_agent_id = stored_agent
+        if not route_agent_id:
+            # 老记录没有存 agent → 按绑定同款逻辑解析本租户第一个 AI 员工并回写
+            t_users = [u for u in _load_users() if u.get('tenant_id') == tid]
+            tuids = {u.get('id') for u in t_users}
+            rag = next((a for a in _load_agents()
+                        if a.get('tenant_id') == tid or a.get('createdBy') in tuids), None)
+            if not rag:
+                self._send_json_error(400, '本租户还没有 AI 员工, 请先创建')
+                return
+            route_agent_id = rag.get('id')
+            def _backfill():
+                conn = _db_conn()
+                try:
+                    conn.execute('UPDATE tenant_feishu_config SET route_agent_id = ? WHERE tenant_id = ?', (route_agent_id, tid))
+                    conn.commit()
+                finally:
+                    conn.close()
+            try:
+                _run_as_tenant(tid, _backfill)
+            except Exception:
+                pass  # 回写失败不阻塞本次路由
+
+        rok, route_err = _feishu_gateway_route(tid, app_id, app_secret, route_agent_id)
+        final_status = 'routed' if rok else status  # 失败保持原状态
+        def _writeback():
+            conn = _db_conn()
+            try:
+                conn.execute(
+                    'UPDATE tenant_feishu_config SET status = ?, error = ?, updated_at = ? WHERE tenant_id = ?',
+                    (final_status, '' if rok else route_err, int(time.time()), tid))
+                conn.commit()
+            finally:
+                conn.close()
+        try:
+            _run_as_tenant(tid, _writeback)
+        except Exception as e:
+            self._send_json_error(500, f'状态回写失败: {e}')
+            return
+        logger.info(f'[MT] 租户 {tid} 飞书路由重试: {final_status} agent={route_agent_id} by={auth.user_id}')
+        self._send_json(200, {'retried': True, 'tenantId': tid, 'status': final_status,
+                              'routeAgentId': route_agent_id,
+                              'error': '' if rok else route_err})
 
     def _handle_get_users(self):
         """GET /api/users（需要 admin）"""
