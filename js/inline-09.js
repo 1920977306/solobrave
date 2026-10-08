@@ -227,7 +227,6 @@ function buildDashboard(){
         〔2026-10-08 老大批注「这个怎么还是在啊」复盘: 批注对象是 5 天前的陈旧「等你回复」卡
         赖着不走, 非删整条 — 条恢复; 陈旧根治在 sb2_loadDashboardTodo() 第 4 路加 48h 新鲜度窗〕 */
     +   '<div class="sb2-dash2-todo" id="sb2Dash2Todo" style="display:none">'
-    +     '<div class="sb2-dash2-feed-hd"><h2>等你拍板</h2><span class="hint">来自 AI 员工的提案, 同意后立即执行</span></div>'
     +     '<div id="sb2Dash2TodoList" class="sb2-dash2-todo-list"></div>'
     +   '</div>'
     +   '<div class="sb2-kpis">'
