@@ -2760,7 +2760,6 @@ const API_PROVIDERS = {
 
 // State
 let currentTab = 'employees';
-var drawerOpen = false;
 var showBoard = false;
 var mentionMode = false;
 var mentionIdx = 0;
@@ -4606,11 +4605,6 @@ document.getElementById('msgInput').addEventListener('input', handleInput);
 document.querySelectorAll('.mention-item').forEach(function (i) {
   return i.addEventListener('click', function () {
     return pickMention(i.dataset.id);
-  });
-});
-document.querySelectorAll('.drawer-tab').forEach(function (t) {
-  return t.addEventListener('click', function () {
-    return switchDrawerTab(t.dataset.tab);
   });
 });
 document.addEventListener('click', function (e) {
@@ -9890,11 +9884,6 @@ function toggleTask(el) {
   }
 }
 
-// Drawer
-function openDrawer() {
-  document.getElementById('drawerOverlay').classList.add('open');
-  drawerOpen = true;
-}
 // Employee Detail Panel
 var currentEmpId = null;
 // 在用户主动点击"一键归纳"后，临时抑制顶部归纳提示条，避免关闭弹窗/切换标签页时反复出现
@@ -12795,19 +12784,6 @@ function deleteEmpFromDetail() {
     closeEmpDetail();
   }
 }
-function closeDrawer() {
-  document.getElementById('drawerOverlay').classList.remove('open');
-  drawerOpen = false;
-}
-function switchDrawerTab(tab) {
-  document.querySelectorAll('.drawer-tab').forEach(function (t) {
-    return t.classList.toggle('active', t.dataset.tab === tab);
-  });
-  document.querySelectorAll('.tab-pane').forEach(function (p) {
-    return p.classList.toggle('active', p.id === 'tab-' + tab);
-  });
-  if (tab === 'team') renderCurrentTeamList();
-}
 
 // Model selection
 let selectedModel = 'gpt4o';
@@ -12887,23 +12863,6 @@ function toggleSettings() {
   switchModule('settings');
 }
 
-// Activity Feed Auto Update
-const activities = ['完成了代码提交', '更新了文档', '通过了测试', '部署成功', '提交了 PR'];
-registerTimerTask(function () {
-  const feed = document.getElementById('tab-activity');
-  if (feed && feed.classList.contains('active')) {
-    const emp = emps[Math.floor(Math.random() * emps.length)];
-    const act = activities[Math.floor(Math.random() * activities.length)];
-    const html = `<div class="activity-item">
-<div class="activity-icon">${emp.name.charAt(0)}</div>
-<div class="activity-text"><strong>${emp.name}</strong> ${act}</div>
-<div class="activity-time">刚刚</div>
-</div>`;
-    feed.insertAdjacentHTML('afterbegin', html);
-    if (feed.children.length > 6) feed.lastElementChild.remove();
-  }
-}, 15);
-
 // Init
 loadKanbanTasks();
 initTaskTimeoutTimers();
@@ -12928,7 +12887,7 @@ document.addEventListener('keydown', function (e) {
     e.preventDefault();
     openGroupWizard();
   }
-  // Esc = Close modals/drawer
+  // Esc = Close modals
   if (e.key === 'Escape') {
     if (document.querySelector('.group-wizard-overlay.show')) {
       closeGroupWizard();
@@ -12936,8 +12895,6 @@ document.addEventListener('keydown', function (e) {
       document.querySelectorAll('.modal-overlay.show').forEach(function (m) {
         return m.classList.remove('show');
       });
-    } else if (document.querySelector('.drawer-overlay.open')) {
-      closeDrawer();
     } else if (document.querySelector('.app-sidebar.open')) {
       toggleSidebar();
     }
