@@ -20,7 +20,9 @@ var ICONS = {
   lobster:icon('<circle cx="12" cy="12" r="9"/><path d="M8 12h8M12 8v8"/>'),
   book:   icon('<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>'),
   sigma:  icon('<path d="M18 4H6l6 8-6 8h12"/>'),
-  box:    icon('<path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="M3.3 7l8.7 5 8.7-5"/><path d="M12 22V12"/>'),
+  /* 〔rail-icons-pass 2026-10-08〕商品库: lucide box 立方体 → shopping-bag 购物袋
+     立方体语义偏「仓储/物流」, 购物袋一眼是商品; 与任务(勾选框)拉开 */
+  box:    icon('<path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><path d="M3 6h18"/><path d="M16 10a4 4 0 0 1-8 0"/>'),
   users:  icon('<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="m19 2 1 2.2 2.2 1-2.2 1-1 2.2-1-2.2-2.2-1 2.2-1z"/>'),
   task:   icon('<path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>'),
   gear:   icon('<circle cx="12" cy="12" r="3"/><path d="M12 1v4m0 14v4M4.2 4.2l2.8 2.8m9.9 9.9 2.8 2.8M1 12h4m14 0h4M4.2 19.8l2.8-2.8m9.9-9.9 2.8-2.8"/>'),
@@ -237,6 +239,9 @@ function buildDashboard(){
     +     kpi('sb2KpiTalents','在库达人','')
     +     kpi('sb2KpiKb','知识库条目','')
     +     kpi('sb2KpiAgents','AI 员工在线','')
+    /* 〔dash-credit-card 2026-10-08 老大「给运营页加一个员工积分余额小卡片」〕第 5 张 KPI 卡
+        数据走 /api/credits/balance (与设置屏积分中心同源), 见 sb2_loadDashboardKpis 卡 5 */
+    +     kpi('sb2KpiCredit','员工积分余额','')
     +   '</div>'
     +   '<div class="sb2-dash2-feed-grid">'
     +     '<div class="sb2-dash2-feed sb2-dash2-feed-focus">'
@@ -467,6 +472,28 @@ function sb2_loadDashboardKpis(){
         if (v && v.getAttribute('data-v') === '-') return;
       });
     });
+  /* 〔dash-credit-card 2026-10-08〕卡 5: 员工积分余额 — 与积分中心同源口径 /api/credits/balance
+     value = 全部员工余额合计 (零编造: 接口给多少算多少, 空数组显示 -)
+     delta 业务化: 有人余额归零 → 「▼ N 人余额为零」(红, 阈值口径照抄积分中心 lowBalance<=0);
+     否则 「N 位员工」持平态 */
+  fetch('/api/credits/balance', { headers: headers })
+    .then(function(r){ return r.ok ? r.json() : null; })
+    .then(function(list){
+      if (!Array.isArray(list) || !document.getElementById('sb2KpiCredit')) return;
+      if (!list.length) { setKpi('sb2KpiCredit', '-'); return; }
+      var totalBal = 0, zeroCnt = 0;
+      list.forEach(function(b){
+        totalBal += (b && typeof b.balance === 'number') ? b.balance : 0;
+        if (!b || (b.balance || 0) <= 0) zeroCnt++;
+      });
+      setKpi('sb2KpiCredit', formatNumber(totalBal));
+      setKpiBusiness('sb2KpiCredit', {
+        deltaText: (zeroCnt > 0) ? ('▼ ' + zeroCnt + ' 人余额为零') : (list.length + ' 位员工'),
+        deltaCls: (zeroCnt > 0) ? 'down' : 'flat',
+        sub: ''
+      });
+    })
+    .catch(function(){ /* 失败保持 '-' 兜底, 不影响其它卡 */ });
   /* MVP2: 三 feed 区加载 (今日关注 + 规律洞察 + 员工动态) — 与 KPI 4 卡并行 */
   sb2_loadDashboardFeeds();
   /* 〔dash-opt-1〕等你拍板 hero 区 — 与 feed 并行 */
