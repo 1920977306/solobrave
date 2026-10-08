@@ -13565,6 +13565,33 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
   padding:40px 0; text-align:center; color:var(--sb2-t3);
   font:400 13px/1.5 "PingFang SC",sans-serif;
 }
+/* ============ 群聊模式顶栏 (2026-10-08 重新设计, sb2 原生) ============
+ * - .sb2-group-mode 切顶栏: 私聊信息块隐, 群信息块显; 员工档案/选择模型隐, 群详情显
+ * - 成员头像栈 + 群emoji渐变方块, 全部 --sb2-* token, 0 硬编码颜色 */
+.sb2-chat-shell.sb2-group-mode #sb2ChatTopbarInfo{ display:none; }
+.sb2-chat-shell.sb2-group-mode #sb2ChatTopbarProfile,
+.sb2-chat-shell.sb2-group-mode #sb2ChatTopbarSettings{ display:none; }
+.sb2-chat-shell.sb2-group-mode #sb2GroupTopbarDetail{ display:inline-flex; }
+#sb2GroupTopbarAvatar{ border-radius:10px; font-size:18px; background:var(--sb2-s2); }
+.sb2-group-topbar-members{ display:flex; align-items:center; margin-left:8px; }
+.sb2-group-topbar-members .mini-avatar{
+  width:22px; height:22px; border-radius:50%; font-size:11px;
+  display:flex; align-items:center; justify-content:center;
+  color:#fff; border:2px solid var(--sb2-s1); margin-left:-6px;
+}
+.sb2-group-topbar-members .mini-avatar:first-child{ margin-left:0; }
+.sb2-group-topbar-members .mini-more{ background:var(--sb2-s2); color:var(--sb2-t3); }
+/* 群聊消息行: AI 名签 (复用 .sb2-chat-msg-meta), 头像底色跟随成员 */
+.sb2-chat-shell.sb2-group-mode .sb2-chat-msg-avatar.assistant{ font-size:12px; }
+#sb2GroupAnnouncementBar{
+  display:flex; align-items:center; gap:8px;
+  padding:8px 16px; font:400 12px/1.5 "PingFang SC",sans-serif;
+  color:var(--sb2-t3); background:var(--sb2-s1);
+  border-bottom:1px solid var(--sb2-border);
+}
+#sb2GroupAnnouncementBar .sb2-group-ann-icon{ flex:none; }
+#sb2GroupAnnouncementBar .sb2-group-ann-text{ flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+#sb2GroupAnnouncementBar[hidden]{ display:none; }
 .sb2-settings-feature-card{
   background:var(--sb2-s1); border:1px solid var(--sb2-border);
   border-radius:var(--sb2-r-lg); padding:18px 20px;
@@ -14383,6 +14410,10 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
 }
 .sb2-chat-msg-meta-time {
   color: var(--sb2-chat-bubble-time);
+}
+.sb2-chat-msg-meta-role {
+  color: var(--sb2-t3);
+  font-size: var(--sb2-chat-bubble-time-size);
 }
 /* 注入标签 chips (原型特征元素, 数据驱动) */
 .sb2-chat-injection-chips {
@@ -16635,7 +16666,7 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
 <main id="sb2ChatMain" class="sb2-chat-shell" hidden>
   <!-- 顶栏 (布局对齐原型: 头像 + 姓名·角色 + 状态行 + 右侧 ghost 按钮) -->
   <header class="sb2-chat-topbar">
-    <div class="sb2-chat-topbar-info">
+    <div class="sb2-chat-topbar-info" id="sb2ChatTopbarInfo">
       <span class="sb2-chat-topbar-avatar" id="sb2ChatTopbarAvatar">R</span>
       <div class="sb2-chat-topbar-meta">
         <div class="sb2-chat-topbar-name" id="sb2ChatTopbarName">-</div>
@@ -16645,12 +16676,22 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
         </div>
       </div>
     </div>
+    <!-- ★ 群聊模式顶栏 (2026-10-08 重新设计): sb2 原生群聊信息, 切群时切换显隐 (JS 控制) -->
+    <div class="sb2-chat-topbar-info" id="sb2GroupTopbarInfo" hidden>
+      <span class="sb2-chat-topbar-avatar" id="sb2GroupTopbarAvatar">👥</span>
+      <div class="sb2-chat-topbar-meta">
+        <div class="sb2-chat-topbar-name" id="sb2GroupTopbarName">-</div>
+        <div class="sb2-chat-topbar-status"><span id="sb2GroupTopbarSub">群聊</span></div>
+      </div>
+      <div class="sb2-group-topbar-members" id="sb2GroupTopbarMembers"></div>
+    </div>
     <div class="sb2-chat-topbar-right">
       <!-- 〔dash/credit-checkin 2026-10-08 派单 B〕积分余额芯片: loadChatCredits 灌数据 (inline-03 _renderChatCredits 双写), 点击跳积分仪表盘 -->
       <button class="sb2-chat-topbar-ghost sb2-chat-topbar-credits" type="button" id="sb2ChatTopbarCredits" title="积分余额, 点击打开积分仪表盘" onclick="sb2JumpToCreditDashboard()" style="display:none;">
         <i class=sb2-ico-gem></i> <span id="sb2ChatTopbarCreditsNum">-</span>
       </button>
       <button class="sb2-chat-topbar-ghost" type="button" id="sb2ChatTopbarProfile" title="员工档案" onclick="sb2_openEmpProfile()">员工档案</button>
+      <button class="sb2-chat-topbar-ghost" type="button" id="sb2GroupTopbarDetail" title="查看/编辑群组" style="display:none;">群详情</button>
       <button class="sb2-chat-topbar-ghost" type="button" id="sb2ChatTopbarSettings" title="点击切换模型 (请求级)" onclick="sb2_openModelPicker()" data-default-text="选择模型">选择模型</button>
       <!-- ★ r73 反馈 Comment 1 老大 17:44「不要设置这两个字, 改成当前模型的名字, 点开改成弹窗」:
         — r71 反向修法恢复了「设置」按钮; r73 老大再走查: 不要「设置」字, 改成 modelName + 弹窗
@@ -16662,6 +16703,12 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
         — 状态行 sb2ChatPickModel 仍是 model name 反馈 (id 共用不影响, 删 button 后 fallback 到 span) -->
     </div>
   </header>
+
+  <!-- ★ 群聊模式公告栏 (2026-10-08 重新设计): slim 条, 群公告真数据, 无公告整条隐藏 -->
+  <div id="sb2GroupAnnouncementBar" hidden>
+    <span class="sb2-group-ann-icon">📢</span>
+    <span class="sb2-group-ann-text" id="sb2GroupAnnouncementText"></span>
+  </div>
 
   <!-- 流式进度条 (顶部, 仅在 AI 生成时显示) -->
   <div class="sb2-chat-progress" id="sb2ChatProgress" hidden>
@@ -19112,7 +19159,7 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
      - 旧 chatArea + 老 JS 函数 100% 不动, 新 sb2 完全独立
      - _sb2Chat state + renderChatMain dispatcher
 -->
-<script src="js/inline-10.js?v=groupchat1c20261008"></script>
+<script src="js/inline-10.js?v=groupredesign1b20261008"></script>
 
 <!-- ★ feat/sb2-chat-tasks: §2 聊天进阶 JS (slash 命令 + @mention + 模型选择)
      - 复用 §1 的 _sb2Chat state + sb2_doSend + renderChatMain dispatcher

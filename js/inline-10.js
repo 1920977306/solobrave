@@ -51,6 +51,8 @@
 
   // ===== Topbar =====
   function sb2_updateTopbar() {
+    // 群聊模式: 顶栏由 sb2RenderGroupShell 管, 私聊 topbar 逻辑全跳过
+    if (window._sb2GroupMode) return;
     var emp = _sb2GetEmpById(_sb2Chat.agentId);
     var empRole = (emp && emp.role) ? emp.role : '';
     var empName = (emp && emp.name) ? emp.name : '-';
@@ -465,6 +467,30 @@
     if (!inp) return;
     var text = inp.value.trim();
     if (!text && _sb2Chat.attached.length === 0) return;
+    // ★ 群聊模式 (2026-10-08 重新设计): 走 legacy sendGroupMessage 群聊管线 (OpenClaw 流式全保留)
+    //   legacy 自己把用户消息 + AI 回复渲染进 #messagesArea → MutationObserver 镜像成 sb2 气泡
+    //   所以这里不本地 append, 避免双份
+    if (window._sb2GroupMode) {
+      var __gMentions = (typeof window.sb2_getMentions === 'function') ? (window.sb2_getMentions() || []) : [];
+      var __gImgs = _sb2Chat.attached.slice();
+      inp.value = '';
+      inp.style.height = 'auto';
+      _sb2Chat.attached = [];
+      sb2_renderAttachBar();
+      sendBtn.disabled = true;
+      setTimeout(function () { sendBtn.disabled = inp.value.trim().length === 0; }, 300);
+      try {
+        if (typeof sendGroupMessage === 'function') {
+          sendGroupMessage(window._sb2GroupMode, text || '', __gMentions, __gImgs);
+        } else if (typeof showToast === 'function') {
+          showToast('群聊发送不可用');
+        }
+      } catch (e) {
+        console.error('[sb2 group send]', e);
+        if (typeof showToast === 'function') showToast('群聊发送失败');
+      }
+      return;
+    }
     if (!_sb2Chat.agentId) {
       console.warn('[sb2_doSend] no agentId, skip');
       return;
@@ -639,27 +665,19 @@
     if (!shell) return;
     // 1. 显隐切换
     if (typeof currentModule !== 'undefined' && currentModule === 'messages') {
-      // ★ 群聊模式 (2026-10-08): sb2 聊天面板暂无群聊实现, 复用 legacy #chatArea 完整群聊 UI
-      //   进入: 去 .hidden 显示 legacy 聊天区, 藏 sb2 面板; 退出 sb2ExitGroupChat 恢复
+      shell.hidden = false;
+      // ★ 群聊模式 (2026-10-08 重新设计): sb2 原生群聊面板
+      //   顶栏切群信息块, 消息经 MutationObserver 从 legacy #messagesArea 镜像成 sb2 气泡
+      //   (legacy 群聊管线 OpenClaw 流式全保留, 只换视觉; #chatArea 保持 hidden 不显示旧设计)
       if (window._sb2GroupMode) {
-        var legacyChat = document.getElementById('chatArea');
-        if (legacyChat) { legacyChat.classList.remove('hidden'); legacyChat.style.display = 'flex'; }
-        shell.hidden = true;
-        // 切走再切回: 群头可能被其他模块的清空逻辑抹掉, 空了重建 (openGroupChat 幂等)
-        var _grpHdr = legacyChat && legacyChat.querySelector('.chat-header-name');
-        if ((!_grpHdr || !_grpHdr.textContent.trim()) && typeof openGroupChat === 'function') {
-          try { openGroupChat(window._sb2GroupMode); } catch (e) { /* 守卫 */ }
-        }
+        shell.classList.add('sb2-group-mode');
+        try { sb2RenderGroupShell(); } catch (e) { console.error('[sb2 group shell]', e); }
+        try { sb2GroupMirrorAll(); } catch (e) { console.error('[sb2 group mirror]', e); }
         return;
       }
-      shell.hidden = false;
+      shell.classList.remove('sb2-group-mode');
     } else {
       shell.hidden = true;
-      // 群聊模式随模块离开一并收起 legacy 聊天区 (防残留露底)
-      if (window._sb2GroupMode) {
-        var legacyChat2 = document.getElementById('chatArea');
-        if (legacyChat2) legacyChat2.classList.add('hidden');
-      }
       return;
     }
     // 2. 同步当前员工
@@ -754,22 +772,223 @@
   // ★ r68 批注①: 员工档案 onclick 跨块调用 — IIFE 内函数必须挂 window 才够得着
   window.sb2_openEmpProfile = sb2_openEmpProfile;
 
-  // ===== 群聊模式 (2026-10-08, 待办 A 配套) =====
-  // sb2 聊天面板没有群聊实现 (无 currentGroupId 概念), 群聊真链路全在 legacy
-  // (openGroupChat/sendGroupMessage/OpenClaw 流式)。这里不重写, 而是进 sb2 壳时
-  // 显示 legacy #chatArea (完整群聊 UI), 退出时恢复 sb2 面板。
+  // ===== 群聊模式 (2026-10-08 重新设计, 老大「群聊是以前的设计, 重新设计」) =====
+  // 视觉: sb2 原生群聊面板 — 群信息顶栏 + 成员头像栈 + slim 公告栏 + sb2 气泡消息流
+  // 数据: 发送/接收全走 legacy 群聊管线 (openGroupChat/sendGroupMessage/OpenClaw 流式/链式@)
+  //   legacy 把每条消息渲染进 hidden 的 #messagesArea, MutationObserver 镜像成 sb2 气泡
+  //   → AI 协作功能零重写, 旧设计 UI 完全不再显示 (#chatArea 保持 hidden)
+  var _sb2GroupNodeMap = [];  // [{src: legacyNode, row: sb2RowEl}] (legacy 节点没有稳定 id, 用数组配对)
+
+  function _sb2GroupFindRow(srcNode) {
+    for (var i = 0; i < _sb2GroupNodeMap.length; i++) {
+      if (_sb2GroupNodeMap[i].src === srcNode) return _sb2GroupNodeMap[i];
+    }
+    return null;
+  }
+
+  // 群顶栏 + 公告栏渲染 (幂等, 真数据: groups 全局/window.projects)
+  function sb2RenderGroupShell() {
+    var groupId = window._sb2GroupMode;
+    if (!groupId || groupId === true) return;
+    var list = [];
+    try { list = (typeof groups !== 'undefined' && Array.isArray(groups) && groups.length) ? groups : (window.projects || []); } catch (e) {}
+    var g = null;
+    for (var i = 0; i < list.length; i++) { if (list[i] && list[i].id === groupId) { g = list[i]; break; } }
+    if (!g) {
+      // 缓存没有 → 拉一次真数据 (fire-and-forget, 拉到重渲)
+      if (typeof apiFetch === 'function' && !window._sb2GroupShellLoading) {
+        window._sb2GroupShellLoading = true;
+        apiFetch('/api/groups').then(function (r) { return r && r.ok ? r.json() : null; }).then(function (data) {
+          window._sb2GroupShellLoading = false;
+          if (Array.isArray(data)) {
+            try { window.projects = data.slice(); } catch (e) {}
+            if (window._sb2GroupMode) sb2RenderGroupShell();
+          }
+        }).catch(function () { window._sb2GroupShellLoading = false; });
+      }
+      return;
+    }
+    var info = document.getElementById('sb2GroupTopbarInfo');
+    if (info) info.hidden = false;
+    var av = document.getElementById('sb2GroupTopbarAvatar');
+    if (av) {
+      av.textContent = g.emoji || '👥';
+      av.style.background = 'linear-gradient(135deg,' + (g.bg || '#5856D6') + ',' + (g.bg || '#5856D6') + 'dd)';
+    }
+    var nm = document.getElementById('sb2GroupTopbarName');
+    if (nm) nm.textContent = g.name || '-';
+    var members = Array.isArray(g.members) ? g.members : [];
+    var sub = document.getElementById('sb2GroupTopbarSub');
+    if (sub) sub.textContent = members.length + ' 名成员 · 群聊';
+    var stack = document.getElementById('sb2GroupTopbarMembers');
+    if (stack) {
+      var html = '';
+      members.slice(0, 4).forEach(function (m) {
+        var name = (m && (m.name || m.display_name)) || '?';
+        var bg = (m && m.bg) || '#8E8E93';
+        html += '<div class="mini-avatar" style="background:' + bg + ';">' + _sb2EscapeHtml(name.slice(0, 1)) + '</div>';
+      });
+      if (members.length > 4) html += '<div class="mini-avatar mini-more">+' + (members.length - 4) + '</div>';
+      stack.innerHTML = html;
+    }
+    var detailBtn = document.getElementById('sb2GroupTopbarDetail');
+    if (detailBtn) {
+      detailBtn.style.display = '';  // 元素自带 inline display:none, CSS 规则盖不过, 这里显式放开
+      detailBtn.onclick = function () {
+        try { if (typeof openGroupDetail === 'function') openGroupDetail(groupId); } catch (e) {}
+      };
+    }
+    // slim 公告栏: 真数据, 无公告整条隐藏
+    var annBar = document.getElementById('sb2GroupAnnouncementBar');
+    var annText = document.getElementById('sb2GroupAnnouncementText');
+    if (annBar && annText) {
+      var ann = (g.announcement || '').trim();
+      if (ann) { annText.textContent = ann; annBar.hidden = false; }
+      else { annBar.hidden = true; annText.textContent = ''; }
+    }
+    // 输入框 placeholder 切群语境
+    var inp = document.getElementById('sb2ChatInput');
+    if (inp) inp.placeholder = '在群里发言, @成员 可点名 AI 回复…';
+  }
+
+  // legacy 单节点 → sb2 行 (返回 HTML 串; 不认识的节点返回 null)
+  function sb2GroupMirrorNode(node) {
+    if (!node || node.nodeType !== 1) return null;
+    if (node.id === 'typingIndicator') return null;
+    // 日期分割线
+    if (node.classList && node.classList.contains('time-separator')) {
+      var label = node.textContent.trim() || '今天';
+      return '<div class="sb2-chat-date-divider"><span>' + _sb2EscapeHtml(label) + '</span></div>';
+    }
+    // 系统提示
+    if (node.classList && node.classList.contains('system-msg')) {
+      return '<div class="sb2-chat-msg-row" data-role="system"><div class="sb2-chat-msg-col" style="align-items:center;">'
+        + '<span class="sb2-chat-bubble-time">' + _sb2EscapeHtml(node.textContent.trim()) + '</span></div></div>';
+    }
+    if (!node.classList || !node.classList.contains('msg')) return null;
+    var bubble = node.querySelector('.msg-bubble');
+    var bodyHtml = bubble ? bubble.innerHTML : '';
+    var senderNameEl = node.querySelector('.msg-sender-name');
+    var senderRoleEl = node.querySelector('.msg-sender-role');
+    var senderTimeEl = node.querySelector('.msg-sender-time');
+    var isOwn = node.classList.contains('own');
+    // 头像: 取 legacy avatar 底色 + 首字 (renderAvatar 可能是 img, 取文字首字兜底)
+    var avEl = node.querySelector('.msg-avatar .avatar');
+    var avBg = '';
+    if (avEl && avEl.style && avEl.style.background) avBg = avEl.style.background;
+    var senderName = senderNameEl ? senderNameEl.textContent.trim() : '';
+    var avChar = senderName ? senderName.charAt(0) : '🤖';
+    if (isOwn) {
+      return '<div class="sb2-chat-msg-row" data-role="user"><span class="sb2-chat-msg-avatar user">我</span>'
+        + '<div class="sb2-chat-msg-col"><div class="sb2-chat-bubble" data-role="user">'
+        + '<div class="sb2-chat-bubble-body">' + bodyHtml + '</div></div></div></div>';
+    }
+    var roleTxt = senderRoleEl ? senderRoleEl.textContent.trim() : '';
+    var timeTxt = senderTimeEl ? senderTimeEl.textContent.trim() : '';
+    var meta = '<div class="sb2-chat-msg-meta"><span class="sb2-chat-msg-meta-name">' + _sb2EscapeHtml(senderName || 'AI') + '</span>'
+      + (roleTxt ? '<span class="sb2-chat-msg-meta-role">' + _sb2EscapeHtml(roleTxt) + '</span>' : '')
+      + (timeTxt ? '<span class="sb2-chat-msg-meta-time">' + _sb2EscapeHtml(timeTxt) + '</span>' : '')
+      + '</div>';
+    var avStyle = avBg ? ' style="' + _sb2EscapeHtml(avBg) + '"' : '';
+    return '<div class="sb2-chat-msg-row" data-role="assistant"><span class="sb2-chat-msg-avatar assistant"' + avStyle + '>' + _sb2EscapeHtml(avChar) + '</span>'
+      + '<div class="sb2-chat-msg-col">' + meta
+      + '<div class="sb2-chat-bubble" data-role="assistant"><div class="sb2-chat-bubble-body">' + bodyHtml + '</div></div>'
+      + '</div></div>';
+  }
+
+  // 全量镜像 (进入/切回时): 清空 sb2 消息区, 逐节点重建
+  function sb2GroupMirrorAll() {
+    var area = document.getElementById('messagesArea');
+    var container = document.getElementById('sb2ChatMessages');
+    if (!area || !container) return;
+    container.innerHTML = '';
+    _sb2GroupNodeMap = [];
+    var hasMsg = false;
+    Array.prototype.forEach.call(area.children, function (node) {
+      var html = sb2GroupMirrorNode(node);
+      if (html === null) return;
+      var wrap = document.createElement('div');
+      wrap.innerHTML = html;
+      var row = wrap.children.length === 1 ? wrap.firstChild : wrap;
+      container.appendChild(row);
+      _sb2GroupNodeMap.push({ src: node, row: row });
+      hasMsg = true;
+    });
+    if (!hasMsg) {
+      container.innerHTML = '<div class="sb2-chat-empty"><div class="sb2-chat-empty-icon">👥</div>'
+        + '<div>在群里说第一句吧</div>'
+        + '<div class="sb2-chat-empty-tip">@成员 点名 AI 回复 / Enter 发送</div></div>';
+    }
+    container.scrollTop = container.scrollHeight;
+    _sb2GroupObserverStart();
+  }
+
+  // 增量观察者: legacy #messagesArea 的增删/文本变化 → 同步 sb2 行
+  var _sb2GroupObs = null;
+  function _sb2GroupObserverStart() {
+    var area = document.getElementById('messagesArea');
+    if (!area || _sb2GroupObs) return;
+    _sb2GroupObs = new MutationObserver(function (muts) {
+      if (!window._sb2GroupMode) return;
+      var container = document.getElementById('sb2ChatMessages');
+      if (!container) return;
+      muts.forEach(function (mu) {
+        // 删除: 移除对应 sb2 行 (typing 占位移除等)
+        Array.prototype.forEach.call(mu.removedNodes, function (n) {
+          var hit = _sb2GroupFindRow(n);
+          if (hit) {
+            if (hit.row.parentNode) hit.row.parentNode.removeChild(hit.row);
+            _sb2GroupNodeMap = _sb2GroupNodeMap.filter(function (x) { return x !== hit; });
+          }
+        });
+        // 新增: 镜像成 sb2 行 (插到对应位置 — legacy 只往末尾插, 直接 append)
+        Array.prototype.forEach.call(mu.addedNodes, function (n) {
+          if (_sb2GroupFindRow(n)) return;
+          var html = sb2GroupMirrorNode(n);
+          if (html === null) return;
+          var empty = container.querySelector('.sb2-chat-empty');
+          if (empty) empty.parentNode.removeChild(empty);
+          var wrap = document.createElement('div');
+          wrap.innerHTML = html;
+          var row = wrap.children.length === 1 ? wrap.firstChild : wrap;
+          container.appendChild(row);
+          _sb2GroupNodeMap.push({ src: n, row: row });
+        });
+        // 文本/子节点变化 (流式打字): 同步已映射行的气泡体
+        if (mu.type === 'characterData' || mu.type === 'childList') {
+          var t = mu.target;
+          var srcNode = (t && t.nodeType === 1) ? t : (t && t.parentNode);
+          while (srcNode && srcNode !== area) {
+            var hit2 = _sb2GroupFindRow(srcNode);
+            if (hit2) {
+              var bubble = srcNode.querySelector ? srcNode.querySelector('.msg-bubble') : null;
+              var body = hit2.row.querySelector ? hit2.row.querySelector('.sb2-chat-bubble-body') : null;
+              if (bubble && body && body.innerHTML !== bubble.innerHTML) body.innerHTML = bubble.innerHTML;
+              break;
+            }
+            srcNode = srcNode.parentNode;
+          }
+        }
+      });
+      container.scrollTop = container.scrollHeight;
+    });
+    _sb2GroupObs.observe(area, { childList: true, subtree: true, characterData: true });
+  }
+  function _sb2GroupObserverStop() {
+    if (_sb2GroupObs) { try { _sb2GroupObs.disconnect(); } catch (e) {} _sb2GroupObs = null; }
+    _sb2GroupNodeMap = [];
+  }
+
   function sb2EnterGroupChat(groupId) {
     try { if (typeof switchModule === 'function') switchModule('messages'); } catch (e) {}
     window._sb2GroupMode = groupId || true;
     setTimeout(function () {
       try {
-        var legacy = document.getElementById('chatArea');
-        var shell = document.getElementById('sb2ChatMain');
-        if (legacy) { legacy.classList.remove('hidden'); legacy.style.display = 'flex'; }
-        if (shell) shell.hidden = true;
+        // legacy 初始化群状态 (currentGroupId/历史/公告全在 hidden DOM 里跑, 不外显旧设计)
         if (typeof openGroupChat === 'function') openGroupChat(groupId);
         // openGroupChat 会 removeItem('sb_current_emp') (防串混) — 同步基准防看护误退
         window._sb2GroupLastEmp = localStorage.getItem('sb_current_emp') || '';
+        renderChatMain();
       } catch (e) { console.error('[sb2EnterGroupChat]', e); }
     }, 300);
   }
@@ -777,13 +996,18 @@
     if (!window._sb2GroupMode) return;
     window._sb2GroupMode = null;
     try {
-      var legacy = document.getElementById('chatArea');
-      if (legacy) legacy.classList.add('hidden');
-      if (typeof currentModule !== 'undefined' && currentModule === 'messages') {
-        var shell = document.getElementById('sb2ChatMain');
-        if (shell) shell.hidden = false;
-        renderChatMain();
-      }
+      _sb2GroupObserverStop();
+      var shell = document.getElementById('sb2ChatMain');
+      if (shell) shell.classList.remove('sb2-group-mode');
+      var info = document.getElementById('sb2GroupTopbarInfo');
+      if (info) info.hidden = true;
+      var detailBtn = document.getElementById('sb2GroupTopbarDetail');
+      if (detailBtn) detailBtn.style.display = 'none';
+      var annBar = document.getElementById('sb2GroupAnnouncementBar');
+      if (annBar) annBar.hidden = true;
+      var inp = document.getElementById('sb2ChatInput');
+      if (inp) inp.placeholder = '给员工派活…';
+      if (typeof currentModule !== 'undefined' && currentModule === 'messages') renderChatMain();
     } catch (e) { /* 守卫 */ }
   }
   window._sb2GroupMode = null;
