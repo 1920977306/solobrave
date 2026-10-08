@@ -28154,11 +28154,18 @@ def _call_ai_api(agent, user_message, user_info=None, include_history=True, grou
     custom_endpoint = agent.get('customEndpoint', '')
     agent_id = agent.get('id', '')
 
+    # ★ 2026-10-08 空 key 双轨处理 (派单条件2止血 + 私聊入池配套):
+    #   kimi/kimicode 员工空 key 不再在这里拦截 —— 下方 KimiProxy 密钥池兜底
+    #   (池内优先员工自带 key, 空则用池 key; 积分硬停+扣费记员工钱包)。
+    #   非 kimi 系 / 自定义 endpoint / 全局 env override 生效时空 key 明说原因, 不装死。
     if not api_key:
-        # ★ 止血 2026-10-08 (派单条件2): 不再静默返回 None —— 调用方 ChatPOST 拿不到任何
-        #    回复时前端只能显示「-」装死。kimi/kimicode 员工在下方已先走 KimiProxy 密钥池,
-        #    能走到这里说明池也不可用或非 kimi 系未配 key, 明说原因让管理员能定位。
-        return '⚠️ 该员工未配置 AI 凭证（apiKey 为空），请联系管理员。'
+        _ov_active = bool(_get_env_override(SOLOBRAVE_AI_PROVIDER_ENV)
+                          and _get_env_override(SOLOBRAVE_AI_API_KEY_ENV))
+        _pool_eligible = (agent_id and api_provider in ('kimi', 'kimicode')
+                          and not custom_endpoint and not _ov_active)
+        if not _pool_eligible:
+            return '⚠️ 该员工未配置 AI 凭证（apiKey 为空），请联系管理员。'
+        logger.info(f'  [ChatPool] {agent_id} 员工未配 apiKey, 走 KimiProxy 密钥池兜底')
 
     system_prompt = f'你是 {agent.get("name", "AI")}，一个 {agent.get("role", "助手")}。请用第一人称回复，保持角色一致性。'
     soul_doc = agent.get('soulDoc', '')
