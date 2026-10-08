@@ -7982,7 +7982,11 @@ function sb2TfcRetry() {
     .then(function(r) { return r.json().then(function(d) { return { ok: r.ok, d: d }; }); })
     .then(function(res) {
       if (res.ok && res.d.status === 'routed') { showToast('路由已接通 (routed)', 'success'); }
-      else { showToast('重试未通: ' + ((res.d && res.d.error) || 'HTTP 失败'), 'error'); }
+      else {
+        var errObj = res.d && res.d.error;
+        var errMsg = (errObj && errObj.message) || (typeof errObj === 'string' ? errObj : '') || 'HTTP 失败';
+        showToast('重试未通: ' + errMsg, 'error');
+      }
       sb2TfcLoadStatus();
     })
     .catch(function(e) { showToast('网络错误: ' + e, 'error'); });
