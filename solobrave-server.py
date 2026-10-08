@@ -33841,12 +33841,22 @@ def _start_pattern_induce_cron():
     """
     def _run():
         try:
-            _run_pattern_induce_all_categories()
+            # ★ MT-P1 (审计#4): cron 线程无 tid, 逐租户包裹 — 否则只归纳默认租户,
+            # 租户 B 的规律库永远空转。单租户时 _active_tenant_ids() 只返默认租户, 行为不变。
+            for _tid in _active_tenant_ids():
+                try:
+                    _run_as_tenant(_tid, _run_pattern_induce_all_categories)
+                except Exception as e:
+                    logger.error(f'  [PatternInduce-Cron] 租户 {_tid} 归纳失败: {e}')
         except Exception as e:
             logger.error(f'  [PatternInduce-Cron] job failed: {e}')
         finally:
             # 不管成不成都安排下次 (失败也不能卡死 cron)
-            threading.Timer(6 * 3600, _run).daemon = True
+            # ★ fix(真 bug): 原代码 threading.Timer(...).daemon = True 只设了 daemon 标志
+            # 从没调 .start() —— cron 实际只在服务启动时跑一遍, 之后永不周期执行。
+            _t = threading.Timer(6 * 3600, _run)
+            _t.daemon = True
+            _t.start()
 
     threading.Thread(target=_run, daemon=True, name='PatternInduce-Cron').start()
     logger.info('  [PatternInduce-Cron] started (每 6h 跑一次规律归纳)')
