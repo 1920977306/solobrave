@@ -5858,7 +5858,7 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .emp-doc-title { font-size: 12px; font-weight: 600; color: var(--text-secondary); margin-bottom: 6px; text-transform: uppercase; }
 .emp-doc-editor { width: 100%; padding: 10px; background: var(--bg-secondary); border: 0.5px solid var(--separator); border-radius: var(--radius-sm); font-size: 12px; font-family: 'SF Mono', monospace; resize: vertical; box-sizing: border-box; }
 .emp-doc-editor:focus { outline: none; border-color: var(--accent); }
-.emp-action-btn { display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%; padding: 10px 16px; background: #ffffff; border: 1px solid var(--sb2-border); border-radius: var(--sb2-r-md); font-size: 13px; cursor: pointer; transition: all 0.2s; color: var(--sb2-t1); }
+.emp-action-btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; width: auto; padding: 8px 16px; background: #ffffff; border: 1px solid var(--sb2-border); border-radius: var(--sb2-r-md); font-size: 13px; cursor: pointer; transition: all 0.2s; color: var(--sb2-t1); }
 .emp-action-btn:hover { background: var(--sb2-s3); }
 .emp-action-btn.primary { background: var(--sb2-brand); color: #fff; border-color: var(--sb2-brand); }
 .emp-action-btn.primary:hover { background: var(--sb2-brand-strong); }
@@ -17669,7 +17669,8 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
 </div>
 </div>
 <div class="form-group">
-<button class="emp-action-btn" onclick="showAddMemberModal()" style="width:100%;">
+<!-- 〔r82 长按钮清零〕100% 宽长钮 → 紧凑 ghost 钮, 跟群面板底部一套语言 -->
+<button class="sb2-btn sb2-btn-ghost" onclick="showAddMemberModal()">
 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
 添加成员
 </button>
@@ -17860,7 +17861,8 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
 </div>
 
 <div style="margin-top:20px;">
-<button class="btn-primary" data-module="employees" onclick="openWizard()" style="width:100%;padding:10px;border-radius:8px;background:var(--accent);color:white;border:none;font-weight:500;">
+<!-- 〔r82 长按钮清零〕去掉内联 width:100%, 跟全站紧凑按钮语言一致 -->
+<button class="btn-primary" data-module="employees" onclick="openWizard()" style="padding:10px;border-radius:8px;background:var(--accent);color:white;border:none;font-weight:500;">
 <i class=sb2-ico-plus></i> 添加员工
 </button>
 </div>
