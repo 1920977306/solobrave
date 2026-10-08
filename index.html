@@ -17494,11 +17494,11 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
 
 <!-- Skills Tab -->
 <div class="emp-tab-pane" id="emp-tab-skills">
-<!-- V3 升级:4 真实能力卡片(系统已实现可执行, 点击 → switchModule('messages') + openChat(currentEmpId) + 预填 prompt) -->
-<!-- 〔r82 推广 老大 15:45〕技能 tab 卡片化: 三段各自成卡(头+体), 全部 id/onclick 保留 -->
+<!-- 〔emp-skills-focus 2026-10-08 老大批注「AI 不需要万能, 但他必须会一开始给他的职能」〕
+     能力清单 = 创建时分配的职能, 是技能 tab 的核心与全部: 不追求万能扩展, 但每项职能必须精通可用。 -->
 <div class="emp-sk-card">
   <div class="emp-sk-head">
-    <div class="emp-sk-title">能力清单</div>
+    <div class="emp-sk-title">能力清单 <span class="emp-sk-hint">创建时分配的职能 · 每一项都必须精通</span></div>
     <span class="badge-4-of-4">4 / 4 真实已实现</span>
   </div>
   <div class="emp-sk-body">
@@ -17526,34 +17526,9 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
   </div>
   </div>
 </div>
-<!-- OpenClaw技能区域 -->
-<div class="emp-sk-card">
-<div class="emp-sk-head">
-<div class="emp-sk-title"><i class=sb2-ico-wrench></i> OpenClaw 技能</div>
-<button class="skills-add-btn" onclick="searchOpenClawSkills()">
-<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-搜索技能
-</button>
-</div>
-<div class="emp-sk-body">
-<!-- 搜索框 -->
-<div style="display:flex;gap:8px;margin-bottom:12px;" id="ocSkillSearchBox"><input type="text" id="ocSkillSearchInput" placeholder="搜索ClawHub技能..." style="flex:1;padding:8px 12px;border:1px solid var(--separator);border-radius:8px;font-size:13px;" onkeydown="if(event.key==='Enter')searchOpenClawSkills()">
-<button onclick="searchOpenClawSkills()" style="padding:8px 16px;background:var(--accent);color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer;">搜索</button>
-</div>
-<!-- 搜索结果 -->
-<div id="ocSkillSearchResults" style="display:none;margin-bottom:12px;">
-<div style="font-size:12px;color:var(--text-secondary);margin-bottom:8px;">搜索结果</div>
-<div id="ocSkillSearchList" style="display:flex;flex-direction:column;gap:6px;"></div>
-</div>
-<!-- 已安装技能 -->
-<div style="font-size:12px;color:var(--text-secondary);margin-bottom:8px;">已安装</div>
-<div id="ocSkillList" style="display:flex;flex-direction:column;gap:6px;"></div>
-<div id="ocSkillEmpty" style="text-align:center;padding:24px 16px;color:var(--text-tertiary);font-size:13px;">
-<div style="font-size:28px;margin-bottom:8px;opacity:0.5;"><i class=sb2-ico-wrench></i></div>
-暂未安装OpenClaw技能
-</div>
-</div>
-</div>
+<!-- 〔emp-skills-focus 2026-10-08 老大批注「AI 不需要万能, 但他必须会一开始给他的职能」〕
+     OpenClaw 技能市场区 (ClawHub 搜索/安装/已安装) 整卡删除: 不做万能扩展,
+     技能 tab 只保留两块: ①能力清单=创建时分配的职能 (核心, 必须项项精通) ②自定义标签。 -->
 
 <!-- 自定义标签区域（保留原有功能） -->
 <div class="emp-sk-card">
@@ -17974,7 +17949,7 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
 </div>
 </div>
 
-<script src="js/inline-03.js?v=empgroup1e20261008"></script>
+<script src="js/inline-03.js?v=empskills1a20261008"></script>
 
 <!-- Modal Styles -->
 <style>

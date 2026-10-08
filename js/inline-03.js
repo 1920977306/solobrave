@@ -11661,112 +11661,6 @@ function confirmAddMemory() {
   });
 }
 
-// ========== OpenClaw技能管理 ==========
-var ocSkillsLoaded = false;
-function loadOpenClawSkills() {
-  // ★ refactor/openclaw-gateway-error-handling: 用 apiFetchWithRetry 替换 raw apiFetch
-  apiFetchWithRetry('/api/openclaw/skills/list').then(function (result) {
-    if (!result.success) {
-      console.warn('[Skills] 加载OpenClaw技能失败:', result.error);
-      return;
-    }
-    var data = result.data || {};
-    var skills = data.skills || [];
-    var list = document.getElementById('ocSkillList');
-    var empty = document.getElementById('ocSkillEmpty');
-    if (!list) return;
-    if (skills.length === 0) {
-      list.innerHTML = '';
-      list.style.display = 'none';
-      empty.style.display = 'block';
-    } else {
-      list.style.display = 'flex';
-      empty.style.display = 'none';
-      list.innerHTML = skills.map(function (s) {
-        return '<div class="skill-item" style="padding:10px 12px;">' + '<div class="skill-emoji">' + escapeHtml(s.emoji || '🔧') + '</div>' + '<div class="skill-info">' + '<div class="skill-name">' + escapeHtml(s.name || s.slug) + '</div>' + '<div style="font-size:11px;color:var(--text-tertiary);">' + escapeHtml(s.description || '') + (s.version ? ' v' + s.version : '') + '</div>' + '</div>' + '<button class="skill-delete" onclick="removeOpenClawSkill(\'' + escapeAttr(s.slug) + '\')" title="卸载">' + '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>' + '</button>' + '</div>';
-      }).join('');
-    }
-    ocSkillsLoaded = true;
-  }).catch(function (e) {
-    console.warn('[Skills] 加载OpenClaw技能异常:', e);
-  });
-}
-function searchOpenClawSkills() {
-  var input = document.getElementById('ocSkillSearchInput');
-  var query = input && input.value.trim() || '';
-  if (!query) return;
-  var resultsDiv = document.getElementById('ocSkillSearchResults');
-  var listDiv = document.getElementById('ocSkillSearchList');
-  if (!resultsDiv || !listDiv) return;
-  listDiv.innerHTML = '<div style="text-align:center;padding:16px;color:var(--text-tertiary);">搜索中...</div>';
-  resultsDiv.style.display = 'block';
-  // ★ refactor/openclaw-gateway-error-handling: 用 apiFetchWithRetry 替换 raw apiFetch
-  apiFetchWithRetry('/api/openclaw/skills/search?q=' + encodeURIComponent(query)).then(function (result) {
-    if (!result.success) {
-      listDiv.innerHTML = '<div style="text-align:center;padding:16px;color:var(--text-tertiary);">搜索失败: ' + escapeHtml(result.error || 'unknown') + '</div>';
-      return;
-    }
-    var data = result.data || {};
-    var results = data.results || [];
-    if (results.length === 0) {
-      listDiv.innerHTML = '<div style="text-align:center;padding:16px;color:var(--text-tertiary);">未找到匹配的技能</div>';
-    } else {
-      listDiv.innerHTML = results.map(function (s) {
-        return '<div class="skill-item" style="padding:10px 12px;">' + '<div class="skill-emoji">' + escapeHtml(s.emoji || '🔍') + '</div>' + '<div class="skill-info">' + '<div class="skill-name">' + escapeHtml(s.name || s.slug) + '</div>' + '<div style="font-size:11px;color:var(--text-tertiary);">' + escapeHtml(s.description || '') + '</div>' + '</div>' + '<button onclick="installOpenClawSkill(\'' + escapeAttr(s.slug) + '\')" style="padding:6px 12px;background:var(--accent);color:white;border:none;border-radius:6px;font-size:12px;cursor:pointer;">安装</button>' + '</div>';
-      }).join('');
-    }
-  }).catch(function (e) {
-    listDiv.innerHTML = '<div style="text-align:center;padding:16px;color:var(--text-tertiary);">搜索异常</div>';
-  });
-}
-function installOpenClawSkill(slug) {
-  if (!slug) return;
-  showToast('正在安装 ' + slug + '...');
-  // ★ refactor/openclaw-gateway-error-handling: 用 apiFetchWithRetry 替换 raw apiFetch
-  apiFetchWithRetry('/api/openclaw/skills/install', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
-      skillName: slug
-    })
-  }).then(function (result) {
-    if (result.success && result.data && result.data.success) {
-      showToast('✅ ' + slug + ' 安装成功');
-      loadOpenClawSkills();
-    } else {
-      var errMsg = (result.data && result.data.error) || result.error || '未知错误';
-      showToast('❌ 安装失败: ' + errMsg);
-    }
-  }).catch(function (e) {
-    showToast('❌ 安装异常');
-  });
-}
-function removeOpenClawSkill(slug) {
-  if (!slug) return;
-  if (!confirm('确定要卸载技能 ' + slug + ' 吗？')) return;
-  // ★ refactor/openclaw-gateway-error-handling: 用 apiFetchWithRetry 替换 raw apiFetch
-  apiFetchWithRetry('/api/openclaw/skills/remove', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
-      skillName: slug
-    })
-  }).then(function (result) {
-    if (result.success && result.data && result.data.success) {
-      showToast('✅ ' + slug + ' 已卸载');
-      loadOpenClawSkills();
-    } else {
-      var errMsg = (result.data && result.data.error) || result.error || '未知错误';
-      showToast('❌ 卸载失败: ' + errMsg);
-    }
-  }).catch(function (e) {
-    showToast('❌ 卸载异常');
-  });
-}
 function closeEmpDetail() {
   // ⑤c 脏状态: 有关闭前确认
   if (typeof isEmpDetailDirty !== 'undefined' && isEmpDetailDirty) {
@@ -12374,10 +12268,10 @@ function switchEmpDetailTab(tab) {
     }
   }
   // Update skills when switching to skills tab
+  // 〔emp-skills-focus 2026-10-08〕loadOpenClawSkills 已删: AI 不需要万能, 技能 tab 只维护职能清单+自定义标签
   if (tab === 'skills' && currentEmpId) {
     renderSkills();
     renderSkillPresets();
-    loadOpenClawSkills();
   }
   // Update memory when switching to memory tab
   if (tab === 'memory' && currentEmpId) {
