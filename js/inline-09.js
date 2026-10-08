@@ -1681,14 +1681,10 @@ var SB2_SIDE_RENDERERS = {
     var daily = [
       { name:'<i class=sb2-ico-receipt></i> 积分中心', active:false, onClick:'sb2CreditOpen()' }
     ];
-    /* 维护工具 (管理员): 老大批注③「AI 大脑调度是什么」→ 改名「知识自动整理」 */
+    /* 〔r84 批注⑥ 2026-10-09 老大「维护工具里面都放在一个页面吧」〕三工具合一页, 侧栏只留一个入口 */
     var maint = isAdm ? [
-      { name:'<i class=sb2-ico-brain></i> 知识自动整理', t:'sb2FeatCardBrain' },
-      { name:'<i class=sb2-ico-dna></i> RAG 索引重建', t:'sb2FeatCardRag' },
-      { name:'<i class=sb2-ico-bookmark></i> 知识事件查询', t:'sb2FeatCardEvents' }
-    ].map(function(d){
-      return { name:d.name, active: sel === 'daily:'+d.t, onClick:"sb2SettingsScrollTo('"+d.t+"')" };
-    }) : [];
+      { name:'<i class=sb2-ico-brain></i> 维护工具', active: sel === 'maint', onClick:'sb2MaintOpen()' }
+    ] : [];
     var sys = [
       /* 〔side-tidy 批注②〕通知已移到右上角铃铛面板 (notification-panel-footer ⚙ 通知设置) */
       { name:'<i class=sb2-ico-user></i> 账号', cat:'account' },

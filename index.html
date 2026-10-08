@@ -8386,6 +8386,134 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 
 
 </style>
+<style>/* ============================================================
+ * 〔r84 2026-10-09 老大批注①③④⑥ 一批六注〕
+ * ① 项目组卡片头部重设计  ③ 创建群组向导重设计
+ * ④ 群详情分段控件重设计  ⑥ 维护工具合一页
+ * ============================================================ */
+
+/* ① 项目组卡片: 头部一体排 (图标块 + 名称/成员数 + 右侧头像堆叠)
+   (后代选择器提权: 覆盖 13679 行后的同名类定义) */
+.sb2-group-card .sb2-group-card-head{ gap:12px; }
+.sb2-group-card .sb2-group-card-emoji{
+  width:44px; height:44px; border-radius:12px; flex:none;
+  display:flex; align-items:center; justify-content:center; font-size:22px;
+  box-shadow:0 2px 8px rgba(0,0,0,0.10);
+}
+.sb2-group-card-titlectx{ flex:1; min-width:0; }
+.sb2-group-card-name{
+  font:600 15px/1.35 "PingFang SC",sans-serif; color:var(--sb2-ink);
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+.sb2-group-card-sub{
+  font:400 12px/1.4 "PingFang SC",sans-serif; color:var(--sb2-t3); margin-top:2px;
+}
+.sb2-group-card-stack{
+  display:flex; align-items:center; flex:none;
+}
+.sb2-group-card-stack .mini-avatar{
+  width:24px; height:24px; border-radius:50%; font-size:11px;
+  display:flex; align-items:center; justify-content:center;
+  color:#fff; border:2px solid var(--sb2-s1); margin-left:-6px;
+}
+.sb2-group-card-stack .mini-avatar:first-child{ margin-left:0; }
+.sb2-group-card-stack .mini-more{ background:var(--sb2-s2); color:var(--sb2-t3); }
+
+/* ③ 创建群组向导: 大圆角卡片 + 胶囊步骤条 + 分区表单卡 */
+.group-wizard{
+  border-radius:16px;
+  box-shadow:0 12px 40px rgba(0,0,0,0.16);
+}
+.gw-header{ padding:18px 24px 0; border-bottom:none; }
+.gw-title{ font-size:17px; font-weight:600; }
+.gw-close{
+  width:30px; height:30px; border-radius:8px;
+  display:flex; align-items:center; justify-content:center;
+  color:var(--sb2-t3); cursor:pointer;
+}
+.gw-steps{
+  display:flex; align-items:center; gap:0;
+  padding:16px 24px 0;
+}
+.gw-step{
+  min-width:26px; height:26px; border-radius:999px;
+  background:var(--sb2-s2); color:var(--sb2-t3);
+  font:500 12px/26px "PingFang SC",sans-serif; text-align:center;
+  padding:0 8px; flex:none;
+}
+.gw-step.active{ background:var(--sb2-brand); color:#fff; font-weight:600; }
+.gw-step.done{ background:#34C759; color:#fff; }
+.gw-step-line{ flex:1; height:2px; background:var(--sb2-s2); border-radius:1px; }
+.gw-step-line.done{ background:#34C759; }
+.gw-body{ padding:18px 24px; }
+.gw-body label{
+  display:block; font:600 12px/1.4 "PingFang SC",sans-serif;
+  color:var(--sb2-t2); margin-bottom:6px;
+}
+.gw-body .form-input{
+  background:var(--sb2-s2); border:1px solid var(--sb2-border);
+  border-radius:10px; padding:10px 12px; font-size:13px;
+  transition:border-color .15s;
+}
+.gw-body .form-input:focus{ border-color:var(--sb2-brand); outline:none; }
+.gw-footer{
+  padding:14px 24px 18px; border-top:1px solid var(--sb2-border);
+  display:flex; justify-content:flex-end; gap:10px;
+}
+.gw-btn{ border-radius:10px; padding:8px 18px; font:500 13px/1.4 "PingFang SC",sans-serif; }
+.gw-confirm-box{
+  background:var(--sb2-s2); border:1px solid var(--sb2-border);
+  border-radius:10px; padding:12px 14px;
+}
+.gw-confirm-row{ font-size:13px; }
+.emoji-grid{ gap:8px; }
+.emoji-grid .emoji-opt{
+  width:40px; height:40px; border-radius:10px; font-size:20px;
+  border:1px solid var(--sb2-border); background:var(--sb2-s1);
+  transition:transform .12s;
+}
+.emoji-grid .emoji-opt:hover{ transform:scale(1.08); }
+.member-check-grid{ gap:8px; }
+.member-check-item{
+  border:1px solid var(--sb2-border); border-radius:10px;
+  padding:8px 12px; background:var(--sb2-s1);
+}
+.member-check-item.selected{ border-color:var(--sb2-brand); background:rgba(22,119,255,0.06); }
+.lead-radio-item{
+  border:1px solid var(--sb2-border); border-radius:10px;
+  padding:8px 12px; background:var(--sb2-s1);
+}
+.lead-radio-item.selected{ border-color:var(--sb2-brand); background:rgba(22,119,255,0.06); }
+
+/* ④ 群详情: 分段控件 (pill 组) + 头部精简 */
+.group-detail-tabs{
+  display:flex; gap:4px; padding:10px 20px 12px; border-bottom:none;
+}
+.group-detail-tab{
+  flex:none; padding:6px 16px; border:none; cursor:pointer;
+  font:500 13px/1.4 "PingFang SC",sans-serif; color:var(--sb2-t3);
+  border-radius:999px; background:transparent; transition:all .15s;
+}
+.group-detail-tab:hover{ color:var(--sb2-t1); background:var(--sb2-s2); }
+.group-detail-tab.active{
+  color:#fff; background:var(--sb2-brand);
+}
+.group-detail-content{ border-top:1px solid var(--sb2-border); }
+.group-detail-header{
+  padding:18px 20px 14px;
+  background:linear-gradient(180deg, rgba(22,119,255,0.05), transparent);
+}
+.group-member-item{
+  border:1px solid var(--sb2-border); border-radius:10px;
+  padding:8px 12px; margin-bottom:8px; background:var(--sb2-s1);
+  transition:border-color .15s;
+}
+.group-member-item:hover{ border-color:var(--sb2-brand); }
+
+/* ⑥ 维护工具合一页: 三视图同屏堆叠的节间距 */
+#sb2ViewRag{ margin-top:16px; }
+#sb2ViewEvents{ margin-top:16px; }
+</style>
 </head>
 <body>
 <!-- Message Context Menu (right-click on chat bubbles) -->
@@ -15231,7 +15359,7 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
   </button>
   <div class="sb2-topbar-actions">
-    <button class="sb2-bell-btn" type="button" onclick="toggleNotificationPanel()" aria-label="通知" id="sb2TopbarBell">
+    <button class="sb2-bell-btn" type="button" onclick="sb2TopbarBellClick()" aria-label="通知" id="sb2TopbarBell">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
       <span class="badge" id="sb2TopbarBellBadge" style="display:none;">0</span>
     </button>
@@ -16862,7 +16990,7 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
     </div>
     <div class="sb2-chat-topbar-right">
       <!-- 〔dash/credit-checkin 2026-10-08 派单 B〕积分余额芯片: loadChatCredits 灌数据 (inline-03 _renderChatCredits 双写), 点击跳积分仪表盘 -->
-      <button class="sb2-chat-topbar-ghost sb2-chat-topbar-credits" type="button" id="sb2ChatTopbarCredits" title="积分余额, 点击打开积分仪表盘" onclick="sb2JumpToCreditDashboard()" style="display:none;">
+      <button class="sb2-chat-topbar-ghost sb2-chat-topbar-credits" type="button" id="sb2ChatTopbarCredits" title="积分余额, 点击打开积分中心" onclick="sb2JumpToCreditDashboard()" style="display:none;">
         <i class=sb2-ico-gem></i> <span id="sb2ChatTopbarCreditsNum">-</span>
       </button>
       <button class="sb2-chat-topbar-ghost" type="button" id="sb2ChatTopbarProfile" title="员工档案" onclick="sb2_openEmpProfile()">员工档案</button>
@@ -19160,7 +19288,7 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
      v2 (202609241444): 初始破缓存 + skip-device 守卫
      v3 (202609241420): probe 误导文案澄清 (fingerprint fallback → token-only) -->
 <script src="openclaw-client.js?v=ocowner1a20261008"></script>
-<script src="js/inline-07.js?v=settingsdedup1c20261008"></script>
+<script src="js/inline-07.js?v=r84batch1a20261009"></script>
 
 <!-- Match Result Modal -->
 <div class="product-modal-overlay" id="matchModalOverlay" onclick="closeMatchModal()">
@@ -19205,7 +19333,7 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
 </div>
 
 <script src="js/inline-08.js?v=f2d73f6b57"></script>
-<script src="js/inline-09.js?v=sidexlink1b20261008"></script>
+<script src="js/inline-09.js?v=r84batch1a20261009"></script>
 
 <!-- ★ feat/sb2-chat: SoloBrave 2.0 聊天模块 JS (核心链: 消息流 + 发送框)
      - 复用老 /api/chat/:agentId 接口契约, 零后端改动

@@ -1542,12 +1542,13 @@ function sb2SettingsShow(){
   var eventsInput = document.getElementById('sb2FeatEventsEntityInput');
   if (eventsInput) eventsInput.value = '';
   /* 〔credit-window 2026-10-08 老大「把积分弄成窗口」〕积分中心已迁出设置页 (悬浮窗 sb2CreditPanel),
-     进设置页不再加载积分卡。默认落点: 管理员 → 知识自动整理 (维护工具第一项);
+     进设置页不再加载积分卡。默认落点: 管理员 → 维护工具合一页 (r84 批注⑥);
      非管理员 (无维护工具) → 系统管理「账号」。 */
   var _isAdm = (typeof isAdmin === 'function') ? !!isAdmin() : false;
   if (_isAdm) {
-    if (typeof sb2SettingsActivate === 'function') sb2SettingsActivate('sb2ViewBrain');
-    if (typeof window !== 'undefined') { window._sb2SettingsSideSel = 'daily:sb2FeatCardBrain'; }
+    if (typeof sb2MaintOpen === 'function') sb2MaintOpen();
+    else if (typeof sb2SettingsActivate === 'function') sb2SettingsActivate('sb2ViewBrain');
+    if (typeof window !== 'undefined') { window._sb2SettingsSideSel = 'maint'; }
   } else {
     if (typeof sb2SettingsOpenCategory === 'function') sb2SettingsOpenCategory('account');
   }
@@ -1582,6 +1583,20 @@ function sb2SettingsActivate(viewId){
   });
   var mainEl = document.getElementById('sb2SettingsMain');
   if (mainEl) mainEl.scrollTop = 0;
+}
+
+/* 〔r84 批注⑥ 2026-10-09 老大「维护工具里面都放在一个页面吧」〕维护工具合一页:
+   知识自动整理 + RAG 索引重建 + 知识事件查询 三视图同屏堆叠, 系统管理承接区隐藏。 */
+function sb2MaintOpen(){
+  SB2_SETTINGS_VIEWS.forEach(function(id){
+    var el = document.getElementById(id);
+    if (!el) return;
+    el.style.display = (id === 'sb2SettingsLegacyArea') ? 'none' : 'block';
+  });
+  var mainEl = document.getElementById('sb2SettingsMain');
+  if (mainEl) mainEl.scrollTop = 0;
+  if (typeof window !== 'undefined') { window._sb2SettingsSideSel = 'maint'; }
+  if (typeof window.renderSideFor === 'function') window.renderSideFor('settings');
 }
 
 /* 〔settings-side 2026-10-08 老大批注〕侧栏桥接: 旧版系统分类承接进 sb2 设置屏
@@ -6026,15 +6041,17 @@ function sb2GroupsInit(){
       });
       if (members.length > 4) avatars += '<div class="mini-avatar mini-more">+' + (members.length - 4) + '</div>';
       var gid = (g.id || '').replace(/'/g, '');
+      /* 〔r84 批注① 2026-10-09 老大「好丑改成别的」〕卡片头部重设计:
+         大圆角图标块 + 名称/成员数 + 右侧重叠头像堆叠, 删掉原来独占一行的成员 chips 排 */
       return '<div class="sb2-group-card" data-group-id="' + gid + '">'
         + '<div class="sb2-group-card-head">'
         +   '<div class="sb2-group-card-emoji" style="background:linear-gradient(135deg,' + (g.bg || '#5856D6') + ',' + (g.bg || '#5856D6') + 'dd);">' + (g.emoji || '👥') + '</div>'
-        +   '<div style="flex:1;min-width:0;">'
+        +   '<div class="sb2-group-card-titlectx">'
         +     '<div class="sb2-group-card-name">' + (g.name || '-') + '</div>'
         +     '<div class="sb2-group-card-sub">' + members.length + ' 名成员 · 群聊</div>'
         +   '</div>'
+        +   (avatars ? '<div class="sb2-group-card-stack">' + avatars + '</div>' : '')
         + '</div>'
-        + (avatars ? '<div class="sb2-group-card-members">' + avatars + '</div>' : '')
         + '<div class="sb2-group-card-feed" data-feed="' + gid + '"><div class="sb2-group-card-feed-empty">动态加载中…</div></div>'
         + '<div class="sb2-group-card-actions">'
         +   '<button class="sb2-btn sb2-btn-ink" onclick="sb2GroupsOpenChat(\'' + gid + '\')">进入群聊</button>'
@@ -6861,11 +6878,13 @@ function _creditUsageCurveHtml(records, dr, usageTotal){
     : '<div class="sb2-credit-curve-empty">所选区间暂无消耗</div>';
   return '<div class="sb2-credit-curve-wrap"><div class="sb2-credit-curve-hd"><span>用量曲线</span>' + note + '</div>' + body + '</div>';
 }
-/* 聊天头部余额芯片点击 → 跳设置页积分仪表盘 (sb2 设置屏顶部, 行级照抄 viewAllNotifications 模式) */
+/* 〔r84 批注② 2026-10-09 老大「点击之后怎么跳到别的地方去了，不应该是积分中心吗」〕
+   积分中心已迁悬浮窗 (credit-window), 聊天头部余额芯片点击直接弹积分中心悬浮窗,
+   不再跳 legacy 设置模块 */
 function sb2JumpToCreditDashboard(){
+  if (typeof sb2CreditOpen === 'function') { sb2CreditOpen(); return; }
+  /* 兜底: 悬浮窗函数缺失时退回设置页顶部 */
   if (typeof switchModule === 'function') switchModule('settings');
-  /* sb2SettingsShow 由 switchModule('settings') 钩子自动触发 → 加载签到卡 + 仪表盘;
-     这里只补滚动到顶部让余额区入视野 */
   setTimeout(function(){
     var main = document.getElementById('sb2SettingsMain');
     if (main && main.scrollIntoView) main.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -7032,6 +7051,13 @@ function toggleNotificationPanel() {
   var willShow = !panel.classList.contains('show');
   panel.classList.toggle('show');
   if (willShow) renderNotificationPanelBody();
+}
+/* 〔r84 批注⑤ 2026-10-09 老大「点击不应该是通知中心吗」〕顶栏铃铛 → sb2 通知中心:
+   legacy 下拉面板在 sb2 壳下不成体系, 统一走设置屏「通知」分类视图 (历史+开关, 单一数据源),
+   行级照抄 sb2OpenNotifSettings。 */
+function sb2TopbarBellClick(){
+  if (typeof sb2OpenNotifSettings === 'function') { sb2OpenNotifSettings(); return; }
+  toggleNotificationPanel();
 }
 /* 〔side-tidy 2026-10-08 老大批注②〕通知设置入口挪到铃铛面板:
    收起面板 → 进设置页 → 直接打开「通知」分类视图 (实现仍复用 settings 通知视图, 单一数据源) */
