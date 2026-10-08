@@ -1644,6 +1644,9 @@ function sb2SettingsOpenCategory(id){
     if (id === 'teams' && typeof loadTeamList === 'function') loadTeamList();
     if (id === 'members' && typeof renderSettingsMemberList === 'function') renderSettingsMemberList();
     if (id === 'feishu' && typeof loadFeishuConfig === 'function') loadFeishuConfig();
+    /* 〔fix/feishu-retry-ui2 2026-10-09〕租户绑定卡同款镜像坑: renderSettingsRight 里那发
+       sb2TfcInit 命中隐藏原容器, 可见副本是镜像 — 镜像完成后必须补一发 (文档序才先命中可见副本) */
+    if (id === 'feishu' && typeof sb2TfcInit === 'function') sb2TfcInit();
   } catch(e){ console.warn('[settings-side] loader re-fire failed:', e); }
   if (typeof window !== 'undefined') { window._sb2SettingsSideSel = id; }
   if (typeof window.renderSideFor === 'function') window.renderSideFor('settings');
