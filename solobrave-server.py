@@ -27685,6 +27685,37 @@ def _extract_text_from_openclaw_output(obj):
     return None
 
 
+def _try_direct_proxy_infer(full_prompt, agent_id, timeout=120):
+    """直连本机 KimiProxy HTTP 端点做一次无会话推理；成功返回文本，任何失败返回 None。
+
+    - 端点: POST http://127.0.0.1:<PORT>/api/proxy/kimi/v1/messages (anthropic-messages 格式)
+    - 记账: x-api-key=proxy_<agent_id>，与 openclaw CLI 链路同一积分主体
+    - max_tokens=4096: 批量 JSON 推理输出都很短；配额闸按输出预留计量，小预留更省
+    - 失败(kimi 池 403/连接错/超时)返回 None，调用方落回 openclaw CLI 完整链路
+    """
+    try:
+        body = json.dumps({
+            'model': 'k3',
+            'max_tokens': 4096,
+            'messages': [{'role': 'user', 'content': full_prompt}],
+            'stream': False,
+        }).encode('utf-8')
+        headers = {'Content-Type': 'application/json', 'anthropic-version': '2023-06-01'}
+        if agent_id:
+            headers['x-api-key'] = f'proxy_{agent_id}'
+        req = urllib.request.Request(
+            f'http://127.0.0.1:{PORT}/api/proxy/kimi/v1/messages',
+            data=body, method='POST', headers=headers)
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            data = json.loads(resp.read().decode('utf-8'))
+        parts = [b.get('text', '') for b in data.get('content', []) if isinstance(b, dict)]
+        text = ''.join(parts).strip()
+        return text or None
+    except Exception as e:
+        logger.info(f'  [DirectInfer] 直连失败，落回 openclaw CLI: {type(e).__name__}: {e}')
+        return None
+
+
 def _openclaw_model_ref(model, provider=''):
     """把内部模型名转成 openclaw infer --model 要求的 <provider>/<model> 格式。
     openclaw.json 中员工链路为 kimi_proxy_<emp>/k3，全局兜底 kimi/k3；
@@ -27738,6 +27769,15 @@ def _call_openclaw_infer(prompt, model=None, system_prompt=None, timeout=OPENCLA
     if target_agent and target_agent.startswith('-'):
         logger.warning(f'  [OpenClaw] 非法的 agent_name，回退到默认: {target_agent!r}')
         target_agent = OPENCLAW_DEFAULT_AGENT
+
+    # ★ feat/r85-direct-infer: 直连本机 KimiProxy HTTP 端点做无会话推理。
+    # 背景: 批量 JSON 推理(撮合打分/知识归纳/记忆冲突/collab 摘要)走 openclaw CLI 会带上
+    # 该员工整个会话历史(实测 Ray 1134 条历史 → 单请求 input 28k,撮合 prompt 本身仅 ~2k)。
+    # 直连只发 prompt 本体(input ~2k), kimi 池 403/任何失败自动落回下方 CLI 完整链路(minimax 兜底)。
+    direct_text = _try_direct_proxy_infer(full_prompt, target_agent, timeout=min(timeout, 120))
+    if direct_text:
+        logger.info(f'  [DirectInfer] 直连成功 agent={target_agent} chars={len(direct_text)}')
+        return direct_text
 
     # 新版 CLI：openclaw agent --message ... --json（项目环境更可能可用）
     # 旧版 CLI：openclaw infer model run --prompt ... --json（代码历史写法，保留兼容）
