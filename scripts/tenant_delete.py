@@ -163,6 +163,25 @@ def main():
             json.dump(mc_left, f, ensure_ascii=False, indent=2)
         log(f'  match_cache 已过滤并备份 .bak.delete-{ts}')
 
+    # 网关摘路由（best effort: openclaw 不在也继续删库）
+    try:
+        import subprocess as _sp
+        get = _sp.run(['openclaw', 'config', 'get', 'bindings'],
+                      capture_output=True, text=True, timeout=15)
+        if get.returncode == 0:
+            bindings = json.loads(get.stdout)
+            if isinstance(bindings, list):
+                kept = [b for b in bindings
+                        if not (isinstance(b, dict) and b.get('match', {}).get('accountId') == tid)]
+                if len(kept) != len(bindings):
+                    patch = {'channels': {'feishu': {'accounts': {tid: {'appId': '', 'appSecret': ''}}}},
+                             'bindings': kept}
+                    r = _sp.run(['openclaw', 'config', 'patch', '--stdin'],
+                                input=json.dumps(patch), text=True, capture_output=True, timeout=20)
+                    log(f'  网关摘路由: {"OK" if r.returncode == 0 else r.stderr.strip()[:100]}')
+    except Exception as e:
+        log(f'  网关摘路由跳过（best effort）: {str(e)[:80]}')
+
     # 平台侧记录
     def _rewrite(fname, items, keep_pred):
         path = os.path.join(data, fname)

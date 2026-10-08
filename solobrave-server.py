@@ -5409,6 +5409,66 @@ FEISHU_BITABLE_APP_SECRET = os.environ.get('FEISHU_BITABLE_APP_SECRET', '')
 FEISHU_BITABLE_APP_TOKEN = os.environ.get('FEISHU_BITABLE_APP_TOKEN', 'QxARbgMSIaKcXxsoGEtcSJH2nvf')
 FEISHU_BITABLE_TABLE_ID = os.environ.get('FEISHU_BITABLE_TABLE_ID', 'tbl2OAYCIoV6Nko8')
 
+def _feishu_gateway_bindings():
+    """读 openclaw 网关当前 bindings 列表（不可用时返回 None）。"""
+    try:
+        proc = subprocess.run(['openclaw', 'config', 'get', 'bindings'],
+                              capture_output=True, text=True, timeout=15)
+        if proc.returncode != 0:
+            return None
+        data = json.loads(proc.stdout)
+        return data if isinstance(data, list) else None
+    except Exception:
+        return None
+
+def _feishu_gateway_route(account_id, app_id, app_secret, agent_id):
+    """多租户消息路由最后一跳: 把租户飞书账号写进 openclaw 网关并绑到本租户 agent。
+    - account 写入 channels.feishu.accounts.<account_id>
+    - bindings 全量替换(读旧列表-删本账号旧binding+加新) — 幂等可重跑
+    返回 (ok, err)。网关缺席/CLI 失败 → (False, 原因), 调用方降级状态。"""
+    bindings = _feishu_gateway_bindings()
+    if bindings is None:
+        return False, 'openclaw 网关不可达或 bindings 读取失败'
+    kept = [b for b in bindings
+            if not (isinstance(b, dict) and b.get('match', {}).get('accountId') == account_id)]
+    kept.append({'agentId': agent_id, 'match': {'channel': 'feishu', 'accountId': account_id}})
+    patch = {
+        'channels': {'feishu': {'accounts': {account_id: {
+            'appId': app_id, 'appSecret': app_secret,
+            'name': '租户Bot', 'groupPolicy': 'open',
+            'allowFrom': ['*'], 'groupAllowFrom': ['*'],
+        }}}},
+        'bindings': kept,
+    }
+    try:
+        proc = subprocess.run(['openclaw', 'config', 'patch', '--stdin'],
+                              input=json.dumps(patch), text=True, capture_output=True, timeout=20)
+        if proc.returncode != 0:
+            return False, f'config patch 失败: {proc.stderr.strip()[:150]}'
+        return True, ''
+    except Exception as e:
+        return False, f'网关写入异常: {str(e)[:150]}'
+
+def _feishu_gateway_unroute(account_id):
+    """删租户配套: 摘 binding + 清账号 secret（best effort, 不抛异常）。"""
+    try:
+        bindings = _feishu_gateway_bindings()
+        if bindings is None:
+            return False, 'bindings 读取失败'
+        kept = [b for b in bindings
+                if not (isinstance(b, dict) and b.get('match', {}).get('accountId') == account_id)]
+        if len(kept) == len(bindings):
+            return True, ''  # 本来就没有
+        patch = {
+            'channels': {'feishu': {'accounts': {account_id: {'appId': '', 'appSecret': ''}}}},
+            'bindings': kept,
+        }
+        proc = subprocess.run(['openclaw', 'config', 'patch', '--stdin'],
+                              input=json.dumps(patch), text=True, capture_output=True, timeout=20)
+        return (proc.returncode == 0), proc.stderr.strip()[:120]
+    except Exception as e:
+        return False, str(e)[:120]
+
 def _feishu_get_tenant_access_token(app_id=None, app_secret=None):
     app_id = app_id or FEISHU_BITABLE_APP_ID
     app_secret = app_secret or FEISHU_BITABLE_APP_SECRET
@@ -9874,6 +9934,31 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not app_id.startswith('cli_') or len(app_secret) < 8:
             self._send_json_error(400, 'appId 需 cli_ 开头, appSecret ≥8 位')
             return
+        # 可选: 指定接收消息的租户 agent（默认取本租户第一个 AI 员工）
+        route_agent_id = (body.get('agentId') or '').strip()
+        if route_agent_id:
+            agents = _load_agents()
+            rag = next((a for a in agents if a.get('id') == route_agent_id), None)
+            if not rag:
+                self._send_json_error(404, '指定的 agent 不存在')
+                return
+            rag_tenant = rag.get('tenant_id')
+            if not rag_tenant:
+                rag_owner = rag.get('createdBy')
+                rag_tenant = next((u.get('tenant_id') for u in _load_users()
+                                   if u.get('id') == rag_owner), None)
+            if rag_tenant != tid:
+                self._send_json_error(403, '只能路由到本租户的 AI 员工')
+                return
+        else:
+            t_users = [u for u in _load_users() if u.get('tenant_id') == tid]
+            tuids = {u.get('id') for u in t_users}
+            rag = next((a for a in _load_agents()
+                        if a.get('tenant_id') == tid or a.get('createdBy') in tuids), None)
+            if not rag:
+                self._send_json_error(400, '本租户还没有 AI 员工, 请先创建（或传 agentId 指定）')
+                return
+            route_agent_id = rag.get('id')
 
         def _save():
             conn = _db_conn()
@@ -9908,18 +9993,28 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                         err = 'tenant_access_token 获取失败(检查 app 权限/发布状态)'
                 except Exception as e:
                     err = str(e)[:200]
+                route_err = ''
+                final_status = 'failed'
+                if ok:
+                    final_status = 'verified'
+                    # ★ M7 最后一跳: 写入 openclaw 网关路由（账号=租户id, 绑定=本租户agent）
+                    rok, route_err = _feishu_gateway_route(tid, app_id, app_secret, route_agent_id)
+                    if rok:
+                        final_status = 'routed'
+                    else:
+                        logger.warning(f'[MT] 租户 {tid} 网关路由未通(降级 verified): {route_err}')
                 def _writeback():
                     conn = _db_conn()
                     try:
                         conn.execute(
                             'UPDATE tenant_feishu_config SET status = ?, error = ?, bound_at = ?, updated_at = ? WHERE tenant_id = ?',
-                            ('verified' if ok else 'failed', err,
+                            (final_status, err or route_err,
                              datetime.now().isoformat() if ok else '', int(time.time()), tid))
                         conn.commit()
                     finally:
                         conn.close()
                 _run_as_tenant(tid, _writeback)
-                logger.info(f'[MT] 租户 {tid} 飞书验签: {"verified" if ok else "failed: " + err}')
+                logger.info(f'[MT] 租户 {tid} 飞书绑定: {final_status}' + (f' agent={route_agent_id}' if ok else f' failed: {err}'))
             _run_as_tenant(tid, _work)
 
         threading.Thread(target=_verify_async, daemon=True, name=f'FeishuBind-{tid}').start()

@@ -230,7 +230,13 @@ function provision_tenant(admin_email, plan):
 - `GET` 同路径查状态（不回显 secret）；沙箱实测假凭证 → 飞书 API 真实返回 10003 → failed+错误信息 ✅
 - ★ 诚实边界：消息路由到本租户 agent 需 OpenClaw 网关多租户改造，本轮到「凭证已存+连通已验证」为止
 
+### M7 已落地（verified → routed 最后一跳）
+- `_feishu_gateway_route()`：openclaw 网关写账号 + binding（bindings 全量替换幂等，网关侧校验 agentId 必须已注册）
+- M6 验签通过 → 自动路由到本租户 agent（可传 agentId 指定，默认第一个；跨租户 agent 403）→ 状态升级 `routed`；网关不在/写失败 → 保持 `verified` + routeError 降级
+- `tenant_delete.py` 加网关摘路由（best effort）
+- 沙箱实测：网关读回/幂等重写/摘除干净/default 绑定回归 ✅；网关拒绝未注册 agent（安全校验，符合预期）
+
 ### 遗留（下一轮）
-- OpenClaw 网关多租户消息路由（verified → routed 的最后一跳）
+- 租户 agent 的网关注册时机打通（agent 在网关注册前绑定 → 保持 verified，重绑即 routed）
 - 存量 dirs 的 `emp_001`/`{empId}` 模板残留清洗
 - 其他后台线程逐点审计（OpenClaw 队列 / BrainScheduler / PatternInduce-Cron 均为平台级守护，默认租户语义正确，多租户化时再逐个 `_run_as_tenant`）
