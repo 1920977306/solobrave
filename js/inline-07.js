@@ -1548,12 +1548,21 @@ function sb2SettingsShow(){
   /* 〔dash/credit-checkin 2026-10-08 派单 B〕积分仪表盘同屏加载 (签到卡 + 总览/员工卡) */
   if (typeof loadCreditCheckin === 'function') loadCreditCheckin();
   if (typeof loadComputeStats === 'function') loadComputeStats();
-  /* 〔settings-swap 2026-10-08〕回设置模块默认落日常区 (互斥视图复位) */
-  var _dailyArea = document.getElementById('sb2SettingsDailyArea');
-  if (_dailyArea) _dailyArea.style.display = '';
-  var _legacyArea = document.getElementById('sb2SettingsLegacyArea');
-  if (_legacyArea) _legacyArea.style.display = 'none';
+  /* 〔settings-redesign 2026-10-08〕回设置模块默认落积分中心视图 */
+  if (typeof sb2SettingsActivate === 'function') sb2SettingsActivate('sb2ViewCredit');
   if (typeof window !== 'undefined') { window._sb2SettingsSideSel = 'daily:sb2CreditArea'; }
+}
+
+/* 〔settings-redesign 2026-10-08 老大批注「太杂了」〕统一视图激活:
+   设置屏全部视图互斥, 同屏只显示一个, 滚动条归零。 */
+var SB2_SETTINGS_VIEWS = ['sb2ViewCredit','sb2ViewSearch','sb2ViewBrain','sb2ViewRag','sb2ViewEvents','sb2SettingsLegacyArea'];
+function sb2SettingsActivate(viewId){
+  SB2_SETTINGS_VIEWS.forEach(function(id){
+    var el = document.getElementById(id);
+    if (el) el.style.display = (id === viewId) ? '' : 'none';
+  });
+  var mainEl = document.getElementById('sb2SettingsMain');
+  if (mainEl) mainEl.scrollTop = 0;
 }
 
 /* 〔settings-side 2026-10-08 老大批注〕侧栏桥接: 旧版系统分类承接进 sb2 设置屏
@@ -1580,13 +1589,9 @@ function sb2SettingsOpenCategory(id){
   document.getElementById('sb2SettingsLegacyContent').innerHTML = src.innerHTML;
   document.getElementById('sb2SettingsLegacyTitle').textContent = titleEl ? titleEl.textContent : '设置';
   document.getElementById('sb2SettingsLegacyActions').innerHTML = actsEl ? actsEl.innerHTML : '';
-  /* 〔settings-swap 2026-10-08 老大批注「不能全部塞一个页面」〕互斥切换:
-     显承接区 + 隐日常区 (主区只剩该分类内容); 滚动条归零由 sb2SettingsMain 承载 */
-  var daily = document.getElementById('sb2SettingsDailyArea');
-  if (daily) daily.style.display = 'none';
-  area.style.display = '';
-  var mainEl = document.getElementById('sb2SettingsMain');
-  if (mainEl) mainEl.scrollTop = 0;
+  /* 〔settings-redesign 2026-10-08〕统一视图激活: 系统管理承接区是唯一可见视图 */
+  if (typeof sb2SettingsActivate === 'function') sb2SettingsActivate('sb2SettingsLegacyArea');
+  else { area.style.display = ''; }
   /* 镜像后二次触发分类数据加载 (真机实测补):
      renderSettingsRight 内已触发过一发, 但部分 loader (loadNotificationSwitches /
      renderNotificationHistory 等) 函数第一行同步 getElementById 捕获元素引用 ——
@@ -1606,18 +1611,17 @@ function sb2SettingsOpenCategory(id){
     if (id === 'members' && typeof renderSettingsMemberList === 'function') renderSettingsMemberList();
     if (id === 'feishu' && typeof loadFeishuConfig === 'function') loadFeishuConfig();
   } catch(e){ console.warn('[settings-side] loader re-fire failed:', e); }
-  area.scrollIntoView({behavior:'smooth', block:'start'});
   if (typeof window !== 'undefined') { window._sb2SettingsSideSel = id; }
   if (typeof window.renderSideFor === 'function') window.renderSideFor('settings');
 }
-/* 侧栏「日常」项: 互斥切回日常区 (隐承接区) + 滚动到新屏对应卡片 */
+/* 侧栏「日常」项: 激活对应工具视图 (目标卡片 → 视图映射, 元素 ID 保留在视图内) */
 function sb2SettingsScrollTo(targetId){
-  var area = document.getElementById('sb2SettingsLegacyArea');
-  if (area) area.style.display = 'none';
-  var daily = document.getElementById('sb2SettingsDailyArea');
-  if (daily) daily.style.display = '';
-  var el = document.getElementById(targetId);
-  if (el) el.scrollIntoView({behavior:'smooth', block:'start'});
+  var viewMap = {
+    sb2CreditArea:'sb2ViewCredit', sb2FeatCardSearch:'sb2ViewSearch', sb2FeatCardBrain:'sb2ViewBrain',
+    sb2FeatCardRag:'sb2ViewRag', sb2FeatCardEvents:'sb2ViewEvents'
+  };
+  var viewId = viewMap[targetId] || 'sb2ViewCredit';
+  if (typeof sb2SettingsActivate === 'function') sb2SettingsActivate(viewId);
   if (typeof window !== 'undefined') { window._sb2SettingsSideSel = 'daily:' + targetId; }
   if (typeof window.renderSideFor === 'function') window.renderSideFor('settings');
 }

@@ -13486,6 +13486,29 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
  * - 现在: settings 屏 active 时, .sb2-settings-main 100% 占主区, #settingsRight 兑底 hidden */
 .app-main.settings-active > #settingsRight{ display:none; }
 .app-main.settings-active > .sb2-settings-main{ flex:1; width:100%; max-width:100%; }
+
+/* 〔settings-redesign 2026-10-08〕侧栏驱动多视图: 视图头统一语言 (橙 token), 同屏只显一个视图 */
+.sb2-settings-view{ display:none; }
+.sb2-settings-view-head{
+  display:flex; align-items:center; gap:14px; margin-bottom:22px;
+}
+.sb2-settings-view-head-icon{
+  width:44px; height:44px; border-radius:12px; flex:0 0 auto;
+  display:flex; align-items:center; justify-content:center;
+  background:var(--sb2-brand-soft); color:var(--sb2-brand); font-size:20px;
+}
+.sb2-settings-view-head-txt h1{
+  margin:0; font:600 20px/1.3 "PingFang SC",sans-serif; color:var(--sb2-ink);
+}
+.sb2-settings-view-head-txt p{
+  margin:3px 0 0; font:400 13px/1.5 "PingFang SC",sans-serif; color:var(--sb2-t3);
+}
+.sb2-settings-view-head-status{
+  margin-left:auto; flex:0 0 auto;
+  padding:3px 12px; border-radius:999px; font-size:12px;
+  background:var(--sb2-s1); color:var(--sb2-t2);
+}
+
 .sb2-settings-hero{ margin-bottom:24px; }
 .sb2-settings-hero h1{
   margin:0 0 4px 0;
@@ -15413,96 +15436,97 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
   </div>
 </div>
 
-<!-- ★ MVP6: 设置屏 — 功能入口卡片列表 (语义搜索 / 大脑知识 / RAG) -->
+<!-- ★ settings-redesign 2026-10-08 (老大批注「设计页面需要大幅度设计, 太杂了」):
+     设置屏重构为侧栏驱动多视图 — 积分中心 / 语义搜索 / AI 大脑调度 / RAG 索引重建 / 知识事件 / 系统管理承接区,
+     同屏只显示一个视图 (sb2SettingsActivate 互斥), 统一视图头 (图标+标题+描述+状态)。元素 ID 全部保留, 旧 JS 零改动。 -->
 <div class="sb2-settings-main" id="sb2SettingsMain">
-  <!-- 〔settings-swap 2026-10-08 老大批注「不能全部塞一个页面」〕日常区整体包一层,
-       与系统管理承接区互斥切换: 侧栏点日常项显本区, 点系统管理项隐本区 -->
-  <div id="sb2SettingsDailyArea">
-  <div class="sb2-settings-hero">
-    <h1>设置</h1>
-    <p>日常：积分签到与用量仪表盘。维护工具（面向管理员）：知识搜索测试、AI 大脑调度、向量索引重建、知识事件查询。</p>
-  </div>
-  <!-- 〔dash/credit-checkin 2026-10-08 派单 B〕积分仪表盘挂设置屏顶部 (客户日常视角, sb2SettingsShow 触发加载) -->
-  <div id="sb2CreditArea">
-    <div id="sb2CreditCheckinArea"></div>
-    <div id="sb2CreditComputeArea"></div>
-  </div>
-  <div class="sb2-settings-grid">
-    <!-- 卡 1: 语义搜索 -->
-    <div class="sb2-settings-feature-card" id="sb2FeatCardSearch">
-      <div class="sb2-settings-feature-card-head">
-        <div class="sb2-settings-feature-card-icon"><i class=sb2-ico-search></i></div>
-        <h3 class="sb2-settings-feature-card-title">语义搜索</h3>
+  <!-- 视图 1: 积分中心 (默认视图) -->
+  <div class="sb2-settings-view" id="sb2ViewCredit" style="display:block;">
+    <div class="sb2-settings-view-head">
+      <div class="sb2-settings-view-head-icon"><i class=sb2-ico-receipt></i></div>
+      <div class="sb2-settings-view-head-txt">
+        <h1>积分中心</h1>
+        <p>每日签到领积分，查看用量总览与员工余额。</p>
       </div>
-      <p class="sb2-settings-feature-card-desc">用一句话搜索知识库，测试语义召回效果（向量索引）。</p>
-      <div class="sb2-settings-feature-card-status">
-        <span>状态</span><span class="status-value" id="sb2FeatSearchStatus">-</span>
-      </div>
-      <div class="sb2-settings-search-input-row">
-        <input type="text" id="sb2FeatSearchInput" placeholder="输入一句话，回车搜索">
-        <button class="sb2-btn sb2-btn-ink" id="sb2FeatSearchBtn" onclick="sb2SettingsRunSearch()">搜索</button>
-      </div>
-      <div class="sb2-settings-feature-card-result" id="sb2FeatSearchResult"></div>
     </div>
-    <!-- 卡 2: 大脑知识 -->
-    <div class="sb2-settings-feature-card" id="sb2FeatCardBrain">
-      <div class="sb2-settings-feature-card-head">
-        <div class="sb2-settings-feature-card-icon"><i class=sb2-ico-brain></i></div>
-        <h3 class="sb2-settings-feature-card-title">大脑知识</h3>
-      </div>
-      <p class="sb2-settings-feature-card-desc">AI 大脑的调度器：查看运行统计，必要时手动触发一次全量处理。</p>
-      <div class="sb2-settings-feature-card-status">
-        <span>状态</span><span class="status-value" id="sb2FeatBrainStatus">-</span>
-      </div>
-      <div class="sb2-settings-feature-card-actions">
-        <button class="sb2-btn sb2-btn-ghost" onclick="sb2SettingsBrainFetchStatus()">查看状态</button>
-        <button class="sb2-btn sb2-btn-ink" onclick="sb2SettingsBrainTrigger()">手动触发</button>
-      </div>
-      <div class="sb2-settings-feature-card-result" id="sb2FeatBrainResult"></div>
-    </div>
-    <!-- 卡 3: RAG -->
-    <div class="sb2-settings-feature-card" id="sb2FeatCardRag">
-      <div class="sb2-settings-feature-card-head">
-        <div class="sb2-settings-feature-card-icon"><i class=sb2-ico-dna></i></div>
-        <h3 class="sb2-settings-feature-card-title">RAG 索引重建</h3>
-      </div>
-      <p class="sb2-settings-feature-card-desc">批量重建知识库和商品库的向量索引；「测试检索」先试搜不改库。</p>
-      <div class="sb2-settings-feature-card-status">
-        <span>状态</span><span class="status-value" id="sb2FeatRagStatus">-</span>
-      </div>
-      <div class="sb2-settings-feature-card-actions">
-        <button class="sb2-btn sb2-btn-ghost" onclick="sb2SettingsRagRetrieve()">测试检索</button>
-        <button class="sb2-btn sb2-btn-ink" onclick="sb2SettingsRagBuild()">重建索引</button>
-      </div>
-      <div class="sb2-settings-feature-card-result" id="sb2FeatRagResult"></div>
-    </div>
-    <!-- 卡 4: 知识事件 -->
-    <div class="sb2-settings-feature-card" id="sb2FeatCardEvents">
-      <div class="sb2-settings-feature-card-head">
-        <div class="sb2-settings-feature-card-icon"><i class=sb2-ico-bookmark></i></div>
-        <h3 class="sb2-settings-feature-card-title">知识事件</h3>
-      </div>
-      <p class="sb2-settings-feature-card-desc">按实体（达人/商品/知识）查询变更事件和总数统计。</p>
-      <div class="sb2-settings-feature-card-status">
-        <span>状态</span><span class="status-value" id="sb2FeatEventsStatus">-</span>
-      </div>
-      <div class="sb2-settings-search-input-row">
-        <input type="text" id="sb2FeatEventsEntityInput" placeholder="达人/商品/知识 ID（留空查全部）">
-        <button class="sb2-btn sb2-btn-ink" onclick="sb2SettingsEventsQuery()">查询事件</button>
-        <button class="sb2-btn sb2-btn-ghost" onclick="sb2SettingsEventsStats()">统计</button>
-      </div>
-      <div class="sb2-settings-feature-card-result" id="sb2FeatEventsResult"></div>
+    <div id="sb2CreditArea">
+      <div id="sb2CreditCheckinArea"></div>
+      <div id="sb2CreditComputeArea"></div>
     </div>
   </div>
-  </div><!-- /sb2SettingsDailyArea -->
-  <!-- 〔settings-side 2026-10-08 老大批注「侧边栏咋啥都没有 / 设置页面还差」〕
-       旧版 8 个系统分类承接区: 侧栏点「系统管理」项时, renderSettingsRight 渲染结果镜像至此。
-       renderSettingsRight 渲进隐藏的 #settingsRightContent 并触发分类数据加载 (loadUserList 等按 ID 写入,
-       getElementById 按文档序先命中本副本 → 异步加载器写入可见副本, 旧函数零改动)。 -->
-  <div id="sb2SettingsLegacyArea" style="display:none; margin-top:28px;">
-    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;">
-      <h1 id="sb2SettingsLegacyTitle" style="margin:0; font:600 18px/1.3 'PingFang SC',sans-serif; color:var(--sb2-ink);">-</h1>
-      <div id="sb2SettingsLegacyActions" style="display:flex; gap:8px;"></div>
+  <!-- 视图 2: 语义搜索 -->
+  <div class="sb2-settings-view" id="sb2ViewSearch">
+    <div class="sb2-settings-view-head">
+      <div class="sb2-settings-view-head-icon"><i class=sb2-ico-search></i></div>
+      <div class="sb2-settings-view-head-txt">
+        <h1>语义搜索</h1>
+        <p>用一句话搜索知识库，测试语义召回效果（向量索引）。</p>
+      </div>
+      <span class="sb2-settings-view-head-status" id="sb2FeatSearchStatus">-</span>
+    </div>
+    <div class="sb2-settings-search-input-row">
+      <input type="text" id="sb2FeatSearchInput" placeholder="输入一句话，回车搜索">
+      <button class="sb2-btn sb2-btn-ink" id="sb2FeatSearchBtn" onclick="sb2SettingsRunSearch()">搜索</button>
+    </div>
+    <div class="sb2-settings-feature-card-result" id="sb2FeatSearchResult"></div>
+  </div>
+  <!-- 视图 3: AI 大脑调度 -->
+  <div class="sb2-settings-view" id="sb2ViewBrain">
+    <div class="sb2-settings-view-head">
+      <div class="sb2-settings-view-head-icon"><i class=sb2-ico-brain></i></div>
+      <div class="sb2-settings-view-head-txt">
+        <h1>AI 大脑调度</h1>
+        <p>AI 大脑的调度器：查看运行统计，必要时手动触发一次全量处理。</p>
+      </div>
+      <span class="sb2-settings-view-head-status" id="sb2FeatBrainStatus">-</span>
+    </div>
+    <div class="sb2-settings-feature-card-actions" style="margin-bottom:12px;">
+      <button class="sb2-btn sb2-btn-ghost" onclick="sb2SettingsBrainFetchStatus()">查看状态</button>
+      <button class="sb2-btn sb2-btn-ink" onclick="sb2SettingsBrainTrigger()">手动触发</button>
+    </div>
+    <div class="sb2-settings-feature-card-result" id="sb2FeatBrainResult"></div>
+  </div>
+  <!-- 视图 4: RAG 索引重建 -->
+  <div class="sb2-settings-view" id="sb2ViewRag">
+    <div class="sb2-settings-view-head">
+      <div class="sb2-settings-view-head-icon"><i class=sb2-ico-dna></i></div>
+      <div class="sb2-settings-view-head-txt">
+        <h1>RAG 索引重建</h1>
+        <p>批量重建知识库和商品库的向量索引；「测试检索」先试搜不改库。</p>
+      </div>
+      <span class="sb2-settings-view-head-status" id="sb2FeatRagStatus">-</span>
+    </div>
+    <div class="sb2-settings-feature-card-actions" style="margin-bottom:12px;">
+      <button class="sb2-btn sb2-btn-ghost" onclick="sb2SettingsRagRetrieve()">测试检索</button>
+      <button class="sb2-btn sb2-btn-ink" onclick="sb2SettingsRagBuild()">重建索引</button>
+    </div>
+    <div class="sb2-settings-feature-card-result" id="sb2FeatRagResult"></div>
+  </div>
+  <!-- 视图 5: 知识事件 -->
+  <div class="sb2-settings-view" id="sb2ViewEvents">
+    <div class="sb2-settings-view-head">
+      <div class="sb2-settings-view-head-icon"><i class=sb2-ico-bookmark></i></div>
+      <div class="sb2-settings-view-head-txt">
+        <h1>知识事件</h1>
+        <p>按实体（达人/商品/知识）查询变更事件和总数统计。</p>
+      </div>
+      <span class="sb2-settings-view-head-status" id="sb2FeatEventsStatus">-</span>
+    </div>
+    <div class="sb2-settings-search-input-row">
+      <input type="text" id="sb2FeatEventsEntityInput" placeholder="达人/商品/知识 ID（留空查全部）">
+      <button class="sb2-btn sb2-btn-ink" onclick="sb2SettingsEventsQuery()">查询事件</button>
+      <button class="sb2-btn sb2-btn-ghost" onclick="sb2SettingsEventsStats()">统计</button>
+    </div>
+    <div class="sb2-settings-feature-card-result" id="sb2FeatEventsResult"></div>
+  </div>
+  <!-- 视图 6: 系统管理承接区 (旧版 8 分类, renderSettingsRight 镜像至此) -->
+  <div class="sb2-settings-view" id="sb2SettingsLegacyArea">
+    <div class="sb2-settings-view-head">
+      <div class="sb2-settings-view-head-icon"><i class=sb2-ico-gear></i></div>
+      <div class="sb2-settings-view-head-txt">
+        <h1 id="sb2SettingsLegacyTitle">-</h1>
+      </div>
+      <div id="sb2SettingsLegacyActions" style="display:flex; gap:8px; margin-left:auto;"></div>
     </div>
     <div id="sb2SettingsLegacyContent"></div>
   </div>
@@ -19150,7 +19174,7 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
      v2 (202609241444): 初始破缓存 + skip-device 守卫
      v3 (202609241420): probe 误导文案澄清 (fingerprint fallback → token-only) -->
 <script src="openclaw-client.js?v=ocowner1a20261008"></script>
-<script src="js/inline-07.js?v=settingsside1d20261008"></script>
+<script src="js/inline-07.js?v=settingsredesign1a20261008"></script>
 
 <!-- Match Result Modal -->
 <div class="product-modal-overlay" id="matchModalOverlay" onclick="closeMatchModal()">
@@ -19195,7 +19219,7 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
 </div>
 
 <script src="js/inline-08.js?v=f2d73f6b57"></script>
-<script src="js/inline-09.js?v=settingsside1b20261008"></script>
+<script src="js/inline-09.js?v=settingsredesign1b20261008"></script>
 
 <!-- ★ feat/sb2-chat: SoloBrave 2.0 聊天模块 JS (核心链: 消息流 + 发送框)
      - 复用老 /api/chat/:agentId 接口契约, 零后端改动

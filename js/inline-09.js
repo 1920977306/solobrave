@@ -1625,7 +1625,7 @@ var SB2_SIDE_RENDERERS = {
     var canEmp = (typeof hasModulePermission === 'function') ? !!hasModulePermission('employees') : false;
     var sel = (typeof window._sb2SettingsSideSel === 'string') ? window._sb2SettingsSideSel : 'daily:sb2CreditArea';
     var daily = [
-      { name:'<i class=sb2-ico-receipt></i> 积分签到与仪表盘', t:'sb2CreditArea' },
+      { name:'<i class=sb2-ico-receipt></i> 积分中心', t:'sb2CreditArea' },
       { name:'<i class=sb2-ico-search></i> 语义搜索', t:'sb2FeatCardSearch' },
       { name:'<i class=sb2-ico-brain></i> AI 大脑调度', t:'sb2FeatCardBrain' },
       { name:'<i class=sb2-ico-dna></i> RAG 索引重建', t:'sb2FeatCardRag' },
