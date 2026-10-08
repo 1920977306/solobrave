@@ -13528,10 +13528,15 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
 @media (max-width: 1100px){
   .sb2-groups-grid{ grid-template-columns:1fr; }
 }
+/* ★ fix 2026-10-08 (老大批注: 项目组卡片右边被截断): grid item 自动最小尺寸=min-content,
+   动态区一条 nowrap 长文(如群聊报错/AI markdown 回复)经中间块容器向上传播,
+   把 1fr 轨道撑到内容固有宽度(实测 7585px)溢出视口。
+   卡上 min-width:0 切断传播, 内部 feed-item 的 overflow:hidden+ellipsis 正常生效。 */
 .sb2-group-card{
   background:var(--sb2-s1); border:1px solid var(--sb2-border);
   border-radius:12px; padding:16px 18px;
   display:flex; flex-direction:column; gap:12px;
+  min-width:0;
 }
 .sb2-group-card-head{ display:flex; align-items:center; gap:12px; }
 .sb2-group-card-emoji{
