@@ -4716,6 +4716,8 @@ function saveDeal() {
     showToast(id ? '✅ 已更新' : '✅ 已新增合作');
     closeDealModal();
     if (_currentTalent) renderTalentPanelRecords(_currentTalent);
+    /* 〔feat/deals-records 2026-10-09〕sb2 达人详情 Records tab 同步刷新 */
+    if (typeof window.sb2TlnReloadRecords === 'function') window.sb2TlnReloadRecords();
   }).catch(function(){ showToast('❌ 保存失败'); });
 }
 
@@ -4725,6 +4727,8 @@ function deleteDeal(dealId) {
     if (res && res.error) { showToast('删除失败: ' + (res.error.message || res.error), 'error'); return; }
     showToast('✅ 已删除');
     if (_currentTalent) renderTalentPanelRecords(_currentTalent);
+    /* 〔feat/deals-records 2026-10-09〕sb2 达人详情 Records tab 同步刷新 */
+    if (typeof window.sb2TlnReloadRecords === 'function') window.sb2TlnReloadRecords();
   }).catch(function(){ showToast('❌ 删除失败'); });
 }
 

@@ -3153,14 +3153,67 @@ function sb2TlnRenderPanelFollowUps(t){
 }
 
 function sb2TlnRenderPanelRecords(t){
-  /* r75 派单后 (cc7b6f8 server schema 端 talent_id 字段已加):
-     - 保留 records tab 占位文案 (此 tab 历史上对应 legacy 跟进记录, 跟 task 任务语义不同)
-     - 任务-达人关联已迁到第 8 个 tab "任务" (sb2TlnPanelTasks)
-     - Records tab 不主动切, 仍由 sb2TlnRenderPanelRecords 渲染 (后续按派单再决定保留/替换) */
+  /* 〔feat/deals-records 2026-10-09 老大 02:22「可以」〕成交合作接入 sb2:
+     - 数据源 /api/deals?talent_id= (legacy renderTalentPanelRecords 同款)
+     - 卡片/编辑/删除全复用 legacy 件 (_renderDealCardHTML/editDeal/deleteDeal/openDealModal, 全局函数)
+     - 复用前提: 同步 legacy 全局 _currentTalent/_currentTalentDeals (editDeal 从后者按 id 查)
+     - 保存/删除后 sb2 刷新走 window.sb2TlnReloadRecords (inline-06 两个成功回调里挂的钩) */
   var el = document.getElementById('sb2TlnPanelRecords');
   if (!el) return;
-  el.innerHTML = '<div class="sb2-tln-empty">跟进记录暂无</div>';
+  if (!_sb2TlnDetailLoadedTabs.records) {
+    el.innerHTML = '<div class="sb2-tln-loading">成交合作加载中…</div>';
+    sb2TlnFetchPanelRecords(t.id);
+    return;
+  }
+  var cached = _sb2TlnDetailCache.records;
+  var deals = (cached && cached.deals) || [];
+  window._currentTalent = t;
+  window._currentTalentDeals = deals;
+  var html = '<div class="sb2-tln-section"><div class="sb2-tln-section-title">成交合作</div>';
+  html += '<div style="display:flex;justify-content:flex-end;margin:2px 0 10px;"><button class="sb2-btn sb2-btn-brand sb2-btn-sm" onclick="openDealModal(window._sb2TlnDetailCurrentTalent.id, null)">+ 新建合作</button></div>';
+  if (!deals.length) {
+    html += '<div class="sb2-tln-empty">暂无合作记录 — 点「新建合作」录入, 累计 10 单完成解锁策略层</div></div>';
+    el.innerHTML = html;
+    return;
+  }
+  deals.forEach(function(d){ html += _renderDealCardHTML(d); });
+  html += '</div>';
+  el.innerHTML = html;
 }
+
+/* feat/deals-records: deals 懒加载 (对齐 sb2TlnFetchPanelTasks 模式) */
+async function sb2TlnFetchPanelRecords(talentId){
+  if (!talentId) return;
+  try {
+    var resp = await apiFetch('/api/deals?talent_id=' + encodeURIComponent(talentId) + '&limit=50');
+    if (!resp || !resp.ok) {
+      var el0 = document.getElementById('sb2TlnPanelRecords');
+      if (el0) el0.innerHTML = '<div class="sb2-tln-empty">成交合作加载失败 (HTTP ' + (resp ? resp.status : 'no resp') + ')</div>';
+      _sb2TlnDetailLoadedTabs.records = true;
+      return;
+    }
+    var data = await resp.json();
+    _sb2TlnDetailCache.records = data;
+    _sb2TlnLoadedTabs = _sb2TlnLoadedTabs || {};
+    _sb2TlnLoadedTabs.records = true;
+    _sb2TlnDetailLoadedTabs.records = true;
+    var t = window._sb2TlnDetailCurrentTalent || {id: talentId};
+    sb2TlnRenderPanelRecords(t);
+  } catch (e) {
+    var el1 = document.getElementById('sb2TlnPanelRecords');
+    if (el1) el1.innerHTML = '<div class="sb2-tln-empty">网络错误: ' + sb2TlnEsc(e && e.message || e) + '</div>';
+    _sb2TlnDetailLoadedTabs.records = true;
+  }
+}
+
+/* feat/deals-records: legacy saveDeal/deleteDeal 成功后的 sb2 侧刷新钩 (inline-06 调) */
+window.sb2TlnReloadRecords = function(){
+  var t = window._sb2TlnDetailCurrentTalent;
+  if (!t || !t.id) return;
+  _sb2TlnDetailLoadedTabs.records = false;
+  delete _sb2TlnDetailCache.records;
+  sb2TlnFetchPanelRecords(t.id);
+};
 
 /* ★ r75 派单 tab 6 任务-达人关联 (贾维斯派单给小路, 老大已批「全部弄」):
    - 渲染任务列表 (从 /api/tasks?talent_id=xxx 拉)

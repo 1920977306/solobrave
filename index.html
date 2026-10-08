@@ -7463,6 +7463,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 /* Product Modal */
 .product-modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); backdrop-filter: blur(20px); z-index: 400; display: none; align-items: center; justify-content: center; }
 .product-modal-overlay.active { display: flex; }
+/* 〔feat/deals-records 2026-10-09〕deal 模态框提到 sb2 达人详情覆盖层(1100)之上, 否则在 sb2 里打开会被压住 */
+#dealModalOverlay { z-index: 1300; }
 .product-modal-panel { width: 88%; max-width: 480px; background: var(--bg-primary); border-radius: 16px; box-shadow: 0 20px 60px rgba(0,0,0,0.2); display: flex; flex-direction: column; overflow: hidden; }
 
 /* ② 员工列表空状态视觉化引导(AI 员工是核心的视觉传达) */
@@ -18917,7 +18919,7 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
 </style>
 
 
-<script src="js/inline-06.js?v=dcad75d664"></script>
+<script src="js/inline-06.js?v=deals1a20261009"></script>
 
 <!-- User Management Modals -->
 <!-- User Edit Modal -->
@@ -19288,7 +19290,7 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
      v2 (202609241444): 初始破缓存 + skip-device 守卫
      v3 (202609241420): probe 误导文案澄清 (fingerprint fallback → token-only) -->
 <script src="openclaw-client.js?v=ocowner1a20261008"></script>
-<script src="js/inline-07.js?v=feishuretry1d20261009"></script>
+<script src="js/inline-07.js?v=deals1a20261009"></script>
 
 <!-- Match Result Modal -->
 <div class="product-modal-overlay" id="matchModalOverlay" onclick="closeMatchModal()">
