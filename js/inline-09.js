@@ -1763,10 +1763,24 @@ async function sb2KbRunSearch(){
     var data = await resp.json();
     var docs = (data && data.docs) || [];
     if (!docs.length) { resultEl.className = 'sb2-settings-feature-card-result active'; resultEl.textContent = '没有命中相关知识'; return; }
-    resultEl.className = 'sb2-settings-feature-card-result ok active';
-    resultEl.textContent = '命中 ' + ((data && data.count) || docs.length) + ' 条\n'
-      + docs.slice(0, 5).map(function(d, i){ return (i+1) + '. ' + (d.title || d.id || '-'); }).join('\n')
-      + (docs.length > 5 ? '\n... 还有 ' + (docs.length - 5) + ' 条' : '');
+    /* 卡片化 (老大 16:44 批准): 结果渲染为可点击卡片, 点击跳知识详情覆盖面板 (sb2KbOpenDetail, inline-07 全局函数).
+       字段来源已核实 knowledge_service.kb_entry_search_semantic 返回: id/title/category/content/relevantChunk/similarity.
+       全部动态文本过 escapeHtml; onclick 里的 id 用 JSON.stringify 保证合法字符串字面量再过 escapeHtml 防属性截断. */
+    resultEl.className = 'sb2-settings-feature-card-result ok active cards';
+    resultEl.innerHTML = '<div class="sb2-kb-search-hint">命中 ' + ((data && data.count) || docs.length) + ' 条 · 点击卡片查看详情</div>'
+      + docs.map(function(d){
+          var id = d.id || d.entry_id || '';
+          var metaParts = [];
+          if (d.category) metaParts.push(escapeHtml(d.category));
+          if (typeof d.similarity === 'number' && isFinite(d.similarity)) metaParts.push('相关度 ' + Math.round(d.similarity * 100) + '%');
+          var snippetSrc = String(d.relevantChunk || d.content || '').replace(/\s+/g, ' ').trim();
+          var snippet = snippetSrc ? escapeHtml(snippetSrc.slice(0, 90)) + (snippetSrc.length > 90 ? '…' : '') : '';
+          return '<div class="sb2-kb-search-card" onclick="sb2KbOpenDetail(' + escapeHtml(JSON.stringify(String(id))) + ')">'
+            + '<div class="sb2-kb-search-card-title">' + escapeHtml(d.title || id || '-') + '</div>'
+            + (metaParts.length ? '<div class="sb2-kb-search-card-meta">' + metaParts.join(' · ') + '</div>' : '')
+            + (snippet ? '<div class="sb2-kb-search-card-snippet">' + snippet + '</div>' : '')
+            + '</div>';
+        }).join('');
   } catch(e) {
     resultEl.className = 'sb2-settings-feature-card-result err active';
     resultEl.textContent = '搜索失败: ' + (e && e.message ? e.message : e);
