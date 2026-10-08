@@ -9985,14 +9985,18 @@ function openEmpDetail(empId) {
   selectedColor = emp.color || '#FF6B35';
   document.getElementById('empDetailAvatar').innerHTML = renderAvatar(emp, 56);
   document.getElementById('empDetailAvatar').style.background = `linear-gradient(135deg,${emp.color || '#FF6B35'},${emp.color || '#FF6B35'}dd)`;
-  document.getElementById('empDetailName').textContent = emp.name;
-  document.getElementById('empDetailRole').textContent = getEmpRoleDisplay(emp);
+  /* 〔r82 follow-up 14:34 批注②〕头图区已删, 这三个元素不存在, 空值守卫防 throw */
+  var _edName = document.getElementById('empDetailName');
+  if (_edName) _edName.textContent = emp.name;
+  var _edRole = document.getElementById('empDetailRole');
+  if (_edRole) _edRole.textContent = getEmpRoleDisplay(emp);
+  var _edStatus = document.getElementById('empDetailStatus');
+  if (_edStatus) _edStatus.innerHTML = `<span class="status-dot ${escapeAttr(emp.status || 'offline')}"></span> ${getStatusText(emp.status)}`;
   /* 〔r82 批注③〕身份卡同步填充(基础 tab 顶部) */
   var _idCardName = document.getElementById('empIdCardName');
   if (_idCardName) _idCardName.textContent = emp.name;
   var _idCardRole = document.getElementById('empIdCardRole');
   if (_idCardRole) _idCardRole.textContent = getEmpRoleDisplay(emp);
-  document.getElementById('empDetailStatus').innerHTML = `<span class="status-dot ${escapeAttr(emp.status || 'offline')}"></span> ${getStatusText(emp.status)}`;
   document.getElementById('empDetailId').textContent = emp.id;
   document.getElementById('empDetailModel').textContent = emp.model || 'gpt-4o';
   document.getElementById('empDetailGroup').textContent = emp.group || emp.subCategory || '职能组';

@@ -5952,6 +5952,14 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .sb2-grp-item.active{ background:var(--accent-light, rgba(22,119,255,0.08)); }
 .sb2-grp-tile{ width:38px; height:38px; border-radius:10px; flex:none; display:flex; align-items:center; justify-content:center; font-size:17px; color:#fff; }
 
+/* — r82 follow-up 老大 14:34 — */
+/* 批注①: tab 栏在面板最顶, 右端 未保存指示 + 关闭 X 垂直居中 */
+.emp-detail-tabs{ align-items:center; }
+.emp-detail-tabs .emp-dirty-indicator{ margin-left:auto; align-self:center; flex:none; }
+.emp-detail-tabs .emp-detail-close{ flex:none; align-self:center; margin-right:4px; }
+/* 批注③: 弹窗内 100% 宽长按钮(保存并同步/保存头像/保存连接等)一律瘦身成紧凑钮 */
+#empDetailOverlay .emp-action-btn{ width:auto; padding:8px 16px; }
+
 /* ===== 添加成员弹窗 ===== */
 .member-modal { background: var(--bg-primary,#ffffff); border-radius: 16px; box-shadow: 0 20px 60px rgba(0,0,0,0.15); width: 90%; max-width: 400px; overflow: hidden; }
 .member-modal-header { padding: 16px 20px; border-bottom: 0.5px solid rgba(0,0,0,0.06); text-align: center; }
@@ -17279,16 +17287,16 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
 
 <div class="emp-detail-overlay" id="empDetailOverlay" onclick="closeEmpDetail()">
 <div class="emp-detail-panel" onclick="event.stopPropagation()">
-<div class="emp-detail-header emp-detail-header-v3">
-<!-- 〔r82 批注①② 老大 14:17〕头图区删「和 Helen 聊聊」「查看 systemPrompt」; 批注③头像移入基础信息(emp-idcard, 元素保留原 id 供 JS 填充) -->
-<div class="emp-detail-info">
-<div class="emp-detail-name" id="empDetailName">-</div>
-<div class="emp-detail-role" id="empDetailRole">-</div>
-<div class="emp-detail-status" id="empDetailStatus"><span class="status-dot online"></span> 在线</div>
-</div>
-<div class="emp-detail-actions">
-  <span class="emp-dirty-indicator" id="empDirtyIndicator" style="display:none;" title="有未保存的修改">● 未保存</span>
-</div>
+<!-- 〔r82 follow-up 老大 14:34〕批注②: 整个头图区删除(名字/角色/状态已由基础 tab 身份卡承担), JS 填充已加空值守卫
+     批注①: tab 栏提到面板最顶; 未保存指示 + 关闭 X 并入 tab 栏右端 -->
+<div class="emp-detail-tabs">
+<button class="emp-detail-tab active" data-etab="basic" onclick="switchEmpDetailTab('basic')">基础</button>
+<button class="emp-detail-tab" data-etab="skills" onclick="switchEmpDetailTab('skills')">技能</button>
+<button class="emp-detail-tab" data-etab="work" onclick="switchEmpDetailTab('work')">工作记录</button>
+<button class="emp-detail-tab" data-etab="memory" onclick="switchEmpDetailTab('memory')">记忆</button>
+<button class="emp-detail-tab" data-etab="avatar" onclick="switchEmpDetailTab('avatar')">头像</button>
+<button class="emp-detail-tab" data-etab="connect" onclick="switchEmpDetailTab('connect')">连接</button>
+<span class="emp-dirty-indicator" id="empDirtyIndicator" style="display:none;" title="有未保存的修改">● 未保存</span>
 <button class="emp-detail-close" onclick="closeEmpDetail()">
 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
 </button>
@@ -17316,15 +17324,6 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
     <div class="ai-emp-stat-label">工具调用成功率</div>
     <div class="ai-emp-stat-source">tool_calls (window:<span id="aiEmpStatWindow">30d</span>)</div>
   </div>
-</div>
-
-<div class="emp-detail-tabs">
-<button class="emp-detail-tab active" data-etab="basic" onclick="switchEmpDetailTab('basic')">基础</button>
-<button class="emp-detail-tab" data-etab="skills" onclick="switchEmpDetailTab('skills')">技能</button>
-<button class="emp-detail-tab" data-etab="work" onclick="switchEmpDetailTab('work')">工作记录</button>
-<button class="emp-detail-tab" data-etab="memory" onclick="switchEmpDetailTab('memory')">记忆</button>
-<button class="emp-detail-tab" data-etab="avatar" onclick="switchEmpDetailTab('avatar')">头像</button>
-<button class="emp-detail-tab" data-etab="connect" onclick="switchEmpDetailTab('connect')">连接</button>
 </div>
 
 <div class="emp-detail-content" id="empDetailContent">
