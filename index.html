@@ -17515,30 +17515,11 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
 </div>
 <!-- 〔emp-skills-focus 2026-10-08 老大批注「AI 不需要万能, 但他必须会一开始给他的职能」〕
      OpenClaw 技能市场区 (ClawHub 搜索/安装/已安装) 整卡删除: 不做万能扩展,
-     技能 tab 只保留两块: ①能力清单=创建时分配的职能 (核心, 必须项项精通) ②自定义标签。 -->
+     技能 tab 只保留一块: 能力清单=创建时分配的职能 (核心, 必须项项精通)。
+     〔rm-skill-tags 2026-10-08 老大批注「这个为什么不去掉」〕自定义标签卡已删:
+     万能预设标签 (代码审查/UI设计/Bug修复...) 跟「AI 不需要万能」口径冲突。
+     emp.skills 数据字段保留 (存量员工 prompt 拼接「擅长：」仍在用), 仅删编辑入口。 -->
 
-<!-- 自定义标签区域（保留原有功能） -->
-<div class="emp-sk-card">
-<div class="emp-sk-head">
-<div class="emp-sk-title"><i class=sb2-ico-tag></i> 自定义标签</div>
-<button class="skills-add-btn" onclick="addSkill()">
-<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-添加标签
-</button>
-</div>
-<div class="emp-sk-body">
-<div class="skills-list" id="skillsList"></div>
-<div class="skills-empty" id="skillsEmpty">
-<div class="skills-empty-icon"><i class=sb2-ico-tag></i></div>
-<div class="skills-empty-text">还没有添加标签</div>
-<button class="skills-add-btn-lg" onclick="addSkill()">+ 添加第一个标签</button>
-</div>
-<div class="skills-presets">
-<div class="skills-presets-title">快速添加</div>
-<div class="skills-presets-grid" id="skillsPresets"></div>
-</div>
-</div>
-</div>
 </div>
 
 <!-- V3 升级:工作记录 tab pane (从 /api/agents/:id/activity 取,5 类事件归一化) -->
@@ -17936,7 +17917,7 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
 </div>
 </div>
 
-<script src="js/inline-03.js?v=empabilities1a20261008"></script>
+<script src="js/inline-03.js?v=rmskilltags1a20261008"></script>
 
 <!-- Modal Styles -->
 <style>

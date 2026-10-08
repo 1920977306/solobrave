@@ -12351,9 +12351,9 @@ function switchEmpDetailTab(tab) {
   // Update skills when switching to skills tab
   // 〔emp-skills-focus 2026-10-08〕loadOpenClawSkills 已删: AI 不需要万能, 技能 tab 只维护职能清单+自定义标签
   // 〔emp-abilities 2026-10-08〕能力卡按当前员工已分配职能渲染
+  // 〔rm-skill-tags 2026-10-08〕renderSkills/renderSkillPresets 调用移除: 自定义标签卡已删,
+  // 技能 tab 只渲染职能能力卡。标签增删函数保留 (死代码, emp.skills 数据仍供 prompt 拼接)。
   if (tab === 'skills' && currentEmpId) {
-    renderSkills();
-    renderSkillPresets();
     if (typeof renderEmpAbilities === 'function') {
       renderEmpAbilities(emps.find(function (e) { return e.id === currentEmpId; }));
     }
