@@ -7866,6 +7866,14 @@ function renderSettingsRight() {
       html += '<div class="settings-form-row"><label class="form-label">租户</label><select id="sb2TfcTenant" class="form-input" onchange="sb2TfcLoadStatus()"><option value="">加载租户列表…</option></select></div>';
       html += '<div id="sb2TfcStatus" style="font-size:13px;color:var(--text-secondary);line-height:1.8;margin-top:8px;">选择租户后自动查询绑定状态</div>';
       html += '<div id="sb2TfcActions" style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px;"></div>';
+      /* 〔feat/feishu-bind-ui 2026-10-09 老大「可以」〕绑定表单: 只在未绑定/验证失败时露出,
+         verified/routed 时由「重新绑定」按钮手动展开 — 默认隐藏防 clutter (老大 15:35「太杂了」口径) */
+      html += '<div id="sb2TfcBindForm" style="display:none;margin-top:12px;border-top:1px dashed var(--border-color,#333);padding-top:12px;">';
+      html += '<div class="settings-form-row"><label class="form-label">App ID</label><input type="text" id="sb2TfcAppId" class="form-input" placeholder="飞书应用 App ID (cli_xxx)"></div>';
+      html += '<div class="settings-form-row"><label class="form-label">App Secret</label><input type="text" id="sb2TfcAppSecret" class="form-input" placeholder="飞书应用 App Secret"></div>';
+      html += '<div class="settings-form-row"><label class="form-label">路由 Agent</label><input type="text" id="sb2TfcAgentId" class="form-input" placeholder="留空 = 自动选本租户第一个 AI 员工"></div>';
+      html += '<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:8px;"><button class="module-action-btn primary" onclick="sb2TfcBind()"><i class=sb2-ico-refresh></i> 绑定</button></div>';
+      html += '</div>';
       html += '</div>';
     }
     html += '<div class="settings-card">';
@@ -7949,10 +7957,11 @@ function sb2TfcLoadStatus() {
   var sel = document.getElementById('sb2TfcTenant');
   var stEl = document.getElementById('sb2TfcStatus');
   var actEl = document.getElementById('sb2TfcActions');
+  var formEl = document.getElementById('sb2TfcBindForm');
   if (!sel || !stEl || !actEl) return;
   var tid = sel.value;
   actEl.innerHTML = '';
-  if (!tid) { stEl.textContent = '选择租户后自动查询绑定状态'; return; }
+  if (!tid) { stEl.textContent = '选择租户后自动查询绑定状态'; if (formEl) formEl.style.display = 'none'; return; }
   stEl.textContent = '查询中…';
   var token = localStorage.getItem('sb_auth_token');
   fetch('/api/tenants/' + encodeURIComponent(tid) + '/feishu-bind', { headers: { 'Authorization': 'Bearer ' + token } })
@@ -7969,8 +7978,53 @@ function sb2TfcLoadStatus() {
       if (d.status === 'verified') {
         actEl.innerHTML = '<button class="module-action-btn primary" onclick="sb2TfcRetry()"><i class=sb2-ico-refresh></i> 重试路由</button>';
       }
+      /* 绑定表单: 未绑定/失败自动展开; 已绑状态给「重新绑定」入口, 点开展表单 */
+      if (formEl) {
+        if (d.status === 'unbound' || d.status === 'failed') {
+          formEl.style.display = 'block';
+        } else if (d.status !== 'pending') {
+          formEl.style.display = 'none';
+          actEl.innerHTML += '<button class="module-action-btn" onclick="sb2TfcToggleBindForm()">重新绑定</button>';
+        } else {
+          formEl.style.display = 'none';
+        }
+      }
     })
     .catch(function(e) { stEl.textContent = '状态查询失败: ' + e; });
+}
+function sb2TfcToggleBindForm() {
+  var formEl = document.getElementById('sb2TfcBindForm');
+  if (formEl) formEl.style.display = (formEl.style.display === 'none') ? 'block' : 'none';
+}
+function sb2TfcBind() {
+  var sel = document.getElementById('sb2TfcTenant');
+  if (!sel || !sel.value) return;
+  var appId = ((document.getElementById('sb2TfcAppId') || {}).value || '').trim();
+  var appSecret = ((document.getElementById('sb2TfcAppSecret') || {}).value || '').trim();
+  var agentId = ((document.getElementById('sb2TfcAgentId') || {}).value || '').trim();
+  if (!appId || !appSecret) { showToast('请填写 App ID 和 App Secret', 'error'); return; }
+  var token = localStorage.getItem('sb_auth_token');
+  fetch('/api/tenants/' + encodeURIComponent(sel.value) + '/feishu-bind', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+    body: JSON.stringify({ appId: appId, appSecret: appSecret, agentId: agentId || undefined })
+  })
+    .then(function(r) { return r.json().then(function(d) { return { ok: r.ok, d: d }; }); })
+    .then(function(res) {
+      if (res.ok && res.d.accepted) {
+        showToast('绑定已受理, 验证中…', 'success');
+        var formEl = document.getElementById('sb2TfcBindForm');
+        if (formEl) formEl.style.display = 'none';
+        /* 异步验签(数秒): 轮询两次刷新状态 */
+        setTimeout(sb2TfcLoadStatus, 4000);
+        setTimeout(sb2TfcLoadStatus, 9000);
+      } else {
+        var errObj = res.d && res.d.error;
+        var errMsg = (errObj && errObj.message) || (typeof errObj === 'string' ? errObj : '') || 'HTTP 失败';
+        showToast('绑定失败: ' + errMsg, 'error');
+      }
+    })
+    .catch(function(e) { showToast('网络错误: ' + e, 'error'); });
 }
 function sb2TfcRetry() {
   var sel = document.getElementById('sb2TfcTenant');
