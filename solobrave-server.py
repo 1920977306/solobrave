@@ -53,6 +53,15 @@ from douyin_parser import *
 
 # 记忆服务 v3（新目录结构：data/memories/{empId}/）
 import memory_service_v3 as ms3
+# ★ MT 租户路由注册（P1，照 c0c9417 ks 同款模式）: ms3._db_conn 直连默认库，
+# 记忆 DB 段（delete_memory 清理 / _sync_memory_to_db 回写）绕开 M2 线程路由。
+# 注册后 ms3._db_conn 优先走 server._db_conn()。同 ks：exec 场景模块可能未入
+# sys.modules —— 跳过注册, ms3 降级直连（旧行为）
+try:
+    ms3.register_server(sys.modules[__name__])
+except KeyError:
+    pass
+
 
 # V3 商品评分模型（达人选品意愿 + 带货效果两层漏斗）
 import v3_scorer as v3

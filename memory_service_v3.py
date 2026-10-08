@@ -64,8 +64,31 @@ MEMORY_INDUCTION_THRESHOLDS = {
 DB_PATH = os.path.join(os.path.dirname(__file__), 'data', 'solobrave.db')
 
 
+_SERVER = None
+
+
+def register_server(mod):
+    """server 启动时注册自身模块（MT 租户路由，照 c0c9417 ks 同款模式）。
+
+    背景: server 文件名带 dash，ms3 无法 import 它，旧 fallback 从未生效，
+    _db_conn 一直直连 DB_PATH（默认库）——记忆 DB 段（含 delete_memory
+    清理、_sync_memory_to_db 回写）绕开 M2 线程路由。注册后优先走
+    server._db_conn()（thread-local tid 路由），直连降级为独立运行 fallback。
+    """
+    global _SERVER
+    _SERVER = mod
+
+
 def _db_conn(timeout=30):
-    """创建 SQLite 连接（启用字典行）；启用 WAL 与 busy timeout 降低 database locked 概率"""
+    """创建 SQLite 连接（启用字典行）；启用 WAL 与 busy timeout 降低 database locked 概率
+
+    ★ MT 租户路由优先: 已注册 server 时一律走 server._db_conn()（M2 thread-local
+    路由）；未注册（独立跑 ms3 脚本）才直连。"""
+    if _SERVER is not None:
+        try:
+            return _SERVER._db_conn()
+        except Exception:
+            pass  # server 连接失败时降级直连，保持旧可用性
     conn = sqlite3.connect(DB_PATH, check_same_thread=False, timeout=timeout)
     conn.row_factory = sqlite3.Row
     conn.execute('PRAGMA journal_mode=WAL;')
