@@ -5906,6 +5906,52 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .group-detail-panel .form-label { color: var(--sb2-t2); font: 500 12px/1.4 "PingFang SC",sans-serif; }
 .group-detail-panel .form-input { background: var(--sb2-s2); border: 1px solid var(--sb2-border); border-radius: var(--sb2-r-md); color: var(--sb2-t1); }
 
+/* ============================================================
+ * 〔r82 2026-10-08 老大 14:17 批注 + 09:44 项目组重设计〕
+ * 员工详情页: ①②头图区纯标题行 ③头像→基础信息身份卡
+ *           ④删底部巨型关闭钮  stats 条/tabs 轻量化
+ * 项目组面板: 头图收紧 / tabs 左对齐 / 成员行紧凑
+ *           底部 保存·解散 收成功能钮(收编 sb2-btn 体系)
+ * ============================================================ */
+/* — 员工详情 · 头图区: 无头像无按钮, 纯标题行 — */
+.emp-detail-header.emp-detail-header-v3{ padding:12px 20px; }
+.emp-detail-header-v3 .emp-detail-name{ font-size:16px; font-weight:600; }
+.emp-detail-header-v3 .emp-detail-actions{ margin-right:8px; }
+/* — 员工详情 · 身份卡(基础 tab 顶部) — */
+.emp-idcard{ display:flex; align-items:center; gap:12px; padding:12px 14px; margin-bottom:14px; background:var(--sb2-s2); border-radius:10px; }
+.emp-idcard .emp-detail-avatar{ width:40px; height:40px; font-size:20px; }
+.emp-idcard-info{ min-width:0; }
+.emp-idcard-name{ font-size:14px; font-weight:600; color:var(--sb2-t1); }
+.emp-idcard-role{ font-size:12px; color:var(--sb2-t3); margin-top:2px; }
+/* — 员工详情 · stats 条: 卡片 → 透明分栏 — */
+.ai-emp-stats-bar{ background:transparent; gap:0; padding:10px 20px; }
+.ai-emp-stat{ background:transparent; border:none; padding:2px 16px; }
+.ai-emp-stat:first-child{ padding-left:0; }
+.ai-emp-stat + .ai-emp-stat{ border-left:0.5px solid var(--separator); }
+.ai-emp-stat-value{ font-size:18px; }
+/* — 员工详情 · tabs: 均分 → 左对齐紧凑 — */
+.emp-detail-tabs{ gap:4px; }
+.emp-detail-tab{ flex:0 0 auto; padding:10px 12px; }
+/* — 项目组面板 · 头图收紧 — */
+.group-detail-header{ padding:14px 16px; gap:10px; }
+.group-detail-avatar{ width:44px; height:44px; border-radius:12px; font-size:22px; }
+.group-detail-name{ font-size:16px; }
+/* — 项目组面板 · tabs 左对齐 — */
+.group-detail-tabs{ gap:4px; }
+.group-detail-tab{ flex:0 0 auto; padding:10px 12px; }
+/* — 项目组面板 · 成员行紧凑 — */
+.group-member-item{ padding:8px 10px; }
+.group-member-avatar{ width:32px; height:32px; font-size:15px; }
+.group-add-member-btn{ padding:8px; margin-bottom:10px; }
+/* — 项目组面板 · 底部: 巨型双钮 → 右对齐功能钮(收编 sb2-btn 体系) — */
+.group-detail-actions{ justify-content:flex-end; gap:8px; padding:12px 16px; }
+.group-detail-actions .emp-action-btn{ flex:0 0 auto; width:auto; padding:8px 16px; }
+.group-detail-actions .sb2-btn{ flex:0 0 auto; }
+/* — 项目组侧栏项: 圆形 40px → 圆角块 38px(跟 sb2 瓷贴对齐), active 收编 token — */
+.sb2-grp-item{ gap:10px; padding:8px 12px; border-radius:10px; }
+.sb2-grp-item.active{ background:var(--accent-light, rgba(22,119,255,0.08)); }
+.sb2-grp-tile{ width:38px; height:38px; border-radius:10px; flex:none; display:flex; align-items:center; justify-content:center; font-size:17px; color:#fff; }
+
 /* ===== 添加成员弹窗 ===== */
 .member-modal { background: var(--bg-primary,#ffffff); border-radius: 16px; box-shadow: 0 20px 60px rgba(0,0,0,0.15); width: 90%; max-width: 400px; overflow: hidden; }
 .member-modal-header { padding: 16px 20px; border-bottom: 0.5px solid rgba(0,0,0,0.06); text-align: center; }
@@ -17234,7 +17280,7 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
 <div class="emp-detail-overlay" id="empDetailOverlay" onclick="closeEmpDetail()">
 <div class="emp-detail-panel" onclick="event.stopPropagation()">
 <div class="emp-detail-header emp-detail-header-v3">
-<div class="emp-detail-avatar" id="empDetailAvatar" style="background:linear-gradient(135deg,#FF6B35,#E55A2B);">🦞</div>
+<!-- 〔r82 批注①② 老大 14:17〕头图区删「和 Helen 聊聊」「查看 systemPrompt」; 批注③头像移入基础信息(emp-idcard, 元素保留原 id 供 JS 填充) -->
 <div class="emp-detail-info">
 <div class="emp-detail-name" id="empDetailName">-</div>
 <div class="emp-detail-role" id="empDetailRole">-</div>
@@ -17242,8 +17288,6 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
 </div>
 <div class="emp-detail-actions">
   <span class="emp-dirty-indicator" id="empDirtyIndicator" style="display:none;" title="有未保存的修改">● 未保存</span>
-  <button class="emp-action-btn primary" id="empDetailChatBtn" onclick="onEmpDetailChat()">和 Helen 聊聊</button>
-  <button class="emp-action-btn secondary" id="empDetailPromptBtn" onclick="onEmpDetailShowPrompt()">查看 systemPrompt</button>
 </div>
 <button class="emp-detail-close" onclick="closeEmpDetail()">
 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
@@ -17287,6 +17331,14 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
 <!-- Basic Tab -->
 <div class="emp-tab-pane active" id="emp-tab-basic">
 <!-- V3 升级:删除原 3 个 Math.random 编造 stats(零编造规则),改由 header 下方 stats 独立条统一展示真实数据 -->
+<!-- 〔r82 批注③〕头像从头图区移入基础信息: 身份卡(empDetailAvatar 保留原 id, JS 两处填充不用改) -->
+<div class="emp-idcard">
+<div class="emp-detail-avatar" id="empDetailAvatar" style="background:linear-gradient(135deg,#FF6B35,#E55A2B);">🦞</div>
+<div class="emp-idcard-info">
+<div class="emp-idcard-name" id="empIdCardName">-</div>
+<div class="emp-idcard-role" id="empIdCardRole">-</div>
+</div>
+</div>
 <div class="emp-info-list">
 <div class="emp-info-item">
 <span class="emp-info-label">ID</span>
@@ -17565,12 +17617,6 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
 </div>
 
 </div>
-<div class="emp-detail-actions">
-<button class="emp-action-btn primary" onclick="closeEmpDetail()">
-<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-关闭
-</button>
-</div>
 </div>
 </div>
 
@@ -17684,14 +17730,15 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
 </div>
 </div>
 
+<!-- 〔r82 2026-10-08〕巨型双钮(100% 宽) → 右对齐紧凑钮: 解散=危险线框, 保存=主钮, 收编 sb2-btn 体系跟全站按钮语言一致 -->
 <div class="group-detail-actions">
-<button class="emp-action-btn primary" onclick="saveGroupDetail()">
-<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-保存
-</button>
-<button class="emp-action-btn" onclick="dissolveGroupFromDetail()">
-<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+<button class="sb2-btn sb2-btn-ghost sb2-btn-danger" onclick="dissolveGroupFromDetail()">
+<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
 解散
+</button>
+<button class="sb2-btn sb2-btn-ink" onclick="saveGroupDetail()">
+<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+保存
 </button>
 </div>
 </div>
@@ -17826,7 +17873,7 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
 </div>
 </div>
 
-<script src="js/inline-03.js?v=credcheckin1a20261008"></script>
+<script src="js/inline-03.js?v=empgroup1e20261008"></script>
 
 <!-- Modal Styles -->
 <style>

@@ -4453,6 +4453,8 @@ async function _pollGroupsForUpdates() {
 }
 
 // 渲染侧栏群组列表
+/* 〔r82 2026-10-08 项目组重设计〕圆形 40px 内联硬编 → 圆角块瓷贴 sb2-grp-tile + active 收编 token,
+   结构/行为(onclick 群聊 / 右键详情)不变 */
 function renderGroupItems() {
   if (groups.length === 0) {
     return '<div style="padding:8px 24px;font-size:12px;color:var(--text-tertiary);">暂无项目组，点击 + 创建</div>';
@@ -4462,7 +4464,7 @@ function renderGroupItems() {
     var lastMsg = g.lastMsg || '';
     var emoji = g.emoji || '👥';
     var isActive = currentGroupId === g.id;
-    return '<div class="list-item" data-group="' + escapeAttr(g.id) + '" style="' + (isActive ? 'background:#e8f3ff;' : '') + '" onclick="openGroupChat(\'' + escapeAttr(g.id) + '\')" oncontextmenu="event.preventDefault();event.stopPropagation();openGroupDetail(\'' + escapeAttr(g.id) + '\');">' + '<div class="group-avatar" style="width:40px;height:40px;border-radius:50%;background:linear-gradient(135deg,' + escapeAttr(g.bg || '#5856D6') + ',' + (g.bg || '#5856D6') + 'dd);display:flex;align-items:center;justify-content:center;font-size:16px;">' + escapeHtml(emoji) + '</div>' + '<div class="group-item-info" style="flex:1;min-width:0;"><div class="group-item-name" style="font-size:14px;font-weight:500;color:var(--text-primary);">' + escapeHtml(g.name) + '</div><div class="group-item-sub" style="font-size:12px;color:var(--text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + memberCount + ' 人' + (lastMsg ? ' · ' + escapeHtml(lastMsg) : '') + '</div></div>' + '</div>';
+    return '<div class="list-item sb2-grp-item' + (isActive ? ' active' : '') + '" data-group="' + escapeAttr(g.id) + '" onclick="openGroupChat(\'' + escapeAttr(g.id) + '\')" oncontextmenu="event.preventDefault();event.stopPropagation();openGroupDetail(\'' + escapeAttr(g.id) + '\');">' + '<div class="sb2-grp-tile" style="background:linear-gradient(135deg,' + escapeAttr(g.bg || '#5856D6') + ',' + (g.bg || '#5856D6') + 'dd);">' + escapeHtml(emoji) + '</div>' + '<div class="group-item-info"><div class="group-item-name">' + escapeHtml(g.name) + '</div><div class="group-item-sub">' + memberCount + ' 人' + (lastMsg ? ' · ' + escapeHtml(lastMsg) : '') + '</div></div>' + '</div>';
   }).join('');
 }
 
@@ -9985,6 +9987,11 @@ function openEmpDetail(empId) {
   document.getElementById('empDetailAvatar').style.background = `linear-gradient(135deg,${emp.color || '#FF6B35'},${emp.color || '#FF6B35'}dd)`;
   document.getElementById('empDetailName').textContent = emp.name;
   document.getElementById('empDetailRole').textContent = getEmpRoleDisplay(emp);
+  /* 〔r82 批注③〕身份卡同步填充(基础 tab 顶部) */
+  var _idCardName = document.getElementById('empIdCardName');
+  if (_idCardName) _idCardName.textContent = emp.name;
+  var _idCardRole = document.getElementById('empIdCardRole');
+  if (_idCardRole) _idCardRole.textContent = getEmpRoleDisplay(emp);
   document.getElementById('empDetailStatus').innerHTML = `<span class="status-dot ${escapeAttr(emp.status || 'offline')}"></span> ${getStatusText(emp.status)}`;
   document.getElementById('empDetailId').textContent = emp.id;
   document.getElementById('empDetailModel').textContent = emp.model || 'gpt-4o';
@@ -11836,8 +11843,9 @@ function openGroupDetail(groupId) {
   if (gdRole) gdRole.textContent = '项目组';
   // 显示完整成员数（不按用户过滤，包含所有在 members 中的成员）
   var memberCount = (group.members || []).length;
+  /* 〔r82 2026-10-08〕群不是"在线"实体, 去掉假在线绿点, 纯文本成员数 */
   var gdStatus = document.getElementById('groupDetailStatus');
-  if (gdStatus) gdStatus.innerHTML = '<span class="status-dot online"></span> ' + memberCount + ' 位成员';
+  if (gdStatus) gdStatus.textContent = memberCount + ' 位成员';
   // 更新头部成员数
   var headerEl = document.getElementById('groupHeaderMemberCount');
   if (headerEl) headerEl.textContent = memberCount;
@@ -12261,8 +12269,9 @@ function _refreshGroupMemberCount(group) {
   // 2. 刷新群组详情弹窗中的成员数
   var headerEl = document.getElementById('groupHeaderMemberCount');
   if (headerEl) headerEl.textContent = memberCount;
+  /* 〔r82 2026-10-08〕群不是"在线"实体, 去掉假在线绿点, 纯文本成员数 */
   var gdStatus = document.getElementById('groupDetailStatus');
-  if (gdStatus) gdStatus.innerHTML = '<span class="status-dot online"></span> ' + memberCount + ' 位成员';
+  if (gdStatus) gdStatus.textContent = memberCount + ' 位成员';
   var infoMemberEl = document.getElementById('groupInfoMemberCount');
   if (infoMemberEl) infoMemberEl.textContent = memberCount;
 }
