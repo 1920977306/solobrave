@@ -28154,15 +28154,30 @@ def _call_ai_api(agent, user_message, user_info=None, include_history=True, grou
     custom_endpoint = agent.get('customEndpoint', '')
     agent_id = agent.get('id', '')
 
+    # ★ 全局 chat 模型 override（与 embedding 同模式，env 最高优先级）
+    #    让老大用 .env 切全局 chat 模型（如换到智谱 GLM-4-flash），无需改 agents.json
+    #    2026-10-08 上移: 必须在空 key 检查/密钥池之前应用 —— 之前写在下方导致
+    #    空 key 员工在 override 生效前就早退, 全局切换对 7 个空 key 员工永远无效。
+    _ai_ov_provider = _get_env_override(SOLOBRAVE_AI_PROVIDER_ENV)
+    _ai_ov_key = _get_env_override(SOLOBRAVE_AI_API_KEY_ENV)
+    _ai_ov_model = _get_env_override(SOLOBRAVE_AI_MODEL_ENV)
+    if _ai_ov_provider and _ai_ov_key:
+        api_provider = _ai_ov_provider
+        api_key = _ai_ov_key
+        if _ai_ov_model:
+            api_model = _ai_ov_model
+        custom_endpoint = ''  # override 时忽略 agent 自定义 endpoint（防 model 不匹配）
+        logger.info(
+            f'  [AI-Override] {agent_id} 全局 chat 走 {api_provider}/{api_model or "<default>"}'
+        )
+
     # ★ 2026-10-08 空 key 双轨处理 (派单条件2止血 + 私聊入池配套):
     #   kimi/kimicode 员工空 key 不再在这里拦截 —— 下方 KimiProxy 密钥池兜底
     #   (池内优先员工自带 key, 空则用池 key; 积分硬停+扣费记员工钱包)。
-    #   非 kimi 系 / 自定义 endpoint / 全局 env override 生效时空 key 明说原因, 不装死。
+    #   非 kimi 系 / 自定义 endpoint / 全局 env override 也未配置时空 key 明说原因, 不装死。
     if not api_key:
-        _ov_active = bool(_get_env_override(SOLOBRAVE_AI_PROVIDER_ENV)
-                          and _get_env_override(SOLOBRAVE_AI_API_KEY_ENV))
         _pool_eligible = (agent_id and api_provider in ('kimi', 'kimicode')
-                          and not custom_endpoint and not _ov_active)
+                          and not custom_endpoint)
         if not _pool_eligible:
             return '⚠️ 该员工未配置 AI 凭证（apiKey 为空），请联系管理员。'
         logger.info(f'  [ChatPool] {agent_id} 员工未配 apiKey, 走 KimiProxy 密钥池兜底')
@@ -28389,21 +28404,6 @@ def _call_ai_api(agent, user_message, user_info=None, include_history=True, grou
             logger.warning(f'  [ChatHistory] {agent_id} 加载历史失败（继续，AI 无上下文）: type={type(e).__name__} err={e}')
 
     messages.append({'role': 'user', 'content': user_message})
-
-    # ★ 全局 chat 模型 override（与 embedding 同模式，env 最高优先级）
-    #    让老大用 .env 切全局 chat 模型（如换到智谱 GLM-4-flash），无需改 agents.json
-    _ai_ov_provider = _get_env_override(SOLOBRAVE_AI_PROVIDER_ENV)
-    _ai_ov_key = _get_env_override(SOLOBRAVE_AI_API_KEY_ENV)
-    _ai_ov_model = _get_env_override(SOLOBRAVE_AI_MODEL_ENV)
-    if _ai_ov_provider and _ai_ov_key:
-        api_provider = _ai_ov_provider
-        api_key = _ai_ov_key
-        if _ai_ov_model:
-            api_model = _ai_ov_model
-        custom_endpoint = ''  # override 时忽略 agent 自定义 endpoint（防 model 不匹配）
-        logger.info(
-            f'  [AI-Override] {agent_id} 全局 chat 走 {api_provider}/{api_model or "<default>"}'
-        )
 
     # ★ 2026-10-08 派单 (老大 14:29 拍板): 员工私聊并入 KimiProxy 密钥池
     #   provider=kimi/kimicode 的员工一律走池 (池内优先员工自带 key, 空 key 用池 key),
