@@ -15489,22 +15489,9 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
       <div id="sb2CreditComputeArea"></div>
     </div>
   </div>
-  <!-- 视图 2: 语义搜索 -->
-  <div class="sb2-settings-view" id="sb2ViewSearch">
-    <div class="sb2-settings-view-head">
-      <div class="sb2-settings-view-head-icon"><i class=sb2-ico-search></i></div>
-      <div class="sb2-settings-view-head-txt">
-        <h1>语义搜索</h1>
-        <p>用一句话搜索知识库，测试语义召回效果（向量索引）。</p>
-      </div>
-      <span class="sb2-settings-view-head-status" id="sb2FeatSearchStatus">-</span>
-    </div>
-    <div class="sb2-settings-search-input-row">
-      <input type="text" id="sb2FeatSearchInput" placeholder="输入一句话，回车搜索">
-      <button class="sb2-btn sb2-btn-ink" id="sb2FeatSearchBtn" onclick="sb2SettingsRunSearch()">搜索</button>
-    </div>
-    <div class="sb2-settings-feature-card-result" id="sb2FeatSearchResult"></div>
-  </div>
+  <!-- 〔settings-dedup 2026-10-08 老大批注「设置页有很多在外面展示就不用放设置里面」〕
+       视图 2「语义搜索」整视图删除: 与知识库侧栏「语义搜索」面板完全重复 (侧栏版已卡片化, b9506ba),
+       保留入口 = 知识库 → 侧栏「语义搜索」。 -->
   <!-- 视图 3: 知识自动整理 (原「AI 大脑调度」, 老大批注③「这个是什么」改名释义) -->
   <div class="sb2-settings-view" id="sb2ViewBrain">
     <div class="sb2-settings-view-head">
@@ -19210,7 +19197,7 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
      v2 (202609241444): 初始破缓存 + skip-device 守卫
      v3 (202609241420): probe 误导文案澄清 (fingerprint fallback → token-only) -->
 <script src="openclaw-client.js?v=ocowner1a20261008"></script>
-<script src="js/inline-07.js?v=sidetidy1a20261008"></script>
+<script src="js/inline-07.js?v=settingsdedup1a20261008"></script>
 
 <!-- Match Result Modal -->
 <div class="product-modal-overlay" id="matchModalOverlay" onclick="closeMatchModal()">

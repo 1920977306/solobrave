@@ -1502,9 +1502,9 @@ function _sb2KbFmtTs(ts){
 }
 
 /* ============================================================
- * MVP6: 设置屏功能入口卡片 (语义搜索 / 大脑知识 / RAG)
+ * MVP6: 设置屏功能卡片 (大脑知识 / RAG / 知识事件)
+ * - 语义搜索卡片已删 (settings-dedup 2026-10-08): 与知识库侧栏语义搜索面板重复, 入口统一在知识库侧栏。
  * - 端点契约 (与后端 _handle_*_ 一一对应):
- *     POST /api/knowledge/search          {query, limit?, scope?, categoryId?, projectId?}
  *     GET  /api/brain/status              → {success, ...stats}
  *     POST /api/brain/trigger-manual      → {success, enqueuedClean, enqueuedClassify, enqueuedInduct}
  *     POST /api/rag/retrieve              {query, empId?, topK?}
@@ -1532,17 +1532,13 @@ function _sb2SettingsHideResult(resultId){
 
 // 入口: switchModule('settings') 时调, 自动隐藏所有结果面板 (重置到默认)
 function sb2SettingsShow(){
-  _sb2SettingsHideResult('sb2FeatSearchResult');
   _sb2SettingsHideResult('sb2FeatBrainResult');
   _sb2SettingsHideResult('sb2FeatRagResult');
   _sb2SettingsHideResult('sb2FeatEventsResult');
   // 状态字段恢复 -
-  _sb2SettingsSetStatus(null, 'sb2FeatSearchStatus', '-');
   _sb2SettingsSetStatus(null, 'sb2FeatBrainStatus', '-');
   _sb2SettingsSetStatus(null, 'sb2FeatRagStatus', '-');
   _sb2SettingsSetStatus(null, 'sb2FeatEventsStatus', '-');
-  var input = document.getElementById('sb2FeatSearchInput');
-  if (input) input.value = '';
   var eventsInput = document.getElementById('sb2FeatEventsEntityInput');
   if (eventsInput) eventsInput.value = '';
   /* 〔dash/credit-checkin 2026-10-08 派单 B〕积分仪表盘同屏加载 (签到卡 + 总览/员工卡) */
@@ -1555,7 +1551,8 @@ function sb2SettingsShow(){
 
 /* 〔settings-redesign 2026-10-08 老大批注「太杂了」〕统一视图激活:
    设置屏全部视图互斥, 同屏只显示一个, 滚动条归零。 */
-var SB2_SETTINGS_VIEWS = ['sb2ViewCredit','sb2ViewSearch','sb2ViewBrain','sb2ViewRag','sb2ViewEvents','sb2SettingsLegacyArea'];
+/* 〔settings-dedup 2026-10-08〕语义搜索视图已删 (与知识库侧栏重复), 从互斥清单移除 */
+var SB2_SETTINGS_VIEWS = ['sb2ViewCredit','sb2ViewBrain','sb2ViewRag','sb2ViewEvents','sb2SettingsLegacyArea'];
 function sb2SettingsActivate(viewId){
   SB2_SETTINGS_VIEWS.forEach(function(id){
     var el = document.getElementById(id);
@@ -1618,50 +1615,13 @@ function sb2SettingsOpenCategory(id){
 /* 侧栏「日常」项: 激活对应工具视图 (目标卡片 → 视图映射, 元素 ID 保留在视图内) */
 function sb2SettingsScrollTo(targetId){
   var viewMap = {
-    sb2CreditArea:'sb2ViewCredit', sb2FeatCardSearch:'sb2ViewSearch', sb2FeatCardBrain:'sb2ViewBrain',
+    sb2CreditArea:'sb2ViewCredit', sb2FeatCardBrain:'sb2ViewBrain',
     sb2FeatCardRag:'sb2ViewRag', sb2FeatCardEvents:'sb2ViewEvents'
   };
   var viewId = viewMap[targetId] || 'sb2ViewCredit';
   if (typeof sb2SettingsActivate === 'function') sb2SettingsActivate(viewId);
   if (typeof window !== 'undefined') { window._sb2SettingsSideSel = 'daily:' + targetId; }
   if (typeof window.renderSideFor === 'function') window.renderSideFor('settings');
-}
-
-// 卡 1: 语义搜索
-async function sb2SettingsRunSearch(){
-  var inp = document.getElementById('sb2FeatSearchInput');
-  var query = (inp && inp.value || '').trim();
-  if (!query) {
-    _sb2SettingsSetResult('sb2FeatSearchResult', '请输入要搜索的内容再搜索', false);
-    return;
-  }
-  var btn = document.getElementById('sb2FeatSearchBtn');
-  if (btn) btn.disabled = true;
-  _sb2SettingsSetResult('sb2FeatSearchResult', '搜索中…', null);
-  try {
-    var resp = await apiFetch('/api/knowledge/search', {
-      method: 'POST', body: JSON.stringify({ query: query, limit: 10 })
-    });
-    if (!resp || !resp.ok) {
-      _sb2SettingsSetResult('sb2FeatSearchResult', '搜索失败: HTTP ' + (resp ? resp.status : 'no response'), false);
-      console.warn('[sb2-settings] search failed:', resp ? resp.status : 'no response');
-      return;
-    }
-    var data = await resp.json();
-    var count = (data && data.count) || (data && data.docs && data.docs.length) || 0;
-    _sb2SettingsSetStatus(null, 'sb2FeatSearchStatus', '召回 ' + count + ' 条');
-    var titles = (data.docs || []).slice(0, 5).map(function(d, i){
-      return (i+1) + '. ' + (d.title || d.id || '-');
-    }).join('\n');
-    var extra = (count > 5) ? '\n... 还有 ' + (count - 5) + ' 条' : '';
-    _sb2SettingsSetResult('sb2FeatSearchResult', '命中 ' + count + ' 条\n' + titles + extra, true);
-    console.log('[sb2-settings] search OK, count:', count);
-  } catch (e) {
-    console.error('[sb2-settings] search error:', e);
-    _sb2SettingsSetResult('sb2FeatSearchResult', '搜索失败: ' + (e.message || ''), false);
-  } finally {
-    if (btn) btn.disabled = false;
-  }
 }
 
 // 卡 2: 大脑知识 — 查看状态
