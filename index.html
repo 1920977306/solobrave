@@ -4936,16 +4936,18 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .sb2-chat-topbar-credits:hover { border-color: var(--sb2-accent); color: var(--sb2-accent); }
 .sb2-chat-topbar-credits.zero { color: var(--sb2-t3); }
 /* 2. 每日签到卡 */
+/* ★ reskin 2026-10-08 (老大批注: 设置页主色还是蓝色) 整卡收编 sb2 橙 token 体系:
+   var(--accent,#1677ff) → var(--sb2-brand), 蓝色 rgba 底 → var(--sb2-brand-soft) */
 .sb2-credit-checkin-body { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
 .sb2-credit-checkin-balance { min-width: 220px; flex: 1; }
-.sb2-credit-checkin-num { font-size: 34px; font-weight: 700; color: var(--accent, #1677ff); line-height: 1.1; font-variant-numeric: tabular-nums; }
+.sb2-credit-checkin-num { font-size: 34px; font-weight: 700; color: var(--sb2-brand); line-height: 1.1; font-variant-numeric: tabular-nums; }
 .sb2-credit-checkin-unit { font-size: 12px; color: var(--color-text-secondary, #6E6E73); margin: 2px 0 8px; }
-.sb2-credit-checkin-bar { height: 6px; border-radius: 3px; background: rgba(22, 119, 255, 0.12); overflow: hidden; max-width: 320px; }
-.sb2-credit-checkin-bar > div { height: 100%; background: var(--accent, #1677ff); border-radius: 3px; transition: width 0.3s; }
+.sb2-credit-checkin-bar { height: 6px; border-radius: 3px; background: var(--sb2-brand-soft); overflow: hidden; max-width: 320px; }
+.sb2-credit-checkin-bar > div { height: 100%; background: var(--sb2-brand); border-radius: 3px; transition: width 0.3s; }
 .sb2-credit-checkin-sub { font-size: 11px; color: var(--color-text-secondary, #6E6E73); margin-top: 4px; }
 .sb2-credit-checkin-btn {
-  padding: 8px 22px; border-radius: 10px; border: none; cursor: pointer;
-  background: var(--accent, #1677ff); color: #fff; font-size: 14px; font-weight: 600; font-family: inherit;
+  padding: 8px 22px; border-radius: 999px; border: none; cursor: pointer;
+  background: var(--sb2-brand); color: var(--sb2-on-brand, #fff); font-size: 14px; font-weight: 600; font-family: inherit;
   transition: background 0.15s, opacity 0.15s;
 }
 .sb2-credit-checkin-btn:hover { opacity: 0.88; }
@@ -4956,9 +4958,12 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .sb2-credit-curve-hd { font-size: 12px; color: var(--color-text-secondary, #6E6E73); display: flex; justify-content: space-between; align-items: baseline; }
 .sb2-credit-curve-note { font-size: 11px; color: var(--color-text-tertiary, #8E8E93); }
 .sb2-credit-curve { width: 100%; height: 64px; display: block; margin-top: 6px; }
-.sb2-credit-curve .line { fill: none; stroke: var(--accent, #1677ff); stroke-width: 1.5; stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke; }
-.sb2-credit-curve .area { fill: rgba(22, 119, 255, 0.08); }
+.sb2-credit-curve .line { fill: none; stroke: var(--sb2-brand); stroke-width: 1.5; stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke; }
+.sb2-credit-curve .area { fill: var(--sb2-brand-soft); }
 .sb2-credit-curve-empty { padding: 18px 0; text-align: center; font-size: 12px; color: var(--color-text-tertiary, #8E8E93); }
+/* 4. 充值按钮收编: .module-action-btn 全局 var(--accent) 蓝, 设置页内作用域覆盖为 sb2 橙 */
+.sb2-settings-main .module-action-btn { border-color: var(--sb2-brand); color: var(--sb2-brand); background: var(--sb2-s1); }
+.sb2-settings-main .module-action-btn:hover { background: var(--sb2-brand-soft); }
 .chat-header-link { font-size: 13px; color: var(--accent); text-decoration: none; cursor: pointer; transition: opacity 0.15s; }
 .chat-header-link:hover { opacity: 0.8; }
 .chat-header-right { display: flex; align-items: center; gap: 4px; }
@@ -19107,7 +19112,7 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
      v2 (202609241444): 初始破缓存 + skip-device 守卫
      v3 (202609241420): probe 误导文案澄清 (fingerprint fallback → token-only) -->
 <script src="openclaw-client.js?v=202609301548"></script>
-<script src="js/inline-07.js?v=groupsnav1b20261008"></script>
+<script src="js/inline-07.js?v=settingsreskin1a20261008"></script>
 
 <!-- Match Result Modal -->
 <div class="product-modal-overlay" id="matchModalOverlay" onclick="closeMatchModal()">

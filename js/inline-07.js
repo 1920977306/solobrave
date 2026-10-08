@@ -6507,7 +6507,8 @@ async function loadComputeStats() {
   }
 }
 function _creditStatChip(label, value) {
-  return '<div style="flex:1;min-width:140px;border-radius:12px;background:rgba(22, 119, 255, 0.06);padding:12px 14px;"><div style="font-size:12px;color:var(--color-text-secondary, #6E6E73);">' + label + '</div><div style="font-size:20px;font-weight:700;color:var(--accent, #1677ff);margin-top:2px;">' + value + '</div></div>';
+  /* reskin 2026-10-08: 指标芯片蓝底/蓝字 → sb2 brand token */
+  return '<div style="flex:1;min-width:140px;border-radius:12px;background:var(--sb2-brand-soft);padding:12px 14px;"><div style="font-size:12px;color:var(--color-text-secondary, #6E6E73);">' + label + '</div><div style="font-size:20px;font-weight:700;color:var(--sb2-brand);margin-top:2px;">' + value + '</div></div>';
 }
 function renderCreditDashboard(balances, quotas, todayRecords, summary, dr, usageTotal) {
   var admin = isAdmin();
@@ -6541,7 +6542,8 @@ function renderCreditDashboard(balances, quotas, todayRecords, summary, dr, usag
   // 总览
   html += '<div class="settings-card"><div class="settings-card-title">总览（1 积分 = 1000 tokens）</div>';
   html += '<div style="display:flex;gap:6px;margin-bottom:12px;">';
-  ['today:今日','yesterday:昨日','7d:近7天','30d:近30天'].forEach(function(r){ var kv=r.split(':'); var isActive = kv[0]===_creditTimeRange; html += '<button onclick="setCreditTimeRange(\''+kv[0]+'\')" style="padding:4px 12px;border-radius:8px;border:1px solid '+(isActive?'var(--accent, #1677ff)':'var(--separator, rgba(0, 0, 0, 0.12))')+';background:'+(isActive?'var(--accent, #1677ff)':'var(--color-bg, #FFFFFF)')+';color:'+(isActive?'#fff':'var(--color-text-primary, #1C1C1E)')+';font-size:12px;cursor:pointer;font-family:inherit;transition:all 0.15s;">'+kv[1]+'</button>'; });
+  /* reskin 2026-10-08: 区间 tab 蓝 → sb2 brand, 药丸圆角对齐 sb2 控件 */
+  ['today:今日','yesterday:昨日','7d:近7天','30d:近30天'].forEach(function(r){ var kv=r.split(':'); var isActive = kv[0]===_creditTimeRange; html += '<button onclick="setCreditTimeRange(\''+kv[0]+'\')" style="padding:4px 12px;border-radius:999px;border:1px solid '+(isActive?'var(--sb2-brand)':'var(--sb2-border)')+';background:'+(isActive?'var(--sb2-brand)':'var(--sb2-s1)')+';color:'+(isActive?'var(--sb2-on-brand, #fff)':'var(--sb2-t1)')+';font-size:12px;cursor:pointer;font-family:inherit;transition:all 0.15s;">'+kv[1]+'</button>'; });
   html += '</div>';
   html += '<div style="display:flex;gap:12px;flex-wrap:wrap;">';
   html += _creditStatChip('累计消耗积分', formatNumber(summary.total_credits_used || 0));
@@ -6576,16 +6578,18 @@ function renderCreditDashboard(balances, quotas, todayRecords, summary, dr, usag
       if (admin) {
         html += '<div style="display:flex;gap:6px;">';
         html += '<button class="module-action-btn" style="padding:2px 10px;font-size:12px;" onclick="rechargeAgentCredits(\'' + a.id + '\', \'' + safeName + '\')">充值</button>';
-        html += '<button class="module-action-btn" style="padding:2px 10px;font-size:12px;background:rgba(22, 119, 255,0.08);color:#1677ff;" onclick="setAgentQuota(\'' + a.id + '\', \'' + safeName + '\')">配额</button>';
+        /* reskin 2026-10-08: 配额按钮 inline 蓝 → brand token */
+        html += '<button class="module-action-btn" style="padding:2px 10px;font-size:12px;background:var(--sb2-brand-soft);color:var(--sb2-brand);" onclick="setAgentQuota(\'' + a.id + '\', \'' + safeName + '\')">配额</button>';
         html += '</div>';
       } else {
         html += '<div style="font-size:12px;color:var(--text-tertiary);">充值/配额请联系管理员</div>';
       }
       html += '</div>';
-      html += '<div style="font-size:26px;font-weight:700;color:' + (lowBalance ? '#FF3B30' : '#1677ff') + ';">' + formatNumber(acc.balance || 0) + '<span style="font-size:12px;font-weight:400;color:var(--text-tertiary);margin-left:4px;">积分</span></div>';
+      /* reskin 2026-10-08: 余额大数字/进度条 蓝 → brand token (lowBalance 红保持) */
+      html += '<div style="font-size:26px;font-weight:700;color:' + (lowBalance ? '#FF3B30' : 'var(--sb2-brand)') + ';">' + formatNumber(acc.balance || 0) + '<span style="font-size:12px;font-weight:400;color:var(--text-tertiary);margin-left:4px;">积分</span></div>';
       html += '<div style="font-size:12px;color:var(--color-text-secondary, #6E6E73);margin:4px 0 8px;">累计充值 ' + formatNumber(acc.total_recharged || 0) + ' · 累计消耗 ' + formatNumber(acc.total_consumed || 0) + '</div>';
       html += '<div style="font-size:12px;color:var(--text-secondary);display:flex;justify-content:space-between;"><span>今日消耗 ' + formatNumber(todayUsed) + ' 积分</span>' + (quota ? '<span>配额 ' + formatNumber(quota.quota_amount) + (quota.quota_type === 'daily' ? '（每日）' : '（每月）') + '</span>' : '') + '</div>';
-      html += '<div style="height:6px;border-radius:3px;background:rgba(22, 119, 255,0.12);margin-top:6px;overflow:hidden;"><div style="height:100%;width:' + pct + '%;background:#1677ff;border-radius:3px;"></div></div>';
+      html += '<div style="height:6px;border-radius:3px;background:var(--sb2-brand-soft);margin-top:6px;overflow:hidden;"><div style="height:100%;width:' + pct + '%;background:var(--sb2-brand);border-radius:3px;"></div></div>';
       html += '</div>';
     });
     html += '</div>';
@@ -6593,7 +6597,7 @@ function renderCreditDashboard(balances, quotas, todayRecords, summary, dr, usag
   html += '</div>';
 
   // 使用记录明细（可展开）
-  html += '<div class="settings-card"><div class="settings-card-title" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center;" onclick="toggleCreditUsageList()">使用记录明细<span id="creditUsageToggleArrow" style="font-size:12px;color:var(--accent, #1677ff);font-weight:400;">展开 ▼</span></div>';
+  html += '<div class="settings-card"><div class="settings-card-title" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center;" onclick="toggleCreditUsageList()">使用记录明细<span id="creditUsageToggleArrow" style="font-size:12px;color:var(--sb2-brand);font-weight:400;">展开 ▼</span></div>';
   html += '<div id="creditUsageListArea" style="display:none;"></div></div>';
   return html;
 }
@@ -6682,7 +6686,7 @@ function renderCreditUsageList(records) {
       + '<span>' + formatNumber(r.input_tokens || 0) + '</span>'
       + '<span>' + formatNumber(r.output_tokens || 0) + '</span>'
       + '<span>' + formatNumber(r.cache_read_tokens || 0) + '</span>'
-      + '<span style="color:#1677ff;font-weight:600;">' + formatNumber(r.credits_used || 0) + '</span></div>';
+      + '<span style="color:var(--sb2-brand);font-weight:600;">' + formatNumber(r.credits_used || 0) + '</span></div>';
   });
   html += '</div>';
   return html;
