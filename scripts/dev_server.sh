@@ -42,7 +42,7 @@ start_one() {
     echo "先 scripts/dev_server.sh stop $name 或手动 kill $pid" >&2
     exit 1
   fi
-  (cd "$dir" && nohup env "${ENV_VARS[@]}" python3 solobrave-server.py "$@" > "/tmp/sb${port}.log" 2>&1 &)
+  (cd "$dir" && nohup env ${ENV_VARS[@]+"${ENV_VARS[@]}"} python3 solobrave-server.py "$@" > "/tmp/sb${port}.log" 2>&1 &)
   sleep 3
   pid=$(pid_on_port "$port")
   [ -n "$pid" ] || { echo "FATAL: $name 启动失败, 看 /tmp/sb${port}.log" >&2; exit 1; }
