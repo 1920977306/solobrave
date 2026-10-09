@@ -134,7 +134,7 @@ TLS_CERT_HOSTS = ['127.0.0.1', 'localhost', '192.168.1.25', '*.local']
 # WSS 代理：HTTPS 页面下浏览器强制 wss，但 OpenClaw Gateway（18789）只支持 ws://。
 # 解决：在另一个端口用 SSLContext 包一个 wss server，把所有连接双向透传到 ws://127.0.0.1:18789。
 # 端口默认 8444，复用上面同一份证书。
-WSS_PROXY_PORT = 8444
+WSS_PROXY_PORT = int(os.environ.get('SB_WSS_PROXY_PORT', '8444'))
 WSS_PROXY_ENABLED = True
 WSS_PROXY_TARGET_HOST = '127.0.0.1'  # 转发到的 Gateway 地址
 WSS_PROXY_TARGET_PORT = 18789        # 转发到的 Gateway 端口
@@ -146,7 +146,7 @@ WSS_PROXY_TARGET_PORT = 18789        # 转发到的 Gateway 端口
 #   双向透传到 ws://127.0.0.1:18789. openclaw-client.js 在 HTTP 页面下走 ws://:8081.
 #   注意: 只用于内网 LAN, 没加密 (老浏览器/远端安装 CA 受限场景的妥协方案).
 #   macOS 现代浏览器 + HTTPS 路径仍走 wss://8444 (mkcert cert 系统信任).
-WS_PROXY_PORT = 8081
+WS_PROXY_PORT = int(os.environ.get('SB_WS_PROXY_PORT', '8081'))
 WS_PROXY_ENABLED = True
 WS_PROXY_TARGET_HOST = '127.0.0.1'  # 同 WSS, 转发到 Gateway
 WS_PROXY_TARGET_PORT = 18789
@@ -4949,6 +4949,18 @@ def _dict_to_talent_row(t):
         'live_audience_city_tier': _dump(t.get('live_audience_city_tier', t.get('liveAudienceCityTier', {}))),
         'video_audience_region': _dump(t.get('video_audience_region', t.get('videoAudienceRegion', {}))),
         'video_audience_city_tier': _dump(t.get('video_audience_city_tier', t.get('videoAudienceCityTier', {}))),
+        # ★ fix/talent-audience-sync: 补 10 列映射 (列在 schema 里、读取端走 _json_col,
+        #   但写入端漏映射 → 兜底循环把 '{}', 请求体传入的直播/视频观众画像永远丢失, 跟 r2 同病)
+        'live_audience_gender': _dump(t.get('live_audience_gender', t.get('liveAudienceGender', {}))),
+        'live_audience_age': _dump(t.get('live_audience_age', t.get('liveAudienceAge', {}))),
+        'live_audience_crowd': _dump(t.get('live_audience_crowd', t.get('liveAudienceCrowd', {}))),
+        'live_audience_price_range': _dump(t.get('live_audience_price_range', t.get('liveAudiencePriceRange', {}))),
+        'live_audience_category': _dump(t.get('live_audience_category', t.get('liveAudienceCategory', {}))),
+        'video_audience_gender': _dump(t.get('video_audience_gender', t.get('videoAudienceGender', {}))),
+        'video_audience_age': _dump(t.get('video_audience_age', t.get('videoAudienceAge', {}))),
+        'video_audience_crowd': _dump(t.get('video_audience_crowd', t.get('videoAudienceCrowd', {}))),
+        'video_audience_price_range': _dump(t.get('video_audience_price_range', t.get('videoAudiencePriceRange', {}))),
+        'video_audience_category': _dump(t.get('video_audience_category', t.get('videoAudienceCategory', {}))),
         # ★ fix/talent-full-sync-r2: 补 3 列映射 (ALTER TABLE 加了但 _dict_to_talent_row 漏)
         'account_fans_profile': str(t.get('account_fans_profile') or t.get('accountFansProfile') or ''),
         'video_fans_profile': str(t.get('video_fans_profile') or t.get('videoFansProfile') or ''),

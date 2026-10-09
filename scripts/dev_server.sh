@@ -42,7 +42,7 @@ start_one() {
     echo "先 scripts/dev_server.sh stop $name 或手动 kill $pid" >&2
     exit 1
   fi
-  (cd "$dir" && nohup python3 solobrave-server.py "$@" > "/tmp/sb${port}.log" 2>&1 &)
+  (cd "$dir" && nohup env "${ENV_VARS[@]}" python3 solobrave-server.py "$@" > "/tmp/sb${port}.log" 2>&1 &)
   sleep 3
   pid=$(pid_on_port "$port")
   [ -n "$pid" ] || { echo "FATAL: $name 启动失败, 看 /tmp/sb${port}.log" >&2; exit 1; }
@@ -62,9 +62,11 @@ stop_one() {
 CMD="${1:-status}"; TARGET="${2:-}"
 
 case "$TARGET" in
-  dev)  PORT=18210; DIR="$WORKTREE"; ARGS=(18210 --data "$WORKTREE/data") ;;
-  prod) PORT=8443;  DIR="$PROD_DIR";  ARGS=(8080) ;;   # 8080=http 口, https 8443 由脚本内部绑定
-  "")   : ;;
+  dev)  PORT=18210; DIR="$WORKTREE"; ARGS=(18210 --data "$WORKTREE/data")
+        # prod 常驻占 8081/8444 代理口, dev 必须错开 (SB_*_PROXY_PORT 环境变量, server 端已支持覆盖)
+        ENV_VARS=(SB_WS_PROXY_PORT=18081 SB_WSS_PROXY_PORT=18444) ;;
+  prod) PORT=8443;  DIR="$PROD_DIR";  ARGS=(8080); ENV_VARS=() ;;   # 8080=http 口, https 8443 由脚本内部绑定
+  "")   ENV_VARS=(); : ;;
   *)    echo "FATAL: 未知目标 $TARGET (dev|prod)" >&2; exit 1 ;;
 esac
 

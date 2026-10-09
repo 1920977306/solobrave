@@ -3000,6 +3000,13 @@ function sb2TlnRenderPanelOverview(t){
     html += '<div class="sb2-tln-empty">点击「+ 录入达人」旁的 AI 分析生成达人综合评估。</div>';
     html += '</div>';
   }
+  // ★ fix/talent-audience-sync: 百应采集档案 (notes 存全量 Markdown, AI 浏览器采集后整档入库)
+  if (t.notes) {
+    html += '<div class="sb2-tln-section">';
+    html += '<div class="sb2-tln-section-title"><i class=sb2-ico-robot></i> 百应采集档案</div>';
+    html += '<div class="sb2-tln-ai-card" style="white-space:pre-wrap;word-break:break-word;max-height:480px;overflow:auto;">' + sb2TlnEsc(t.notes) + '</div>';
+    html += '</div>';
+  }
   el.innerHTML = html;
 }
 
