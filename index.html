@@ -16694,6 +16694,57 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
   </div>
 </div>
 
+<!-- 〔feat/supervisor-revive 2026-10-09〕项目督促配置弹窗 + 督促横幅 — JS 在 inline-03 (督促机制), 老大 14:51 复活拍板 -->
+<style>
+#supervisorModal { position: fixed; inset: 0; z-index: 1300; display: none; align-items: center; justify-content: center; background: rgba(0,0,0,0.5); backdrop-filter: blur(8px); }
+#supervisorModal.show { display: flex; }
+#supervisorModal .sp-panel { width: 88%; max-width: 440px; background: var(--bg-primary, #1c1c1e); border-radius: 16px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); padding: 20px; color: var(--text-primary, #f2f2f7); }
+#supervisorModal .sp-title { font-size: 16px; font-weight: 600; margin-bottom: 4px; }
+#supervisorModal .sp-sub { font-size: 12px; color: var(--text-secondary, #98989d); margin-bottom: 14px; }
+#supervisorModal .sp-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 0; border-bottom: 1px solid var(--border-color, rgba(120,120,128,0.2)); font-size: 13px; }
+#supervisorModal .sp-row label { color: var(--text-secondary, #98989d); flex-shrink: 0; }
+#supervisorModal .sp-row select, #supervisorModal .sp-row input[type=number] { background: var(--bg-secondary, #2c2c2e); color: inherit; border: 1px solid var(--border-color, rgba(120,120,128,0.3)); border-radius: 8px; padding: 5px 8px; font-size: 13px; max-width: 200px; }
+#supervisorModal .sp-status { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-secondary, #98989d); margin: 12px 0; }
+#supervisorModal .sp-dot { width: 8px; height: 8px; border-radius: 50%; background: #86868B; flex-shrink: 0; }
+#supervisorModal .sp-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+#supervisorModal .sp-btn { padding: 7px 16px; border-radius: 9px; border: none; font-size: 13px; cursor: pointer; }
+#supervisorModal .sp-btn.primary { background: #FF6B35; color: #fff; }
+#supervisorModal .sp-btn.ghost { background: var(--bg-secondary, #2c2c2e); color: var(--text-primary, #f2f2f7); }
+#supervisorBanner { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); z-index: 1400; display: none; align-items: center; gap: 10px; background: rgba(28,28,30,0.95); color: #f2f2f7; border: 1px solid rgba(255,107,53,0.5); border-radius: 12px; padding: 10px 14px; font-size: 13px; box-shadow: 0 8px 30px rgba(0,0,0,0.4); max-width: 90vw; }
+</style>
+<div id="supervisorModal" onclick="if(event.target===this)closeSupervisor()">
+  <div class="sp-panel">
+    <div class="sp-title">项目督促设置</div>
+    <div class="sp-sub">定时检查项目群活跃度 / 任务堆积, 异常自动发群消息或浏览器通知催办</div>
+    <div class="sp-row"><label>项目组</label><select id="supervisorProjSel"></select></div>
+    <div class="sp-row"><label>督促频率</label>
+      <select id="supervisorEnabled">
+        <option value="off">关闭</option>
+        <option value="5">每 5 分钟</option>
+        <option value="10">每 10 分钟</option>
+        <option value="30">每 30 分钟</option>
+      </select>
+    </div>
+    <div class="sp-row"><label>检查策略</label>
+      <select id="supervisorStrategy">
+        <option value="message">仅消息活跃</option>
+        <option value="progress">进度 + 任务板</option>
+        <option value="aggressive">严格 (含员工在线)</option>
+      </select>
+    </div>
+    <div class="sp-row"><label>超时阈值（分钟）</label><input type="number" id="supervisorTimeout" min="1" max="120" value="10"></div>
+    <div class="sp-row"><label>异常发群消息催办</label><input type="checkbox" id="pushMessage" checked></div>
+    <div class="sp-row"><label>催办时 @所有人</label><input type="checkbox" id="pushMention" checked></div>
+    <div class="sp-row"><label>浏览器通知</label><input type="checkbox" id="pushNotification"></div>
+    <div class="sp-status"><span class="sp-dot" id="supervisorIndicator"></span><span id="supervisorStatusText">督促功能已关闭</span><span id="supervisorLastCheck" style="display:none;"></span></div>
+    <div class="sp-actions">
+      <button class="sp-btn ghost" onclick="closeSupervisor()">取消</button>
+      <button class="sp-btn primary" onclick="saveSupervisor()">保存</button>
+    </div>
+  </div>
+</div>
+<div id="supervisorBanner"><span id="supervisorBannerContent"></span><button onclick="dismissSupervisorBanner()" style="background:none;border:none;color:#98989d;cursor:pointer;font-size:14px;">✕</button></div>
+
 <!-- Deal Modal -->
 <div class="product-modal-overlay" id="dealModalOverlay" onclick="closeDealModal(event)">
   <div class="product-modal" onclick="event.stopPropagation()">
@@ -17919,7 +17970,7 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
 </div>
 
 <!-- Drawer Overlay -->
-<script src="js/inline-03.js?v=empgroup1f20261008"></script>
+<script src="js/inline-03.js?v=supervisor1a20261009"></script>
 
 <!-- Modal Styles -->
 <style>
@@ -19335,7 +19386,7 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
 </div>
 
 <script src="js/inline-08.js?v=f2d73f6b57"></script>
-<script src="js/inline-09.js?v=r84batch1a20261009"></script>
+<script src="js/inline-09.js?v=supervisor1a20261009"></script>
 
 <!-- ★ feat/sb2-chat: SoloBrave 2.0 聊天模块 JS (核心链: 消息流 + 发送框)
      - 复用老 /api/chat/:agentId 接口契约, 零后端改动

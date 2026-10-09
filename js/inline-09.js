@@ -1347,7 +1347,11 @@ var SB2_SIDE_RENDERERS = {
         }) : [{ name:'暂无群组', onClick:"(typeof sb2GroupsInit==='function' ? sb2GroupsInit() : null)" }] },
         { label:'快捷入口', items:[
           { name:'<i class=sb2-ico-chart></i> 创建群组',
-            onClick:"(typeof openGroupWizard==='function' ? openGroupWizard() : (typeof showToast==='function' ? showToast('创建群组 — 后续版本开放') : null))" }
+            onClick:"(typeof openGroupWizard==='function' ? openGroupWizard() : (typeof showToast==='function' ? showToast('创建群组 — 后续版本开放') : null))" },
+          /* 〔feat/supervisor-revive 2026-10-09 老大 14:51〕项目督促机制 sb2 入口 (legacy 零调用方复活):
+             配置面板内下拉选项目, 不再依赖 legacy 侧栏选中态 */
+          { name:'<i class=sb2-ico-bell></i> 督促设置',
+            onClick:"(typeof openSupervisorPanel==='function' ? openSupervisorPanel() : (typeof showToast==='function' ? showToast('督促设置 — 加载失败') : null))" }
         ]}
       ],
       searchInput:'搜索群组…'

@@ -8815,9 +8815,24 @@ function getCurrentProjectId() {
   return '';
 }
 function openSupervisorPanel() {
-  var projId = getCurrentProjectId();
+  /* 〔feat/supervisor-revive 2026-10-09〕sb2 复活: 不再依赖 legacy 侧栏选中项, 改从
+     window.projects 填模态框内项目下拉; legacy DOM 选中项仍作为兜底优先 */
+  var projSel = document.getElementById('supervisorProjSel');
+  var legacyProj = getCurrentProjectId();
+  var projId = legacyProj || window._sb2SupervisorProjId || '';
+  if (projSel) {
+    var groups = [];
+    try { groups = (typeof window.projects !== 'undefined' && Array.isArray(window.projects)) ? window.projects : []; } catch(e){}
+    var optsHtml = groups.map(function(g){
+      return '<option value="' + (g.id || '').replace(/"/g, '&quot;') + '">' + ((g.name || g.display_name || '-') + '').replace(/</g, '&lt;') + '</option>';
+    }).join('');
+    if (!groups.length && projId) optsHtml = '<option value="' + projId.replace(/"/g,'&quot;') + '">' + projId + '</option>';
+    projSel.innerHTML = optsHtml || '<option value="">（暂无项目组）</option>';
+    if (projId) projSel.value = projId;
+  }
+  projId = (projSel && projSel.value) ? projSel.value : projId;
   if (!projId) {
-    showToast('⚠️ 请先选择一个项目组');
+    showToast('⚠️ 暂无项目组数据');
     return;
   }
   const config = supervisorConfig[projId] || {
@@ -8840,11 +8855,15 @@ function closeSupervisor() {
   document.getElementById('supervisorModal').classList.remove('show');
 }
 function saveSupervisor() {
-  var projId = getCurrentProjectId();
+  /* 〔feat/supervisor-revive 2026-10-09〕项目来源同 openSupervisorPanel: 模态框下拉优先,
+     选中即钉到 window._sb2SupervisorProjId (定时检查读它, 不再依赖 legacy DOM 选中态) */
+  var projSel = document.getElementById('supervisorProjSel');
+  var projId = (projSel && projSel.value) ? projSel.value : (window._sb2SupervisorProjId || getCurrentProjectId());
   if (!projId) {
     showToast('⚠️ 未选择项目组');
     return;
   }
+  window._sb2SupervisorProjId = projId;
   const config = {
     enabled: document.getElementById('supervisorEnabled').value,
     strategy: document.getElementById('supervisorStrategy').value,
@@ -8882,7 +8901,8 @@ function startSupervisorTimer() {
     clearInterval(supervisorTimer);
     supervisorTimer = null;
   }
-  var projId = getCurrentProjectId();
+  /* 〔feat/supervisor-revive 2026-10-09〕钉住的项目优先, legacy DOM 选中态兜底 */
+  var projId = window._sb2SupervisorProjId || getCurrentProjectId();
   if (!projId) return;
   var config = supervisorConfig[projId];
   if (!config || config.enabled === 'off') return;
@@ -8892,7 +8912,8 @@ function startSupervisorTimer() {
   }, interval);
 }
 function performSupervisorCheck() {
-  var projId = getCurrentProjectId();
+  /* 〔feat/supervisor-revive 2026-10-09〕钉住的项目优先, legacy DOM 选中态兜底 */
+  var projId = window._sb2SupervisorProjId || getCurrentProjectId();
   if (!projId) return;
   var config = supervisorConfig[projId];
   if (!config || config.enabled === 'off') return;
