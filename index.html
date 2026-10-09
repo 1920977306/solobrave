@@ -16015,6 +16015,7 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
           <div class="sb2-talents-hero-sub" id="sb2TalentsHeroSub">载入中…</div>
         </div>
         <div class="sb2-talents-hero-acts">
+          <button class="sb2-talents-btn" id="sb2TalentsCollectBtn" onclick="sb2TalentsToggleCollect()">AI 采集 <span id="sb2TalentsCollectBadge" style="display:none"></span></button>
           <button class="sb2-talents-btn" id="sb2TalentsFilterBtn" onclick="sb2TalentsToggleFilter()">筛选 ▾</button>
           <button class="sb2-talents-btn" onclick="sb2TalentsToast('导出功能在 MVP5')">导出</button>
           <!-- ★ fix/sb2-talents-full-restore (commit 1): 「+ 录入达人」改全角「＋ 录入达人」(原型 btn-brand line 580)
@@ -16036,6 +16037,21 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
           <div class="sb2-talents-side-group">
             <div class="sb2-talents-side-group-label">状态</div>
             <div class="sb2-talents-side-list" id="sb2TalentsSideStatus"></div>
+          </div>
+        </div>
+        <!-- ★ feat/talent-collect-queue: AI 采集面板 — 填名字+抖音号进队列, 定时任务轮询后自动入库 -->
+        <div class="sb2-talents-filter-pop" id="sb2TalentsCollectPop" style="display:none;width:320px;">
+          <div class="sb2-talents-side-group">
+            <div class="sb2-talents-side-group-label">提交采集</div>
+            <div style="display:flex;gap:6px;margin:6px 0;">
+              <input id="sb2TalentsCollectName" placeholder="达人名字（必填）" style="flex:1;min-width:0;padding:6px 8px;border:1px solid var(--sb2-border,#e2e2e2);border-radius:8px;font-size:13px;background:var(--sb2-bg,#fff);color:var(--sb2-text,#222);">
+              <input id="sb2TalentsCollectDy" placeholder="抖音号（选填）" style="width:96px;padding:6px 8px;border:1px solid var(--sb2-border,#e2e2e2);border-radius:8px;font-size:13px;background:var(--sb2-bg,#fff);color:var(--sb2-text,#222);">
+            </div>
+            <button class="sb2-talents-btn sb2-talents-btn-primary" style="width:100%;" onclick="sb2TalentsSubmitCollect()">提交采集</button>
+          </div>
+          <div class="sb2-talents-side-group">
+            <div class="sb2-talents-side-group-label">采集队列（近 10 条）</div>
+            <div id="sb2TalentsCollectList" style="font-size:12px;line-height:1.9;max-height:220px;overflow:auto;"></div>
           </div>
         </div>
       </div>

@@ -2320,6 +2320,77 @@ function sb2TalentsUpdateFilterBtn(){
   btn.textContent = selectedCount > 0 ? ('筛选 · ' + selectedCount + ' ▾') : '筛选 ▾';
 }
 
+/* ★ feat/talent-collect-queue: AI 采集面板 — 提交/轮显采集队列 (老大 2026-10-09 固化流程) */
+function sb2TalentsToggleCollect(){
+  var pop = document.getElementById('sb2TalentsCollectPop');
+  if (!pop) return;
+  var opening = pop.style.display === 'none';
+  pop.style.display = opening ? 'block' : 'none';
+  /* 互斥: 开采集面板时关筛选面板 */
+  var fp = document.getElementById('sb2TalentsFilterPop');
+  if (opening && fp && fp.classList.contains('on')) fp.classList.remove('on');
+  if (opening) sb2TalentsLoadCollects();
+}
+var _sb2TalentsCollectStatusMap = { pending: '待采集', collecting: '采集中', done: '已完成', failed: '失败' };
+async function sb2TalentsLoadCollects(){
+  try {
+    var resp = await apiFetch('/api/talent-collects');
+    if (!resp || !resp.ok) return;
+    var data = await resp.json();
+    var list = (data && Array.isArray(data.collects)) ? data.collects : [];
+    var pending = list.filter(function(c){ return c.status === 'pending' || c.status === 'collecting'; }).length;
+    var badge = document.getElementById('sb2TalentsCollectBadge');
+    if (badge) {
+      badge.style.display = pending > 0 ? 'inline' : 'none';
+      badge.textContent = pending;
+      badge.style.cssText = 'display:' + (pending > 0 ? 'inline' : 'none') + ';background:var(--sb2-accent,#4f6ef7);color:#fff;border-radius:999px;padding:0 6px;font-size:11px;margin-left:2px;';
+    }
+    var box = document.getElementById('sb2TalentsCollectList');
+    if (!box) return;
+    if (!list.length) {
+      box.innerHTML = '<div style="opacity:.6;padding:4px 0;">暂无采集请求，提交后 AI 会自动去百应采集并入库</div>';
+      return;
+    }
+    box.innerHTML = list.slice(0, 10).map(function(c){
+      var st = _sb2TalentsCollectStatusMap[c.status] || c.status;
+      var color = c.status === 'done' ? '#2ea44f' : (c.status === 'failed' ? '#d64545' : (c.status === 'collecting' ? '#b8860b' : 'var(--sb2-accent,#4f6ef7)'));
+      var time = c.created_at ? new Date(c.created_at).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
+      var nameHtml = (c.status === 'done' && c.talent_id)
+        ? '<a style="color:var(--sb2-accent,#4f6ef7);cursor:pointer;" onclick="sb2TlnOpenDetail(\'' + sb2TalentsEsc(c.talent_id) + '\')">' + sb2TalentsEsc(c.name) + '</a>'
+        : sb2TalentsEsc(c.name);
+      var err = (c.status === 'failed' && c.error) ? ' <span style="color:#d64545;" title="' + sb2TalentsEsc(c.error) + '">⚠</span>' : '';
+      return '<div style="display:flex;justify-content:space-between;gap:8px;align-items:center;">'
+        + '<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;">' + nameHtml
+        + (c.douyin_id ? ' <span style="opacity:.55;">@' + sb2TalentsEsc(c.douyin_id) + '</span>' : '') + '</span>'
+        + '<span style="color:' + color + ';white-space:nowrap;">' + st + err + '</span>'
+        + '<span style="opacity:.45;white-space:nowrap;">' + sb2TalentsEsc(time) + '</span></div>';
+    }).join('');
+  } catch (e) { /* 队列加载失败不阻塞页面 */ }
+}
+async function sb2TalentsSubmitCollect(){
+  var nameEl = document.getElementById('sb2TalentsCollectName');
+  var dyEl = document.getElementById('sb2TalentsCollectDy');
+  var name = nameEl ? nameEl.value.trim() : '';
+  if (!name) { sb2TalentsToast('请填达人名字'); return; }
+  var dy = dyEl ? dyEl.value.trim() : '';
+  try {
+    var resp = await apiFetch('/api/talent-collects', { method: 'POST', body: JSON.stringify({ name: name, douyin_id: dy }) });
+    var data = resp ? await resp.json().catch(function(){ return null; }) : null;
+    if (!resp || !resp.ok) {
+      sb2TalentsToast('提交失败' + (data && data.error ? ': ' + data.error : ''));
+      return;
+    }
+    if (nameEl) nameEl.value = '';
+    if (dyEl) dyEl.value = '';
+    sb2TalentsToast(data && data.duplicate ? '该达人已在采集队列中' : '已提交，AI 采集完成后自动入库');
+    sb2TalentsLoadCollects();
+  } catch (e) {
+    sb2TalentsToast('提交异常: ' + (e && e.message || e));
+  }
+}
+/* 页面加载时顺手刷新采集角标 (不阻塞, 失败静默) */
+function sb2TalentsRefreshCollectBadge(){ sb2TalentsLoadCollects(); }
+
 /* ★ MVP1: 切换侧栏维度 — 三维 AND 联动, 切任一维触发重载
    ★ fix/sb2-proto-align (commit 1): 选完关下拉 + 更新按钮文字 (老大要求选中后按钮显示已选数量) */
 function sb2TalentsOnSideClick(dim, val){
@@ -2492,6 +2563,7 @@ async function sb2TalentsLoad(){
        ③ 拉完后 sb2TalentsPatchMatchCell 单 td 替换 (不重渲整表, 26 轮② 教训)
        切页/筛选: cache 保留 (跨 tab 不丢, 切回秒显示) */
     sb2TalentsStartMatchCount(list);
+    sb2TalentsRefreshCollectBadge();
     _sb2TalentsLoaded = true;
   } catch (e) {
     if (tbody) tbody.innerHTML = '<tr><td colspan="12" class="sb2-talents-empty"><span class="em"><i class=sb2-ico-alert></i></span>载入异常: ' + sb2TalentsEsc(e && e.message || String(e)) + '</td></tr>';

@@ -3573,6 +3573,25 @@ def init_db():
         conn.execute('CREATE INDEX IF NOT EXISTS idx_talents_fan_category ON talents(fan_category)')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_talents_group ON talents(group_id)')
 
+        # ★ feat/talent-collect-queue: AI 浏览器采集队列 (老大 2026-10-09「可以的」固化流程)
+        #   提交入口: 达人库「AI 采集」/ API; 消费方: Kimi Work 定时任务轮询 → 百应采集 → 入库回写
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS talent_collects (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                douyin_id TEXT DEFAULT '',
+                status TEXT DEFAULT 'pending',
+                talent_id TEXT DEFAULT '',
+                error TEXT DEFAULT '',
+                requester TEXT DEFAULT '',
+                attempts INTEGER DEFAULT 0,
+                created_at INTEGER DEFAULT 0,
+                updated_at INTEGER DEFAULT 0
+            )
+        ''')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_tcollects_status ON talent_collects(status)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_tcollects_created ON talent_collects(created_at)')
+
         # 用户飞书多维表格配置（每个员工绑定自己的飞书表格）
         conn.execute('''
             CREATE TABLE IF NOT EXISTS tenant_feishu_config (
@@ -7951,6 +7970,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if path == '/api/talents/search':
             self._handle_search_talents()
             return
+        # ★ feat/talent-collect-queue: AI 采集队列查询 (?status=pending 过滤)
+        if path == '/api/talent-collects':
+            self._handle_get_talent_collects()
+            return
         if path.startswith('/api/talents/'):
             rest = path[len('/api/talents/'):]
             if rest:
@@ -8551,6 +8574,15 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if path == '/api/talents':
             self._handle_post_talent()
             return
+        # ★ feat/talent-collect-queue: 提交采集请求
+        if path == '/api/talent-collects':
+            self._handle_post_talent_collect()
+            return
+        if path.startswith('/api/talent-collects/'):
+            _tc_id = path[len('/api/talent-collects/'):].strip('/')
+            if _tc_id:
+                self._handle_update_talent_collect(_tc_id)
+                return
         if path == '/api/talents/sync-feishu':
             self._handle_sync_feishu_talents()
             return
@@ -19317,6 +19349,116 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         finally:
             conn.close()
         self._send_json(200, _talent_row_to_dict(row_out))
+
+    def _handle_get_talent_collects(self):
+        """GET /api/talent-collects — AI 采集队列列表 (?status=pending 过滤, 默认全量倒序 100 条)"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'influencers'): return
+        from urllib.parse import urlparse, parse_qs
+        _q = parse_qs(urlparse(self.path).query)
+        _status = (_q.get('status') or [''])[0].strip()
+        conn = _db_conn()
+        try:
+            if _status:
+                rows = conn.execute(
+                    'SELECT * FROM talent_collects WHERE status = ? ORDER BY created_at DESC LIMIT 100',
+                    (_status,)
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    'SELECT * FROM talent_collects ORDER BY created_at DESC LIMIT 100'
+                ).fetchall()
+        finally:
+            conn.close()
+        self._send_json(200, {'collects': [dict(r) for r in rows]})
+
+    def _handle_post_talent_collect(self):
+        """POST /api/talent-collects — 提交 AI 采集请求 {name, douyin_id?}
+        同名同抖音号的 pending/collecting 请求幂等返回原单, 不重复排队"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'influencers'): return
+        body = self._read_body()
+        if not body or not str(body.get('name', '')).strip():
+            self._send_json_error(400, 'Missing name')
+            return
+        name = str(body.get('name', '')).strip()
+        douyin_id = str(body.get('douyin_id') or body.get('douyinId') or '').strip()
+        requester = ''
+        if getattr(auth, 'user_record', None):
+            requester = auth.user_record.get('username') or auth.user_record.get('name') or ''
+        if not requester:
+            requester = getattr(auth, 'localhost_agent_id', None) or (auth.user_info or {}).get('userId', '')
+        conn = _db_conn()
+        try:
+            dup = conn.execute(
+                "SELECT * FROM talent_collects WHERE name = ? AND COALESCE(douyin_id,'') = ? "
+                "AND status IN ('pending','collecting') LIMIT 1",
+                (name, douyin_id)
+            ).fetchone()
+            if dup:
+                result = dict(dup)
+                result['duplicate'] = True
+                result['message'] = '相同达人的采集请求已在队列中'
+                self._send_json(200, result)
+                return
+            now = int(time.time() * 1000)
+            cid = f"tcr_{now}_{secrets.token_hex(3)}"
+            conn.execute(
+                'INSERT INTO talent_collects (id, name, douyin_id, status, requester, created_at, updated_at) '
+                'VALUES (?,?,?,?,?,?,?)',
+                (cid, name, douyin_id, 'pending', requester, now, now)
+            )
+            conn.commit()
+            row = conn.execute('SELECT * FROM talent_collects WHERE id = ?', (cid,)).fetchone()
+        finally:
+            conn.close()
+        self._send_json(200, dict(row))
+
+    def _handle_update_talent_collect(self, collect_id):
+        """POST /api/talent-collects/:id — 采集方回写状态 {status, talent_id?, error?}
+        允许: pending→collecting/done/failed, collecting→done/failed (attempts 自动 +1)"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'influencers'): return
+        body = self._read_body()
+        if not body or not body.get('status'):
+            self._send_json_error(400, 'Missing status')
+            return
+        new_status = str(body.get('status'))
+        if new_status not in ('collecting', 'done', 'failed'):
+            self._send_json_error(400, f'非法状态 {new_status}')
+            return
+        conn = _db_conn()
+        try:
+            row = conn.execute('SELECT * FROM talent_collects WHERE id = ?', (collect_id,)).fetchone()
+            if not row:
+                self._send_json_error(404, 'Collect request not found')
+                return
+            old_status = row['status']
+            allowed = (old_status == 'pending') or (old_status == 'collecting' and new_status in ('done', 'failed'))
+            if not allowed:
+                self._send_json_error(409, f'状态不可从 {old_status} 变为 {new_status}')
+                return
+            now = int(time.time() * 1000)
+            conn.execute(
+                'UPDATE talent_collects SET status = ?, talent_id = ?, error = ?, attempts = attempts + 1, updated_at = ? WHERE id = ?',
+                (new_status, str(body.get('talent_id') or row['talent_id'] or ''),
+                 str(body.get('error') or ''), now, collect_id)
+            )
+            conn.commit()
+            row = conn.execute('SELECT * FROM talent_collects WHERE id = ?', (collect_id,)).fetchone()
+        finally:
+            conn.close()
+        logger.info(f'  [TalentCollect] {collect_id} {old_status}→{new_status} (talent={body.get("talent_id") or "-"})')
+        self._send_json(200, dict(row))
 
     def _handle_promote_talent(self, talent_id):
         """POST /api/talents/:id/promote — 管理员把子库达人提升到主库。
