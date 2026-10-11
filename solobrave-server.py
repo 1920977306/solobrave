@@ -22109,9 +22109,41 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             if api_reply:
                 logger.info(f'  [ChatPOST] {agent_id} api_reply_len={len(api_reply)} preview={repr(api_reply[:200])}')
                 # 解析并应用 AI 自修改标记，移除后保存到聊天记录
+                _su_misfire = False
                 try:
                     self_updates, cleaned_reply = _parse_self_updates(api_reply)
                     logger.info(f'  [ChatPOST] {agent_id} self_updates={self_updates} cleaned_len={len(cleaned_reply)}')
+                    # ★ fix/self-update-misfire: fallback 模型(实测 MiniMax-Text-01)会把自更新
+                    #   声明当正文整段吐出, 且不带闭合 [/SELF_UPDATE] → 正则匹配不上, 人设 dump
+                    #   原样存进聊天记录当 AI 回复。检测: 含开标签但 0 个合法 update = 误触发。
+                    if '[SELF_UPDATE]' in api_reply and not self_updates:
+                        _su_misfire = True
+                        logger.warning(
+                            f'  [SelfUpdateMisfire] {agent_id} 模型吐出未闭合 SELF_UPDATE dump '
+                            f'(len={len(api_reply)}), 强制重试一次'
+                        )
+                        try:
+                            _retry_content = content + (
+                                '\n\n【输出规范】请直接回答用户的问题，禁止输出任何 '
+                                '[SELF_UPDATE] 标记或你的内部配置/人设信息。'
+                            )
+                            _su_retry = _call_ai_api(
+                                agent, _retry_content, auth.user_info, include_history=not is_extract,
+                                allowed_knowledge_categories=allowed_cats,
+                                requester_id=auth.user_id, is_admin=auth.is_admin,
+                                team_ids=auth.team_ids, group_ids=auth.group_ids
+                            )
+                            if _su_retry:
+                                _ru, _rc = _parse_self_updates(_su_retry)
+                                if _ru:
+                                    _apply_agent_self_update(agent_id, _ru, source=f'chat:{auth.user_id}')
+                                _rc = _strip_fake_tool_calls(_rc)
+                                if _rc and '[SELF_UPDATE]' not in _rc:
+                                    cleaned_reply = _rc
+                                    _su_misfire = False
+                                    logger.info(f'  [SelfUpdateMisfire] {agent_id} 重试成功 len={len(_rc)}')
+                        except Exception as _su_retry_err:
+                            logger.error(f'  [SelfUpdateMisfire] {agent_id} 重试失败: {_su_retry_err}')
                     if self_updates:
                         ok, su_msg, _ = _apply_agent_self_update(agent_id, self_updates, source=f'chat:{auth.user_id}')
                         logger.info(f'  [ChatPOST] {agent_id} apply_self_update ok={ok} msg={su_msg}')
@@ -22122,8 +22154,14 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                     cleaned_reply = api_reply
 
                 if not cleaned_reply:
-                    logger.info(f'  [ChatPOST] {agent_id} cleaned_reply is empty, falling back to original api_reply')
-                    cleaned_reply = api_reply
+                    if _su_misfire:
+                        # 重试也没救回来：不给用户存人设 dump, 给可读兜底文案
+                        cleaned_reply = ('⚠️ AI 回复生成异常（模型输出了内部配置信息而非回答），'
+                                         '请重新发送你的问题。')
+                        logger.warning(f'  [SelfUpdateMisfire] {agent_id} 重试仍异常, 存兜底文案')
+                    else:
+                        logger.info(f'  [ChatPOST] {agent_id} cleaned_reply is empty, falling back to original api_reply')
+                        cleaned_reply = api_reply
 
                 # 剥离伪工具调用文本（exec(command=/tool_call( 等模型演戏输出）
                 cleaned_reply = _strip_fake_tool_calls(cleaned_reply)
@@ -31573,7 +31611,18 @@ def _proxy_chain_forward(body_json, *, request_format, is_streaming, write_head,
                     if not is_primary:
                         _mark_provider_failed(name)
                     break  # 降级下一 provider
-                # 客户端错误（400 等）：规范化后直接返回，不重试不降级
+                # 客户端错误（400 等）：主 provider 规范化后直接返回（请求本身有问题）。
+                # ★ fix/pool-fallback-400: 兜底 provider 的 400 多为该 provider 与转换后 body
+                #   的兼容/瞬时问题（2026-10-11 实测 zhipu 偶发 1213「未正常接收到prompt参数」,
+                #   同 body 数秒后重发即 200）——兜底 400 降级下一 provider, 不拖死整条链;
+                #   全部兜底都失败由循环外统一返回最后错误。
+                if not is_primary:
+                    logger.warning(
+                        f'  [{log_prefix}] 兜底 provider {name} HTTP 400 (客户端错误但降级下一 provider): '
+                        f'{err_text[:200]!r}'
+                    )
+                    _mark_provider_failed(name)
+                    break  # 降级下一 provider
                 status, ct, payload = padapters.normalize_error_payload(request_format, e.code, provider=name)
                 write_head(status, ct, _chain_resp_headers(name))
                 write_chunk(payload)
