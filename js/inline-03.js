@@ -8399,10 +8399,16 @@ function _paintCollectCard(card, d, cid) {
     _stopCollectPoller(cid);
     if (!_collectReportPulled[cid]) {
       _collectReportPulled[cid] = true;
-      // 稍等后端把报告落库，再刷新聊天把分析报告拉进来
-      setTimeout(function () {
-        if (localStorage.getItem('sb_current_emp')) renderMsgs('private');
-      }, 1500);
+      // 报告由服务端 watcher 在 done 之后才生成落库（分析要 10-30 秒），
+      // 所以不是刷一次而是短间隔刷几次，报告落库即出现，刷够次数后停
+      var _pullTries = 0;
+      var _pull = function () {
+        _pullTries++;
+        if (!localStorage.getItem('sb_current_emp')) return;
+        renderMsgs('private');
+        if (_pullTries < 5) setTimeout(_pull, 20000);
+      };
+      setTimeout(_pull, 1500);
     }
   } else if (st === 'failed') {
     statusEl.textContent = '采集失败';
