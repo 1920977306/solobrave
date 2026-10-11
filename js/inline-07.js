@@ -2968,7 +2968,7 @@ function sb2TlnCloseDetail(){
 
 /* 重置 7 panel + tab 状态 */
 function sb2TlnResetPanels(){
-  var tabPanelIds = ['sb2TlnPanelOverview','sb2TlnPanelSales','sb2TlnPanelFans','sb2TlnPanelProducts','sb2TlnPanelRecords','sb2TlnPanelFollowUps','sb2TlnPanelKnowledge','sb2TlnPanelTasks'];
+  var tabPanelIds = ['sb2TlnPanelOverview','sb2TlnPanelSales','sb2TlnPanelFans','sb2TlnPanelProducts','sb2TlnPanelRecords','sb2TlnPanelFollowUps','sb2TlnPanelKnowledge','sb2TlnPanelTasks','sb2TlnPanelVideos'];
   for (var i = 0; i < tabPanelIds.length; i++){
     var el = document.getElementById(tabPanelIds[i]);
     if (el) el.innerHTML = '<div class="sb2-tln-loading">载入中…</div>';
@@ -2995,6 +2995,7 @@ function sb2TlnSwitchTab(tab){
   else if (tab === 'followups' && !_sb2TlnDetailLoadedTabs.followups) sb2TlnFetchPanelFollowUps(t.id);
   else if (tab === 'knowledge' && !_sb2TlnDetailLoadedTabs.knowledge) sb2TlnFetchPanelKnowledge(t.id);
   else if (tab === 'tasks' && !_sb2TlnDetailLoadedTabs.tasks) sb2TlnFetchPanelTasks(t.id);
+  else if (tab === 'videos' && !_sb2TlnDetailLoadedTabs.videos) sb2TlnFetchPanelVideos(t.id);
 }
 
 /* 渲染所有 8 panel (简版, 字段名抄实测, ★r75 加 tasks panel) */
@@ -3407,6 +3408,138 @@ async function sb2TlnUnlinkTask(taskId, talentId){
 /* 暴露 r75 新增函数 (r38 IIFE onclick 铁律: HTML onclick 跨块调用 window.* 兜底) */
 window.sb2TlnCreateTaskForTalent = sb2TlnCreateTaskForTalent;
 window.sb2TlnUnlinkTask = sb2TlnUnlinkTask;
+
+/* ── ★ feat/video-teardown (老大 2026-10-11「可以的」): 视频拆解 tab ──
+   worker 抓达人播放量 TOP N 带货视频 → 妙记转写 + glm-4v-plus 看画面 → glm-4.7 出拆解报告 */
+function sb2TlnVideoStatusLabel(s){
+  return ({pending:'排队中', downloading:'下载中', transcribing:'转写中', watching:'AI看画面中',
+           analyzing:'生成报告', done:'完成', failed:'失败'})[s] || s || '-';
+}
+
+function sb2TlnRenderPanelVideos(t){
+  var el = document.getElementById('sb2TlnPanelVideos');
+  if (!el) return;
+  if (!_sb2TlnDetailLoadedTabs.videos) {
+    el.innerHTML = '<div class="sb2-tln-loading">视频拆解加载中…</div>';
+    sb2TlnFetchPanelVideos(t.id);
+    return;
+  }
+  var cached = _sb2TlnDetailCache.videos || {};
+  var videos = cached.videos || [];
+  var jobs = cached.jobs || [];
+  var running = jobs.some(function(j){ return j.status === 'running'; });
+  var html = '';
+  html += '<div class="sb2-tln-section">';
+  html += '<div class="sb2-tln-section-title" style="display:flex;align-items:center;justify-content:space-between;">';
+  html += '<span>带货视频拆解 · ' + videos.length + ' 条</span>';
+  html += '<button class="sb2-btn sb2-btn-brand sb2-btn-sm" onclick="sb2TlnStartTeardown(\'' + sb2TlnEsc(t.id) + '\')"' +
+          (running ? ' disabled style="opacity:.5" title="任务进行中"' : '') + '>' +
+          (running ? '拆解中…' : '⚡ AI 拆解 TOP3 视频') + '</button>';
+  html += '</div>';
+  if (running) {
+    var j0 = jobs.filter(function(j){ return j.status === 'running'; })[0] || {};
+    html += '<div class="sb2-tln-loading" style="margin:8px 0;">⏳ ' + sb2TlnEsc(j0.stage || '任务进行中') +
+            '（后台抓视频+转写+AI看画面，约需几分钟，可切走稍后再来）</div>';
+  }
+  var jf = jobs.filter(function(j){ return j.status === 'failed'; })[0];
+  if (jf && jf.error) {
+    html += '<div class="sb2-tln-empty" style="color:#d43;">最近任务失败：' + sb2TlnEsc(jf.error) + '</div>';
+  }
+  if (videos.length === 0) {
+    html += '<div class="sb2-tln-empty">还没有拆解记录。点右上角让 AI 抓该达人播放量最高的带货视频，自动转写 + 看画面 + 出可复制拆解报告。</div>';
+  } else {
+    videos.forEach(function(v){
+      var m = {};
+      try { m = JSON.parse(v.metrics || '{}'); } catch(e){}
+      var done = v.status === 'done';
+      html += '<div class="sb2-tln-timeline-item" style="border-left:3px solid ' + (done ? 'var(--sb2-accent,#4f6ef7)' : '#c9c9c9') + ';">';
+      html += '<div class="sb2-tln-timeline-time">TOP' + (v.rank || '-') + ' · ' +
+              '播放 ' + sb2TlnEsc(m.plays || '-') + ' · 互动率 ' + sb2TlnEsc(m.interact || '-') +
+              ' · 结算 ' + sb2TlnEsc(m.gmv || '-') + ' · GPM ' + sb2TlnEsc(m.gpm || '-') +
+              ' · 赞 ' + sb2TlnEsc(m.likes || '-') + ' / 评 ' + sb2TlnEsc(m.comments || '-') + '</div>';
+      html += '<div class="sb2-tln-timeline-content"><strong>' + sb2TlnEsc((v.title || '(视频)').slice(0, 60)) + '</strong>';
+      html += ' <span class="sb2-tln-pill' + (done ? ' sb2-tln-pill-accent' : '') + '">' + sb2TlnVideoStatusLabel(v.status) + '</span></div>';
+      if (v.error && v.status === 'failed') {
+        html += '<div class="sb2-tln-timeline-next" style="color:#d43;">' + sb2TlnEsc(v.error) + '</div>';
+      }
+      if (v.local_path && done) {
+        html += '<div style="margin:8px 0;"><video controls preload="metadata" style="max-width:240px;border-radius:8px;" src="/api/talent-videos/' +
+                encodeURIComponent(v.id) + '/file"></video></div>';
+      }
+      if (v.transcript) {
+        html += '<div class="sb2-tln-timeline-next"><em>口播转写：</em>' + sb2TlnEsc(v.transcript.slice(0, 300)) + '</div>';
+      }
+      if (v.visual_desc) {
+        html += '<div class="sb2-tln-timeline-next"><em>AI看画面：</em>' + sb2TlnEsc(v.visual_desc.slice(0, 300)) + '</div>';
+      }
+      if (v.report) {
+        html += '<details style="margin-top:6px;"><summary style="cursor:pointer;color:var(--sb2-accent,#4f6ef7);font-size:12px;">📋 拆解报告（点击展开）</summary>' +
+                '<pre style="white-space:pre-wrap;font-size:12px;background:var(--bg-secondary);padding:10px;border-radius:8px;margin-top:6px;">' +
+                sb2TlnEsc(v.report) + '</pre></details>';
+      }
+      html += '</div>';
+    });
+  }
+  html += '</div>';
+  el.innerHTML = html;
+}
+
+async function sb2TlnFetchPanelVideos(talentId){
+  if (!talentId) return;
+  try {
+    var resp = await apiFetch('/api/talent-videos?talent_id=' + encodeURIComponent(talentId));
+    var respJ = await apiFetch('/api/talent-videos/jobs?talent_id=' + encodeURIComponent(talentId));
+    if (!resp || !resp.ok) {
+      var el = document.getElementById('sb2TlnPanelVideos');
+      if (el) el.innerHTML = '<div class="sb2-tln-empty">视频拆解加载失败 (HTTP ' + (resp ? resp.status : 'no resp') + ')</div>';
+      _sb2TlnDetailLoadedTabs.videos = true;
+      return;
+    }
+    var data = await resp.json();
+    var dataJ = (respJ && respJ.ok) ? await respJ.json() : {jobs: []};
+    _sb2TlnDetailCache.videos = { videos: data.videos || [], jobs: dataJ.jobs || [] };
+    _sb2TlnDetailLoadedTabs.videos = true;
+    var t = window._sb2TlnDetailCurrentTalent || {id: talentId};
+    sb2TlnRenderPanelVideos(t);
+    /* 有 running job → 6s 后轮询刷新（详情页还开着才刷） */
+    if ((dataJ.jobs || []).some(function(j){ return j.status === 'running'; })) {
+      setTimeout(function(){
+        if (!_sb2TlnDetailLoaded || _sb2TlnDetailCurrentId !== talentId) return;
+        _sb2TlnDetailLoadedTabs.videos = false;
+        if (_sb2TlnDetailCurrentTab === 'videos') sb2TlnFetchPanelVideos(talentId);
+        else _sb2TlnDetailLoadedTabs.videos = false;
+      }, 6000);
+    }
+  } catch (e) {
+    var el2 = document.getElementById('sb2TlnPanelVideos');
+    if (el2) el2.innerHTML = '<div class="sb2-tln-empty">网络错误: ' + sb2TlnEsc(e && e.message || e) + '</div>';
+    _sb2TlnDetailLoadedTabs.videos = true;
+  }
+}
+
+async function sb2TlnStartTeardown(talentId){
+  if (!talentId) return;
+  if (!confirm('发起 AI 视频拆解？\n系统将打开巨量百应，抓取该达人播放量 TOP3 的带货视频，逐条下载→转写口播→AI看画面→出拆解报告，约需几分钟。')) return;
+  try {
+    var resp = await apiFetch('/api/talent-videos/teardown', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({talent_id: talentId, top_n: 3})
+    });
+    var data = await resp.json().catch(function(){ return {}; });
+    if (!resp || !resp.ok) {
+      alert('发起失败 HTTP ' + (resp ? resp.status : 'no resp') + '：' + (data.error || ''));
+      return;
+    }
+    if (typeof window.showToast === 'function') window.showToast('视频拆解已发起，几分钟后回来看结果', 'success');
+    _sb2TlnDetailLoadedTabs.videos = false;
+    var t = window._sb2TlnDetailCurrentTalent || {id: talentId};
+    sb2TlnRenderPanelVideos(t);
+  } catch (e) {
+    alert('网络错误: ' + (e && e.message || e));
+  }
+}
+window.sb2TlnStartTeardown = sb2TlnStartTeardown;
 
 function sb2TlnRenderPanelKnowledge(t){
   var el = document.getElementById('sb2TlnPanelKnowledge');

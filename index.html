@@ -15990,6 +15990,12 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
         - 跟既有 sb2TlnFetchPanelFollowUps / sb2TlnFetchPanelKnowledge 同款懒加载钩子模式
         - 字段名铁律 (第 1 条): 渲染函数抄实测 /api/tasks?talent_id=xxx 真字段, 不凭印象 -->
       <button class="sb2-tln-tab" data-tab="tasks" onclick="sb2TlnSwitchTab('tasks')">任务</button>
+      <!-- ★ feat/video-teardown (老大 2026-10-11「可以的」): 第 9 个 tab 视频拆解
+        - 数据源: GET /api/talent-videos?talent_id= / GET /api/talent-videos/jobs?talent_id=
+        - 发起: POST /api/talent-videos/teardown {talent_id, top_n} → worker 抓播放量TOP N带货视频
+                → 妙记转写 + glm-4v-plus 看画面 → glm-4.7 出拆解报告
+        - 视频播放: GET /api/talent-videos/<id>/file (Range 流) -->
+      <button class="sb2-tln-tab" data-tab="videos" onclick="sb2TlnSwitchTab('videos')">视频拆解</button>
     </div>
     <div class="sb2-tln-detail-body" id="sb2TlnDetailBody">
       <div class="sb2-tln-tab-panel active" data-panel="overview" id="sb2TlnPanelOverview"></div>
@@ -16000,6 +16006,7 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
       <div class="sb2-tln-tab-panel" data-panel="followups" id="sb2TlnPanelFollowUps"></div>
       <div class="sb2-tln-tab-panel" data-panel="knowledge" id="sb2TlnPanelKnowledge"></div>
       <div class="sb2-tln-tab-panel" data-panel="tasks" id="sb2TlnPanelTasks"></div>
+      <div class="sb2-tln-tab-panel" data-panel="videos" id="sb2TlnPanelVideos"></div>
     </div>
   </div>
 </div>

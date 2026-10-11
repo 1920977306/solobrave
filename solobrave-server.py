@@ -2551,12 +2551,9 @@ def _get_localhost_auth_result(headers, parsed_body=None):
 
 def _talent_visible_to_auth(auth, talent_row_dict):
     """M3 行级可见性: 镜像 _handle_get_talents 列表规则。
-    admin 全可见; 非 admin 仅 created_by ∈ {自己}∪{自己的AI员工}。返回 bool。"""
-    if auth.is_admin and not getattr(auth, 'localhost_agent_id', None):
-        return True
-    uid = _resolve_talent_owner_id(auth)
-    visible = {uid} | set(_get_user_emp_ids(uid))
-    return (talent_row_dict.get('created_by') or '') in visible
+    读放开（2026-10-10 采集闭环）: 达人库是公司资产，所有登录用户/AI 员工可读全库；
+    写权限仍按子库归属收敛（见 _check_talent_write_permission，未动）。"""
+    return True
 
 def _resolve_talent_owner_id(auth):
     """达人数据归属：返回写入操作应归属的用户 ID（两层架构的子库归属）。
@@ -3592,6 +3589,48 @@ def init_db():
         conn.execute('CREATE INDEX IF NOT EXISTS idx_tcollects_status ON talent_collects(status)')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_tcollects_created ON talent_collects(created_at)')
 
+        # ★ feat/video-teardown: 视频拆解 (老大 2026-10-11「可以的」固化流程)
+        #   worker 抓达人播放量TOP N带货视频 → 下载 → 妙记转写 + glm-4v-plus 看画面 → glm-4.7 出拆解报告
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS talent_videos (
+                id TEXT PRIMARY KEY,
+                job_id TEXT DEFAULT '',
+                talent_id TEXT DEFAULT '',
+                talent_name TEXT DEFAULT '',
+                rank INTEGER DEFAULT 0,
+                title TEXT DEFAULT '',
+                cover_url TEXT DEFAULT '',
+                metrics TEXT DEFAULT '{}',
+                source_url TEXT DEFAULT '',
+                local_path TEXT DEFAULT '',
+                transcript TEXT DEFAULT '',
+                transcript_status TEXT DEFAULT '',
+                visual_desc TEXT DEFAULT '',
+                report TEXT DEFAULT '',
+                status TEXT DEFAULT 'pending',
+                error TEXT DEFAULT '',
+                created_at INTEGER DEFAULT 0,
+                updated_at INTEGER DEFAULT 0
+            )
+        ''')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_tv_talent ON talent_videos(talent_id)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_tv_job ON talent_videos(job_id)')
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS video_jobs (
+                id TEXT PRIMARY KEY,
+                talent_id TEXT DEFAULT '',
+                talent_name TEXT DEFAULT '',
+                top_n INTEGER DEFAULT 3,
+                status TEXT DEFAULT 'running',
+                stage TEXT DEFAULT '',
+                error TEXT DEFAULT '',
+                video_ids TEXT DEFAULT '[]',
+                created_at INTEGER DEFAULT 0,
+                updated_at INTEGER DEFAULT 0
+            )
+        ''')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_vj_talent ON video_jobs(talent_id)')
+
         # 用户飞书多维表格配置（每个员工绑定自己的飞书表格）
         conn.execute('''
             CREATE TABLE IF NOT EXISTS tenant_feishu_config (
@@ -3713,6 +3752,17 @@ def init_db():
                                    r['conclusions'])
             except Exception as e:
                 logger.warning(f'  [KnowledgeEvents] FTS 回填失败（不影响主流程）: {e}')
+            # 孤儿清理：事件已删但 fts 残留（删除路径不同步索引，只会单向累积）。
+            # 与上面的"漏索引回填"对称，每次启动做一次，防索引膨胀/幽灵命中浪费算力。
+            try:
+                orphan_cur = conn.execute(
+                    'DELETE FROM knowledge_events_fts WHERE event_id NOT IN '
+                    '(SELECT id FROM knowledge_events)')
+                if orphan_cur.rowcount:
+                    conn.commit()
+                    logger.info(f'  [KnowledgeEvents] FTS 孤儿清理: {orphan_cur.rowcount} 条')
+            except Exception as e:
+                logger.warning(f'  [KnowledgeEvents] FTS 孤儿清理失败（不影响主流程）: {e}')
 
         # 规律表（L3）：从同类目分析事件中归纳的跨达人共性规律
         # status 状态机：draft → confirmed/rejected → deprecated；只有 confirmed 进入检索注入
@@ -5024,6 +5074,13 @@ def _dict_to_talent_row(t):
                 _row[_col] = ''
             else:
                 _row[_col] = 0
+    # ★ fix/put-500-dict-bind (2026-10-10): 最终保险——任何残留的 dict/list（如 fan_crowd 走了
+    #   非 _dump 映射、PUT merge 后回环）统一 JSON 化，bool 转 int，杜绝 sqlite 绑定类型错误 500
+    for _k, _v in list(_row.items()):
+        if isinstance(_v, (dict, list)):
+            _row[_k] = json.dumps(_v, ensure_ascii=False)
+        elif isinstance(_v, bool):
+            _row[_k] = int(_v)
     return _row
 
 
@@ -7974,6 +8031,24 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if path == '/api/talent-collects':
             self._handle_get_talent_collects()
             return
+        # ★ feat/talent-collect-queue: AI 轮询采集单详情 (buyin_worker 闭环, Helen 提示词依赖)
+        if path.startswith('/api/talent-collects/'):
+            _tc_get_id = path[len('/api/talent-collects/'):].strip('/')
+            if _tc_get_id and '?' not in _tc_get_id:
+                self._handle_get_talent_collect(_tc_get_id)
+                return
+        # ★ feat/video-teardown: 视频拆解 — job 列表与视频流要在 /api/talent-videos/<id>/file 之前匹配
+        if path == '/api/talent-videos/jobs':
+            self._handle_get_video_jobs()
+            return
+        if path == '/api/talent-videos':
+            self._handle_get_talent_videos()
+            return
+        if path.startswith('/api/talent-videos/'):
+            _tv_rest = path[len('/api/talent-videos/'):].strip('/')
+            if _tv_rest.endswith('/file'):
+                self._handle_talent_video_file(_tv_rest[:-len('/file')])
+                return
         if path.startswith('/api/talents/'):
             rest = path[len('/api/talents/'):]
             if rest:
@@ -8583,6 +8658,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             if _tc_id:
                 self._handle_update_talent_collect(_tc_id)
                 return
+        # ★ feat/video-teardown: 发起视频拆解（转发 buyin_worker 控制口 8095）
+        if path == '/api/talent-videos/teardown':
+            self._handle_post_video_teardown()
+            return
         if path == '/api/talents/sync-feishu':
             self._handle_sync_feishu_talents()
             return
@@ -19068,12 +19147,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             talents = [_talent_row_to_dict(r) for r in rows]
         finally:
             conn.close()
-        if not auth.is_admin or getattr(auth, 'localhost_agent_id', None):
-            # 两层架构可见性：仅自己子库（自己录入 + 自己的 AI 员工录入）。
-            # 主库（created_by 为空）只有管理员可见；AI 员工本地调用同样按创建者子库过滤
-            uid = _resolve_talent_owner_id(auth)
-            visible_ids = {uid} | set(_get_user_emp_ids(uid))
-            talents = [t for t in talents if (t.get('created_by') or '') in visible_ids]
+        # 读可见性（2026-10-10 采集闭环）: 达人库是公司资产，放开全库读；
+        # 写权限（录入/更新）仍按子库归属在 POST/PUT 处理器内收敛，不受此处影响
         total = len(talents)
         # ★ fix/talents-sort-facets: 全量维度聚合 (跟 total 同口径, 权限+status 过滤后)
         #   rating 维: UPPER(SUBSTR(level,1,1)) GROUP BY, (空) 桶独立
@@ -19375,6 +19450,23 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             conn.close()
         self._send_json(200, {'collects': [dict(r) for r in rows]})
 
+    def _handle_get_talent_collect(self, collect_id):
+        """GET /api/talent-collects/:id — 单条采集单详情（AI 轮询用）"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'influencers'): return
+        conn = _db_conn()
+        try:
+            row = conn.execute('SELECT * FROM talent_collects WHERE id = ?', (collect_id,)).fetchone()
+        finally:
+            conn.close()
+        if not row:
+            self._send_json_error(404, 'Collect request not found')
+            return
+        self._send_json(200, dict(row))
+
     def _handle_post_talent_collect(self):
         """POST /api/talent-collects — 提交 AI 采集请求 {name, douyin_id?}
         同名同抖音号的 pending/collecting 请求幂等返回原单, 不重复排队"""
@@ -19459,6 +19551,144 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             conn.close()
         logger.info(f'  [TalentCollect] {collect_id} {old_status}→{new_status} (talent={body.get("talent_id") or "-"})')
         self._send_json(200, dict(row))
+
+    # ── ★ feat/video-teardown handlers ──
+    def _handle_get_talent_videos(self):
+        """GET /api/talent-videos?talent_id=xxx — 该达人的拆解视频列表（倒序 50 条）"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'influencers'): return
+        from urllib.parse import urlparse, parse_qs
+        _q = parse_qs(urlparse(self.path).query)
+        talent_id = (_q.get('talent_id') or [''])[0].strip()
+        conn = _db_conn()
+        try:
+            if talent_id:
+                rows = conn.execute(
+                    'SELECT * FROM talent_videos WHERE talent_id = ? ORDER BY created_at DESC LIMIT 50',
+                    (talent_id,)).fetchall()
+            else:
+                rows = conn.execute(
+                    'SELECT * FROM talent_videos ORDER BY created_at DESC LIMIT 50').fetchall()
+        finally:
+            conn.close()
+        out = []
+        for r in rows:
+            d = dict(r)
+            # 列表不吐大字段，详情由前端逐条拿（report/transcript 留在行内，前端按需展示）
+            out.append(d)
+        self._send_json(200, {'videos': out})
+
+    def _handle_get_video_jobs(self):
+        """GET /api/talent-videos/jobs?talent_id=xxx — 拆解任务状态"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'influencers'): return
+        from urllib.parse import urlparse, parse_qs
+        _q = parse_qs(urlparse(self.path).query)
+        talent_id = (_q.get('talent_id') or [''])[0].strip()
+        conn = _db_conn()
+        try:
+            if talent_id:
+                rows = conn.execute(
+                    'SELECT * FROM video_jobs WHERE talent_id = ? ORDER BY created_at DESC LIMIT 10',
+                    (talent_id,)).fetchall()
+            else:
+                rows = conn.execute(
+                    'SELECT * FROM video_jobs ORDER BY created_at DESC LIMIT 20').fetchall()
+        finally:
+            conn.close()
+        self._send_json(200, {'jobs': [dict(r) for r in rows]})
+
+    def _handle_post_video_teardown(self):
+        """POST /api/talent-videos/teardown {talent_id?, name?, douyin_id?, top_n?}
+        → 转发 buyin_worker 控制口 8095 /teardown，返回 {job_id}"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'influencers'): return
+        body = self._read_body()
+        if not body:
+            self._send_json_error(400, 'Missing body')
+            return
+        talent_id = str(body.get('talent_id') or '').strip()
+        name = str(body.get('name') or '').strip()
+        douyin_id = str(body.get('douyin_id') or '').strip()
+        if not talent_id and not name:
+            self._send_json_error(400, 'Missing talent_id or name')
+            return
+        import urllib.request as _ur
+        req = _ur.Request('http://127.0.0.1:8095/teardown',
+                          data=json.dumps({
+                              'talent_id': talent_id, 'name': name,
+                              'douyin_id': douyin_id, 'top_n': body.get('top_n') or 3,
+                          }).encode('utf-8'),
+                          headers={'Content-Type': 'application/json'}, method='POST')
+        try:
+            with _ur.urlopen(req, timeout=15) as resp:
+                data = json.loads(resp.read().decode('utf-8'))
+        except Exception as e:
+            self._send_json_error(502,
+                f'buyin worker 未响应（视频拆解需要 worker 在线）: {type(e).__name__}: {e}')
+            return
+        self._send_json(200, data)
+
+    def _handle_talent_video_file(self, video_id):
+        """GET /api/talent-videos/<id>/file — 本地 mp4 流（支持 Range，供 <video> 播放）"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'influencers'): return
+        conn = _db_conn()
+        try:
+            row = conn.execute('SELECT local_path, status FROM talent_videos WHERE id = ?',
+                               (video_id,)).fetchone()
+        finally:
+            conn.close()
+        if not row or not row['local_path']:
+            self._send_json_error(404, 'video file not found')
+            return
+        import os as _os
+        path = row['local_path']
+        if not _os.path.isfile(path):
+            self._send_json_error(404, 'video file missing on disk')
+            return
+        size = _os.path.getsize(path)
+        start, end = 0, size - 1
+        range_h = self.headers.get('Range')
+        status = 200
+        if range_h and range_h.startswith('bytes='):
+            try:
+                rng = range_h[len('bytes='):].split('-')
+                if rng[0]:
+                    start = int(rng[0])
+                if len(rng) > 1 and rng[1]:
+                    end = int(rng[1])
+                status = 206
+            except Exception:
+                start, end, status = 0, size - 1, 200
+        length = end - start + 1
+        self.send_response(status)
+        self.send_header('Content-Type', 'video/mp4')
+        self.send_header('Content-Length', str(length))
+        self.send_header('Accept-Ranges', 'bytes')
+        self.send_header('Content-Range', f'bytes {start}-{end}/{size}')
+        self.end_headers()
+        with open(path, 'rb') as f:
+            f.seek(start)
+            remaining = length
+            while remaining > 0:
+                chunk = f.read(min(65536, remaining))
+                if not chunk:
+                    break
+                self.wfile.write(chunk)
+                remaining -= len(chunk)
 
     def _handle_promote_talent(self, talent_id):
         """POST /api/talents/:id/promote — 管理员把子库达人提升到主库。
@@ -21598,8 +21828,12 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 talent_injection = _dedup_hint + _build_single_talent_injection(_talent_id_hit, auth)
                 logger.info(f'  [TalentInject] {agent_id} 单达人命中 talent_id={_talent_id_hit} dedup_hint_len={len(_dedup_hint)}')
             # 优先级 2:关键词命中 → 注入全表 top 50(原行为,文本分析场景)
+            #   ★ fix/talent-inject-lookalike: 带上用户提到的名字候选——
+            #   单达人没命中时, 注入头部会声明"库里没有TA", 名单里相近名加 ⚠️ 标注
             if not talent_injection:
-                talent_injection = _build_talent_injection(_content_for_check, auth)
+                talent_injection = _build_talent_injection(
+                    _content_for_check, auth,
+                    mentioned_names=_specific_mentioned_names(_content_for_check))
             # 优先级 3:图片消息但未识别到达人 → 显式提示 Helen(不静默回退)
             if not talent_injection and _has_images:
                 talent_injection = _VISION_FALLBACK_NOTICE
@@ -24298,10 +24532,18 @@ def _deduplicate_talent(name):
     try:
         conn = _db_conn()
         try:
-            row = conn.execute(
-                "SELECT id, name FROM talents WHERE LOWER(name) LIKE ? AND status = 'active' LIMIT 1",
-                (f'%{name.lower()}%',)
-            ).fetchone()
+            # ★ fix/talent-like-guard: <3字只做精确匹配, 不做 LIKE 子串
+            #   (防"妈妈"把璐妈妈当成已存在达人而拒绝建档/错误复用)
+            if len(name) < 3:
+                row = conn.execute(
+                    "SELECT id, name FROM talents WHERE LOWER(name) = ? AND status = 'active' LIMIT 1",
+                    (name.lower(),)
+                ).fetchone()
+            else:
+                row = conn.execute(
+                    "SELECT id, name FROM talents WHERE LOWER(name) LIKE ? AND status = 'active' LIMIT 1",
+                    (f'%{name.lower()}%',)
+                ).fetchone()
             if row:
                 logger.info(f'  [TalentDedupe] 命中 name={name} → id={row["id"]} db_name={row["name"]}')
                 return {'id': row['id'], 'name': row['name']}
@@ -26131,19 +26373,14 @@ _VISION_FALLBACK_NOTICE = (
     '请基于截图 + 现有规则回答,所有数字必须标注"约"或"估算"前缀。\n\n'
 )
 
-def _extract_talent_from_text(text, auth):
-    """从用户消息文本识别具体达人,返回 talent_id 或 None。
-    命中:先按名称/douyin_id/real_name 精确匹配,失败再模糊 LIKE。
-    权限:非 admin 只能看到自己 created_by 的达人(对齐现有 _build_talent_injection 逻辑)。
-    """
-    if not text or not isinstance(text, str):
-        return None
-    if not any(k in text for k in ('达人', '主播', '博主', 'KOL', '合作', '商务',
-                                    '佣金', '坑位', '带货', '筛选', '评估', '分析',
-                                    '录入', '添加', '建档', '搜索', '找', '更新', '修改')):
-        return None
-    import re
+def _talent_name_candidates(text):
+    """从用户消息里抽取「可能提到的达人名」候选集合（2-20 字）。
+    供 _extract_talent_from_text 匹配用，也供注入层判断"用户提到了谁"。
+    抽不出来返回空 set。"""
     candidates = set()
+    if not text or not isinstance(text, str):
+        return candidates
+    import re
     # 业务后缀字符(用来 trim 过长的 raw 抓取,防止把"璐妈妈的带货数据"全抓)
     _BUSINESS_TAIL = '的带粉合商筛评估佣金坑位主播流量画像能力数据,/，。;:；:!！?？ '
     def _trim(name):
@@ -26159,9 +26396,6 @@ def _extract_talent_from_text(text, auth):
     for m in re.finditer(r'分析\s*["「『\']?([\u4e00-\u9fa5A-Za-z0-9_·.]{1,30})', text):
         candidates.add(_trim(m.group(1)))
     # 模式 3: 开头区域命中 - 取前 200 字符单独匹配,提高短昵称命中率
-    #   ★ fix dedup 命中模式 3: 取消"达人上下文"限制 — 外层 line 21683 关键字过滤
-    #   已经通过(录入/分析/达人等),这里再判"达人/主播/KOL"是冗余且误杀短消息
-    #   ("录入发财周周" 这类). 让 _deduplicate_talent 做最终兜底判定.
     _head = text[:200]
     _STOP_WORDS = ('分析', '达人', '商务', '合作', '佣金', 'KOL', '录入', '添加',
                    '建档', '搜索', '更新', '修改')
@@ -26178,7 +26412,45 @@ def _extract_talent_from_text(text, auth):
         _text_clean = _text_clean.replace(_sw, ' ')
     for _m in re.finditer(r'[\u4e00-\u9fa5A-Za-z0-9_\u00b7]{2,20}', _text_clean):
         candidates.add(_m.group(0))
-    candidates = {c for c in candidates if c and len(c) >= 2}
+    # 剥前导口语词("分析一下梦慈妈妈"→补干净候选"梦慈妈妈")
+    _LEAD_STRIP = ('一下', '有个', '这个', '那个', '叫做', '名叫', '分析', '下')
+    extra = set()
+    for c in list(candidates):
+        for lead in _LEAD_STRIP:
+            if c.startswith(lead) and len(c) > len(lead) + 1:
+                extra.add(c[len(lead):])
+    candidates |= extra
+    return {c for c in candidates if c and len(c) >= 2}
+
+
+# 业务短语词：候选名含这些词说明是句子片段不是人名。
+# 仅用于注入头部的「用户提到了谁」，不影响抽取匹配的候选集
+# （真实昵称可能含"带货/主播"，抽取匹配不能用这个过滤）。
+_TALENT_NAME_PHRASE_WORDS = ('达人', '分析', '数据', '报告', '商务', '合作', '佣金', '带货',
+                             '主播', '评估', '筛选', '坑位', '录入', '建档', '添加', '搜索',
+                             '更新', '修改', '看看', '帮我', '给我', '一下', '排行', '情况',
+                             '整体', '全部', '所有', '库')
+
+
+def _specific_mentioned_names(text):
+    """用户消息里「具体达人名」候选（已剔除业务短语片段）。仅供注入层声明用。"""
+    cands = _talent_name_candidates(text)
+    return {c for c in cands
+            if c and not any(w in c for w in _TALENT_NAME_PHRASE_WORDS)}
+
+
+def _extract_talent_from_text(text, auth):
+    """从用户消息文本识别具体达人,返回 talent_id 或 None。
+    命中:先按名称/douyin_id/real_name 精确匹配,失败再模糊 LIKE(候选≥3字才走,防"妈妈"误配)。
+    权限:非 admin 只能看到自己 created_by 的达人(对齐现有 _build_talent_injection 逻辑)。
+    """
+    if not text or not isinstance(text, str):
+        return None
+    if not any(k in text for k in ('达人', '主播', '博主', 'KOL', '合作', '商务',
+                                    '佣金', '坑位', '带货', '筛选', '评估', '分析',
+                                    '录入', '添加', '建档', '搜索', '找', '更新', '修改')):
+        return None
+    candidates = _talent_name_candidates(text)
     if not candidates:
         return None
     try:
@@ -26200,7 +26472,11 @@ def _extract_talent_from_text(text, auth):
                 if row:
                     if is_admin or (row['created_by'] or '') == uid:
                         return row['id']
+            # ★ fix/talent-like-guard: LIKE 模糊仅限≥3字候选——2字候选（"妈妈""周周"）
+            #   做子串匹配会把璐妈妈/小周周这类泛名误配成目标达人。
             for name in candidates:
+                if len(name) < 3:
+                    continue
                 rows = conn.execute(
                     "SELECT id, created_by, name FROM talents WHERE name LIKE ? LIMIT 3",
                     (f'%{name}%',)).fetchall()
@@ -26302,18 +26578,35 @@ _TALENT_INJECT_KEYWORDS = ('达人', '网红', 'KOL', '主播', '带货', '分�
 _TALENT_INJECT_LIMIT = 50
 
 
-def _build_talent_injection(user_text, auth):
-    """用户消息命中达人相关关键词时返回达人数据注入文本，否则返回 ''"""
+def _names_lookalike(a, b):
+    """两个名字是否「相近易混淆」：互为子串，或共享≥2字的前/后缀。
+    用于 top50 注入里的相近名标注（梦慈妈妈↔璐妈妈 共享后缀"妈妈"）。"""
+    if not a or not b:
+        return False
+    if a in b or b in a:
+        return True
+    if len(a) >= 2 and len(b) >= 2 and (a[:2] == b[:2] or a[-2:] == b[-2:]):
+        return True
+    return False
+
+
+def _build_talent_injection(user_text, auth, mentioned_names=None):
+    """用户消息命中达人相关关键词时返回达人数据注入文本，否则返回 ''。
+    mentioned_names: 用户消息里抽取到的可能达人名；传入后注入文本会
+    ① 声明这些名字未精确命中库内达人 ② 把名单中相近名字标注为「仅供参考」。"""
     if not user_text or not isinstance(user_text, str):
         return ''
     if not any(k in user_text.upper() for k in _TALENT_INJECT_KEYWORDS):
         return ''
-    return _build_talent_injection_text(auth)
+    return _build_talent_injection_text(auth, mentioned_names=mentioned_names)
 
 
-def _build_talent_injection_text(auth):
+def _build_talent_injection_text(auth, mentioned_names=None):
     """查询当前登录用户的达人数据并格式化为注入文本（供消息内联注入，含禁止编造约束）。
     数据隔离规则：管理员（is_admin）看全部，非管理员只看自己（created_by=user_id）录入的。
+    ★ fix/talent-inject-lookalike: 单达人未命中而走本路径时，头部显式声明
+    "用户问的人不在库里"，且名单里与用户提到的名字相近的达人加 ⚠️ 标注——
+    防止 LLM 从 top50 名单里挑名字相近的达人冒充分析（璐妈妈假报告事故）。
     """
     try:
         conn = _db_conn()
@@ -26333,17 +26626,32 @@ def _build_talent_injection_text(auth):
             f'  [TalentInject] 查询达人数据失败: err_type={type(e).__name__} err={e}\n'
             f'{traceback.format_exc()}')
         return ''
+    mentioned_names = {m.strip() for m in (mentioned_names or []) if m and m.strip()}
+    lookalike_names = set()
+    if mentioned_names:
+        for t in talents:
+            tn = (t.get('name') or '').strip()
+            if tn and any(_names_lookalike(tn, m) for m in mentioned_names):
+                lookalike_names.add(tn)
     if not talents:
         return ('\n\n【系统数据 - 达人数据查询结果】\n'
                 '系统查询结果：当前没有任何达人数据。你必须如实告知用户暂无数据。\n'
                 '严禁编造任何达人姓名、平台、粉丝数等信息。如果你编造了达人数据，将导致严重后果。\n\n')
-    lines = ['\n\n【系统数据 - 达人数据查询结果】',
-             '以下是系统查询的真实达人数据，你必须基于这些数据分析和回复。禁止编造任何不在列表中的达人。']
+    lines = ['\n\n【系统数据 - 达人数据查询结果】']
+    if mentioned_names:
+        lines.append(
+            '用户询问的达人「' + ' / '.join(sorted(mentioned_names)) +
+            '」在系统中【没有精确命中】——以下只是库里粉丝量最高的达人名单，仅供参考。'
+            '你必须先如实说明库里没有这位达人，可以提议用巨量百应自动采集建档；'
+            '严禁把名单中任何达人（尤其是名字相近的）当成用户询问的达人来出分析。')
+    else:
+        lines.append('以下是系统查询的真实达人数据，你必须基于这些数据分析和回复。禁止编造任何不在列表中的达人。')
     for t in talents:
         price = t.get('single_video_settlement') or t.get('video_avg_price') or t.get('average_price') or '-'
         rate = t.get('video_interaction_rate') or '-'
         status = t.get('cooperation_status') or t.get('status') or '-'
-        lines.append(f"{t.get('name') or '-'} | 抖音 | 粉丝:{t.get('followers') or 0} | 报价:{price} | 互动率:{rate} | 状态:{status}")
+        prefix = '⚠️名字相近(非用户所问,禁止当作目标达人)-' if (t.get('name') or '') in lookalike_names else ''
+        lines.append(f"{prefix}{t.get('name') or '-'} | 抖音 | 粉丝:{t.get('followers') or 0} | 报价:{price} | 互动率:{rate} | 状态:{status}")
     lines.append('你必须仅使用以上达人数据回复，不得编造上述列表之外的任何达人。')
     return '\n'.join(lines) + '\n\n'
 
