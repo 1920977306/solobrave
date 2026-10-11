@@ -6883,6 +6883,116 @@ def _create_pending_summary(emp_id, summary_type, title, date=None, project_name
         conn.close()
 
 
+_SUMMARY_GENERATE_PROMPT = """你是会话归纳助手。基于以下员工当天的记忆条目，生成结构化每日归纳。
+规则：
+- 只保留有业务价值的信息（达人/商品/合作/数据/决策/待办），丢弃寒暄和过程性描述
+- key_points: 关键事实，最多 5 条，每条一句话
+- decisions: 明确做出的决策（无则空数组）
+- action_items: 待办事项（无则空数组）
+- confidence: 你对这批内容归纳价值的置信度 0-1（内容全是废话就给 0）
+
+输出 JSON（不要输出其他内容）：
+{{"key_points": ["..."], "decisions": ["..."], "action_items": ["..."], "confidence": 0.0}}
+
+如果整批没有归纳价值，返回 {{"key_points": [], "decisions": [], "action_items": [], "confidence": 0.0}}
+
+员工：{emp_id}（{title}）
+记忆条目（共 {n} 条）：
+{items}"""
+
+
+def _fill_pending_summaries_for_agent(emp_id, llm_cfg=None):
+    """★ feat(memory-phase2): 服务端异步结构化摘要生成 —— 替代已死的前端 AI 队列。
+
+    扫描该员工空的 pending 归纳工单（key_points/decisions/action_items 全空）:
+    - 源记忆 <2 条 或 总字数 <30 → 直接归档（无价值工单, 不再占用审核队列）
+    - LLM 生成结构化摘要: 全空 → 归档; 有内容 → 回填字段,
+      confidence ≥ 0.7 → status='active'（调研 §5.4 高置信自动通过）, 否则保持 pending 待审
+    - LLM 调用/解析失败 → 保持 pending 不动（下轮 DailyJob 重试）
+    返回 {'filled': n, 'archived': n, 'error': n}
+    """
+    result_counts = {'filled': 0, 'archived': 0, 'error': 0}
+    conn = _db_conn()
+    try:
+        rows = conn.execute(
+            "SELECT * FROM memory_summary WHERE emp_id=? AND status='pending' "
+            "AND key_points='[]' AND decisions='[]' AND action_items='[]'",
+            (emp_id,)).fetchall()
+        if not rows:
+            return result_counts
+        # 员工记忆索引（MS3）
+        try:
+            mem_data = ms3.load_memory(emp_id)
+            mem_index = {m.get('id'): m for m in mem_data.get('core', []) + mem_data.get('daily', [])}
+        except Exception:
+            mem_index = {}
+
+        for row in rows:
+            try:
+                try:
+                    src_ids = json.loads(row['source_mem_ids'] or '[]')
+                except (json.JSONDecodeError, TypeError):
+                    src_ids = []
+                items = []
+                for mid in src_ids[:30]:
+                    m = mem_index.get(mid)
+                    if m and (m.get('value') or '').strip():
+                        items.append(str(m['value']).strip()[:200])
+                total_chars = sum(len(i) for i in items)
+                if len(items) < 2 or total_chars < 30:
+                    # 无实质源内容 → 归档空工单
+                    conn.execute("UPDATE memory_summary SET status='archived', updated_at=? WHERE id=?",
+                                 (int(time.time() * 1000), row['id']))
+                    result_counts['archived'] += 1
+                    continue
+
+                llm_cfg = llm_cfg or _resolve_induce_llm_config(emp_id)
+                if not llm_cfg or not llm_cfg.get('apiKey'):
+                    result_counts['error'] += 1
+                    continue
+                prompt = _SUMMARY_GENERATE_PROMPT.format(
+                    emp_id=emp_id, title=row['title'] or '', n=len(items),
+                    items='\n'.join(f'{i + 1}. {v}' for i, v in enumerate(items)))
+                raw = _call_chat_completion(
+                    llm_cfg.get('apiProvider', ''), llm_cfg['apiKey'],
+                    llm_cfg.get('apiModel', ''), llm_cfg.get('customEndpoint', ''),
+                    [{'role': 'user', 'content': prompt}],
+                    timeout=60, max_tokens=1500)
+                data = _extract_json_object(raw) if raw else None
+                if not isinstance(data, dict):
+                    result_counts['error'] += 1
+                    continue
+                kp = [str(x).strip() for x in (data.get('key_points') or []) if str(x).strip()][:5]
+                dc = [str(x).strip() for x in (data.get('decisions') or []) if str(x).strip()][:5]
+                ai = [str(x).strip() for x in (data.get('action_items') or []) if str(x).strip()][:5]
+                conf = data.get('confidence', 0)
+                try:
+                    conf = float(conf)
+                except (TypeError, ValueError):
+                    conf = 0.0
+                now = int(time.time() * 1000)
+                if not kp and not dc and not ai:
+                    # 模型判定无价值 → 归档
+                    conn.execute("UPDATE memory_summary SET status='archived', updated_at=? WHERE id=?",
+                                 (now, row['id']))
+                    result_counts['archived'] += 1
+                    continue
+                new_status = 'active' if conf >= 0.7 else 'pending'
+                conn.execute(
+                    "UPDATE memory_summary SET key_points=?, decisions=?, pending=?, action_items=?, "
+                    "status=?, updated_at=? WHERE id=?",
+                    (_dump_json_col(kp), _dump_json_col(dc), _dump_json_col(ai), _dump_json_col(ai),
+                     new_status, now, row['id']))
+                result_counts['filled'] += 1
+            except Exception as e:
+                logger.error(f'  [SummaryFill] {emp_id} 工单 {row["id"]} 生成失败: {e}')
+                result_counts['error'] += 1
+        conn.commit()
+        return result_counts
+    finally:
+        conn.close()
+
+
 def _auto_summarize_triggers(emp_id, memory):
     """记忆保存后自动触发二级归纳 pending 记录：数量触发 / 决策触发"""
     value = memory.get('value', '')
@@ -33829,6 +33939,8 @@ def _run_daily_memory_jobs(startup=False):
         logger.info(f'  [DailyJob] 无 agent，跳过')
         return
     processed = 0
+    # ★ feat(memory-phase2): 全局 LLM 配置一次解析（settings.llm providers 链），供摘要生成器复用
+    _summary_llm_cfg = _resolve_induce_llm_config('')
     for agent in agents:
         try:
             if not agent.get('apiKey', '').strip():
@@ -33839,7 +33951,7 @@ def _run_daily_memory_jobs(startup=False):
             _generate_core_candidates_for_agent(agent)
             _induct_knowledge_for_agent(agent, owner_user_id=agent.get('createdBy') or '')  # 默认进入个人库
             _detect_conflicts_for_agent(agent)
-            # FIXME: 每日凌晨3点自动创建待生成的每日归纳记录（前端 AI 队列负责正式生成）
+            # feat(memory-phase2): 每日归纳 —— 建单后立即由服务端生成结构化摘要（替代已死的前端 AI 队列）
             try:
                 today = datetime.now().strftime('%Y-%m-%d')
                 data = ms3.load_memory(emp_id)
@@ -33847,8 +33959,11 @@ def _run_daily_memory_jobs(startup=False):
                 recent_ids = [m.get('id') for m in data.get('daily', []) if m.get('createdAt', 0) >= cutoff]
                 if recent_ids:
                     _create_pending_summary(emp_id, 'daily', today + ' 每日归纳', date=today, mem_ids=recent_ids)
+                _fill = _fill_pending_summaries_for_agent(emp_id, _summary_llm_cfg)
+                if _fill.get('filled') or _fill.get('archived'):
+                    logger.info(f'  [DailyJob] {emp_id} 摘要工单: 生成 {_fill["filled"]}, 归档 {_fill["archived"]}, 失败 {_fill["error"]}')
             except Exception as e:
-                logger.error(f'  [DailyJob] {emp_id} 创建每日归纳 pending 失败: {e}')
+                logger.error(f'  [DailyJob] {emp_id} 每日归纳生成失败: {e}')
             processed += 1
         except Exception as e:
             logger.error(f'  [DailyJob] agent {agent.get("id")} 处理失败: {e}')
