@@ -37,6 +37,7 @@ import mimetypes
 import shutil
 import math
 import sqlite3
+import difflib
 try:
     import fcntl
 except ImportError:
@@ -22115,8 +22116,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                     logger.info(f'  [ChatPOST] {agent_id} self_updates={self_updates} cleaned_len={len(cleaned_reply)}')
                     # ★ fix/self-update-misfire: fallback 模型(实测 MiniMax-Text-01)会把自更新
                     #   声明当正文整段吐出, 且不带闭合 [/SELF_UPDATE] → 正则匹配不上, 人设 dump
-                    #   原样存进聊天记录当 AI 回复。检测: 含开标签但 0 个合法 update = 误触发。
-                    if '[SELF_UPDATE]' in api_reply and not self_updates:
+                    #   原样存进聊天记录当 AI 回复。两层检测: ① 含开标签但 0 个合法 update;
+                    #   ② 内容级人设 dump (fallback 模型整段复述 soulDoc 不带标签, 覆盖率兜底)。
+                    if (('[SELF_UPDATE]' in api_reply and not self_updates)
+                            or _is_persona_dump(api_reply, agent)):
                         _su_misfire = True
                         logger.warning(
                             f'  [SelfUpdateMisfire] {agent_id} 模型吐出未闭合 SELF_UPDATE dump '
@@ -22141,7 +22144,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                                 if _ru:
                                     _apply_agent_self_update(agent_id, _ru, source=f'chat:{auth.user_id}')
                                 _rc = _strip_fake_tool_calls(_rc)
-                                if _rc and '[SELF_UPDATE]' not in _rc:
+                                if _rc and '[SELF_UPDATE]' not in _rc and not _is_persona_dump(_rc, agent):
                                     cleaned_reply = _rc
                                     _su_misfire = False
                                     logger.info(f'  [SelfUpdateMisfire] {agent_id} 重试成功 len={len(_rc)}')
@@ -28404,6 +28407,21 @@ def _strip_fake_tool_calls(text):
     return cleaned.strip()
 
 
+def _is_persona_dump(reply, agent):
+    """检测 fallback 模型把员工 soulDoc/简介整段复述的「人设 dump」
+    （不带 [SELF_UPDATE] 标签时标签检测抓不到，需内容级兜底）。
+    指标: 回复中被 soulDoc+description 最长公共子序列覆盖的字符占比 ≥ 0.6。
+    校准(2026-10-11, Ray 实测): dump 0.93 / 正常长答 0.19 / 正常短答 0.28, 阈值 0.6 安全。"""
+    if not reply or not isinstance(reply, str) or len(reply) < 150:
+        return False
+    persona_src = ((agent or {}).get('soulDoc') or '') + '\n' + ((agent or {}).get('description') or '')
+    if len(persona_src) < 100:
+        return False
+    m = difflib.SequenceMatcher(None, reply, persona_src)
+    cover = sum(bl.size for bl in m.get_matching_blocks()) / len(reply)
+    return cover >= 0.6
+
+
 def _parse_self_updates(text):
     """解析文本中的 SELF_UPDATE 标记，返回 (updates, cleaned_text)"""
     if not text:
@@ -29113,6 +29131,19 @@ def _call_ai_api(agent, user_message, user_info=None, include_history=True, grou
                     system_prompt += f'\n\n【产品知识库】\n{rag_result["context"]}'
         except Exception as e:
             logger.error(f'  [RAG] {agent_id} 注入失败: {e}')
+
+        # ★ feat/talent-profile-inject: 私聊点名达人 → 按名字精确注入画像全字段。
+        #   背景: 向量检索对「xxx是多少？」类问句命中不稳（实测 top2 被泛化「达人分析」
+        #   条目抢走，模型回「知识库未收录」），而名字子串匹配是确定性的，与 RAG 互补。
+        #   HeavyPipe/群聊路径另有 _talent_presearch（31739，只带 ID/粉丝/品类 4 字段），
+        #   本注入面向私聊 _call_ai_api，渲染全量已填字段。
+        try:
+            _tp_ctx = _talent_profile_context(user_text)
+            if _tp_ctx:
+                system_prompt += ('\n\n【达人画像数据（系统已按名字精确查到，直接使用这些数据回答，'
+                                  '严禁回答「未收录/查无数据」）】\n' + _tp_ctx)
+        except Exception as e:
+            logger.error(f'  [TalentProfileInject] {agent_id} 注入失败: {e}')
 
         # 注入知识事件检索结果（分析档案历史结论召回）
         if include_history:
@@ -31718,6 +31749,86 @@ def _proxy_chain_forward(body_json, *, request_format, is_streaming, write_head,
     result['error'] = 'all providers failed'
     logger.error(f'  ❌ [{log_prefix}] 所有 provider 失败: attempts={result["attempts"]}')
     return result
+
+
+# ── 私聊达人画像精确注入（feat/talent-profile-inject, 2026-10-11）──
+_TALENT_PROFILE_FIELDS = [
+    ('platform', '平台'), ('douyin_id', '平台ID'), ('city', '城市'),
+    ('talent_type', '达人类型'), ('category', '主推类目'), ('content_style', '内容风格'),
+    ('followers', '粉丝量'), ('avg_views', '平均播放量'), ('total_gmv', '总GMV'),
+    ('monthly_settlement', '月结算额'), ('live_ratio', '直播GMV占比'), ('video_ratio', '视频GMV占比'),
+    ('live_gpm', '直播GPM'), ('video_gpm', '视频GPM'), ('average_price', '客单价'),
+    ('fan_gender', '粉丝性别'), ('fan_age', '粉丝年龄'), ('fan_city_tier', '粉丝城市等级'),
+    ('fan_price_range', '粉丝价格带'), ('fan_category', '粉丝品类偏好'),
+    ('hot_brands', '常带品牌'), ('top_products', 'TOP商品'),
+    ('cooperation_status', '合作状态'), ('commission_requirement', '佣金要求'),
+    ('cooperation_requirements', '合作要求'), ('fulfillment_score', '履约分'),
+    ('rating_score', '评分'), ('risk_rating', '风险评级'), ('level', '等级'),
+    ('remark', '备注'), ('agency', '所属机构'),
+]
+
+
+def _norm_talent_val(v):
+    """字段值 → 紧凑可读字符串；空值返回 ''"""
+    if v is None:
+        return ''
+    if isinstance(v, (int, float)) and not isinstance(v, bool):
+        if v == 0:
+            return ''
+        return f'{int(v):,}' if v == int(v) else f'{v:g}'
+    s = str(v).strip()
+    if not s or s in ('0', '0.0', '[]', '{}', 'null', 'None', '-'):
+        return ''
+    if s[0] in '[{':
+        try:
+            obj = json.loads(s)
+        except Exception:
+            return s
+        if not obj:
+            return ''
+        if isinstance(obj, dict):
+            return '、'.join(f'{k} {v}' for k, v in obj.items())
+        if isinstance(obj, list):
+            return '、'.join(str(x) for x in obj[:10])
+    return s
+
+
+def _talent_profile_context(user_text, limit=3):
+    """用户消息提及 active 达人名 → 从 talents 表精确查行并渲染全字段画像文本。
+    无匹配返回 ''。与向量召回互补：名字命中是确定性的。"""
+    if not user_text or not isinstance(user_text, str):
+        return ''
+    conn = _db_conn()
+    try:
+        rows = conn.execute(
+            "SELECT id, name FROM talents WHERE status='active'"
+        ).fetchall()
+        matched = []
+        for r in rows:
+            name = (r['name'] or '').strip()
+            if len(name) >= 2 and name in user_text and name not in matched:
+                matched.append(name)
+        if not matched:
+            return ''
+        blocks = []
+        for name in matched[:limit]:
+            row = conn.execute(
+                "SELECT * FROM talents WHERE status='active' AND name = ? LIMIT 1",
+                (name,)).fetchone()
+            if not row:
+                continue
+            lines = [f"▶ 达人「{row['name']}」"]
+            for key, label in _TALENT_PROFILE_FIELDS:
+                v = _norm_talent_val(row[key] if key in row.keys() else None)
+                if v:
+                    lines.append(f'{label}：{v}')
+            blocks.append('\n'.join(lines))
+        return '\n\n'.join(blocks)
+    except Exception as e:
+        logger.warning(f'  [TalentProfileInject] 查询失败: {e}')
+        return ''
+    finally:
+        conn.close()
 
 
 def _extract_last_user_message(body):
