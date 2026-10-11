@@ -27041,6 +27041,14 @@ def _build_talent_injection_text(auth, mentioned_names=None):
                 "SELECT * FROM talents WHERE status = 'active' ORDER BY followers DESC LIMIT ?",
                 (_TALENT_INJECT_LIMIT,)).fetchall()
             talents = [_talent_row_to_dict(r) for r in rows]
+            if auth.is_admin:
+                total = conn.execute(
+                    "SELECT COUNT(*) FROM talents WHERE status = 'active'").fetchone()[0]
+            else:
+                uid0 = auth.user_info.get('userId', '')
+                total = conn.execute(
+                    "SELECT COUNT(*) FROM talents WHERE status = 'active' AND created_by = ?",
+                    (uid0,)).fetchone()[0]
         finally:
             conn.close()
         if not auth.is_admin:
@@ -27063,15 +27071,18 @@ def _build_talent_injection_text(auth, mentioned_names=None):
         return ('\n\n【系统数据 - 达人数据查询结果】\n'
                 '系统查询结果：当前没有任何达人数据。你必须如实告知用户暂无数据。\n'
                 '严禁编造任何达人姓名、平台、粉丝数等信息。如果你编造了达人数据，将导致严重后果。\n\n')
-    lines = ['\n\n【系统数据 - 达人数据查询结果】']
+    lines = ['\n\n【系统数据 - 达人数据查询结果】',
+             f'系统内符合你权限范围的达人共 {total} 位，以下仅列出粉丝量最高的 {len(talents)} 位。']
     if mentioned_names:
         lines.append(
             '用户询问的达人「' + ' / '.join(sorted(mentioned_names)) +
-            '」在系统中【没有精确命中】——以下只是库里粉丝量最高的达人名单，仅供参考。'
+            '」在系统中【没有精确命中】——以上只是粉丝量 top 名单，仅供参考。'
             '你必须先如实说明库里没有这位达人，可以提议用巨量百应自动采集建档；'
             '严禁把名单中任何达人（尤其是名字相近的）当成用户询问的达人来出分析。')
     else:
-        lines.append('以下是系统查询的真实达人数据，你必须基于这些数据分析和回复。禁止编造任何不在列表中的达人。')
+        lines.append('以下是系统查询的真实达人数据，你必须基于这些数据分析和回复。'
+                     f'若用户问"共有多少达人"，准确答案是 {total} 位，不是 {len(talents)} 位。'
+                     '禁止编造任何不在列表中的达人。')
     for t in talents:
         price = t.get('single_video_settlement') or t.get('video_avg_price') or t.get('average_price') or '-'
         rate = t.get('video_interaction_rate') or '-'
