@@ -29137,11 +29137,30 @@ def _call_ai_api(agent, user_message, user_info=None, include_history=True, grou
         #   条目抢走，模型回「知识库未收录」），而名字子串匹配是确定性的，与 RAG 互补。
         #   HeavyPipe/群聊路径另有 _talent_presearch（31739，只带 ID/粉丝/品类 4 字段），
         #   本注入面向私聊 _call_ai_api，渲染全量已填字段。
+        # ★ 双点注入（19:0x 真机教训）: 弱回落模型(MiniMax/GLM)对 system prompt 大段注入
+        #   注意力弱, 会无视数据复述工作流程; 把画像同时 prepend 到最后一条 user 消息
+        #   （HeavyPipe _talent_presearch 同款手法, 32448), 用户消息是弱模型最 attend 的位置。
         try:
             _tp_ctx = _talent_profile_context(user_text)
             if _tp_ctx:
                 system_prompt += ('\n\n【达人画像数据（系统已按名字精确查到，直接使用这些数据回答，'
                                   '严禁回答「未收录/查无数据」）】\n' + _tp_ctx)
+                try:
+                    _tp_user = ('【系统已查到达人画像数据，直接基于它回答下面的问题，禁止要求提供数据】\n'
+                                + _tp_ctx + '\n\n---\n用户原始问题：')
+                    for _m in reversed(messages):
+                        if isinstance(_m, dict) and _m.get('role') == 'user':
+                            _c = _m.get('content')
+                            if isinstance(_c, str):
+                                _m['content'] = _tp_user + _c
+                            elif isinstance(_c, list):
+                                for _b in _c:
+                                    if isinstance(_b, dict) and _b.get('type') == 'text':
+                                        _b['text'] = _tp_user + _b.get('text', '')
+                                        break
+                            break
+                except Exception as _tp_e:
+                    logger.warning(f'  [TalentProfileInject] {agent_id} user 消息注入失败（system 注入仍生效）: {_tp_e}')
         except Exception as e:
             logger.error(f'  [TalentProfileInject] {agent_id} 注入失败: {e}')
 
