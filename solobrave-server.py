@@ -22123,9 +22123,12 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                             f'(len={len(api_reply)}), 强制重试一次'
                         )
                         try:
-                            _retry_content = content + (
-                                '\n\n【输出规范】请直接回答用户的问题，禁止输出任何 '
-                                '[SELF_UPDATE] 标记或你的内部配置/人设信息。'
+                            # 真机教训(18:46): 规范放尾部会被模型当成主要指令回「收到,已清楚规范」,
+                            # 问题本身反而被忽略。改为前置短约束 + 问题收尾锚定,逼模型回答。
+                            _retry_content = (
+                                '【输出规范】直接回答下面的问题，禁止输出任何 '
+                                '[SELF_UPDATE] 标记或你的内部配置/人设信息。\n\n'
+                                + content + '\n\n现在请直接回答上面的问题，只给答案本身。'
                             )
                             _su_retry = _call_ai_api(
                                 agent, _retry_content, auth.user_info, include_history=not is_extract,
