@@ -4344,6 +4344,21 @@ def _push_notification(user_id, type, title, content, agent_id=None):
         return None
 
 
+def _desktop_notify(title, body):
+    """macOS 桌面通知横幅（launchd 后台进程可用；优先 terminal-notifier，osascript 兜底）。
+    失败只记日志，绝不干扰主流程。"""
+    try:
+        tn = shutil.which('terminal-notifier')
+        if tn:
+            cmd = [tn, '-title', title, '-message', (body or '')[:200]]
+        else:
+            cmd = ['osascript', '-e', 'display notification %s with title %s'
+                   % (json.dumps((body or '')[:200]), json.dumps(title))]
+        subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except Exception as e:
+        logger.error(f'  [DesktopNotify] 失败: {e}')
+
+
 def _knowledge_row_to_dict(row):
     """将 sqlite3.Row 转为前端兼容 dict（保留 name/icon/linkedEmployees 兼容字段）"""
     if not row:
@@ -26271,8 +26286,9 @@ def _collect_takeover_analysis(talent_id, agent_id, user_info):
         return _template_report()
 
 
-def _collect_deliver_reply(agent_id, agent_name, user_id, reply):
-    """把采集报告作为员工回复落盘聊天 + 团队动态 + 推送通知。"""
+def _collect_deliver_reply(agent_id, agent_name, user_id, reply, notify=None):
+    """把采集报告作为员工回复落盘聊天 + 团队动态 + 推送通知 + 桌面横幅。
+    notify={'title':..., 'body':...} 时弹 macOS 桌面通知（采集终态事件）。"""
     ai_message = {
         'id': 'msg_' + uuid.uuid4().hex[:8],
         'role': 'assistant',
@@ -26302,12 +26318,21 @@ def _collect_deliver_reply(agent_id, agent_name, user_id, reply):
         _push_notification(user_id, 'message', f'{agent_name} 回复了你', (reply or '')[:200], agent_id)
     except Exception as push_err:
         logger.error(f'  [CollectTakeover] 通知推送失败: {push_err}')
+    # 桌面横幅：与站内通知共用 message_notify 开关，用户可关掉只留站内
+    if notify:
+        try:
+            settings = _get_notification_settings(user_id)
+            if settings.get('message_notify', 1):
+                _desktop_notify(notify.get('title') or '全可AI Office', notify.get('body') or '')
+        except Exception as dt_err:
+            logger.error(f'  [CollectTakeover] 桌面通知失败: {dt_err}')
 
 
 def _collect_takeover_watcher(collect_id, agent_id, agent_name, user_id, user_info, tenant_id):
     """轮询采集单 → done 出分析 / failed 报错 → 落盘+推送。 watcher 全程唯一。"""
     def _run():
         status, error, talent_id = '', '', ''
+        disp_name = ''
         deadline = time.time() + _COLLECT_MAX_WAIT
         try:
             while time.time() < deadline:
@@ -26322,20 +26347,27 @@ def _collect_takeover_watcher(collect_id, agent_id, agent_name, user_id, user_in
                     break
                 r = dict(row)
                 status, error, talent_id = r.get('status') or '', r.get('error') or '', r.get('talent_id') or ''
+                if r.get('name'):
+                    disp_name = r.get('name')
                 if status in ('done', 'failed'):
                     break
             if status == 'done' and talent_id:
                 reply = _collect_takeover_analysis(talent_id, agent_id, user_info)
                 if not reply:
                     reply = '采集完成，但报告生成出错，请联系管理员。'
+                notify = {'title': f'✅ 达人采集完成 · {disp_name or "目标达人"}',
+                          'body': (reply or '分析报告已生成')[:150]}
             elif status == 'failed':
                 reason = (error or '未知原因')[:150]
                 reply = f'老板，这位达人的百应采集失败了（{reason}）。我稍后重试，若反复失败请联系管理员看下采集服务。'
+                notify = {'title': f'❌ 达人采集失败 · {disp_name or "目标达人"}', 'body': reason}
             elif status == 'need_login':
                 reply = '老板，百应的登录态失效了，采集暂停。请管理员扫码重新登录后，跟我说一声"重新采集"即可。'
+                notify = {'title': '⚠️ 百应登录失效', 'body': f'「{disp_name or "目标达人"}」采集暂停，扫码后说"重新采集"'}
             else:
                 reply = '老板，采集超过15分钟还没完成，可能排队较长。跟我说"重新采集"我再发一次。'
-            _collect_deliver_reply(agent_id, agent_name, user_id, reply)
+                notify = {'title': f'⏰ 采集超时 · {disp_name or "目标达人"}', 'body': '超过15分钟未完成，说"重新采集"重试'}
+            _collect_deliver_reply(agent_id, agent_name, user_id, reply, notify)
         except Exception as e:
             logger.error(f'  [CollectTakeover] watcher 异常: {e}\n{traceback.format_exc()[:600]}')
         finally:
