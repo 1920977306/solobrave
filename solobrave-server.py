@@ -26799,6 +26799,22 @@ def _talent_name_candidates(text):
             if c.startswith(lead) and len(c) > len(lead) + 1:
                 extra.add(c[len(lead):])
     candidates |= extra
+    # 剥尾随后缀("花花穿搭这个"→补干净候选"花花穿搭")——
+    # 模式 3/4 按最大连续段抓候选, 自然问法"花花穿搭这个达人…"只会产出
+    # "花花穿搭这个"和整句, 裸名缺失 → 单达人精确注入漏命中,
+    # 优先级 2 注入头部还会误声明"库里没有TA"(实测 2026-10-11)。
+    _DEMO_SUFFIX = ('这个', '那个', '这位', '那位', '这名', '该位', '家的', '的')
+    extra_tail = set()
+    for c in list(candidates):
+        for suf in _DEMO_SUFFIX:
+            if c.endswith(suf) and len(c) > len(suf) + 1:
+                extra_tail.add(c[:-len(suf)])
+    # 链式再剥一轮("穿搭的这个"→"穿搭的"→"穿搭")
+    for c in list(extra_tail):
+        for suf in _DEMO_SUFFIX:
+            if c.endswith(suf) and len(c) > len(suf) + 1:
+                extra_tail.add(c[:-len(suf)])
+    candidates |= extra_tail
     return {c for c in candidates if c and len(c) >= 2}
 
 
