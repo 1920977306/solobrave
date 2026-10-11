@@ -198,6 +198,8 @@ L1_EXTRACTION_PROMPT = """从以下对话中提取关于抖音团长达人撮合
 
 规则：
 - 不提取 AI 助手自身输出
+- 不提取寒暄、客套、情绪表达、无信息量的确认（如"好的""收到""谢谢""辛苦了"）
+- 不提取任务指令本身（"帮我查一下"只提取查到的结果，不提取指令）
 - 去重：相似内容只保留最新的一条
 - 每次最多提取 10 条
 - 每条包含 confidence (0-1)
@@ -522,7 +524,120 @@ PIPELINE_CONFIG = {
 }
 
 
-def check_and_run_pipeline(conn, agent_id, llm_call_func=None):
+# ============================================================
+# 5.5 写入前价值判定（调研: AI知识库记忆提炼机制 2026-10-11）
+#     原始对话全量留 raw 层(L0), 但进 L1 提取前必须先过价值闸:
+#     ① 规则预过滤(<1ms, 无 LLM) ② glm-4-flash 批分类(一次调用判整批)
+# ============================================================
+
+# 寒暄/客套精确词表（短句直接判 CHITCHAT, 不进提取）
+_CHITCHAT_EXACT = {
+    '好的', '好', '收到', '谢谢', '辛苦了', '明白了', '嗯', '嗯嗯', 'OK', 'ok', 'Ok',
+    '哈哈', '哈哈哈', '了解', '是的', '对', '没问题', '感谢', '晓得', '行', '可以',
+    '谢了', '多谢', '早安', '晚安', '早上好', '晚上好', '在吗', '在的', '你好', 'hi', 'hello',
+}
+# 无语义填充短语（出现在短句里直接判 NOISE）
+_NOISE_PHRASES = ('你明白了吗', '知道了吗', '好的我知道了', '哦哦', '噢', 'test', '测试')
+
+import re as _re_value
+
+
+def _jaccard_words(a, b):
+    """按字符 bigram 的 Jaccard 相似度（中文无空格分词, bigram 够用）"""
+    def grams(s):
+        s = (s or '').strip()
+        return {s[i:i + 2] for i in range(len(s) - 1)} or {s}
+    ga, gb = grams(a), grams(b)
+    if not ga or not gb:
+        return 0.0
+    return len(ga & gb) / len(ga | gb)
+
+
+def rule_classify_message(text, prev_text=None):
+    """规则预过滤。返回 (category, reason)；有价值返回 None。
+    预期砍掉 60-70% 的无价值消息（调研 §5.1.2）。"""
+    t = (text or '').strip()
+    if not t:
+        return ('NOISE', 'empty')
+    if len(t) <= 5:
+        return ('NOISE', 'too_short')
+    # 纯 emoji / 符号（基本多文种平面外的字符占比 ≥80%）
+    if len(t) <= 20:
+        _non_emoji = [ch for ch in t if ord(ch) < 0x2190 or ch.isalnum()]
+        if len(_non_emoji) <= max(1, len(t) * 0.2):
+            return ('CHITCHAT', 'pure_emoji')
+    if t in _CHITCHAT_EXACT or (len(t) <= 10 and t.lower() in {w.lower() for w in _CHITCHAT_EXACT}):
+        return ('CHITCHAT', 'social_exact')
+    # 短句含社交词（带标点变体: "收到，辛苦了""好的，谢谢"）→ CHITCHAT
+    if len(t) <= 12 and any(w in t for w in ('收到', '谢谢', '辛苦', '感谢', '明白了', '好的')):
+        return ('CHITCHAT', 'social_short')
+    if len(t) <= 15 and any(p in t for p in _NOISE_PHRASES):
+        return ('NOISE', 'filler_phrase')
+    if prev_text and _jaccard_words(t, prev_text) >= 0.9:
+        return ('NOISE', 'near_duplicate')
+    return None
+
+
+_VALUE_CLASSIFY_PROMPT = """你是知识库价值判定器。对下面每条对话消息判断知识价值，分类为：
+FACT(达人/商品/业务具体事实) / PREFERENCE(偏好约束) / DECISION(业务决策) / CORRECTION(修正) / EVENT(具体事件) / INSIGHT(规律发现) / TASK(任务指令) / CHITCHAT(寒暄客套) / NOISE(无信息量)。
+只返回 JSON 数组，每项: {{"idx": 序号, "category": "类别", "confidence": 0.0-1.0}}
+任务指令/寒暄/废话不需要提取内容，只要分类。
+
+消息列表：
+{items}"""
+
+
+def value_classify_batch(conversations, classify_call_func=None):
+    """对候选消息做价值判定。返回 (kept, dropped_stats)。
+    classify_call_func 为 None 或调用失败时退化为只信规则（全部放行，靠提取 prompt 负向约束）。"""
+    kept = []
+    dropped = {'CHITCHAT': 0, 'NOISE': 0, 'TASK': 0, 'error': 0}
+    candidates = []  # 需 LLM 判定的 (idx_in_kept_placeholder, conv)
+    for c in conversations:
+        cat = rule_classify_message(c.get('user_content', ''))
+        if cat:
+            dropped[cat[0]] = dropped.get(cat[0], 0) + 1
+            continue
+        candidates.append(c)
+
+    if candidates and classify_call_func:
+        # 注意: 服务跑 Python 3.9, f-string 表达式内不能有反斜杠 → 先在外面清洗文本
+        _cleaned = [_re_value.sub(r'\s+', ' ', c.get('user_content', ''))[:200] for c in candidates]
+        items = '\n'.join(f"{i}. {t}" for i, t in enumerate(_cleaned))
+        try:
+            raw = classify_call_func(_VALUE_CLASSIFY_PROMPT.format(items=items))
+            arr = _parse_llm_json(raw) or []
+            low_value = set()
+            for item in arr:
+                if not isinstance(item, dict):
+                    continue
+                cat = str(item.get('category', '')).upper()
+                conf = float(item.get('confidence', 0.5) or 0.5)
+                if cat in ('CHITCHAT', 'NOISE', 'TASK') or conf < 0.4:
+                    try:
+                        low_value.add(int(item.get('idx', -1)))
+                    except (TypeError, ValueError):
+                        continue
+            # 模型常以 1-based 返回序号（如 "1." 开头列表）——检测到就归一化
+            if low_value and 0 not in low_value and min(low_value) >= 1 \
+                    and max(low_value) <= len(candidates):
+                low_value = {i - 1 for i in low_value}
+            for i, c in enumerate(candidates):
+                if i in low_value:
+                    dropped['llm_low_value'] = dropped.get('llm_low_value', 0) + 1
+                else:
+                    kept.append(c)
+        except Exception as e:
+            logger.warning(f'[MemoryPipeline] 价值判定 LLM 失败, 退化为规则级: {e}')
+            dropped['error'] += 1
+            kept.extend(candidates)
+    else:
+        kept.extend(candidates)
+
+    return kept, dropped
+
+
+def check_and_run_pipeline(conn, agent_id, llm_call_func=None, classify_call_func=None):
     """
     检查 Pipeline 触发条件，按需执行 L1 提取
     在每次对话结束后调用
@@ -538,14 +653,23 @@ def check_and_run_pipeline(conn, agent_id, llm_call_func=None):
         _set_pipeline_status(conn, agent_id, 'L1_extract', 'running')
 
         conversations = get_recent_conversations(conn, agent_id, limit=config['every_n_conversations'])
-        atoms = extract_l1_atoms(conn, agent_id, conversations, llm_call_func)
+        # ★ 写入前价值判定闸: 规则预过滤 + LLM 批分类, 闲聊/废话不进提取
+        kept, dropped = value_classify_batch(conversations, classify_call_func)
+        if len(kept) < 2:
+            # 整批无价值: 消费掉计数器, 不调提取 LLM
+            _reset_pipeline_counter(conn, agent_id, 'L1_extract', 'conversation_count')
+            _set_pipeline_status(conn, agent_id, 'L1_extract', 'idle')
+            logger.info(f'[MemoryPipeline] 价值闸拦截: 整批 {len(conversations)} 条无提取价值 {dropped}')
+            return {'action': 'gated_all_noise', 'dropped': dropped}
+
+        atoms = extract_l1_atoms(conn, agent_id, kept, llm_call_func)
 
         # 重置计数器
         _reset_pipeline_counter(conn, agent_id, 'L1_extract', 'conversation_count')
         _set_pipeline_status(conn, agent_id, 'L1_extract', 'idle')
 
-        logger.info(f'[MemoryPipeline] L1 extraction completed: {len(atoms)} atoms')
-        return {'action': 'L1_extracted', 'atoms_count': len(atoms)}
+        logger.info(f'[MemoryPipeline] L1 extraction completed: {len(atoms)} atoms (价值闸 {dropped})')
+        return {'action': 'L1_extracted', 'atoms_count': len(atoms), 'dropped': dropped}
 
     return {
         'action': 'waiting',
@@ -721,3 +845,111 @@ def get_memory_stats(conn, agent_id=None):
         'L2_scenes': scene_count,
         'L3_personas': persona_count
     }
+
+
+# ============================================================
+# 7. L2 聚合（atoms → scenes）
+#    调研: 聚合层空转修复 —— 够密度的原子事实聚成场景块, 供 recall_with_budget 召回。
+#    纯确定性聚类(scene_tag 分组 + 内容 bigram Jaccard 贪心), 无 LLM 调用。
+# ============================================================
+
+_L2_CLUSTER_SIMILARITY = 0.25   # 同一 cluster 的内容相似度阈值
+_L2_MIN_CLUSTER_SIZE = 3        # 少于 3 条原子不生成 scene
+_L2_SCENE_MAX_ATOMS = 20        # 单个 scene 最多挂多少原子
+_L2_SCENE_SUMMARY_ITEMS = 5     # scene 摘要拼接多少条原子内容
+
+
+def _scene_covered_atom_ids(conn):
+    """收集所有已入 scene 的原子 id（scene.atom_ids JSON）"""
+    covered = set()
+    for (atom_ids_json,) in conn.execute('SELECT atom_ids FROM memory_scenes'):
+        try:
+            covered.update(json.loads(atom_ids_json or '[]'))
+        except (json.JSONDecodeError, TypeError):
+            continue
+    return covered
+
+
+def aggregate_l2_scenes(conn, agent_id=None, min_cluster_size=None):
+    """把未入 scene 的 atoms 聚类成 memory_scenes 行。
+
+    agent_id=None 时聚合全部员工（供夜间 cron）。
+    返回 {'new_scenes': n, 'atoms_clustered': m, 'clusters_skipped': k}
+    """
+    min_cluster_size = min_cluster_size or _L2_MIN_CLUSTER_SIZE
+    covered = _scene_covered_atom_ids(conn)
+
+    sql = ('SELECT id, agent_id, atom_type, content, keywords, scene_tag, confidence, created_at '
+           'FROM memory_atoms ORDER BY created_at')
+    params = ()
+    if agent_id:
+        sql = sql.replace('FROM memory_atoms', 'FROM memory_atoms WHERE agent_id=?')
+        params = (agent_id,)
+    rows = conn.execute(sql, params).fetchall()
+
+    # 按 scene_tag 分组（空 tag → general）
+    groups = {}
+    for r in rows:
+        aid = r[0]
+        if aid in covered:
+            continue
+        tag = (r[5] or '').strip() or 'general'
+        groups.setdefault(tag, []).append({
+            'id': aid, 'agent_id': r[1], 'atom_type': r[2],
+            'content': r[3] or '', 'keywords': r[4] or '',
+            'confidence': r[6] or 0.5, 'created_at': r[7],
+        })
+
+    new_scenes = 0
+    atoms_clustered = 0
+    clusters_skipped = 0
+
+    for tag, atoms in groups.items():
+        # 组内贪心聚类: 与已有 cluster 的并集关键词 Jaccard ≥ 阈值则并入
+        clusters = []  # [{'atoms': [...], 'sig': 内容拼接}]
+        for a in atoms:
+            placed = False
+            for cl in clusters:
+                if len(cl['atoms']) >= _L2_SCENE_MAX_ATOMS:
+                    continue
+                if _jaccard_words(cl['sig'], a['content']) >= _L2_CLUSTER_SIMILARITY:
+                    cl['atoms'].append(a)
+                    cl['sig'] += ' ' + a['content']
+                    placed = True
+                    break
+            if not placed:
+                clusters.append({'atoms': [a], 'sig': a['content']})
+
+        for cl in clusters:
+            if len(cl['atoms']) < min_cluster_size:
+                clusters_skipped += 1
+                continue
+            members = cl['atoms']
+            agent_ids = sorted({m['agent_id'] for m in members})
+            kw_parts = []
+            for m in members:
+                for kw in (m['keywords'] or '').split(','):
+                    kw = kw.strip()
+                    if kw and kw not in kw_parts:
+                        kw_parts.append(kw)
+            title_src = ' '.join(kw_parts[:5]) or members[0]['content'][:30]
+            title = title_src[:40]
+            summary_items = [m['content'][:80] for m in members[:_L2_SCENE_SUMMARY_ITEMS]]
+            summary = '；'.join(summary_items)[:500]
+            conf = round(sum(m['confidence'] for m in members) / len(members), 2)
+            conn.execute(
+                '''INSERT INTO memory_scenes (id, agent_id, scene_type, title, summary, atom_ids, keywords, created_at, updated_at)
+                   VALUES (?,?,?,?,?,?,?,datetime('now','localtime'),datetime('now','localtime'))''',
+                (str(uuid.uuid4()), agent_ids[0] if len(agent_ids) == 1 else 'shared',
+                 tag, title, summary,
+                 json.dumps([m['id'] for m in members], ensure_ascii=False),
+                 ','.join(kw_parts[:10]),)
+            )
+            new_scenes += 1
+            atoms_clustered += len(members)
+
+    conn.commit()
+    if new_scenes:
+        logger.info(f'[MemoryPipeline] L2 聚合: 新建 {new_scenes} 个 scene, 覆盖 {atoms_clustered} 原子')
+    return {'new_scenes': new_scenes, 'atoms_clustered': atoms_clustered,
+            'clusters_skipped': clusters_skipped, 'groups': len(groups)}

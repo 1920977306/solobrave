@@ -6854,14 +6854,17 @@ def _create_pending_summary(emp_id, summary_type, title, date=None, project_name
     conn = _db_conn()
     try:
         existing = None
+        # ★ fix(summary-dedup): 原实现只查 status='active'，但本函数创建的是 'pending'
+        #   → 从未命中去重，每日 cron + 自动触发不断重复建空壳工单（498 条积压根因之一）。
+        #   现在 pending 也算已存在，同人同类型同日期/项目只建一张工单。
         if summary_type == 'daily' and date:
             existing = conn.execute(
-                "SELECT id FROM memory_summary WHERE emp_id=? AND summary_type=? AND date=? AND status='active'",
+                "SELECT id FROM memory_summary WHERE emp_id=? AND summary_type=? AND date=? AND status IN ('active','pending')",
                 (emp_id, summary_type, date)
             ).fetchone()
         elif summary_type == 'project' and project_name:
             existing = conn.execute(
-                "SELECT id FROM memory_summary WHERE emp_id=? AND summary_type=? AND project_name=? AND status='active'",
+                "SELECT id FROM memory_summary WHERE emp_id=? AND summary_type=? AND project_name=? AND status IN ('active','pending')",
                 (emp_id, summary_type, project_name)
             ).fetchone()
         if existing:
@@ -28196,6 +28199,21 @@ def _resolve_induce_llm_config(agent_id=''):
     try:
         settings = _read_json(SETTINGS_FILE, {}) or {}
         llm = settings.get('llm') or {}
+        # ★ fix(llm-config-shape): settings.llm 已升级为 {mode, providers: [{name, apiKey, baseUrl, model, priority}]}
+        #   原扁平 apiKey 字段不存在 → 旧逻辑静默穿透到 env 拿到错配 key(kimi key 打 zhipu URL, 401 潜伏)。
+        #   现在按 priority 取第一个有 key 的 provider。
+        if isinstance(llm, dict):
+            providers = llm.get('providers') or []
+            if isinstance(providers, list):
+                for p in sorted((x for x in providers if isinstance(x, dict)),
+                                key=lambda x: x.get('priority', 99)):
+                    if (p.get('apiKey') or '').strip():
+                        return {
+                            'apiProvider': (p.get('name') or '').strip(),
+                            'apiKey': p['apiKey'].strip(),
+                            'apiModel': (p.get('model') or '').strip(),
+                            'customEndpoint': (p.get('baseUrl') or '').strip(),
+                        }
         if isinstance(llm, dict) and (llm.get('apiKey') or '').strip():
             return {
                 'apiProvider': (llm.get('provider') or '').strip(),
@@ -32301,6 +32319,23 @@ def _memory_pipeline_llm_call(model=None, api_key=None):
     return _call
 
 
+def _memory_value_classify_call():
+    """构造记忆价值判定用的 glm-4-flash 调用函数（签名 prompt -> str）。
+    走 _resolve_induce_llm_config 的配置链（settings.llm → SOLOBRAVE_AI_* env → agents.json），
+    与规律归纳同源，成本极低；配置缺失时返回 None（管道退化为规则级过滤）。"""
+    cfg = _resolve_induce_llm_config('')
+    if not cfg or not cfg.get('apiKey'):
+        return None
+
+    def _call(prompt):
+        return _call_chat_completion(
+            cfg.get('apiProvider', ''), cfg['apiKey'],
+            cfg.get('apiModel', 'glm-4-flash'), cfg.get('customEndpoint', ''),
+            [{'role': 'user', 'content': prompt}],
+            timeout=30, max_tokens=1000)
+    return _call
+
+
 def _parse_vision_description(raw_desc):
     """解析 vision 响应：兼容 markdown 代码块包裹的 JSON 和纯文本"""
     if not raw_desc:
@@ -33230,7 +33265,8 @@ def _handle_proxy_kimi(self):
         try:
             memory_pipeline.check_and_run_pipeline(
                 conn, agent_id,
-                llm_call_func=_memory_pipeline_llm_call(body.get('model'), api_key=agent_api_key))
+                llm_call_func=_memory_pipeline_llm_call(body.get('model'), api_key=agent_api_key),
+                classify_call_func=_memory_value_classify_call())
         except Exception as e:
             print(f'  [MemoryPipeline] pipeline check failed: {e}', flush=True)
         finally:
@@ -33495,7 +33531,8 @@ def _handle_proxy_kimi_chain(self, body, agent_id, agent_api_key, path_suffix, _
         try:
             memory_pipeline.check_and_run_pipeline(
                 conn, agent_id,
-                llm_call_func=_memory_pipeline_llm_call(body.get('model'), api_key=agent_api_key))
+                llm_call_func=_memory_pipeline_llm_call(body.get('model'), api_key=agent_api_key),
+                classify_call_func=_memory_value_classify_call())
         except Exception as e:
             print(f'  [MemoryPipeline] pipeline check failed: {e}', flush=True)
         finally:
@@ -34854,6 +34891,8 @@ def main():
     # 启动后台定期规律归纳 (dev/feat: 规律库修复 #3)
     # 必须在 serve_forever() 之前 — 后者阻塞进程, 后续代码不会执行
     _start_pattern_induce_cron()
+    # L2 记忆聚合 cron (feat/memory-l2) — 同理必须在 serve_forever() 之前
+    _start_memory_aggregate_cron()
 
     try:
         server.serve_forever()
@@ -35094,7 +35133,38 @@ def _run_pattern_induce_all_categories():
         raise  # 让外层 except 知道
 
 
+def _memory_aggregate_once():
+    """L2 聚合单次执行：atoms → memory_scenes（全部员工）"""
+    conn = _db_conn()
+    try:
+        stats = memory_pipeline.aggregate_l2_scenes(conn)
+        logger.info(f'  [MemoryAggregate-Cron] {stats}')
+    finally:
+        conn.close()
+
+
+def _start_memory_aggregate_cron():
+    """feat(memory-l2): L2 聚合 cron — 每 6h 把未入 scene 的原子聚合成 memory_scenes。
+    与 PatternInduce-Cron 同款 Timer 周期模式（含其 daemon timer 修复写法）。"""
+    def _run():
+        try:
+            for _tid in _active_tenant_ids():
+                try:
+                    _run_as_tenant(_tid, _memory_aggregate_once)
+                except Exception as e:
+                    logger.error(f'  [MemoryAggregate-Cron] 租户 {_tid} 聚合失败: {e}')
+        except Exception as e:
+            logger.error(f'  [MemoryAggregate-Cron] job failed: {e}')
+        finally:
+            _t = threading.Timer(6 * 3600, _run)
+            _t.daemon = True
+            _t.start()
+
+    threading.Thread(target=_run, daemon=True, name='MemoryAggregate-Cron').start()
+    logger.info('  [MemoryAggregate-Cron] started (每 6h 跑一次 L2 聚合)')
+
+
 if __name__ == '__main__':
+    # 注意: main() 内部以 serve_forever() 收尾(阻塞), 本块 main() 之后的语句永不执行;
+    # 后台 cron 的启动调用已全部移入 main() serve_forever 之前。
     main()
-    # 启动后台定期规律归纳 (dev/feat: 规律库修复 #3)
-    _start_pattern_induce_cron()
