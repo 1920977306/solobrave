@@ -90,11 +90,13 @@ CREATE TABLE IF NOT EXISTS bot_tenants (
 );
 
 -- 3.2 任务队列（异步执行，幂等: 同租户同目标 pending/collecting 不重复入队）
+-- v1.1 实现修正案: ①补 chat_id（worker 完成/失败卡片推送目标）②type 增 image（vision 入 worker 后截图也走队列）
 CREATE TABLE IF NOT EXISTS bot_collect_tasks (
   id           TEXT PRIMARY KEY,
   tenant_key   TEXT NOT NULL,
-  type         TEXT NOT NULL,                   -- douyin | product
-  target       TEXT NOT NULL,                   -- 抖音号 或 归一化商品 URL
+  type         TEXT NOT NULL,                   -- douyin | product | image
+  target       TEXT NOT NULL,                   -- 抖音号 / 归一化商品 URL / 图片落盘路径
+  chat_id      TEXT NOT NULL DEFAULT '',        -- 卡片推送目标会话
   status       TEXT NOT NULL DEFAULT 'pending', -- pending/collecting/done/failed
   cache_hit    INTEGER NOT NULL DEFAULT 0,
   credits_cost INTEGER NOT NULL DEFAULT 0,
