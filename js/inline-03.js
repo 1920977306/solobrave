@@ -1611,6 +1611,16 @@ async function sendMsg() {
         heavyJobId = saveData.jobId || null;
         heavyPlaceholder = (saveData.aiMessage && saveData.aiMessage.content) || '';
       }
+      // 百应采集接管：回复已由后端直出并落库（带 collectId），刷新聊天展示实时进度卡，
+      // 不再走 OpenClaw 主干道——避免 Helen 对同一条采集指令二次回复
+      if (saveData && saveData.collectTakeover) {
+        var tpTakeover = document.getElementById('typingMsg');
+        if (tpTakeover) tpTakeover.remove();
+        userMsg.removeAttribute('data-status');
+        restoreOnline();
+        renderMsgs('private');
+        return;
+      }
     } else {
       // ③ save 失败: 标 failed + 加重试按钮(用户点 retryMessage 重发, 不需重输)
       userMsg.setAttribute('data-status', 'failed');
@@ -8243,6 +8253,8 @@ function renderMsgs(type) {
       }
       // 〔r81 批注①〕MS3 召回 chip 条（历史消息，气泡上方；复用 builder，无数据不渲染）
       var injChipsHtml2 = (!own && m.injectionTags) ? buildInjectionChipsHtml(m.injectionTags) : '';
+      // 百应采集接管消息：气泡下方挂实时进度卡（轮询采集单状态）
+      var collectCardHtml2 = (!own && m.collectTakeover && m.collectId) ? _buildCollectCardHtml(m.collectId) : '';
       // ④ 连续消息合并: 跳过 avatar + sender 行; 时间只在 lastInGroup 显示
       var isConsecutive = groupFlags[idx].consecutive;
       var isLastInGroup = groupFlags[idx].lastInGroup;
@@ -8261,12 +8273,18 @@ function renderMsgs(type) {
         var timeOnlyHtml = '<div class="msg-sender msg-sender-time-only"><span class="msg-sender-time">' + timeStr + '</span></div>';
         senderHtml = timeOnlyHtml;
       }
-      return sepHtml + '<div class="' + msgClasses.trim() + '" data-msg-id="' + escapeAttr(m.id || '') + '">' + avatarHtml + '<div class="msg-content">' + senderHtml + injChipsHtml2 + '<div class="msg-bubble">' + quoteHtml2 + formatMessageContent(m.content) + '</div>' + citationHtml2 + imagesHtml2 + '<div class="msg-hover-actions" data-msg-id="' + escapeAttr(m.id || '') + '">' + '<button class="msg-hover-btn" data-action="copy" title="复制">📋</button>' + '<button class="msg-hover-btn" data-action="quote" title="引用">💬</button>' + (own ? '<button class="msg-hover-btn" data-action="resend" title="重发">🔄</button>' : '') + '<button class="msg-hover-btn danger" data-action="delete" title="删除">🗑</button>' + '</div>' + '</div></div>';
+      return sepHtml + '<div class="' + msgClasses.trim() + '" data-msg-id="' + escapeAttr(m.id || '') + '">' + avatarHtml + '<div class="msg-content">' + senderHtml + injChipsHtml2 + '<div class="msg-bubble">' + quoteHtml2 + formatMessageContent(m.content) + '</div>' + collectCardHtml2 + citationHtml2 + imagesHtml2 + '<div class="msg-hover-actions" data-msg-id="' + escapeAttr(m.id || '') + '">' + '<button class="msg-hover-btn" data-action="copy" title="复制">📋</button>' + '<button class="msg-hover-btn" data-action="quote" title="引用">💬</button>' + (own ? '<button class="msg-hover-btn" data-action="resend" title="重发">🔄</button>' : '') + '<button class="msg-hover-btn danger" data-action="delete" title="删除">🗑</button>' + '</div>' + '</div></div>';
     }).join('') + '<div class="typing-indicator" id="typingIndicator" style="display:none;"><div class="typing-dots"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div></div>';
     if (typingMsg) {
       area.appendChild(typingMsg);
     }
     area.scrollTop = area.scrollHeight;
+    // 百应采集进度卡：为仍在进行中的采集单启动/复用轮询（终态单在首次 tick 自动停）
+    filtered.forEach(function (m) {
+      if (m.role === 'assistant' && m.collectTakeover && m.collectId) {
+        _startCollectPolling(m.collectId);
+      }
+    });
   }
   // 消息区域：不显示任何硬编码 demo 消息
   const projMsgs = [];
@@ -8282,6 +8300,122 @@ function renderMsgs(type) {
     return '<div class="msg ' + (own ? 'own' : '') + '">' + (!own ? '<div class="msg-avatar">' + renderAvatar(e, 32) + '</div>' : '') + '<div class="msg-content">' + (!own ? '<div class="msg-sender"><span class="msg-sender-name">' + escapeHtml(e && e.name || '') + '</span><span class="msg-sender-role">' + escapeHtml(getEmpRoleDisplay(e) || '') + '</span><span class="msg-sender-time">' + escapeHtml(m.time || '') + '</span></div>' : '<div class="msg-sender"><span class="msg-sender-name">你</span><span class="msg-sender-time">' + escapeHtml(m.time || '') + '</span></div>') + '<div class="msg-bubble">' + formatMessageContent(m.text) + '</div>' + '</div></div>';
   }).join('') + '<div class="typing-indicator" id="typingIndicator" style="display:none;"><div class="typing-dots"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div></div>';
   area.scrollTop = area.scrollHeight;
+}
+
+// ═══ 百应采集进度卡（聊天内实时进度条）═══
+// 接管消息的 ai_message 带 collectTakeover + collectId（后端落库），
+// 前端轮询 GET /api/talent-collects/:id 实时刷新卡片，终态后停轮询，
+// done 后刷新一次聊天把分析报告拉进来。
+var _collectPollers = {};        // collectId -> interval timer
+var _collectTerminal = {};       // collectId -> 终态缓存（done/failed/need_login）
+var _collectReportPulled = {};   // collectId -> 是否已触发过聊天刷新
+
+function _ensureCollectCardStyles() {
+  if (document.getElementById('collectCardStyles')) return;
+  var st = document.createElement('style');
+  st.id = 'collectCardStyles';
+  st.textContent = [
+    '.collect-card{margin-top:8px;border:1px solid rgba(0,0,0,.08);border-radius:10px;padding:10px 12px;background:rgba(0,0,0,.02);max-width:420px}',
+    '.collect-card .cc-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}',
+    '.collect-card .cc-title{font-size:12px;font-weight:600;color:#666}',
+    '.collect-card .cc-status{font-size:12px;font-weight:600;color:#3b6ef6}',
+    '.collect-card[data-status="done"] .cc-status{color:#16a34a}',
+    '.collect-card[data-status="failed"] .cc-status{color:#dc2626}',
+    '.collect-card[data-status="need_login"] .cc-status{color:#d97706}',
+    '.collect-card .cc-bar{height:6px;border-radius:3px;background:rgba(0,0,0,.07);overflow:hidden}',
+    '.collect-card .cc-fill{height:100%;width:6%;border-radius:3px;background:#3b6ef6;transition:width .6s ease}',
+    '.collect-card[data-status="done"] .cc-fill{background:#16a34a;width:100% !important}',
+    '.collect-card[data-status="failed"] .cc-fill{background:#dc2626}',
+    '.collect-card .cc-stage{margin-top:6px;font-size:12px;color:#888;line-height:1.5}'
+  ].join('\n');
+  document.head.appendChild(st);
+}
+
+function _buildCollectCardHtml(cid) {
+  return '<div class="collect-card" id="collect-card-' + escapeAttr(cid) + '" data-status="">'
+    + '<div class="cc-head"><span class="cc-title">百应自动采集</span><span class="cc-status">连接中…</span></div>'
+    + '<div class="cc-bar"><div class="cc-fill"></div></div>'
+    + '<div class="cc-stage">正在连接采集服务…</div>'
+    + '</div>';
+}
+
+function _stopCollectPoller(cid) {
+  if (_collectPollers[cid]) {
+    clearInterval(_collectPollers[cid]);
+    delete _collectPollers[cid];
+  }
+}
+
+function _startCollectPolling(cid) {
+  _ensureCollectCardStyles();
+  if (!cid || _collectPollers[cid]) return;
+  _pollCollectOnce(cid);
+  _collectPollers[cid] = setInterval(function () { _pollCollectOnce(cid); }, 5000);
+}
+
+async function _pollCollectOnce(cid) {
+  var card = document.getElementById('collect-card-' + cid);
+  if (!card) {
+    // 聊天已切换/卡片不在 DOM：停掉轮询
+    _stopCollectPoller(cid);
+    return;
+  }
+  try {
+    var r = await apiFetch('/api/talent-collects/' + encodeURIComponent(cid));
+    if (!r || !r.ok) return;
+    var d = await r.json();
+    _paintCollectCard(card, d || {}, cid);
+  } catch (e) {
+    // 网络抖动：下次 tick 再试
+  }
+}
+
+function _paintCollectCard(card, d, cid) {
+  var st = d.status || '';
+  var statusEl = card.querySelector('.cc-status');
+  var stageEl = card.querySelector('.cc-stage');
+  var fill = card.querySelector('.cc-fill');
+  if (!statusEl || !stageEl || !fill) return;
+  var name = d.name || d.douyin_id || '目标达人';
+  var created = d.created_at || Date.now();
+  var elapsed = Date.now() - created;
+  card.setAttribute('data-status', st);
+
+  if (st === 'pending') {
+    statusEl.textContent = '排队中';
+    fill.style.width = Math.min(12, 5 + elapsed / 60000) + '%';
+    stageEl.textContent = '「' + name + '」已进采集队列，等待浏览器接单…';
+  } else if (st === 'collecting') {
+    statusEl.textContent = '采集中';
+    // 预期 7 分钟跑满 92%，剩下的留给收尾
+    fill.style.width = Math.min(92, 12 + (elapsed / 420000) * 80) + '%';
+    stageEl.textContent = elapsed < 180000
+      ? '正在打开巨量百应并搜索「' + name + '」…'
+      : (elapsed < 360000 ? '正在浏览达人主页，采集带货与短视频数据…' : '数据采集完毕，整理归档中…');
+  } else if (st === 'done') {
+    statusEl.textContent = '采集完成';
+    stageEl.textContent = '「' + name + '」数据已入库，分析报告马上送到…';
+    _collectTerminal[cid] = 'done';
+    _stopCollectPoller(cid);
+    if (!_collectReportPulled[cid]) {
+      _collectReportPulled[cid] = true;
+      // 稍等后端把报告落库，再刷新聊天把分析报告拉进来
+      setTimeout(function () {
+        if (localStorage.getItem('sb_current_emp')) renderMsgs('private');
+      }, 1500);
+    }
+  } else if (st === 'failed') {
+    statusEl.textContent = '采集失败';
+    var err = (d.error || '未知原因');
+    stageEl.textContent = err.slice(0, 60) + (err.length > 60 ? '…' : '') + '（跟我说"重新采集"可重试）';
+    _collectTerminal[cid] = 'failed';
+    _stopCollectPoller(cid);
+  } else if (st === 'need_login') {
+    statusEl.textContent = '待扫码登录';
+    stageEl.textContent = '百应登录态失效，请管理员扫码后跟我说"重新采集"。';
+    _collectTerminal[cid] = 'need_login';
+    _stopCollectPoller(cid);
+  }
 }
 
 // ============ 聊天区空状态 - 欢迎态 ============
@@ -13688,7 +13822,10 @@ function loadChatFromServer(id, type, callback) {
           citations: m.citations || [],
           injectionTags: m.injectionTags || null,
           reply_to: m.reply_to || null,
-          reply_to_message: m.reply_to_message || null
+          reply_to_message: m.reply_to_message || null,
+          collectTakeover: m.collectTakeover || null,
+          collectId: m.collectId || null,
+          collectReport: m.collectReport || null
         };
       });
       // 按时间升序排序（旧消息在前，新消息在后）
