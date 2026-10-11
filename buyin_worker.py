@@ -35,7 +35,8 @@ DB_PATH = PROD_DIR / 'data' / 'solobrave.db'
 SERVER_BASE = 'http://127.0.0.1:8080'          # solobrave 内部 HTTP API（8081 是 WS，别用）
 WORKER_AGENT_ID = 'emp_1780199176680'          # Helen（商务），数据落她子库
 BROWSER_DIR = PROD_DIR / 'data' / 'buyin_browser'
-PROFILE_DIR = BROWSER_DIR / 'profile'          # 登录态持久化目录
+PROFILE_DIR = BROWSER_DIR / 'profile'          # 团长端登录态持久化目录
+DAREN_PROFILE_DIR = BROWSER_DIR / 'profile_daren'  # 达人端独立 profile（同域不同身份，必须分开）
 SHOTS_DIR = BROWSER_DIR / 'shots'
 ARCHIVE_DIR = BROWSER_DIR / 'archives'
 VIDEOS_DIR = BROWSER_DIR / 'videos'             # 拆解视频落地目录
@@ -44,6 +45,9 @@ LOG_FILE = BROWSER_DIR / 'worker.log'
 CONTROL_HOST, CONTROL_PORT = '127.0.0.1', 8095
 BUYIN_SQUARE = 'https://buyin.jinritemai.com/dashboard/servicehall/daren-square'
 BUYIN_HOME = 'https://buyin.jinritemai.com/'
+# 达人端（商品库采集走这里：选品广场/商品详情在达人工作台）
+# 老大实测：正确入口是抖音电商官网 www.douyinec.com → 右上角「登录」→ 达人工作台
+DAREN_HOME = 'https://www.douyinec.com/'
 
 # GLM-4.7（openai-completions 协议）— key 从 openclaw.json 读，不写死
 OPENCLAW_CFG = Path.home() / '.openclaw' / 'openclaw.json'
@@ -236,7 +240,9 @@ class NeedLogin(Exception):
 class Browser:
     """常驻 Playwright 浏览器（有头模式，登录态持久化）。"""
 
-    def __init__(self):
+    def __init__(self, profile_dir=PROFILE_DIR, label='团长端'):
+        self.profile_dir = Path(profile_dir)
+        self.label = label
         self._pw = None
         self.ctx = None
         self.page = None
@@ -254,10 +260,17 @@ class Browser:
             except Exception:
                 pass
         from playwright.sync_api import sync_playwright
-        log('[Browser] 启动（有头模式，持久化目录）…')
-        self._pw = sync_playwright().start()
+        log(f'[Browser:{self.label}] 启动（有头模式，持久化目录 {self.profile_dir.name}）…')
+        self.profile_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            self._pw = sync_playwright().start()
+        except Exception as e:
+            if 'asyncio loop' in str(e):
+                # 线程事件循环被污染（Chromium 崩溃后遗症），交由 _browser_loop 换线程自愈
+                raise BrowserLoopPoisoned(str(e))
+            raise
         self.ctx = self._pw.chromium.launch_persistent_context(
-            str(PROFILE_DIR),
+            str(self.profile_dir),
             headless=False,
             locale='zh-CN',
             timezone_id='Asia/Shanghai',
@@ -266,7 +279,7 @@ class Browser:
                   '--start-maximized'],
         )
         self.page = self.ctx.pages[0] if self.ctx.pages else self.ctx.new_page()
-        log('[Browser] 已启动')
+        log(f'[Browser:{self.label}] 已启动')
         return self.page
 
     def close(self):
@@ -292,16 +305,21 @@ class Browser:
             url = self.page.url
             if 'login' in url or 'passport' in url:
                 return True, False
-            # 以登录 cookie 为准（ecom_us_lt_buyin 是百应登录态核心标记）
+            # 以登录 cookie 为准；达人端用 daren 专属标记
+            mark = DAREN_LOGIN_MARK if self.label == '达人端' else None
             cookies = self.ctx.cookies('https://buyin.jinritemai.com')
             names = {c.get('name') for c in cookies}
+            if mark:
+                return True, mark in names
             logged = 'ecom_us_lt_buyin' in names and 'sessionid' in names
             return True, logged
         except Exception:
             return True, False
 
 
-BROWSER = Browser()
+BROWSER = Browser(PROFILE_DIR, '团长端')
+DAREN_BROWSER = Browser(DAREN_PROFILE_DIR, '达人端')
+DAREN_LOGIN_MARK = 'sid_ucp_sso_v1_daren'   # 达人端登录态核心 cookie（SSO daren 域）
 
 
 # ─────────────────────────────── 采集管线 ───────────────────────────────
@@ -1341,7 +1359,8 @@ JOBS = {}          # collect_id -> {status, stage, started, error, shots}
 _job_lock = threading.Lock()
 _running = threading.Event()
 JOB_Q = __import__('queue').Queue()
-STATE = {'browser_up': False, 'logged_in': False}   # 浏览器线程维护，HTTP线程只读
+STATE = {'browser_up': False, 'logged_in': False,
+         'daren_browser_up': False, 'daren_logged_in': False}   # 浏览器线程维护，HTTP线程只读
 
 
 def _job_set(cid, **kw):
@@ -1357,6 +1376,34 @@ def _state_set(**kw):
 def submit_collect(row):
     """任意线程调用：把任务放入队列，由唯一浏览器线程执行。"""
     JOB_Q.put(row)
+
+
+class BrowserLoopPoisoned(Exception):
+    """浏览器线程的 asyncio 事件循环被污染（Chromium 崩溃后遗症），
+    本线程已无法再用 sync_playwright，必须换新线程。"""
+
+
+def _reset_browser_instances():
+    """丢弃被污染的 Browser 实例状态（旧线程里的残留 loop 随线程消亡）。"""
+    for b in (BROWSER, DAREN_BROWSER):
+        try:
+            b.ctx = None
+            b.page = None
+            b._pw = None
+        except Exception:
+            pass
+
+
+_browser_thread = None
+
+
+def _ensure_browser_thread():
+    """浏览器工作线程托管：挂了或中毒退出后由下一个任务触发重建。"""
+    global _browser_thread
+    if _browser_thread is None or not _browser_thread.is_alive():
+        _browser_thread = threading.Thread(target=_browser_loop, daemon=True)
+        _browser_thread.start()
+        log('[BrowserLoop] 工作线程已启动')
 
 
 def _browser_loop():
@@ -1375,24 +1422,124 @@ def _browser_loop():
             except Exception as e:
                 log(f'[Control] 打开浏览器失败: {e}')
             continue
+        if row.get('_open_daren_browser'):
+            try:
+                page = DAREN_BROWSER.ensure()
+                page.goto(DAREN_HOME, timeout=60000)
+                page.wait_for_load_state('domcontentloaded')
+                _human_sleep(3, 5)
+                # 未登录时：官网右上角「登录」→ 选「达人工作台」
+                if 'login' in page.url or DAREN_BROWSER.health()[1] is False:
+                    try:
+                        page.locator('text=登录').first.click(timeout=8000)
+                        _human_sleep(1.5, 2.5)
+                        page.locator('text=达人工作台').first.click(timeout=8000)
+                        _human_sleep(3, 5)
+                    except Exception as e:
+                        log(f'[Control] 官网登录入口点击失败（可人工操作）: {e}')
+                log(f'[Control] 达人端入口已打开 url={page.url}')
+            except Exception as e:
+                log(f'[Control] 打开达人端浏览器失败: {e}')
+            continue
+        if row.get('_graceful_daren'):
+            try:
+                DAREN_BROWSER.close()
+                log('[Control] 达人端浏览器已优雅关闭（cookie 已落盘）')
+            except Exception as e:
+                log(f'[Control] 优雅关闭失败: {e}')
+            continue
+        if row.get('_probe_daren'):
+            try:
+                info = {'up': DAREN_BROWSER.up(), 'url': None, 'cookies': []}
+                if DAREN_BROWSER.up() and DAREN_BROWSER.page and not DAREN_BROWSER.page.is_closed():
+                    info['url'] = DAREN_BROWSER.page.url
+                    cs = DAREN_BROWSER.ctx.cookies()
+                    info['cookies'] = sorted({f"{c.get('domain','')}:{c.get('name')}" for c in cs})
+                with _job_lock:
+                    STATE['daren_probe'] = info
+                log(f"[Control] probe: url={info['url']} cookies={len(info['cookies'])}")
+            except Exception as e:
+                log(f'[Control] probe 失败: {e}')
+            continue
         try:
             # 顺手刷新登录态标记（供 /health 读取）
             try:
                 up, logged = BROWSER.health()
-                _state_set(browser_up=up, logged_in=logged)
+                dup, dlogged = DAREN_BROWSER.health()
+                _state_set(browser_up=up, logged_in=logged,
+                           daren_browser_up=dup, daren_logged_in=dlogged)
             except Exception:
                 pass
             if row.get('_teardown'):
                 _run_teardown_job(row)
+            elif row.get('_product'):
+                _run_product_impl(row)
             else:
                 _run_collect_impl(row)
+        except BrowserLoopPoisoned:
+            # 事件循环中毒：本线程已废，重置实例、任务重新排队、新开线程接手
+            log('[BrowserLoop] 检测到 asyncio 循环污染，重启工作线程自愈')
+            _reset_browser_instances()
+            JOB_Q.put(row)
+            _ensure_browser_thread()
+            break
         except Exception as e:
             log(f'[BrowserLoop] 未捕获异常: {e}\n{traceback.format_exc()[:800]}')
         try:
             up, logged = BROWSER.health()
-            _state_set(browser_up=up, logged_in=logged)
+            dup, dlogged = DAREN_BROWSER.health()
+            _state_set(browser_up=up, logged_in=logged,
+                       daren_browser_up=dup, daren_logged_in=dlogged)
         except Exception:
             pass
+
+
+def _run_product_impl(row):
+    """商品库采集（达人端浏览器）。v1=DOM 侦察：打开目标页并留存现场，
+    人工确认达人端商品页结构后再升级为完整解析管线。"""
+    cid = row['id']
+    url, name, shop = row.get('url') or '', row.get('name') or '', row.get('shop') or ''
+    _job_set(cid, status='collecting', stage='启动达人端浏览器', started=time.time())
+    log(f'[ProductJob] {cid} 开始商品采集: url={url} name={name} shop={shop}')
+    try:
+        page = DAREN_BROWSER.ensure()
+        _job_set(cid, stage='打开商品页')
+        if url:
+            page.goto(url, timeout=60000)
+            page.wait_for_load_state('domcontentloaded')
+            _human_sleep(3, 5)
+        # 无 url 时不导航：直接看当前页（不打断人工登录流程）
+        # 侦察阶段：登录检查软处理（cookie 名待 probe 确认，失败也留存现场）
+        try:
+            _check_login_state(page)
+        except NeedLogin as e:
+            log(f'[ProductJob] {cid} 登录态未确认（继续侦察）: {e}')
+        # 有 url 且停在角色选择页时，自动进入达人工作台（无 url 的纯侦察不点，避免打断人工操作）
+        if url and 'roles-select' in page.url:
+            _job_set(cid, stage='进入达人工作台')
+            page.get_by_text('登录达人工作台', exact=True).first.click(timeout=8000)
+            page.wait_for_load_state('domcontentloaded')
+            _human_sleep(4, 6)
+            log(f'[ProductJob] {cid} 点击达人工作台后 url={page.url}')
+        _job_set(cid, stage='留存现场（DOM 侦察）')
+        _dump_page(page, f'product_{name or "url"}', cid)
+        _job_set(cid, status='recon_done', stage='现场已留存，等待解析规则')
+        log(f'[ProductJob] {cid} 侦察完成 url={page.url}')
+    except NeedLogin as e:
+        err = f'达人端登录态缺失，请先扫码登录: {e}'
+        log(f'[ProductJob] {cid} {err}')
+        _job_set(cid, status='need_login', error=err)
+    except BrowserLoopPoisoned:
+        raise
+    except Exception as e:
+        err = f'{type(e).__name__}: {e}'
+        log(f'[ProductJob] {cid} 失败: {err}\n{traceback.format_exc()[:1200]}')
+        try:
+            if DAREN_BROWSER.page:
+                _dump_page(DAREN_BROWSER.page, 'fatal', cid)
+        except Exception:
+            pass
+        _job_set(cid, status='failed', error=err)
 
 
 def _run_collect_impl(row):
@@ -1476,6 +1623,8 @@ def _run_collect_impl(row):
         log(f'[Job] {cid} {err}')
         _safe_fail(cid, err)
         _job_set(cid, status='need_login', error=err)
+    except BrowserLoopPoisoned:
+        raise
     except Exception as e:
         err = f'{type(e).__name__}: {e}'
         log(f'[Job] {cid} 失败: {err}\n{traceback.format_exc()[:1500]}')
@@ -1527,10 +1676,13 @@ class ControlHandler(BaseHTTPRequestHandler):
         if self.path == '/health':
             with _job_lock:
                 up, logged_in = STATE.get('browser_up'), STATE.get('logged_in')
+                dup, dlogged = STATE.get('daren_browser_up'), STATE.get('daren_logged_in')
                 jobs = {k: {kk: vv for kk, vv in v.items() if kk != 'shots'}
                         for k, v in JOBS.items()}
             self._json(200, {
                 'ok': True, 'browser_up': up, 'logged_in': logged_in,
+                'daren_browser_up': dup, 'daren_logged_in': dlogged,
+                'daren_probe': STATE.get('daren_probe'),
                 'queue_pending': len(db_pending()),
                 'jobs': jobs,
             })
@@ -1568,6 +1720,34 @@ class ControlHandler(BaseHTTPRequestHandler):
             # 浏览器操作统一进工作线程，避免跨线程 greenlet 错误
             JOB_Q.put({'_open_browser': True})
             self._json(200, {'ok': True, 'msg': '浏览器正在打开'})
+            return
+        if self.path == '/open-daren':
+            # 打开达人端浏览器（独立 profile），供人工扫码登录达人工作台
+            JOB_Q.put({'_open_daren_browser': True})
+            self._json(200, {'ok': True, 'msg': '达人端浏览器正在打开，请扫码登录'})
+            return
+        if self.path == '/graceful-daren':
+            # 优雅关闭达人端浏览器：触发 cookie 落盘，重启 worker 不丢登录态
+            JOB_Q.put({'_graceful_daren': True})
+            self._json(200, {'ok': True, 'msg': '达人端浏览器正在优雅关闭（cookie 落盘）'})
+            return
+        if self.path == '/probe-daren':
+            # 只读探测：当前 URL + cookie 名，不导航不点击（登录诊断用）
+            JOB_Q.put({'_probe_daren': True})
+            self._json(200, {'ok': True, 'msg': 'probe 已入队，随后 GET /probe-result'})
+            return
+        if self.path == '/collect-product':
+            # 商品采集：{url? 或 name+shop?} → 入队由达人端浏览器执行
+            url = str(body.get('url') or '').strip()
+            name = str(body.get('name') or '').strip()
+            shop = str(body.get('shop') or '').strip()
+            if not url and not name:
+                self._json(400, {'error': 'missing url or name'})
+                return
+            cid = f"pcr_{int(time.time()*1000)}_{secrets.token_hex(3)}"
+            submit_collect({'_product': True, 'id': cid, 'url': url,
+                            'name': name, 'shop': shop})
+            self._json(200, {'ok': True, 'collect_id': cid})
             return
         if self.path == '/collect':
             name = str(body.get('name', '')).strip()
@@ -1653,9 +1833,7 @@ def main():
     server = ThreadingHTTPServer((CONTROL_HOST, CONTROL_PORT), ControlHandler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     log(f'控制口 http://{CONTROL_HOST}:{CONTROL_PORT}')
-    browser_thread = threading.Thread(target=_browser_loop, daemon=True)
-    browser_thread.start()
-    log('[BrowserLoop] 工作线程已启动')
+    _ensure_browser_thread()
     try:
         queue_loop()
     except KeyboardInterrupt:
@@ -1664,10 +1842,12 @@ def main():
         _running.set()
         JOB_Q.put(None)
         try:
-            browser_thread.join(timeout=10)
+            if _browser_thread:
+                _browser_thread.join(timeout=10)
         except Exception:
             pass
         BROWSER.close()
+        DAREN_BROWSER.close()
         log('buyin_worker 退出')
 
 
