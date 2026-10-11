@@ -19476,11 +19476,17 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             return
         if not self._require_module_permission(auth, 'influencers'): return
         body = self._read_body()
-        if not body or not str(body.get('name', '')).strip():
+        if not body:
             self._send_json_error(400, 'Missing name')
             return
         name = str(body.get('name', '')).strip()
         douyin_id = str(body.get('douyin_id') or body.get('douyinId') or '').strip()
+        # 只给抖音号时允许 name 为空（百应按抖音号搜索首行必中，采完回填真实昵称）
+        if not name and not douyin_id:
+            self._send_json_error(400, 'Missing name')
+            return
+        if not name:
+            name = f'抖音号{douyin_id}'
         requester = ''
         if getattr(auth, 'user_record', None):
             requester = auth.user_record.get('username') or auth.user_record.get('name') or ''
@@ -21972,6 +21978,14 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._handle_reanalysis_request(agent, agent_id, user_content, re_intent, msg, auth)
             return
 
+        # ★ 百应采集意图接管（2026-10-11）：发达人名/抖音号 = 自动采集+自动回报告。
+        #   后端直管提交/轮询/推送，LLM 只出最终分析（与 TalentInject 同架构，杜绝假 exec）。
+        if role == 'user' and not body.get('images') and not is_extract:
+            _cr = _detect_collect_request(user_content)
+            if _cr:
+                self._handle_collect_takeover(agent, agent_id, user_content, _cr, msg, auth)
+                return
+
         # ★ fix/heavy-bypass-skipai: heavy bypass 必须放在 if not skip_ai 块外
         #   之前实现把 heavy bypass 写在 if not skip_ai 内 (commit 33696b1), 但 OpenClaw
         #   链路前端恰好用 skipAI=True 跳过整个 if 块 — heavy bypass 永远不触发,
@@ -22382,6 +22396,58 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         resp.update(extra)
         # _send_json 必须在锁外执行，避免持锁做网络写
         self._send_json(200, resp)
+
+    def _handle_collect_takeover(self, agent, agent_id, content, cr, msg, auth):
+        """百应采集意图接管：后端直插采集单 + 起 watcher 轮询 + 自动回报告。
+        LLM 不参与工具执行（与 TalentInject 同架构），只负责最后的分析润色。"""
+        name = (cr.get('name') or '').strip()
+        douyin_id = (cr.get('douyin_id') or '').strip()
+        requester = ''
+        if getattr(auth, 'user_record', None):
+            requester = auth.user_record.get('username') or auth.user_record.get('name') or ''
+        if not requester:
+            requester = (auth.user_info or {}).get('userId', '')
+        try:
+            row, is_dup = _collect_submit(name, douyin_id, requester)
+        except Exception as e:
+            logger.error(f'  [CollectTakeover] {agent_id} 采集单提交失败: {e}')
+            self._send_json(500, {'error': '采集单提交失败'})
+            return
+        cid = row.get('id', '')
+        disp = row.get('name') or douyin_id or '目标达人'
+        if is_dup:
+            reply_text = (f'老板，「{disp}」的百应采集已经在进行中了，完成后我主动把分析报告发您。')
+        else:
+            reply_text = (f'老板，已发起「{disp}」的百应自动采集，正常5-8分钟完成，'
+                          f'报告出来我直接发到这里。')
+        ai_message = {
+            'id': 'msg_' + uuid.uuid4().hex[:8],
+            'role': 'assistant',
+            'content': reply_text,
+            'timestamp': datetime.now().isoformat(),
+            'collectTakeover': True,
+            'collectId': cid,
+        }
+        lock = _get_chat_lock(agent_id)
+        if not lock.acquire(timeout=30):
+            logger.error(f'  [CollectTakeover] {agent_id} 落盘锁超时(30s)，返回500')
+            self._send_json(500, {'error': '聊天服务繁忙，请稍后重试'})
+            return
+        try:
+            messages = _load_chat(agent_id)
+            if not isinstance(messages, list):
+                messages = []
+            messages.append(msg)
+            messages.append(ai_message)
+            _save_chat(agent_id, messages)
+        finally:
+            lock.release()
+        _collect_start_watcher(cid, agent_id, agent.get('name', agent_id),
+                               auth.user_id, auth.user_info, auth.tenant_id)
+        logger.info(f'  [CollectTakeover] {agent_id} 采集单已提交: {cid} dup={is_dup} '
+                    f'name={disp} dyid={douyin_id}')
+        self._send_json(200, {'userMessage': msg, 'aiMessage': ai_message,
+                              'collectTakeover': True, 'collectId': cid})
 
 def _resolve_ai_base_url(api_provider, custom_endpoint=''):
     """根据 provider 和自定义 endpoint 返回 base URL（不含 /chat/completions）"""
@@ -26052,6 +26118,243 @@ def _detect_reanalysis_intent(text):
         logger.warning(f'  [Reanalysis] 达人模糊匹配失败: {e}')
     # 正则命中但消息里没有任何明确达人名 → 不臆测，让调用方走引导
     return None
+
+
+# ═══ 百应采集意图接管（2026-10-11，老大需求：发达人名/抖音号给员工 = 自动采集+回报告）═══
+# 架构原则与 TalentInject 一致：LLM 不碰工具，后端直管「提交采集单 → 轮询 → 出分析 → 推送」，
+# 从根上杜绝"模型假装 exec 但什么都没执行"的假闭环。
+_COLLECT_DYID_RE = re.compile(r'抖音号\s*[:：]?\s*(\d{5,25})')
+_COLLECT_FORCE_RE = re.compile(r'(百应|采集|抓数|重新采|更新.*数据)')
+_COLLECT_MAX_WAIT = 15 * 60          # 采集轮询硬超时
+_COLLECT_WATCHERS = {}               # collect_id -> Thread，防重复 watcher
+_COLLECT_WATCHERS_LOCK = threading.Lock()
+
+
+def _detect_collect_request(text):
+    """识别"发起百应采集"意图，返回 {'douyin_id','name','force'} 或 None。
+    触发条件（满足其一）：
+    A. 消息含「抖音号+数字」——库里查不到该号，或用户明确说了采集/百应/更新（force）
+    B. 消息含「采集/百应」强制词——抠剩余文本当名字（force）
+    库里已有且未强制 → 返回 None（走正常 TalentInject 分析路径）。"""
+    text = (text or '').strip()
+    if not text:
+        return None
+    m = _COLLECT_DYID_RE.search(text)
+    douyin_id = m.group(1) if m else ''
+    force = bool(_COLLECT_FORCE_RE.search(text))
+    if douyin_id:
+        if force:
+            return {'douyin_id': douyin_id, 'name': '', 'force': True}
+        conn = _db_conn()
+        try:
+            hit = conn.execute(
+                "SELECT id FROM talents WHERE douyin_id = ? AND status = 'active' LIMIT 1",
+                (douyin_id,)).fetchone()
+        finally:
+            conn.close()
+        if hit:
+            return None
+        return {'douyin_id': douyin_id, 'name': '', 'force': False}
+    if force:
+        cleaned = _COLLECT_FORCE_RE.sub('', text)
+        cleaned = re.sub(r'(重新|再次|帮我|麻烦|请|一下|分析|查询|看看|达人|的|[，。！？,.!?\s])', '', cleaned).strip()
+        cleaned = cleaned[:20]
+        if cleaned and len(cleaned) >= 2:
+            return {'douyin_id': '', 'name': cleaned, 'force': True}
+    return None
+
+
+def _collect_submit(name, douyin_id, requester):
+    """插采集单（幂等：同 name+douyin_id 的 pending/collecting 直接返回原单）。
+    返回 (row_dict, is_dup)。"""
+    conn = _db_conn()
+    try:
+        dup = conn.execute(
+            "SELECT * FROM talent_collects WHERE COALESCE(name,'') = ? AND COALESCE(douyin_id,'') = ? "
+            "AND status IN ('pending','collecting') LIMIT 1",
+            (name or '', douyin_id or '')).fetchone()
+        if dup:
+            return dict(dup), True
+        now = int(time.time() * 1000)
+        cid = f"tcr_{now}_{secrets.token_hex(3)}"
+        disp_name = name or (f'抖音号{douyin_id}' if douyin_id else '')
+        conn.execute(
+            'INSERT INTO talent_collects (id, name, douyin_id, status, requester, created_at, updated_at) '
+            'VALUES (?,?,?,?,?,?,?)',
+            (cid, disp_name, douyin_id, 'pending', requester or '', now, now))
+        conn.commit()
+        row = conn.execute('SELECT * FROM talent_collects WHERE id = ?', (cid,)).fetchone()
+        return dict(row), False
+    finally:
+        conn.close()
+
+
+def _collect_takeover_analysis(talent_id, agent_id, user_info):
+    """采集完成后：取档案+商品库 → 让 LLM 出分析报告（数据后端全给，不靠模型查）。
+    模型若再吐工具标记（Helen 的 exec 人设残留），剥不干净就退模板报告，保证必达。"""
+    conn = _db_conn()
+    try:
+        row = conn.execute('SELECT * FROM talents WHERE id = ?', (talent_id,)).fetchone()
+        prods = conn.execute(
+            "SELECT name, category, price, commission_rates FROM products "
+            "WHERE COALESCE(status,'active') != 'inactive' ORDER BY "
+            "COALESCE(updated_at, created_at, 0) DESC LIMIT 15").fetchall()
+    finally:
+        conn.close()
+    if not row:
+        return None
+    t = _talent_row_to_dict(row)
+    kv = [
+        ('昵称', t.get('name')), ('抖音号', t.get('douyin_id')),
+        ('粉丝数', t.get('followers')), ('主推类目', t.get('category')),
+        ('30天GMV(元)', t.get('total_gmv')), ('带货商品数', t.get('total_products')),
+        ('合作店铺数', t.get('total_shops')), ('平均客单价(元)', t.get('average_price')),
+        ('直播占比%', t.get('live_ratio')), ('视频占比%', t.get('video_ratio')),
+        ('视频GPM', t.get('video_gpm')), ('单视频结算', t.get('single_video_settlement')),
+        ('价格带分布', t.get('price_distribution')), ('类目分布', t.get('category_distribution')),
+        ('粉丝画像', t.get('fan_gender') or t.get('fan_age') or t.get('fan_region')),
+        ('综合评级', t.get('level') or t.get('rating_score')),
+        ('达人标签', t.get('tags')), ('内容风格', t.get('content_style')),
+        ('档案备注', (t.get('notes') or '')[:500]),
+    ]
+    block = '\n'.join(f'{k}: {v}' for k, v in kv if v not in (None, '', {}, []))
+    prod_lines = []
+    for p in prods:
+        nm = p['name'][:30] if p['name'] else '-'
+        cat = p['category'] or '-'
+        pr = p['price'] if p['price'] not in (None, '') else '-'
+        prod_lines.append(f'· {nm} | {cat} | ¥{pr}')
+    prod_block = '\n'.join(prod_lines) if prod_lines else '（商品库暂空）'
+
+    def _template_report():
+        gmv = t.get('total_gmv') or '-'
+        return (f"老板，「{t.get('name') or '该达人'}」的百应采集完成了。核心数据："
+                f"粉丝 {t.get('followers') or '-'}，近30天带货 {t.get('total_products') or '-'} 个商品、"
+                f"{t.get('total_shops') or '-'} 家店铺，GMV约 {gmv} 元；"
+                f"视频带货占比 {t.get('video_ratio') or '-'}%，单视频结算 {t.get('single_video_settlement') or '-'}。"
+                f"价格带：{t.get('price_distribution') or '-'}；类目：{t.get('category_distribution') or '-'}。"
+                f"详细档案已更新进系统达人库，您可以随时查看。")
+
+    hard = ('\n\n【硬性要求】直接输出报告正文：结论先行（评级+一句话判断），然后粉丝画像、'
+            '近30天带货能力、与上方商品库的匹配建议、合作风险提示。'
+            '严禁输出任何 <tool>、<tool_call>、exec、curl 或代码块——数据已全部在上文给出，'
+            '不需要任何查询，直接写报告。')
+    prompt = (
+        '【系统通知】巨量百应采集完成，达人已建档。以下是TA的完整档案数据（真实采集，禁止编造额外数据）：\n'
+        + block +
+        '\n\n【系统商品库 · 当前主推品】\n' + prod_block +
+        '\n\n请基于以上全部数据给老板输出完整的达人分析报告。' + hard
+    )
+    agent = _get_agent_by_id(agent_id)
+    if not agent:
+        return _template_report()
+
+    def _tool_free(text):
+        if not text:
+            return ''
+        x = re.sub(r'<tool>.*?</tool>', '', text, flags=re.DOTALL)
+        x = re.sub(r'<tool_call>.*?(?:</tool_call>|$)', '', x, flags=re.DOTALL)
+        x = _strip_fake_tool_calls(x)
+        x = re.sub(r'curl\s+-s.*', '', x)
+        return x.strip()
+
+    try:
+        reply = _call_ai_api(agent, prompt, user_info or {}, include_history=False)
+        body = _tool_free(reply)
+        if len(body) < 80:
+            reply2 = _call_ai_api(agent, prompt + '\n\n（再次强调：上一条若输出了工具调用是错的，这次只写报告正文。）',
+                                  user_info or {}, include_history=False)
+            body = _tool_free(reply2) or body
+        return body if len(body) >= 80 else _template_report()
+    except Exception as e:
+        logger.error(f'  [CollectTakeover] 分析生成失败: {e}')
+        return _template_report()
+
+
+def _collect_deliver_reply(agent_id, agent_name, user_id, reply):
+    """把采集报告作为员工回复落盘聊天 + 团队动态 + 推送通知。"""
+    ai_message = {
+        'id': 'msg_' + uuid.uuid4().hex[:8],
+        'role': 'assistant',
+        'content': reply,
+        'timestamp': datetime.now().isoformat(),
+        'collectReport': True,
+    }
+    lock = _get_chat_lock(agent_id)
+    if lock.acquire(timeout=30):
+        try:
+            messages = _load_chat(agent_id)
+            if not isinstance(messages, list):
+                messages = []
+            messages.append(ai_message)
+            _save_chat(agent_id, messages)
+        finally:
+            lock.release()
+    else:
+        logger.error(f'  [CollectTakeover] {agent_id} 报告落盘锁超时')
+    try:
+        gid = _get_agent_group_id(agent_id)
+        if gid:
+            _record_group_message(gid, agent_id, 'assistant', reply)
+    except Exception as feed_err:
+        logger.error(f'  [TeamFeed] 记录失败: {feed_err}')
+    try:
+        _push_notification(user_id, 'message', f'{agent_name} 回复了你', (reply or '')[:200], agent_id)
+    except Exception as push_err:
+        logger.error(f'  [CollectTakeover] 通知推送失败: {push_err}')
+
+
+def _collect_takeover_watcher(collect_id, agent_id, agent_name, user_id, user_info, tenant_id):
+    """轮询采集单 → done 出分析 / failed 报错 → 落盘+推送。 watcher 全程唯一。"""
+    def _run():
+        status, error, talent_id = '', '', ''
+        deadline = time.time() + _COLLECT_MAX_WAIT
+        try:
+            while time.time() < deadline:
+                time.sleep(30)
+                conn = _db_conn()
+                try:
+                    row = conn.execute('SELECT * FROM talent_collects WHERE id = ?', (collect_id,)).fetchone()
+                finally:
+                    conn.close()
+                if not row:
+                    status = 'lost'
+                    break
+                r = dict(row)
+                status, error, talent_id = r.get('status') or '', r.get('error') or '', r.get('talent_id') or ''
+                if status in ('done', 'failed'):
+                    break
+            if status == 'done' and talent_id:
+                reply = _collect_takeover_analysis(talent_id, agent_id, user_info)
+                if not reply:
+                    reply = '采集完成，但报告生成出错，请联系管理员。'
+            elif status == 'failed':
+                reason = (error or '未知原因')[:150]
+                reply = f'老板，这位达人的百应采集失败了（{reason}）。我稍后重试，若反复失败请联系管理员看下采集服务。'
+            elif status == 'need_login':
+                reply = '老板，百应的登录态失效了，采集暂停。请管理员扫码重新登录后，跟我说一声"重新采集"即可。'
+            else:
+                reply = '老板，采集超过15分钟还没完成，可能排队较长。跟我说"重新采集"我再发一次。'
+            _collect_deliver_reply(agent_id, agent_name, user_id, reply)
+        except Exception as e:
+            logger.error(f'  [CollectTakeover] watcher 异常: {e}\n{traceback.format_exc()[:600]}')
+        finally:
+            with _COLLECT_WATCHERS_LOCK:
+                _COLLECT_WATCHERS.pop(collect_id, None)
+    _run_as_tenant(tenant_id or DEFAULT_TENANT_ID, _run)
+
+
+def _collect_start_watcher(collect_id, agent_id, agent_name, user_id, user_info, tenant_id):
+    with _COLLECT_WATCHERS_LOCK:
+        t = _COLLECT_WATCHERS.get(collect_id)
+        if t and t.is_alive():
+            return
+        t = threading.Thread(
+            target=_collect_takeover_watcher,
+            args=(collect_id, agent_id, agent_name, user_id, user_info, tenant_id),
+            daemon=True, name=f'CollectWatch-{collect_id}')
+        _COLLECT_WATCHERS[collect_id] = t
+        t.start()
 
 
 def _find_latest_vision_event(entity_id):
