@@ -2131,6 +2131,8 @@ def _record_group_message(group_id, agent_id, role, content):
     """记录一条项目组对话消息到 group_messages 表"""
     if not group_id or not agent_id or not content:
         return
+    if role == 'assistant' and isinstance(content, str):
+        content = _strip_fake_tool_calls(content) or content
     conn = _db_conn()
     try:
         conn.execute(
@@ -2213,6 +2215,29 @@ def _find_team(teams, key, value):
 
 # ─── 聊天记录 ──────────────────────────────────────────
 
+# 弱回落模型(minimax/zhipu)仿训练语料吐出的假工具调用文本块:
+#   <tool>exec</tool>\n<parameter>{"command": "curl ..."}</parameter>
+# 服务端从不消费这种标签, 纯属污染。落库前剥掉, 保留块前后的正常正文
+# (实测块可能穿插在消息中间, 不能"从首个 <tool> 截断到末尾")。
+_FAKE_TOOL_BLOCK_RE = re.compile(
+    r'\n{0,2}[ \t]*<tool>[\w-]*</tool>[ \t]*\n?[ \t]*'
+    r'(?:<parameter>.*?</parameter>[ \t]*\n?)?',
+    re.DOTALL)
+
+
+def _strip_fake_tool_calls(content):
+    """剥掉 AI 回复里的假 <tool>/<parameter> 块, 收尾清理多余空行。"""
+    if not content or '<tool>' not in content:
+        return content
+    prev = None
+    cur = content
+    while cur != prev:
+        prev = cur
+        cur = _FAKE_TOOL_BLOCK_RE.sub('\n', cur)
+    cur = re.sub(r'\n{3,}', '\n\n', cur).strip()
+    return cur
+
+
 def _load_chat(agent_id):
     """加载某 Agent 的聊天记录"""
     filepath = os.path.join(_td(CHATS_DIR), f'{agent_id}.json')
@@ -2222,6 +2247,12 @@ def _load_chat(agent_id):
 def _save_chat(agent_id, messages):
     """保存某 Agent 的聊天记录"""
     filepath = os.path.join(_td(CHATS_DIR), f'{agent_id}.json')
+    # 落库前剥弱回落模型混入的假 <tool>/<parameter> 块（只处理 assistant 消息）
+    for m in messages:
+        if isinstance(m, dict) and m.get('role') == 'assistant' and isinstance(m.get('content'), str):
+            cleaned = _strip_fake_tool_calls(m['content'])
+            if cleaned != m['content']:
+                m['content'] = cleaned
     _write_json(filepath, messages)
 
 
