@@ -7063,9 +7063,44 @@ def night_memory_hygiene(emp_id):
                         conn.commit()
                     finally:
                         conn.close()
+                    # fix(memory-ttl): 同步标记 JSON 存储里的同 id 记忆 —— 注入层
+                    # (inject_memories) 读的是 JSON 存储, 只标 DB 会导致碎片继续被注入
+                    try:
+                        jdata = ms3.load_memory(emp_id)
+                        jdirty = False
+                        for pool_name in ('core', 'daily'):
+                            for jm in jdata.get(pool_name, []):
+                                if jm.get('id') == m['id'] and not jm.get('is_filler'):
+                                    jm['is_filler'] = 1
+                                    jdirty = True
+                        if jdirty:
+                            ms3.save_memory(emp_id, jdata)
+                    except Exception as je:
+                        logger.error(f'  [NightHygiene] {emp_id} 记忆 {m["id"]} JSON 碎片标记失败: {je}')
                     stats['fragments_marked'] += 1
             except Exception as e:
                 logger.error(f'  [NightHygiene] {emp_id} 记忆 {m["id"]} 处理失败: {e}')
+        # fix(memory-ttl): 存量同步 —— DB 早已标 is_filler=1 但 JSON 存储未标的
+        # (昨日碎片标记只写了 DB; 注入层 inject_memories 读 JSON 存储, 不同步则碎片继续注入)
+        try:
+            jdata = ms3.load_memory(emp_id)
+            conn = _db_conn()
+            try:
+                db_flagged = {r['id'] for r in conn.execute(
+                    'SELECT id FROM memory WHERE emp_id=? AND is_filler=1', (emp_id,)).fetchall()}
+            finally:
+                conn.close()
+            jdirty = False
+            for pool_name in ('core', 'daily'):
+                for jm in jdata.get(pool_name, []):
+                    if not jm.get('is_filler') and jm.get('id') in db_flagged:
+                        jm['is_filler'] = 1
+                        jdirty = True
+            if jdirty:
+                ms3.save_memory(emp_id, jdata)
+                stats['json_synced'] = len(db_flagged)
+        except Exception as e:
+            logger.error(f'  [NightHygiene] {emp_id} JSON 存量同步失败: {e}')
     except Exception as e:
         logger.error(f'  [NightHygiene] {emp_id} failed: {e}')
     return stats

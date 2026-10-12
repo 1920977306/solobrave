@@ -46,6 +46,11 @@ MEMORY_V3_CONFIG = {
     'store_value_max': 2000,   # 单条记忆存储字符上限
     'context_max': 500,        # daily 上下文摘要字符上限
     'dedup_threshold': 0.85,   # 智能去重相似度阈值
+    # feat(memory-ttl): 日常记录召回的访问衰减参数 —— 每被注入利用 1 次 ≈ 保鲜 12h,
+    # 封顶 10 次(≈5天)。排序分 = createdAt + min(accessCount, cap) * boost,
+    # 被反复用到的记忆保鲜, 老旧且无人问津的自然沉底让位(软衰减, 不删除)
+    'access_boost_ms': 12 * 3600 * 1000,
+    'access_boost_cap': 10,
 }
 
 # 记忆归纳阈值（统一收口，方便后续调整）
@@ -2019,9 +2024,10 @@ def inject_memories(emp_id, system_prompt='', user_message='', api_key=None, pro
     MAX_TOTAL_CHARS = 3000
 
     # L1: 核心记忆 — 全部注入，按 priority 降序，同 priority 按 accessCount 降序
+    # feat(memory-ttl): is_filler 碎片(Phase2夜间卫生标记)不再注入
     core_lines = []
     core_mems = sorted(
-        data.get('core', []),
+        [m for m in data.get('core', []) if not m.get('is_filler')],
         key=lambda x: (x.get('priority', 5), x.get('accessCount', 0)),
         reverse=True
     )
@@ -2031,11 +2037,15 @@ def inject_memories(emp_id, system_prompt='', user_message='', api_key=None, pro
             core_lines.append(f'- {val}')
             m['accessCount'] = m.get('accessCount', 0) + 1
 
-    # L2: 日常记录 — 按时间倒序，只取未过期的
+    # L2: 日常记录 — 时间+访问双键软衰减(调研 §衰减机制): 排序分 = createdAt +
+    # min(accessCount, cap) * access_boost_ms, 被反复利用的记忆保鲜,
+    # 老旧且无人问津的自然沉底让位(不删除, 只降曝光); is_filler 碎片不再注入
     daily_lines = []
+    _access_boost_ms = cfg.get('access_boost_ms', 12 * 3600 * 1000)
+    _access_boost_cap = cfg.get('access_boost_cap', 10)
     daily_mems = sorted(
-        data.get('daily', []),
-        key=lambda x: x.get('createdAt', 0),
+        [m for m in data.get('daily', []) if not m.get('is_filler')],
+        key=lambda x: x.get('createdAt', 0) + min(x.get('accessCount', 0), _access_boost_cap) * _access_boost_ms,
         reverse=True
     )
     for m in daily_mems[:cfg['inject_daily_max']]:
@@ -2131,8 +2141,19 @@ def inject_memories(emp_id, system_prompt='', user_message='', api_key=None, pro
     if final_texts:
         system_prompt += '\n\n' + '\n\n'.join(final_texts)
 
+    # feat(memory-ttl): daily 被实际注入的记忆 accessCount +1（与 core 同款反馈闭环,
+    # 这是访问衰减排序的数据来源; 只加实际注入的前 N 条, N = 截断后真实注入数）
+    _daily_boosted = 0
+    if injected_counts['daily'] > 0:
+        for m in daily_mems:
+            if _daily_boosted >= injected_counts['daily']:
+                break
+            if (m.get('value', '') or '')[:cfg['inject_value_max']]:
+                m['accessCount'] = m.get('accessCount', 0) + 1
+                _daily_boosted += 1
+
     # 更新 accessCount（需要写回）
-    if core_mems:
+    if core_mems or _daily_boosted:
         try:
             save_memory(emp_id, data)
         except Exception as e:
