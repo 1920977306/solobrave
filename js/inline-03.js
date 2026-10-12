@@ -10734,6 +10734,10 @@ function renderMemoryTab(empId) {
     var agentKbPromise = typeof apiFetch === 'function' ?
       apiFetch('/api/memory/' + encodeURIComponent(empId) + '/knowledge').then(function (r) { return r.json(); }).catch(function () { return {entries: []}; }) :
       Promise.resolve({entries: []});
+    // feat(memory-phase3): 归纳工单审核列表
+    var reviewPromise = typeof apiFetch === 'function' ?
+      apiFetch('/api/memory/' + encodeURIComponent(empId) + '/summary-review').then(function (r) { return r.json(); }).catch(function () { return {items: []}; }) :
+      Promise.resolve({items: []});
     Promise.all([
       apiFetch('/api/memory/' + encodeURIComponent(empId)).then(function (r) { return r.json(); }),
       kbPromise,
@@ -10742,7 +10746,8 @@ function renderMemoryTab(empId) {
       mergeHistoryPromise,
       dailySummaryPromise,
       projectSummaryPromise,
-      agentKbPromise
+      agentKbPromise,
+      reviewPromise
     ]).then(function (results) {
       // 异步返回时若已切换到其他员工，丢弃这次过期结果，防止写回旧员工的记忆
       if (empId !== getCurrentEmpId()) return;
@@ -10761,6 +10766,8 @@ function renderMemoryTab(empId) {
       var projectSummaries = projectSummaryResult.summaries || [];
       var agentKbResult = results[7] || {entries: []};
       var agentKbEntries = agentKbResult.entries || [];
+      var reviewResult = results[8] || {items: []};
+      var reviewItems = reviewResult.items || [];
 
       // v2 分池格式：{core: [...], daily: [...], archive: [...]}
       var coreList = data.core || [];
@@ -10787,6 +10794,16 @@ function renderMemoryTab(empId) {
       if (summaryTab) summaryTab.textContent = '记忆汇总 (' + (dailySummaries.length + projectSummaries.length) + (summaryPendingCount ? ' · ' + summaryPendingCount + '待生成' : '') + ')';
       if (kbTab) kbTab.textContent = '知识库 (' + kbCount + ')';
       if (mergeTab) mergeTab.textContent = '合并记录 (' + mergeList.length + ')';
+      // feat(memory-phase3): 归纳审核 tab 计数(待审优先展示)
+      var reviewTab = document.querySelector('.memory-tab[data-mtab="review"]');
+      var reviewPendingCount = reviewItems.filter(function (s) { return s.status === 'pending'; }).length;
+      if (reviewTab) reviewTab.textContent = '归纳审核 (' + reviewItems.length + (reviewPendingCount ? ' · ' + reviewPendingCount + '待审' : '') + ')';
+
+      // feat(memory-phase3): 归纳审核模式 — 工单结构化三栏展示 + 通过/驳回/重生成
+      if (currentMemoryTab === 'review') {
+        renderSummaryReviewPanel(empId, contentEl, reviewItems);
+        return;
+      }
 
       // FIXME: 大脑知识中枢：知识库 tab（原记忆汇总）
       if (currentMemoryTab === 'summary') {
@@ -11157,9 +11174,78 @@ function renderBrainKnowledgePanel(empId, contentEl, headerEl) {
   });
 }
 
+// feat(memory-phase3): 归纳工单结构化审核面板 — 关键事实/决策/待办 三栏 + 通过/驳回/重生成
+function _summarySectionHtml(label, list, color) {
+  list = list || [];
+  if (!list.length) return '';
+  var html = '<div style="margin-bottom:8px;">';
+  html += '<div style="font-size:11px;font-weight:600;color:' + color + ';margin-bottom:4px;">' + label + ' (' + list.length + ')</div>';
+  list.forEach(function (it) {
+    html += '<div style="font-size:13px;line-height:1.6;color:var(--text-primary);padding-left:14px;position:relative;">';
+    html += '<span style="position:absolute;left:2px;color:' + color + ';">·</span>' + escapeHtml(String(it)) + '</div>';
+  });
+  html += '</div>';
+  return html;
+}
+
+function renderSummaryReviewPanel(empId, contentEl, items) {
+  if (!contentEl) return;
+  var html = '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px;">';
+  html += '<div style="font-size:13px;color:var(--text-secondary);">服务端每日自动生成归纳草稿，置信度 ≥70% 自动转正，低于阈值在此人工审核</div>';
+  html += '</div>';
+  if (!items.length) {
+    contentEl.innerHTML = html + '<div style="padding:24px;text-align:center;color:var(--text-tertiary);">暂无待审核的归纳工单</div>';
+    return;
+  }
+  items.forEach(function (s) {
+    var isPending = s.status === 'pending';
+    var conf = (typeof s.confidence === 'number') ? Math.round(s.confidence * 100) : null;
+    html += '<div class="memory-item" style="padding:14px;background:var(--bg-secondary);border-radius:12px;margin-bottom:10px;">';
+    // 头部: 类型 + 标题 + 置信度 + 状态
+    html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap;">';
+    html += '<span style="font-size:10px;color:#fff;background:var(--accent);padding:2px 8px;border-radius:4px;">' + (s.summaryType === 'daily' ? '每日归纳' : '项目归纳') + '</span>';
+    html += '<span style="font-size:14px;font-weight:600;color:var(--text-primary);flex:1;">' + escapeHtml(s.title || '未命名') + '</span>';
+    if (conf !== null) {
+      html += '<span style="font-size:10px;color:#fff;background:' + (conf >= 70 ? '#34C759' : '#FF9500') + ';padding:2px 8px;border-radius:4px;">置信度 ' + conf + '%</span>';
+    }
+    html += '<span style="font-size:10px;color:#fff;background:' + (isPending ? '#FF9500' : '#34C759') + ';padding:2px 8px;border-radius:4px;">' + (isPending ? '待审核' : '已转正') + '</span>';
+    html += '</div>';
+    // 结构化三栏(生成器 pending 列与 action_items 同源, 只展示一份)
+    html += _summarySectionHtml('📌 关键事实', s.keyPoints, '#1677ff');
+    html += _summarySectionHtml('✅ 决策', s.decisions, '#34C759');
+    html += _summarySectionHtml('📋 待办', s.actionItems, '#FF9500');
+    // 底部: 源记忆数 + 操作
+    html += '<div style="display:flex;align-items:center;justify-content:space-between;margin-top:10px;flex-wrap:wrap;gap:8px;">';
+    html += '<span style="font-size:11px;color:var(--text-tertiary);">源记忆 ' + (s.sourceCount || 0) + ' 条' + (s.date ? ' · ' + escapeHtml(s.date) : '') + '</span>';
+    html += '<div style="display:flex;gap:8px;">';
+    if (isPending) {
+      html += '<button onclick="reviewSummaryAction(\'' + escapeAttr(s.id) + '\',\'approve\')" style="padding:5px 14px;border-radius:8px;background:#34C759;color:#fff;border:none;font-size:12px;font-weight:600;cursor:pointer;">✓ 通过</button>';
+    }
+    html += '<button onclick="reviewSummaryAction(\'' + escapeAttr(s.id) + '\',\'regenerate\')" style="padding:5px 14px;border-radius:8px;background:var(--bg-tertiary);color:var(--text-secondary);border:none;font-size:12px;cursor:pointer;">↻ 重新生成</button>';
+    html += '<button onclick="reviewSummaryAction(\'' + escapeAttr(s.id) + '\',\'archive\')" style="padding:5px 14px;border-radius:8px;background:var(--bg-tertiary);color:#FF3B30;border:none;font-size:12px;cursor:pointer;">驳回</button>';
+    html += '</div></div>';
+    html += '</div>';
+  });
+  contentEl.innerHTML = html;
+}
+
+function reviewSummaryAction(id, action) {
+  var labels = {approve: '已通过', archive: '已驳回', regenerate: '已重置，下轮自动生成'};
+  apiFetch('/api/memory/summary-review/' + encodeURIComponent(id), {
+    method: 'POST',
+    body: JSON.stringify({action: action})
+  }).then(function (r) { return r.json(); }).then(function () {
+    showToast('✅ 归纳工单' + (labels[action] || action));
+    var empId = getCurrentEmpId();
+    if (empId) renderMemoryTab(empId);
+  }).catch(function (e) {
+    showToast('操作失败');
+    console.warn('[SummaryReview] action failed:', e);
+  });
+}
+
 function selectBrainTopic(topicId) {
-  currentBrainTopicId = topicId;
-  var empId = localStorage.getItem('sb_current_emp');
+  currentBrainTopicId = topicId;  var empId = localStorage.getItem('sb_current_emp');
   if (empId) renderMemoryTab(empId);
 }
 
@@ -11281,7 +11367,7 @@ function startBrainRefreshPolling() {
 
 // FIXME: 大脑知识中枢：每 30 秒刷新一次状态
 registerTimerTask(function () {
-  if (currentMemoryTab === 'summary') {
+  if (currentMemoryTab === 'summary' || currentMemoryTab === 'review') {
     var empId = localStorage.getItem('sb_current_emp');
     if (empId) renderMemoryTab(empId);
   }

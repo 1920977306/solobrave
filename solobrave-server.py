@@ -3913,6 +3913,8 @@ def init_db():
         conn.execute('CREATE INDEX IF NOT EXISTS idx_memory_summary_type ON memory_summary(summary_type)')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_memory_summary_date ON memory_summary(date)')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_memory_summary_project ON memory_summary(project_name)')
+        # feat(memory-phase3): 归纳审核界面需要展示生成置信度（原只用于判定状态不落库）
+        _add_column_if_not_exists(conn, 'memory_summary', 'confidence', 'REAL')
 
         conn.execute('''
             CREATE TABLE IF NOT EXISTS knowledge_base (
@@ -6980,9 +6982,9 @@ def _fill_pending_summaries_for_agent(emp_id, llm_cfg=None):
                 new_status = 'active' if conf >= 0.7 else 'pending'
                 conn.execute(
                     "UPDATE memory_summary SET key_points=?, decisions=?, pending=?, action_items=?, "
-                    "status=?, updated_at=? WHERE id=?",
+                    "confidence=?, status=?, updated_at=? WHERE id=?",
                     (_dump_json_col(kp), _dump_json_col(dc), _dump_json_col(ai), _dump_json_col(ai),
-                     new_status, now, row['id']))
+                     conf, new_status, now, row['id']))
                 result_counts['filled'] += 1
             except Exception as e:
                 logger.error(f'  [SummaryFill] {emp_id} 工单 {row["id"]} 生成失败: {e}')
@@ -8198,6 +8200,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             if len(parts) == 2 and parts[1] == 'project-summary':
                 self._handle_get_project_summary(parts[0])
                 return
+            # feat(memory-phase3): 归纳工单审核列表 /api/memory/{empId}/summary-review
+            if len(parts) == 2 and parts[1] == 'summary-review':
+                self._handle_get_summary_review(parts[0])
+                return
             if len(parts) == 2 and parts[1] == 'knowledge':
                 self._handle_get_agent_knowledge_base(parts[0])
                 return
@@ -8897,6 +8903,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             # FIXME: 记忆三级沉淀写入路由
             elif len(parts) == 2 and parts[1] == 'trigger-summary':
                 self._handle_trigger_summary(parts[0])
+                return
+            # feat(memory-phase3): 归纳工单审核操作 /api/memory/summary-review/{id}
+            elif len(parts) == 2 and parts[0] == 'summary-review':
+                self._handle_post_summary_review(parts[1])
                 return
             elif len(parts) == 2 and parts[1] == 'knowledge':
                 self._handle_post_agent_knowledge_base(parts[0])
@@ -14871,6 +14881,90 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json_error(500, 'Save summary failed')
             return
         self._send_json(200, {'success': True, 'empId': emp_id, 'summaryId': sid})
+
+    def _handle_get_summary_review(self, emp_id):
+        """GET /api/memory/{empId}/summary-review — 归纳工单审核列表
+        返回 pending+active 工单, key_points/decisions/pending/action_items 已解析为数组,
+        附带 confidence(生成置信度) 与 sourceCount(源记忆条数), 供结构化审核界面渲染"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        agent, err, status = self._check_agent_access(auth, emp_id)
+        if err:
+            self._send_json(status, {'error': err})
+            return
+        conn = _db_conn()
+        try:
+            rows = conn.execute(
+                "SELECT * FROM memory_summary WHERE emp_id=? AND status IN ('pending','active') "
+                "ORDER BY updated_at DESC LIMIT 100", (emp_id,)).fetchall()
+        finally:
+            conn.close()
+
+        def _parse_json_col(raw):
+            try:
+                v = json.loads(raw or '[]')
+                return v if isinstance(v, list) else []
+            except (json.JSONDecodeError, TypeError):
+                return []
+
+        items = []
+        for r in rows:
+            src_ids = _parse_json_col(r['source_mem_ids'])
+            items.append({
+                'id': r['id'], 'summaryType': r['summary_type'], 'title': r['title'],
+                'date': r['date'], 'projectName': r['project_name'], 'status': r['status'],
+                'keyPoints': _parse_json_col(r['key_points']),
+                'decisions': _parse_json_col(r['decisions']),
+                'pending': _parse_json_col(r['pending']),
+                'actionItems': _parse_json_col(r['action_items']),
+                'confidence': r['confidence'] if 'confidence' in r.keys() else None,
+                'sourceCount': len(src_ids),
+                'updatedAt': r['updated_at'],
+            })
+        self._send_json(200, {'success': True, 'empId': emp_id, 'items': items})
+
+    def _handle_post_summary_review(self, summary_id):
+        """POST /api/memory/summary-review/{id} — 归纳工单审核操作
+        body: {action: 'approve'|'archive'|'regenerate'}
+        approve: pending→active(人审通过); archive: →archived(驳回/无价值);
+        regenerate: 清空生成内容回 pending, 下轮 DailyJob 重新生成"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        body = self._read_body() or {}
+        action = body.get('action')
+        if action not in ('approve', 'archive', 'regenerate'):
+            self._send_json_error(400, 'action must be approve|archive|regenerate')
+            return
+        conn = _db_conn()
+        try:
+            row = conn.execute('SELECT id, emp_id FROM memory_summary WHERE id=?', (summary_id,)).fetchone()
+            if not row:
+                self._send_json(404, {'error': 'Summary not found'})
+                return
+            if not auth.is_admin and auth.user_id != row['emp_id']:
+                self._send_json_error(403, 'Permission denied')
+                return
+            now = int(time.time() * 1000)
+            if action == 'approve':
+                conn.execute("UPDATE memory_summary SET status='active', updated_at=? WHERE id=?",
+                             (now, summary_id))
+            elif action == 'archive':
+                conn.execute("UPDATE memory_summary SET status='archived', updated_at=? WHERE id=?",
+                             (now, summary_id))
+            else:
+                conn.execute(
+                    "UPDATE memory_summary SET key_points='[]', decisions='[]', pending='[]', "
+                    "action_items='[]', confidence=NULL, status='pending', updated_at=? WHERE id=?",
+                    (now, summary_id))
+            conn.commit()
+        finally:
+            conn.close()
+        self._send_json(200, {'success': True, 'id': summary_id, 'action': action})
+
 
     def _handle_get_agent_knowledge_base(self, emp_id):
         """GET /api/memory/{empId}/knowledge — 查询该员工三级知识库"""
