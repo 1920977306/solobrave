@@ -7217,7 +7217,7 @@ def dream_for_agent(emp_id, llm_cfg=None):
                     'created_at, updated_at, confidence_score, evidence_count, verification_level) '
                     "VALUES (?, 'dreaming', '', ?, ?, ?, 'draft', '[]', '[]', ?, ?, ?, ?, ?, 'hypothesis')",
                     ('kp_dream_' + uuid.uuid4().hex[:10], text,
-                     json.dumps(ev_list, ensure_ascii=False), conf, 'dreaming:' + emp_id,
+                     json.dumps(ev_list, ensure_ascii=False), conf, emp_id,
                      now, now, round(conf * 100, 1), len(ev_list)))
                 conn.commit()
                 result['insights'] += 1

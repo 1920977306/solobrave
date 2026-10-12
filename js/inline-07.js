@@ -5110,6 +5110,13 @@ window.sb2PdsCloseDetail = sb2PdsCloseDetail;
 window.sb2PdsOpenFindTalents = sb2PdsOpenFindTalents;
 window.sb2PdsCloseFindTalents = sb2PdsCloseFindTalents;
 window.sb2PdsSubmitFindTalentProposal = sb2PdsSubmitFindTalentProposal;
+/* feat(memory-phase4): 类目显示名映射 — dreaming 候选(周级Dreaming产出)显示中文,
+   id 保持原始 category 字符串不动(筛选/侧栏 onclick 依赖 id 精确匹配) */
+function _sb2PtnCatLabel(c){
+  if (c === 'dreaming') return '💤 周级整合';
+  return c || '未分类';
+}
+
 async function sb2PatternsInit(){
   var heroSub = document.getElementById('sb2PtnHeroSub');
   var listEl = document.getElementById('sb2PtnList');
@@ -5138,7 +5145,7 @@ async function sb2PatternsInit(){
     var catMap = {};
     _sb2PtnPatterns.forEach(function(p){
       var c = p.category || '未分类';
-      if (!catMap[c]) catMap[c] = { id: c, name: c, count: 0 };
+      if (!catMap[c]) catMap[c] = { id: c, name: _sb2PtnCatLabel(c), count: 0 };
       catMap[c].count++;
     });
     var catList = Object.keys(catMap).map(function(k){ return catMap[k]; });
@@ -5162,7 +5169,7 @@ async function sb2PatternsInit(){
 function sb2PtnUpdateHeroTitle(){
   var hero = document.getElementById('sb2PtnHeroTitle');
   if (!hero) return;
-  if (_sb2PtnCat) { hero.textContent = _sb2PtnCat; return; }
+  if (_sb2PtnCat) { hero.textContent = _sb2PtnCatLabel(_sb2PtnCat); return; }
   if (_sb2PtnStatus) {
     var _sm = { draft:'待确认', confirmed:'已确认', deprecated:'已废弃' };
     hero.textContent = _sm[_sb2PtnStatus] || _sb2PtnStatus;
@@ -5377,7 +5384,7 @@ function sb2PtnRender(){
     var lvLabel = lv === 'verified' ? '已验证' : (lv === 'candidate' ? '候选' : '假设');
     html += '<div class="sb2-ptn-card" data-pid="' + escapeAttr(p.id) + '" onclick="sb2PtnOpenDetail(\'' + escapeAttr(p.id).replace(/'/g, "\\'") + '\')">';
     html += '<div class="sb2-ptn-card-top">';
-    html += '<span class="sb2-ptn-card-cat">' + escapeHtml(p.category || '未分类') + '</span>';
+    html += '<span class="sb2-ptn-card-cat">' + escapeHtml(_sb2PtnCatLabel(p.category)) + '</span>';
     html += '<span class="sb2-ptn-level ' + escapeAttr(lv) + '">' + lvIcon + ' ' + lvLabel + '</span>';
     html += '</div>';
     html += '<div class="sb2-ptn-card-text">' + escapeHtml(p.pattern_text || '') + '</div>';
@@ -5509,7 +5516,7 @@ function _sb2PtnDetailRender(p){
   var kbCount = (p.source_knowledge_ids || []).length;
   var evCount = (p.evidence_count || 0);
   var metaHtml = '';
-  metaHtml += '<div class="sb2-ptn-meta-item"><div class="sb2-ptn-meta-label">类目</div><div class="sb2-ptn-meta-value">' + escapeHtml(val(p.category, '-')) + '</div></div>';
+  metaHtml += '<div class="sb2-ptn-meta-item"><div class="sb2-ptn-meta-label">类目</div><div class="sb2-ptn-meta-value">' + escapeHtml(p.category ? _sb2PtnCatLabel(p.category) : '-') + '</div></div>';
   metaHtml += '<div class="sb2-ptn-meta-item"><div class="sb2-ptn-meta-label">分级</div><div class="sb2-ptn-meta-value">' + lvIcon + ' ' + lvLabel + '</div></div>';
   metaHtml += '<div class="sb2-ptn-meta-item"><div class="sb2-ptn-meta-label">状态</div><div class="sb2-ptn-meta-value">' + escapeHtml(val(statusLabel[p.status] || p.status, '-')) + '</div></div>';
   metaHtml += '<div class="sb2-ptn-meta-item"><div class="sb2-ptn-meta-label">实体类型</div><div class="sb2-ptn-meta-value">' + escapeHtml(val(p.entity_type, '-')) + '</div></div>';
@@ -6028,7 +6035,7 @@ async function sb2PtnConfirmInduce(){
         var listHtml = '';
         patterns.forEach(function(p){
           var ptext = p.pattern_text || '(无文本)';
-          var pcat = p.category || '-';
+          var pcat = p.category ? _sb2PtnCatLabel(p.category) : '-';
           var plv = p.verification_level || 'hypothesis';
           var plvIcon = plv === 'verified' ? '<i class=sb2-ico-ruler></i>' : (plv === 'candidate' ? '<i class=sb2-ico-microscope></i>' : '<i class=sb2-ico-flask></i>');
           var pscore = p.confidence_score != null ? Math.round(p.confidence_score) : '-';
