@@ -6993,6 +6993,208 @@ def _fill_pending_summaries_for_agent(emp_id, llm_cfg=None):
         conn.close()
 
 
+# ─── 夜间记忆卫生 + 周级 Dreaming（调研 §5.3/§5.6 Phase 2/4）─────────────────
+
+# 字段碎片模式: 表单式抽取产生的「标签：值」短句, 脱离实体上下文无独立召回价值
+# (实测样本: "状态：available" / "互动率：未提供" / "达人昵称：未提供" 混入长期记忆,
+#  写库时的 _is_filler 闸拦不住——它们长度>5字且不含 filler 短语)
+_FIELD_FRAGMENT_RE = re.compile(
+    r'^(状态|互动率|报价范围|达人昵称|带货方式|内容标签|粉丝量|等级|平台|达人ID|抖音号|'
+    r'所在地|机构|简介|合作状态|货盘结构|粉丝画像|视频数据|直播数据|直播GMV|主推类目|'
+    r'客单价|GPM|GMV|完播率|转化率|平均播放量|总GMV|结算总额|履约分|内容类型|带货要求)'
+    r'[：:].{0,15}$')
+
+
+def _is_field_fragment(value):
+    t = (value or '').strip()
+    if not t or len(t) > 22:
+        return False
+    if t in ('未提供', '暂无数据', '暂无', '无', '-', '—'):
+        return True
+    return bool(_FIELD_FRAGMENT_RE.match(t))
+
+
+def night_memory_hygiene(emp_id):
+    """夜间记忆卫生批处理:
+    ① 未清洗的存量记忆补跑 _clean_and_deduplicate (写时闸的兜底)
+    ② 字段碎片记忆标记 is_filler=1 (召回层已过滤 is_filler, 非删除可恢复)
+    注意: 必须直查库取 status/cleaned_at/is_filler —— ms3.load_memory 的 dict
+    不携带这三个字段(实测返回体只有 id/key/value/source/tags/createdAt 等)。
+    返回 {'fragments_marked': n, 'stragglers_cleaned': n}
+    """
+    stats = {'fragments_marked': 0, 'stragglers_cleaned': 0}
+    try:
+        conn = _db_conn()
+        try:
+            rows = conn.execute(
+                'SELECT id, value, cleaned_at, is_filler FROM memory '
+                "WHERE emp_id=? AND status='active' AND is_filler=0",
+                (emp_id,)).fetchall()
+        finally:
+            conn.close()
+        for m in rows:
+            try:
+                if not m['cleaned_at']:
+                    ms3._clean_and_deduplicate(m['id'], emp_id)
+                    # 兜底: DB 孤儿行(不在 ms3 JSON 存储, get_memory 返回 None)清洗
+                    # 不落库, 直接记 cleaned_at 保证批处理幂等, 不每晚重复计数
+                    conn = _db_conn()
+                    try:
+                        now = int(time.time() * 1000)
+                        r = conn.execute(
+                            'SELECT cleaned_at FROM memory WHERE id=?', (m['id'],)).fetchone()
+                        if r and not r['cleaned_at']:
+                            conn.execute(
+                                'UPDATE memory SET cleaned_at=? WHERE id=?', (now, m['id']))
+                            conn.commit()
+                    finally:
+                        conn.close()
+                    stats['stragglers_cleaned'] += 1
+                    continue
+                if _is_field_fragment((m['value'] or '').strip()):
+                    # 直接改库(is_filler 列), 不走 ms3 保存以避开 value 校验副作用
+                    conn = _db_conn()
+                    try:
+                        conn.execute(
+                            'UPDATE memory SET is_filler=1, is_duplicate=0, cleaned_at=? WHERE id=?',
+                            (int(time.time() * 1000), m['id']))
+                        conn.commit()
+                    finally:
+                        conn.close()
+                    stats['fragments_marked'] += 1
+            except Exception as e:
+                logger.error(f'  [NightHygiene] {emp_id} 记忆 {m["id"]} 处理失败: {e}')
+    except Exception as e:
+        logger.error(f'  [NightHygiene] {emp_id} failed: {e}')
+    return stats
+
+
+_DREAM_PROMPT = """你是长期记忆整合器（dreaming）。基于以下员工 AI 的场景块与事实原子，做两件事：
+
+1. persona: 用 100-200 字蒸馏该员工的「工作画像」—— 它持续在跟哪些达人/类目/任务、
+   决策风格、当前阶段关注点。只写从材料中可追溯的内容，禁止编造。
+2. insights: 跨场景规律候选，最多 3 条。每条含 text(一句话规律，含适用条件)、
+   confidence(0-1)、evidence(支撑它的场景/原子内容摘录，1-2条)。
+
+材料：
+{items}
+
+只输出 JSON：
+{{"persona": "...", "insights": [{{"text": "...", "confidence": 0.0, "evidence": ["..."]}}]}}
+没有足够材料时返回 {{"persona": "", "insights": []}}"""
+
+
+def dream_for_agent(emp_id, llm_cfg=None):
+    """周级 Dreaming（调研 §4.2 空闲时深度整合）:
+    - 聚合层 scenes + 高置信 atoms → LLM 蒸馏 L3 工作画像 (memory_personas, 版本+备份)
+    - 跨场景规律候选 → knowledge_patterns(status='draft', category='dreaming'),
+      直接进现有规律验证管道(hit/miss 闭环), 形成 dreaming→规律库 的通路
+    返回 {'persona': bool, 'insights': n}；材料不足直接跳过。
+    """
+    result = {'persona': False, 'insights': 0}
+    try:
+        conn = _db_conn()
+        try:
+            scenes = conn.execute(
+                'SELECT title, summary FROM memory_scenes WHERE agent_id IN (?, ?) ORDER BY updated_at DESC LIMIT 12',
+                (emp_id, 'shared')).fetchall()
+            atoms = conn.execute(
+                'SELECT content, confidence FROM memory_atoms WHERE agent_id=? ORDER BY confidence DESC LIMIT 15',
+                (emp_id,)).fetchall()
+        finally:
+            conn.close()
+
+        items = []
+        for s in scenes:
+            if s['summary']:
+                items.append('[场景] ' + str(s['summary'])[:150])
+        for a in atoms:
+            items.append('[事实] ' + str(a['content'])[:120])
+        if len(items) < 5:
+            logger.info(f'  [Dreaming] {emp_id} 材料不足({len(items)}条), 跳过')
+            return result
+
+        llm_cfg = llm_cfg or _resolve_induce_llm_config(emp_id)
+        if not llm_cfg or not llm_cfg.get('apiKey'):
+            return result
+        raw = _call_chat_completion(
+            llm_cfg.get('apiProvider', ''), llm_cfg['apiKey'],
+            llm_cfg.get('apiModel', ''), llm_cfg.get('customEndpoint', ''),
+            [{'role': 'user', 'content': _DREAM_PROMPT.format(items='\n'.join(items))}],
+            timeout=90, max_tokens=2000)
+        data = _extract_json_object(raw) if raw else None
+        if not isinstance(data, dict):
+            return result
+
+        persona_text = (data.get('persona') or '').strip()
+        insights = data.get('insights') or []
+
+        if persona_text:
+            conn = _db_conn()
+            try:
+                prev = conn.execute(
+                    'SELECT id, content, version FROM memory_personas WHERE agent_id=? AND persona_type=? ORDER BY version DESC LIMIT 1',
+                    (emp_id, 'working_profile')).fetchone()
+                now = int(time.time() * 1000)
+                if prev:
+                    conn.execute(
+                        'UPDATE memory_personas SET backup_content=? WHERE id=?',
+                        (prev['content'], prev['id']))
+                    conn.execute(
+                        'INSERT INTO memory_personas (id, agent_id, persona_type, content, scene_ids, version, backup_content, created_at) '
+                        'VALUES (?,?,?,?,?,?,?,?)',
+                        ('pers_' + uuid.uuid4().hex[:8], emp_id, 'working_profile', persona_text,
+                         '[]', prev['version'] + 1, prev['content'], now))
+                else:
+                    conn.execute(
+                        'INSERT INTO memory_personas (id, agent_id, persona_type, content, scene_ids, version, backup_content, created_at) '
+                        'VALUES (?,?,?,?,?,?,?,?)',
+                        ('pers_' + uuid.uuid4().hex[:8], emp_id, 'working_profile', persona_text,
+                         '[]', 1, None, now))
+                conn.commit()
+                result['persona'] = True
+            finally:
+                conn.close()
+
+        for ins in insights[:3]:
+            if not isinstance(ins, dict):
+                continue
+            text = (ins.get('text') or '').strip()
+            if not text:
+                continue
+            try:
+                conf = float(ins.get('confidence', 0.5) or 0.5)
+            except (TypeError, ValueError):
+                conf = 0.5
+            if conf < 0.6:
+                continue
+            ev_list = [str(e)[:120] for e in (ins.get('evidence') or [])[:3] if e]
+            # 直写 knowledge_patterns（与 _induce_knowledge_patterns 同列约定）:
+            # dreaming 规律候选以 draft/hypothesis 入库, 走现有验证管道(hit/miss)闭环
+            conn = _db_conn()
+            try:
+                now = int(time.time() * 1000)
+                conn.execute(
+                    'INSERT INTO knowledge_patterns (id, category, entity_type, pattern_text, evidence, '
+                    'confidence, status, source_event_ids, source_knowledge_ids, created_by, '
+                    'created_at, updated_at, confidence_score, evidence_count, verification_level) '
+                    "VALUES (?, 'dreaming', '', ?, ?, ?, 'draft', '[]', '[]', ?, ?, ?, ?, ?, 'hypothesis')",
+                    ('kp_dream_' + uuid.uuid4().hex[:10], text,
+                     json.dumps(ev_list, ensure_ascii=False), conf, 'dreaming:' + emp_id,
+                     now, now, round(conf * 100, 1), len(ev_list)))
+                conn.commit()
+                result['insights'] += 1
+            except Exception as e:
+                logger.error(f'  [Dreaming] {emp_id} 写入规律候选失败: {e}')
+            finally:
+                conn.close()
+
+        logger.info(f'  [Dreaming] {emp_id}: persona={result["persona"]}, insights={result["insights"]}')
+    except Exception as e:
+        logger.error(f'  [Dreaming] {emp_id} failed: {e}')
+    return result
+
+
 def _auto_summarize_triggers(emp_id, memory):
     """记忆保存后自动触发二级归纳 pending 记录：数量触发 / 决策触发"""
     value = memory.get('value', '')
@@ -33964,6 +34166,21 @@ def _run_daily_memory_jobs(startup=False):
                     logger.info(f'  [DailyJob] {emp_id} 摘要工单: 生成 {_fill["filled"]}, 归档 {_fill["archived"]}, 失败 {_fill["error"]}')
             except Exception as e:
                 logger.error(f'  [DailyJob] {emp_id} 每日归纳生成失败: {e}')
+            # feat(memory-phase2): 夜间记忆卫生 —— 碎片标记 + 漏网清洗(写时闸的批处理兜底)
+            try:
+                _hyg = night_memory_hygiene(emp_id)
+                if _hyg.get('fragments_marked') or _hyg.get('stragglers_cleaned'):
+                    logger.info(f'  [DailyJob] {emp_id} 记忆卫生: 碎片标记 {_hyg["fragments_marked"]}, 补清洗 {_hyg["stragglers_cleaned"]}')
+            except Exception as e:
+                logger.error(f'  [DailyJob] {emp_id} 记忆卫生失败: {e}')
+            # feat(memory-phase2): 周级 Dreaming —— 仅周日跑, 蒸馏工作画像 + 规律候选入库
+            if datetime.now().weekday() == 6:
+                try:
+                    _dream = dream_for_agent(emp_id, _summary_llm_cfg)
+                    if _dream.get('persona') or _dream.get('insights'):
+                        logger.info(f'  [DailyJob] {emp_id} Dreaming: persona={_dream["persona"]}, insights={_dream["insights"]}')
+                except Exception as e:
+                    logger.error(f'  [DailyJob] {emp_id} Dreaming 失败: {e}')
             processed += 1
         except Exception as e:
             logger.error(f'  [DailyJob] agent {agent.get("id")} 处理失败: {e}')
