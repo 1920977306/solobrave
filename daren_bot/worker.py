@@ -1,37 +1,23 @@
 """异步任务 worker —— 重活全在这里（spec 3 秒硬约束的反面）。
 
-内测接入顺序：douyin → product → image（vision）。
-每个任务类型一个 executor；未接入的类型返回 NotImplementedError，
-由 Worker 统一走「任务失败 → 自动返还积分 → 卡片告知」路径（spec 4.1 失败分支）。
+内测接入顺序：douyin（已接 buyin_worker 管道）→ product → image（vision）。
+未接入的类型返回 NotImplementedError，由 Worker 统一走
+「任务失败 → 自动返还积分 → 卡片告知」路径（spec 4.1 失败分支）。
 """
 import logging
 import threading
 import time
 
 from . import db
+from . import executors
 
 log = logging.getLogger("daren-bot.worker")
 
 
-def execute_douyin_collect(task: dict) -> str:
-    """抖音号采集：Kimi 浏览器 → 巨量团长系统（开发中，spec 4.1）。"""
-    raise NotImplementedError("浏览器采集链路开发中")
-
-
-def execute_product_collect(task: dict) -> str:
-    """商品链接抓取：浏览器 + 共享缓存（开发中，spec 4.3）。"""
-    raise NotImplementedError("浏览器采集链路开发中")
-
-
-def execute_image_vision(task: dict) -> str:
-    """商品截图 vision 识别（开发中，spec 4.2；废图路径=识别不出→返还）。"""
-    raise NotImplementedError("vision 识别链路开发中")
-
-
 EXECUTORS = {
-    "douyin": execute_douyin_collect,
-    "product": execute_product_collect,
-    "image": execute_image_vision,
+    "douyin": executors.execute_douyin_collect,
+    "product": executors.execute_product_collect,
+    "image": executors.execute_image_vision,
 }
 
 
