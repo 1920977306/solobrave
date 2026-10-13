@@ -198,7 +198,7 @@ def test_2_no_keyword(test_data_dir):
 
 
 def test_3_fuzzy_like(test_data_dir):
-    """测 3: 模糊匹配 LIKE"""
+    """测 3: 模糊匹配 LIKE (fix/talent-like-guard 后 LIKE 仅限≥3字候选, 2字不再走模糊)"""
     tmp_db = os.path.join(test_data_dir, 'solobrave.db')
     if not os.path.exists(tmp_db):
         pytest.skip('test_data_dir 全新建库模式, 无 talents 数据, 跳过')
@@ -210,9 +210,18 @@ def test_3_fuzzy_like(test_data_dir):
         conn.close()
     if not row:
         pytest.skip('talents 表空')
-    prefix = row['name'][:2]
+    if len(row['name']) < 3:
+        pytest.skip('名字不足3字, LIKE≥3字守卫下不可测')
+    prefix = row['name'][:3]
+    # 唯一性确认: LIKE 命中多条时返回顺序不确定, 只测前缀唯一命中的达人
+    conn = sqlite3.connect(tmp_db)
+    try:
+        hits = conn.execute('SELECT count(*) FROM talents WHERE name LIKE ?', (f'%{prefix}%',)).fetchone()[0]
+    finally:
+        conn.close()
+    if hits != 1:
+        pytest.skip(f'前缀 {prefix} 命中 {hits} 条, 非唯一不可测')
     EXTRACT, _, _, _ = _exec_server_block(test_data_dir)
-    # ★ 双库改造: 候选集合唯一性 — 避免 '粉丝多少' 进 candidates 后 set 顺序不确定导致 LIKE 命中其他 talent
     got = EXTRACT(f'分析达人{prefix}', MockAuth())
     assert got == row['id'], f'期望 {row["id"]}, got {got}'
 

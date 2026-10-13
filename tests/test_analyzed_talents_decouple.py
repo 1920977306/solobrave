@@ -268,19 +268,25 @@ class AnalyzedTalentsEndpointSuite(unittest.TestCase):
 class ApiFetchCriticalContractSuite(unittest.TestCase):
     """前端 apiFetch 403 处理：critical 主数据源不再静默。
 
-    直接对 index.html 内联源码做契约断言（无浏览器环境）：
+    直接对前端源码做契约断言（无浏览器环境）：
       - critical 分支在 GET 静默之前抛错
       - 非 critical GET 行为保留（返回 '[]' 200 Response）
+    ★ 前端拆分迁移后: apiFetch 在 js/inline-03.js, loadAnalyzedTalents 在 js/inline-06.js
+      （原 index.html 内联，仪表盘重构时拆包；契约本身未变）
     """
 
     @classmethod
     def setUpClass(cls):
-        cls.html = (ROOT / 'index.html').read_text(encoding='utf-8')
+        cls.js_core = (ROOT / 'js' / 'inline-03.js').read_text(encoding='utf-8')
+        cls.js_talent = (ROOT / 'js' / 'inline-06.js').read_text(encoding='utf-8')
+
+    def _api_fetch_body(self):
+        m = re.search(r'async function apiFetch\(.*?\n\}', self.js_core, re.DOTALL)
+        self.assertIsNotNone(m, 'js/inline-03.js 找不到 apiFetch 定义')
+        return m.group(0)
 
     def test_critical_throws_before_silent_path(self):
-        m = re.search(r'async function apiFetch\(.*?\n\}', self.html, re.DOTALL)
-        self.assertIsNotNone(m)
-        body = m.group(0)
+        body = self._api_fetch_body()
         crit_idx = body.find('if (options.critical)')
         silent_idx = body.find("403 Forbidden, skipping")
         self.assertGreater(crit_idx, -1, '缺少 critical 分支')
@@ -291,16 +297,14 @@ class ApiFetchCriticalContractSuite(unittest.TestCase):
         self.assertIn("throw new Error('权限不足 (403)')", seg)
 
     def test_non_critical_get_silent_kept(self):
-        m = re.search(r'async function apiFetch\(.*?\n\}', self.html, re.DOTALL)
-        self.assertIsNotNone(m)
-        body = m.group(0)
+        body = self._api_fetch_body()
         self.assertIn("403 Forbidden, skipping", body)
         self.assertIn("new Response('[]'", body)
 
     def test_analyzed_tab_uses_critical_and_new_endpoint(self):
-        # loadAnalyzedTalents 改到新接口且带 critical
-        m = re.search(r'function loadAnalyzedTalents\(\).*?\n\}', self.html, re.DOTALL)
-        self.assertIsNotNone(m)
+        # loadAnalyzedTalents 改到新接口且带 critical（函数体在 js/inline-06.js）
+        m = re.search(r'function loadAnalyzedTalents\(\).*?\n\}', self.js_talent, re.DOTALL)
+        self.assertIsNotNone(m, 'js/inline-06.js 找不到 loadAnalyzedTalents 定义')
         block = m.group(0)
         self.assertIn('/api/talents/analyzed', block)
         self.assertIn('critical: true', block)

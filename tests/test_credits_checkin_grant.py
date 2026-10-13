@@ -42,8 +42,10 @@ def _extract_func(tree, name):
     raise RuntimeError(f'Function {name} not found')
 
 
-# 注入 _checkin_credits / _admin_grant_credits / _ensure_credit_account + 默认参数常量
+# 注入 _checkin_credits / _owner_checkin_today / _admin_grant_credits / _ensure_credit_account + 默认参数常量
+# _owner_checkin_today: r84 批注⑥引入的 owner 级幂等守卫, _checkin_credits 的运行期依赖, 必须同步注入
 _CHECKIN_SRC = _extract_func(_server_tree, '_checkin_credits')
+_OWNER_CK_SRC = _extract_func(_server_tree, '_owner_checkin_today')
 _GRANT_SRC = _extract_func(_server_tree, '_admin_grant_credits')
 _ENSURE_SRC = _extract_func(_server_tree, '_ensure_credit_account')
 
@@ -51,6 +53,7 @@ _GLOBALS = {'sqlite3': sqlite3, 'datetime': datetime, 'math': __import__('math')
               'DEFAULT_CHECKIN_REWARD': 10, 'DEFAULT_CREDIT_LIMIT': 10000,
               'logger': type('L', (), {'info': lambda *a, **k: None, 'warning': lambda *a, **k: None, 'error': lambda *a, **k: None})(),
               '_dt_mod': _dt_mod}
+exec(_OWNER_CK_SRC, _GLOBALS)
 exec(_CHECKIN_SRC, _GLOBALS)
 exec(_GRANT_SRC, _GLOBALS)
 exec(_ENSURE_SRC, _GLOBALS)
