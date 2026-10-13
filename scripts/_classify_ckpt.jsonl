@@ -1,0 +1,984 @@
+{"id": "mem_dfad51b2", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_0a45a551", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_dab5a2e8", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_02f7cb06", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_2236d1db", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_42280338", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_7b35576d", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_8a87e0f0", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_2bb63653", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_cd24760a", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_b9175632", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_a0084206", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_eabccf18", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_f3d14c57", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_a3f1de33", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_21ee63cb", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_cde99b62", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_8b50dc6b", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_50fe0dc0", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_f446d74e", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_d017582d", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_36f14e94", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_58357813", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_84f0f120", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_3a671747", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_1fbf112d", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_8b7fec55", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_dbf536b7", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_783403ac", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_19042513", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_59815b92", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_7b5c079d", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_df58ba8d", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_eaa399d4", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_21584450", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_a585b024", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_5a002ba6", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_442d0d28", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_c3f2711f", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_d13db47d", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_07fbb0c3", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_5b11e175", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_02eaaec0", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_f84b0c96", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_a1916f9f", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_512825c9", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_23008a06", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_f93243b1", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_d98a4de2", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_a131f4b3", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_07171213", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_fb9c6504", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_a20cdda2", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_4016cd5b", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_467e4311", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_2ab2a15b", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_4ac377f5", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_3a11f00c", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_c719038a", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_5113f469", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_2df2b8df", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_12ef20fb", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_ca9eb914", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_444d8a12", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_751da0e1", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_50c0f03e", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_d2349acf", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_fa60acac", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_c4a712a3", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_18ecc72a", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_98e5e932", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_e9a4977d", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_ada931c1", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_331b526a", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_4bc9a0e0", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_2f89ff59", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_fc91af15", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_e73dbcfb", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_34126614", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_b0d41dd5", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_dfad51b2", "verdict": "delete", "cat": "TASK", "conf": 0.95, "reason": "明确的添加录入指令"}
+{"id": "mem_0a45a551", "verdict": "delete", "cat": "TASK", "conf": 0.9, "reason": "要求分析截图选品"}
+{"id": "mem_dab5a2e8", "verdict": "keep_fact", "cat": "FACT", "conf": 0.9, "reason": "说明截图数据归属达人"}
+{"id": "mem_02f7cb06", "verdict": "keep_fact", "cat": "FACT", "conf": 0.9, "reason": "确认截图数据归属"}
+{"id": "mem_2236d1db", "verdict": "keep_fact", "cat": "FACT", "conf": 0.95, "reason": "提供达人具体抖音号"}
+{"id": "mem_42280338", "verdict": "keep_fact", "cat": "PREFERENCE", "conf": 0.9, "reason": "建档不混数据的约束"}
+{"id": "mem_7b35576d", "verdict": "keep_fact", "cat": "EVENT", "conf": 0.85, "reason": "截图提供完毕的状态"}
+{"id": "mem_8a87e0f0", "verdict": "delete", "cat": "TASK", "conf": 0.95, "reason": "明确的补录数据指令"}
+{"id": "mem_2bb63653", "verdict": "delete", "cat": "TASK", "conf": 0.85, "reason": "描述评估达人选品的任务"}
+{"id": "mem_cd24760a", "verdict": "delete", "cat": "TASK", "conf": 0.9, "reason": "询问达人选品的指令"}
+{"id": "mem_b9175632", "verdict": "delete", "cat": "TASK", "conf": 0.95, "reason": "按类目选品的明确指令"}
+{"id": "mem_a0084206", "verdict": "delete", "cat": "TASK", "conf": 0.9, "reason": "评估并求推荐的指令"}
+{"id": "mem_eabccf18", "verdict": "delete", "cat": "TASK", "conf": 0.95, "reason": "按类目选品的明确指令"}
+{"id": "mem_f3d14c57", "verdict": "delete", "cat": "TASK", "conf": 0.8, "reason": "询问合适产品的指令"}
+{"id": "mem_a3f1de33", "verdict": "delete", "cat": "TASK", "conf": 0.8, "reason": "追问具体产品的指令"}
+{"id": "mem_21ee63cb", "verdict": "keep_fact", "cat": "CORRECTION", "conf": 1.0, "reason": "纠正商品价格错误"}
+{"id": "mem_cde99b62", "verdict": "keep_fact", "cat": "FACT", "conf": 1.0, "reason": "商品佣金具体事实"}
+{"id": "mem_8b50dc6b", "verdict": "keep_fact", "cat": "CORRECTION", "conf": 1.0, "reason": "纠正商品价格错误"}
+{"id": "mem_50fe0dc0", "verdict": "keep_fact", "cat": "FACT", "conf": 1.0, "reason": "商品佣金具体事实"}
+{"id": "mem_f446d74e", "verdict": "delete", "cat": "NOISE", "conf": 0.8, "reason": "无实质业务信息量"}
+{"id": "mem_d017582d", "verdict": "delete", "cat": "TASK", "conf": 0.9, "reason": "确认数据修改任务"}
+{"id": "mem_36f14e94", "verdict": "delete", "cat": "TASK", "conf": 0.9, "reason": "要求修改数据任务"}
+{"id": "mem_58357813", "verdict": "keep_fact", "cat": "FACT", "conf": 1.0, "reason": "达人画像具体事实"}
+{"id": "mem_84f0f120", "verdict": "keep_fact", "cat": "INSIGHT", "conf": 0.9, "reason": "AI分析匹配与推荐"}
+{"id": "mem_3a671747", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_1fbf112d", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_8b7fec55", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_dbf536b7", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_783403ac", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_19042513", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_59815b92", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_7b5c079d", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_df58ba8d", "verdict": "keep_fact", "cat": "FACT", "conf": 0.95, "reason": "达人带货商品及结算事实"}
+{"id": "mem_eaa399d4", "verdict": "keep_fact", "cat": "FACT", "conf": 0.95, "reason": "达人带货数据与商品列表事实"}
+{"id": "mem_21584450", "verdict": "keep_fact", "cat": "CORRECTION", "conf": 0.9, "reason": "修正此前对达人承接力误判"}
+{"id": "mem_a585b024", "verdict": "delete", "cat": "TASK", "conf": 1.0, "reason": "明确的分析与录入任务指令"}
+{"id": "mem_5a002ba6", "verdict": "keep_fact", "cat": "FACT", "conf": 0.95, "reason": "达人画像与合作条件具体事实"}
+{"id": "mem_442d0d28", "verdict": "keep_fact", "cat": "EVENT", "conf": 0.9, "reason": "AI完成达人数据建档事件"}
+{"id": "mem_c3f2711f", "verdict": "keep_fact", "cat": "FACT", "conf": 0.95, "reason": "达人画像与带货数据具体事实"}
+{"id": "mem_d13db47d", "verdict": "keep_fact", "cat": "DECISION", "conf": 0.95, "reason": "优先推荐达人及试水商品决策"}
+{"id": "mem_07fbb0c3", "verdict": "keep_fact", "cat": "FACT", "conf": 0.95, "reason": "达人入库及属性事实"}
+{"id": "mem_5b11e175", "verdict": "keep_fact", "cat": "FACT", "conf": 0.95, "reason": "达人粉丝数据事实"}
+{"id": "mem_02eaaec0", "verdict": "keep_fact", "cat": "FACT", "conf": 0.9, "reason": "达人商品结算数据事实"}
+{"id": "mem_f84b0c96", "verdict": "keep_fact", "cat": "EVENT", "conf": 0.85, "reason": "用户交互与待建档事件"}
+{"id": "mem_a1916f9f", "verdict": "keep_fact", "cat": "FACT", "conf": 0.9, "reason": "达人带货结构确认事实"}
+{"id": "mem_512825c9", "verdict": "keep_fact", "cat": "CORRECTION", "conf": 0.95, "reason": "纠正达人名称建档错误"}
+{"id": "mem_23008a06", "verdict": "keep_fact", "cat": "PREFERENCE", "conf": 0.85, "reason": "达人质量评价偏好"}
+{"id": "mem_f93243b1", "verdict": "keep_fact", "cat": "DECISION", "conf": 0.9, "reason": "达人建联与谈判决策"}
+{"id": "mem_3a671747", "verdict": "keep_fact", "cat": "EVENT", "conf": 0.8, "reason": "描述用户询问及获得结果"}
+{"id": "mem_1fbf112d", "verdict": "keep_fact", "cat": "FACT", "conf": 0.95, "reason": "达人画像及类目分析事实"}
+{"id": "mem_8b7fec55", "verdict": "keep_fact", "cat": "EVENT", "conf": 0.85, "reason": "用户要求复核分析结论"}
+{"id": "mem_dbf536b7", "verdict": "keep_fact", "cat": "FACT", "conf": 0.9, "reason": "系统数据状态的具体事实"}
+{"id": "mem_783403ac", "verdict": "delete", "cat": "CHITCHAT", "conf": 0.9, "reason": "无实质信息的口语交互"}
+{"id": "mem_19042513", "verdict": "keep_fact", "cat": "EVENT", "conf": 0.85, "reason": "图片发送失败及建议事件"}
+{"id": "mem_59815b92", "verdict": "delete", "cat": "TASK", "conf": 0.9, "reason": "要求根据实际数据重新分析"}
+{"id": "mem_7b5c079d", "verdict": "delete", "cat": "TASK", "conf": 0.85, "reason": "要求重新分析是否有误"}
+{"id": "mem_d98a4de2", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_a131f4b3", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_07171213", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_fb9c6504", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_a20cdda2", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_4016cd5b", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_467e4311", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_2ab2a15b", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_4ac377f5", "verdict": "delete", "cat": "NOISE", "conf": 0.9, "reason": "无实质信息量"}
+{"id": "mem_3a11f00c", "verdict": "keep_fact", "cat": "FACT", "conf": 1.0, "reason": "达人画像与匹配事实"}
+{"id": "mem_c719038a", "verdict": "keep_fact", "cat": "DECISION", "conf": 0.9, "reason": "字段存储规则决策"}
+{"id": "mem_5113f469", "verdict": "keep_fact", "cat": "DECISION", "conf": 0.9, "reason": "谈判及投流策略决策"}
+{"id": "mem_2df2b8df", "verdict": "keep_fact", "cat": "CORRECTION", "conf": 0.9, "reason": "达人信息变更及修正"}
+{"id": "mem_12ef20fb", "verdict": "keep_fact", "cat": "DECISION", "conf": 1.0, "reason": "改名档案处理决策"}
+{"id": "mem_ca9eb914", "verdict": "keep_fact", "cat": "CORRECTION", "conf": 0.9, "reason": "补齐缺失档案数据"}
+{"id": "mem_444d8a12", "verdict": "keep_fact", "cat": "INSIGHT", "conf": 0.9, "reason": "AI合作分析与策略洞察"}
+{"id": "mem_751da0e1", "verdict": "keep_fact", "cat": "CORRECTION", "conf": 0.9, "reason": "纠正达人名称并确认决策"}
+{"id": "mem_50c0f03e", "verdict": "keep_fact", "cat": "FACT", "conf": 1.0, "reason": "达人建档及基础属性事实"}
+{"id": "mem_d2349acf", "verdict": "keep_fact", "cat": "DECISION", "conf": 0.95, "reason": "基于风险给出合作模式决策"}
+{"id": "mem_fa60acac", "verdict": "keep_fact", "cat": "CORRECTION", "conf": 0.9, "reason": "发现数据混杂并标注修正"}
+{"id": "mem_c4a712a3", "verdict": "keep_fact", "cat": "CORRECTION", "conf": 1.0, "reason": "澄清并修正数据归属错误"}
+{"id": "mem_18ecc72a", "verdict": "keep_fact", "cat": "DECISION", "conf": 0.95, "reason": "确认品类匹配及合作决策"}
+{"id": "mem_98e5e932", "verdict": "delete", "cat": "TASK", "conf": 1.0, "reason": "下达判断适合带品的任务"}
+{"id": "mem_e9a4977d", "verdict": "keep_fact", "cat": "FACT", "conf": 1.0, "reason": "补充达人带货及偏好事实"}
+{"id": "mem_ada931c1", "verdict": "keep_fact", "cat": "DECISION", "conf": 0.9, "reason": "AI选品建议及降价决策"}
+{"id": "mem_331b526a", "verdict": "delete", "cat": "TASK", "conf": 0.85, "reason": "交代任务指令与执行确认"}
+{"id": "mem_4bc9a0e0", "verdict": "keep_fact", "cat": "FACT", "conf": 1.0, "reason": "达人画像与带货数据事实"}
+{"id": "mem_2f89ff59", "verdict": "keep_fact", "cat": "FACT", "conf": 0.95, "reason": "达人视频观众画像数据"}
+{"id": "mem_fc91af15", "verdict": "keep_fact", "cat": "DECISION", "conf": 0.9, "reason": "合作渠道及货盘分配决策"}
+{"id": "mem_e73dbcfb", "verdict": "keep_fact", "cat": "DECISION", "conf": 0.9, "reason": "账号类型判断及合作决策"}
+{"id": "mem_34126614", "verdict": "keep_fact", "cat": "CORRECTION", "conf": 1.0, "reason": "粉丝数据修正及录入依据"}
+{"id": "mem_b0d41dd5", "verdict": "keep_fact", "cat": "CORRECTION", "conf": 1.0, "reason": "达人名称错误纠正"}
+{"id": "mem_d98a4de2", "verdict": "keep_fact", "cat": "PREFERENCE", "conf": 0.85, "reason": "描述用户核对数据的行为习惯"}
+{"id": "mem_a131f4b3", "verdict": "keep_fact", "cat": "CORRECTION", "conf": 1.0, "reason": "纠正达人名称及属性错误"}
+{"id": "mem_07171213", "verdict": "keep_fact", "cat": "FACT", "conf": 0.95, "reason": "明确现有四位达人及核对状态"}
+{"id": "mem_fb9c6504", "verdict": "keep_fact", "cat": "FACT", "conf": 1.0, "reason": "达人具体口碑数据事实"}
+{"id": "mem_a20cdda2", "verdict": "delete", "cat": "TASK", "conf": 0.95, "reason": "要求用户提供高清截图"}
+{"id": "mem_4016cd5b", "verdict": "keep_fact", "cat": "INSIGHT", "conf": 0.9, "reason": "发现粉丝画像与选品人群错位"}
+{"id": "mem_467e4311", "verdict": "keep_fact", "cat": "INSIGHT", "conf": 0.95, "reason": "发现数据异常及潜在合作风险"}
+{"id": "mem_2ab2a15b", "verdict": "delete", "cat": "TASK", "conf": 1.0, "reason": "需后续补录三项未保存数据"}
+{"id": "mem_cd92faf0", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_561fba0c", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_0f379e0b", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_dfc4d035", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_22d5286f", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_921be965", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_56b65940", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_f787c045", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_ed9d4b0f", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_72e9a625", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_84fb8617", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_2948ec21", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_e0efe54c", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_aa1c57db", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_4fff77c4", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_91f7b2eb", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_f610196e", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_4cfe8007", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_d718cc9d", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_4f9c3757", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_72e4833f", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_4089bca0", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_3642b530", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_3ab00f6c", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_ad2c5b74", "verdict": "delete", "cat": "TASK", "conf": 0.95, "reason": "明确的录入任务与流程"}
+{"id": "mem_12ab16c8", "verdict": "keep_fact", "cat": "EVENT", "conf": 0.9, "reason": "记录建档完成的具体事件"}
+{"id": "mem_637d9a31", "verdict": "keep_fact", "cat": "FACT", "conf": 1.0, "reason": "达人基本属性与事实数据"}
+{"id": "mem_805f1e72", "verdict": "keep_fact", "cat": "FACT", "conf": 1.0, "reason": "达人货盘与成交事实数据"}
+{"id": "mem_18282f1f", "verdict": "keep_fact", "cat": "DECISION", "conf": 0.9, "reason": "AI得出的商务与合作决策"}
+{"id": "mem_1a78f272", "verdict": "keep_fact", "cat": "CORRECTION", "conf": 1.0, "reason": "用户纠正错误并更新档案"}
+{"id": "mem_a469321c", "verdict": "keep_fact", "cat": "EVENT", "conf": 0.9, "reason": "发现同名不同账号的事件"}
+{"id": "mem_c2f0ed55", "verdict": "keep_fact", "cat": "DECISION", "conf": 0.95, "reason": "AI决定另建档案避免覆盖"}
+{"id": "mem_cd92faf0", "verdict": "keep_fact", "cat": "FACT", "conf": 1.0, "reason": "商品建档及具体数据事实"}
+{"id": "mem_561fba0c", "verdict": "keep_fact", "cat": "FACT", "conf": 1.0, "reason": "商品渠道数据具体事实"}
+{"id": "mem_0f379e0b", "verdict": "keep_fact", "cat": "DECISION", "conf": 0.9, "reason": "选品匹配与优先测试决策"}
+{"id": "mem_dfc4d035", "verdict": "delete", "cat": "TASK", "conf": 1.0, "reason": "待补全数据的任务指令"}
+{"id": "mem_22d5286f", "verdict": "keep_fact", "cat": "CORRECTION", "conf": 1.0, "reason": "纠正达人合作模式判断"}
+{"id": "mem_921be965", "verdict": "keep_fact", "cat": "CORRECTION", "conf": 1.0, "reason": "更正商品名称及佣金数据"}
+{"id": "mem_56b65940", "verdict": "keep_fact", "cat": "FACT", "conf": 1.0, "reason": "店铺热销商品具体事实"}
+{"id": "mem_f787c045", "verdict": "keep_fact", "cat": "INSIGHT", "conf": 0.9, "reason": "提炼工厂店打法与合作规律"}
+{"id": "mem_ed9d4b0f", "verdict": "keep_fact", "cat": "FACT", "conf": 0.95, "reason": "商品渠道占比及对口事实"}
+{"id": "mem_72e9a625", "verdict": "keep_fact", "cat": "DECISION", "conf": 0.9, "reason": "谈判姿态判断及策略建议"}
+{"id": "mem_84fb8617", "verdict": "keep_fact", "cat": "FACT", "conf": 1.0, "reason": "商品建档数据及属性事实"}
+{"id": "mem_2948ec21", "verdict": "keep_fact", "cat": "FACT", "conf": 1.0, "reason": "品牌渠道占比及销量事实"}
+{"id": "mem_e0efe54c", "verdict": "keep_fact", "cat": "DECISION", "conf": 0.9, "reason": "不主推及替代品合作决策"}
+{"id": "mem_aa1c57db", "verdict": "delete", "cat": "TASK", "conf": 0.85, "reason": "用户合作意向与询问需求"}
+{"id": "mem_4fff77c4", "verdict": "keep_fact", "cat": "DECISION", "conf": 0.95, "reason": "具体谈判条件与方案决策"}
+{"id": "mem_91f7b2eb", "verdict": "keep_fact", "cat": "DECISION", "conf": 0.95, "reason": "铺达人场景与内容策略建议"}
+{"id": "mem_f610196e", "verdict": "keep_fact", "cat": "DECISION", "conf": 0.9, "reason": "佣金谈判策略建议"}
+{"id": "mem_4cfe8007", "verdict": "keep_fact", "cat": "EVENT", "conf": 0.9, "reason": "确认提案并输出事件"}
+{"id": "mem_d718cc9d", "verdict": "keep_fact", "cat": "DECISION", "conf": 0.9, "reason": "合作打法与测款决策"}
+{"id": "mem_4f9c3757", "verdict": "keep_fact", "cat": "EVENT", "conf": 0.9, "reason": "截图识别失败交互事件"}
+{"id": "mem_72e4833f", "verdict": "keep_fact", "cat": "FACT", "conf": 0.9, "reason": "达人画像与话术事实"}
+{"id": "mem_4089bca0", "verdict": "keep_fact", "cat": "INSIGHT", "conf": 0.9, "reason": "选品规律发现与建议"}
+{"id": "mem_3642b530", "verdict": "keep_fact", "cat": "FACT", "conf": 0.9, "reason": "品牌与达人带货事实"}
+{"id": "mem_3ab00f6c", "verdict": "keep_fact", "cat": "DECISION", "conf": 0.9, "reason": "商务测试型货盘决策"}
+{"id": "mem_b49ca36d", "verdict": "keep_fact", "cat": "FACT", "conf": 0.9, "reason": "建档状态与达人ID事实"}
+{"id": "mem_af9d22fe", "verdict": "keep_fact", "cat": "FACT", "conf": 0.95, "reason": "达人货盘成交数据事实"}
+{"id": "mem_99f6cb5f", "verdict": "keep_fact", "cat": "DECISION", "conf": 0.95, "reason": "达人合作策略与风险决策"}
+{"id": "mem_27b15967", "verdict": "keep_fact", "cat": "CORRECTION", "conf": 0.9, "reason": "指出档案缺失字段需修正"}
+{"id": "mem_945f42cf", "verdict": "keep_fact", "cat": "FACT", "conf": 0.9, "reason": "同名比对与建档事实"}
+{"id": "mem_21f932c6", "verdict": "keep_fact", "cat": "FACT", "conf": 0.95, "reason": "达人核心画像数据事实"}
+{"id": "mem_3a34fd2f", "verdict": "keep_fact", "cat": "FACT", "conf": 0.95, "reason": "达人主营类目数据事实"}
+{"id": "mem_e6e34f0b", "verdict": "keep_fact", "cat": "DECISION", "conf": 0.9, "reason": "基于画像的合作方向决策"}
+{"id": "mem_f30da3d4", "verdict": "keep_fact", "cat": "FACT", "conf": 0.9, "reason": "区分同名达人事实"}
+{"id": "mem_26a045d9", "verdict": "keep_fact", "cat": "EVENT", "conf": 0.85, "reason": "达人建档完成事件"}
+{"id": "mem_c1f5ab00", "verdict": "keep_fact", "cat": "FACT", "conf": 0.95, "reason": "达人货盘与定位事实"}
+{"id": "mem_4c9067bb", "verdict": "keep_fact", "cat": "DECISION", "conf": 0.9, "reason": "达人合作与投放决策"}
+{"id": "mem_5a171ab1", "verdict": "keep_fact", "cat": "EVENT", "conf": 0.85, "reason": "达人建档完成事件"}
+{"id": "mem_a3e2c35a", "verdict": "keep_fact", "cat": "FACT", "conf": 0.95, "reason": "达人货盘与定位事实"}
+{"id": "mem_dd9ff04e", "verdict": "keep_fact", "cat": "DECISION", "conf": 0.9, "reason": "达人合作与投放决策"}
+{"id": "mem_08122267", "verdict": "keep_fact", "cat": "EVENT", "conf": 0.85, "reason": "达人建档完成事件"}
+{"id": "mem_1e2c5d56", "verdict": "keep_fact", "cat": "DECISION", "conf": 0.9, "reason": "明确达人的主营定位决策"}
+{"id": "mem_5bebcf4f", "verdict": "keep_fact", "cat": "DECISION", "conf": 0.95, "reason": "给出具体的合作建议决策"}
+{"id": "mem_373b06a9", "verdict": "keep_fact", "cat": "EVENT", "conf": 0.95, "reason": "记录达人建档完成事件"}
+{"id": "mem_3dea12bd", "verdict": "keep_fact", "cat": "FACT", "conf": 0.95, "reason": "描述达人货盘和爆品事实"}
+{"id": "mem_2b4e20a7", "verdict": "keep_fact", "cat": "INSIGHT", "conf": 0.9, "reason": "揭示流量转化问题的洞察"}
+{"id": "mem_95b36834", "verdict": "keep_fact", "cat": "EVENT", "conf": 0.95, "reason": "记录达人建档完成事件"}
+{"id": "mem_b84ca5bc", "verdict": "keep_fact", "cat": "DECISION", "conf": 0.9, "reason": "基于实际成交的主营决策"}
+{"id": "mem_01a9f088", "verdict": "keep_fact", "cat": "INSIGHT", "conf": 0.9, "reason": "发现产出不稳定及机构影响规律"}
+{"id": "mem_62e30abd", "verdict": "delete", "cat": "TASK", "conf": 0.95, "reason": "明确的任务指令"}
+{"id": "mem_243a85b1", "verdict": "keep_fact", "cat": "EVENT", "conf": 0.9, "reason": "描述AI故障及等待事件"}
+{"id": "mem_66a12827", "verdict": "keep_fact", "cat": "EVENT", "conf": 0.9, "reason": "记录用户操作及任务状态"}
+{"id": "mem_70b343e7", "verdict": "keep_fact", "cat": "EVENT", "conf": 0.9, "reason": "重复描述AI故障事件"}
+{"id": "mem_f90379e9", "verdict": "keep_fact", "cat": "EVENT", "conf": 0.9, "reason": "重复记录用户操作事件"}
+{"id": "mem_22834a94", "verdict": "keep_fact", "cat": "FACT", "conf": 0.95, "reason": "达人建档完成及ID事实"}
+{"id": "mem_6168087a", "verdict": "keep_fact", "cat": "FACT", "conf": 1.0, "reason": "达人货盘及品牌数据事实"}
+{"id": "mem_c6d25508", "verdict": "keep_fact", "cat": "DECISION", "conf": 0.95, "reason": "针对达人的合作策略建议"}
+{"id": "mem_70546980", "verdict": "keep_fact", "cat": "FACT", "conf": 1.0, "reason": "达人成交货盘及定档事实"}
+{"id": "mem_5fd693df", "verdict": "keep_fact", "cat": "DECISION", "conf": 0.95, "reason": "给出CPS合作及试投建议"}
+{"id": "mem_9ddcdb3d", "verdict": "keep_fact", "cat": "EVENT", "conf": 0.95, "reason": "AI完成达人查重建档事件"}
+{"id": "mem_b2928616", "verdict": "keep_fact", "cat": "EVENT", "conf": 0.95, "reason": "AI完成达人查重建档事件"}
+{"id": "mem_2988b7a0", "verdict": "keep_fact", "cat": "EVENT", "conf": 0.95, "reason": "AI完成商品查重建档事件"}
+{"id": "mem_c77bc0d2", "verdict": "keep_fact", "cat": "FACT", "conf": 1.0, "reason": "商品受众画像具体事实"}
+{"id": "mem_0339abf0", "verdict": "keep_fact", "cat": "FACT", "conf": 1.0, "reason": "商品档案及销售具体事实"}
+{"id": "mem_c71eab76", "verdict": "keep_fact", "cat": "FACT", "conf": 1.0, "reason": "商品近期数据及渠道事实"}
+{"id": "mem_f5c12d35", "verdict": "keep_fact", "cat": "DECISION", "conf": 0.9, "reason": "业务建议与操作决策"}
+{"id": "mem_e7a4bab1", "verdict": "keep_fact", "cat": "EVENT", "conf": 0.85, "reason": "记录用户查询与建档状态"}
+{"id": "mem_9abfc455", "verdict": "keep_fact", "cat": "FACT", "conf": 0.95, "reason": "达人具体货盘与合作数据"}
+{"id": "mem_3022b336", "verdict": "keep_fact", "cat": "DECISION", "conf": 0.9, "reason": "达人合作策略与打法建议"}
+{"id": "mem_01d18cfc", "verdict": "keep_fact", "cat": "FACT", "conf": 0.95, "reason": "商品库具体商品与价格"}
+{"id": "mem_93f1b9d3", "verdict": "delete", "cat": "TASK", "conf": 0.95, "reason": "用户下达的保存数据指令"}
+{"id": "mem_1932a6cb", "verdict": "keep_fact", "cat": "EVENT", "conf": 0.85, "reason": "档案写入操作与结果记录"}
+{"id": "mem_5cf1da2e", "verdict": "keep_fact", "cat": "EVENT", "conf": 0.95, "reason": "新达人建档完成事件"}
+{"id": "mem_b268e003", "verdict": "keep_fact", "cat": "FACT", "conf": 0.95, "reason": "达人货盘及爆款具体数据"}
+{"id": "mem_5650ce0b", "verdict": "keep_fact", "cat": "FACT", "conf": 0.95, "reason": "达人建档基础信息事实"}
+{"id": "mem_fca777a8", "verdict": "keep_fact", "cat": "FACT", "conf": 0.95, "reason": "达人粉丝画像具体数据"}
+{"id": "mem_7bbf3911", "verdict": "keep_fact", "cat": "DECISION", "conf": 0.9, "reason": "达人合作选品及打法决策"}
+{"id": "mem_4e0ff0c3", "verdict": "keep_fact", "cat": "FACT", "conf": 0.95, "reason": "达人库现状及状态事实"}
+{"id": "mem_77de89da", "verdict": "keep_fact", "cat": "FACT", "conf": 0.95, "reason": "达人库平台分布事实"}
+{"id": "mem_2444e7c0", "verdict": "keep_fact", "cat": "FACT", "conf": 0.95, "reason": "达人报价区间具体数据"}
+{"id": "mem_7ededb28", "verdict": "keep_fact", "cat": "FACT", "conf": 0.95, "reason": "达人合作状态分布事实"}
+{"id": "mem_42c4a67a", "verdict": "keep_fact", "cat": "FACT", "conf": 0.95, "reason": "达人粉丝与品类具体事实"}
+{"id": "mem_3258edd8", "verdict": "keep_fact", "cat": "EVENT", "conf": 0.9, "reason": "达人被拉黑具体事件"}
+{"id": "mem_a418cb57", "verdict": "keep_fact", "cat": "FACT", "conf": 0.95, "reason": "达人库系统现状具体事实"}
+{"id": "mem_fb703a2e", "verdict": "keep_fact", "cat": "FACT", "conf": 0.95, "reason": "达人合作状态具体事实"}
+{"id": "mem_f7e6097a", "verdict": "keep_fact", "cat": "CORRECTION", "conf": 0.9, "reason": "修正达人信息提供方式"}
+{"id": "mem_6a667527", "verdict": "keep_fact", "cat": "FACT", "conf": 0.9, "reason": "产品推广与达人排期事实"}
+{"id": "mem_c5198b73", "verdict": "keep_fact", "cat": "FACT", "conf": 0.9, "reason": "达人被拉黑原因事实"}
+{"id": "mem_1b6b1a7c", "verdict": "keep_fact", "cat": "FACT", "conf": 0.95, "reason": "达人带货数据具体事实"}
+{"id": "mem_60d301ca", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_02fb46e4", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_2e4da148", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_ed432898", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_aaf9f2f6", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_dc6ca274", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_64513c18", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_797b5432", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_55e79b35", "verdict": "keep_fact", "cat": "FACT", "conf": 0.95, "reason": "达人具体业务事实数据"}
+{"id": "mem_2a350cbe", "verdict": "keep_fact", "cat": "FACT", "conf": 0.95, "reason": "达人具体指标事实数据"}
+{"id": "mem_05ac11d3", "verdict": "keep_fact", "cat": "FACT", "conf": 0.9, "reason": "达人粉丝画像事实数据"}
+{"id": "mem_c50ffba1", "verdict": "delete", "cat": "TASK", "conf": 0.95, "reason": "明确的任务指令"}
+{"id": "mem_c5c35043", "verdict": "keep_fact", "cat": "PREFERENCE", "conf": 0.95, "reason": "用户工作流偏好约束"}
+{"id": "mem_8db04257", "verdict": "keep_fact", "cat": "FACT", "conf": 0.9, "reason": "达人货盘及历史表现事实"}
+{"id": "mem_27d66bbf", "verdict": "keep_fact", "cat": "DECISION", "conf": 0.9, "reason": "AI合作结论与打法决策"}
+{"id": "mem_8a273d58", "verdict": "keep_fact", "cat": "DECISION", "conf": 0.9, "reason": "AI合作结论与打法决策"}
+{"id": "mem_2660cfec", "verdict": "keep_fact", "cat": "FACT", "conf": 0.95, "reason": "达人带货数据与品类事实"}
+{"id": "mem_819e9b54", "verdict": "keep_fact", "cat": "FACT", "conf": 0.95, "reason": "达人历史带货与爆品事实"}
+{"id": "mem_c0383a7d", "verdict": "keep_fact", "cat": "FACT", "conf": 0.95, "reason": "达人货盘构成数据事实"}
+{"id": "mem_84c60916", "verdict": "delete", "cat": "TASK", "conf": 0.9, "reason": "明确的任务指令"}
+{"id": "mem_21c97763", "verdict": "keep_fact", "cat": "DECISION", "conf": 0.9, "reason": "达人合作评估与风险决策"}
+{"id": "mem_b853327e", "verdict": "keep_fact", "cat": "DECISION", "conf": 0.9, "reason": "达人合作可行性决策结论"}
+{"id": "mem_d636b59c", "verdict": "keep_fact", "cat": "DECISION", "conf": 0.9, "reason": "达人合作优劣势与决策"}
+{"id": "mem_c068989b", "verdict": "keep_fact", "cat": "DECISION", "conf": 0.9, "reason": "达人匹配度合作决策结论"}
+{"id": "mem_d7335465", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_8ea55e96", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_683370ad", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_c96dc013", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_22721d53", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_e8a37641", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_9cca5ffa", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_72099b4b", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_912ba3e4", "verdict": "keep_fact", "cat": "INSIGHT", "conf": 0.85, "reason": "达人特征归类与合作价值规律洞察"}
+{"id": "mem_4c0bb6a7", "verdict": "keep_fact", "cat": "FACT", "conf": 0.9, "reason": "商品GMV与爆品等具体业务事实"}
+{"id": "mem_8c58c61e", "verdict": "keep_fact", "cat": "EVENT", "conf": 0.85, "reason": "权限不足导致录入被拒的具体事件"}
+{"id": "mem_cf89d390", "verdict": "keep_fact", "cat": "FACT", "conf": 0.9, "reason": "商品属性及待录入状态的具体事实"}
+{"id": "mem_b1cf1236", "verdict": "delete", "cat": "TASK", "conf": 0.9, "reason": "用户明确的数据提供与训练意图"}
+{"id": "mem_bff6f3c9", "verdict": "keep_fact", "cat": "DECISION", "conf": 0.85, "reason": "投放策略建议与达人定位决策"}
+{"id": "mem_2c41ab6b", "verdict": "keep_fact", "cat": "FACT", "conf": 0.9, "reason": "达人内容形式与结算价等事实"}
+{"id": "mem_ac22f7ca", "verdict": "keep_fact", "cat": "DECISION", "conf": 0.9, "reason": "AI达人组合投放方案决策"}
+{"id": "mem_ad5d7555", "verdict": "keep_fact", "cat": "FACT", "conf": 0.85, "reason": "达人未建档及数据未传递事实"}
+{"id": "mem_2d45b6e5", "verdict": "delete", "cat": "CHITCHAT", "conf": 0.9, "reason": "用户抱怨无实质信息"}
+{"id": "mem_d4dd875b", "verdict": "delete", "cat": "TASK", "conf": 0.85, "reason": "存入知识库的指令"}
+{"id": "mem_782bb804", "verdict": "delete", "cat": "TASK", "conf": 0.9, "reason": "要求复盘分析质量"}
+{"id": "mem_53577b1f", "verdict": "keep_fact", "cat": "FACT", "conf": 0.9, "reason": "知识库只读需管理员录入"}
+{"id": "mem_97eaccb6", "verdict": "keep_fact", "cat": "CORRECTION", "conf": 0.95, "reason": "承认分析造假并作废修正"}
+{"id": "mem_7f7b0788", "verdict": "keep_fact", "cat": "CORRECTION", "conf": 0.95, "reason": "确认报告造假并作废"}
+{"id": "mem_01a1630a", "verdict": "keep_fact", "cat": "DECISION", "conf": 0.9, "reason": "缺数据不输出的整改决策"}
+{"id": "mem_7b63d496", "verdict": "delete", "cat": "CHITCHAT", "conf": 0.6, "reason": "口头追问无实质内容"}
+{"id": "mem_f6151510", "verdict": "keep_fact", "cat": "CORRECTION", "conf": 0.9, "reason": "承认数据无来源报告作废"}
+{"id": "mem_d4cda6b8", "verdict": "keep_fact", "cat": "CORRECTION", "conf": 0.9, "reason": "数据无来源建议不决策"}
+{"id": "mem_2f015c03", "verdict": "delete", "cat": "CHITCHAT", "conf": 0.6, "reason": "口头追问无实质内容"}
+{"id": "mem_c93adb28", "verdict": "delete", "cat": "TASK", "conf": 0.9, "reason": "指令重新分析达人"}
+{"id": "mem_5bb4a3b6", "verdict": "delete", "cat": "TASK", "conf": 0.9, "reason": "指令重新分析达人"}
+{"id": "mem_b03744eb", "verdict": "delete", "cat": "TASK", "conf": 0.95, "reason": "指令重新分析并反馈结果"}
+{"id": "mem_6231d061", "verdict": "keep_fact", "cat": "CORRECTION", "conf": 0.9, "reason": "数据无来源分析作废"}
+{"id": "mem_e9f23f51", "verdict": "delete", "cat": "TASK", "conf": 0.9, "reason": "要求重发截图数据"}
+{"id": "mem_b8d61a02", "verdict": "delete", "cat": "TASK", "conf": 0.9, "reason": "询问业务数据指标"}
+{"id": "mem_dfc2dd81", "verdict": "keep_fact", "cat": "CORRECTION", "conf": 0.85, "reason": "指出分析矛盾要求重析"}
+{"id": "mem_a2fe5447", "verdict": "keep_fact", "cat": "CORRECTION", "conf": 0.9, "reason": "指出AI前后说法矛盾"}
+{"id": "mem_081b62c0", "verdict": "keep_fact", "cat": "FACT", "conf": 0.9, "reason": "陈述达人商品及档案事实"}
+{"id": "mem_71d0a77d", "verdict": "delete", "cat": "TASK", "conf": 0.95, "reason": "索要分析结果指令"}
+{"id": "mem_36840dfb", "verdict": "delete", "cat": "TASK", "conf": 0.95, "reason": "索要分析结果指令"}
+{"id": "mem_48438ce8", "verdict": "delete", "cat": "TASK", "conf": 0.95, "reason": "索要分析结果指令"}
+{"id": "mem_27143421", "verdict": "delete", "cat": "TASK", "conf": 0.95, "reason": "要求发送达人分析结果"}
+{"id": "mem_5f431c58", "verdict": "keep_fact", "cat": "FACT", "conf": 0.9, "reason": "达人评级及合作策略事实"}
+{"id": "mem_72719e71", "verdict": "keep_fact", "cat": "CORRECTION", "conf": 0.9, "reason": "指出分析判断错误"}
+{"id": "mem_2f78e601", "verdict": "delete", "cat": "TASK", "conf": 0.95, "reason": "要求重发达人分析结果"}
+{"id": "mem_7315336d", "verdict": "delete", "cat": "TASK", "conf": 0.95, "reason": "要求重新分析并发送"}
+{"id": "mem_11a9cb64", "verdict": "keep_fact", "cat": "DECISION", "conf": 0.85, "reason": "重名达人处理流程决策"}
+{"id": "mem_e2d3085d", "verdict": "keep_fact", "cat": "EVENT", "conf": 0.9, "reason": "用户提出重新分析请求"}
+{"id": "mem_a3b26225", "verdict": "keep_fact", "cat": "PREFERENCE", "conf": 0.85, "reason": "分析数据覆盖率偏好约束"}
+{"id": "mem_742300f1", "verdict": "keep_fact", "cat": "EVENT", "conf": 0.85, "reason": "描述用户操作及系统状态"}
+{"id": "mem_d40d7bec", "verdict": "keep_fact", "cat": "DECISION", "conf": 0.9, "reason": "AI给出的查找不到数据的应对策略"}
+{"id": "mem_01a7f4d8", "verdict": "keep_fact", "cat": "DECISION", "conf": 0.9, "reason": "AI给出的处理优先级决策建议"}
+{"id": "mem_9a42e462", "verdict": "keep_fact", "cat": "FACT", "conf": 1.0, "reason": "具体类目占比的客观数据"}
+{"id": "mem_2be31a0b", "verdict": "keep_fact", "cat": "FACT", "conf": 1.0, "reason": "具体品牌商品及GMV表现事实"}
+{"id": "mem_844d61a3", "verdict": "keep_fact", "cat": "INSIGHT", "conf": 0.9, "reason": "出单率最高类目的规律总结"}
+{"id": "mem_c0e8c6dd", "verdict": "keep_fact", "cat": "FACT", "conf": 1.0, "reason": "视频与直播的具体数据事实"}
+{"id": "mem_27e0e058", "verdict": "keep_fact", "cat": "PREFERENCE", "conf": 0.95, "reason": "消费者客单价与品类偏好"}
+{"id": "mem_ed32dc1b", "verdict": "keep_fact", "cat": "FACT", "conf": 0.9, "reason": "具体城市占比数据事实"}
+{"id": "mem_da8ee9b4", "verdict": "delete", "cat": "NOISE", "conf": 0.95, "reason": "仅有标题无实质内容"}
+{"id": "mem_3c1f782c", "verdict": "keep_fact", "cat": "INSIGHT", "conf": 0.85, "reason": "流量波动与稳定的规律"}
+{"id": "mem_d173b812", "verdict": "delete", "cat": "TASK", "conf": 0.9, "reason": "投放短视频测试的任务指令"}
+{"id": "mem_22dd8227", "verdict": "keep_fact", "cat": "FACT", "conf": 0.85, "reason": "预估GMV的量化事实"}
+{"id": "mem_0faa8445", "verdict": "keep_fact", "cat": "DECISION", "conf": 0.9, "reason": "风险对冲的业务决策"}
+{"id": "mem_4fde236a", "verdict": "delete", "cat": "NOISE", "conf": 0.95, "reason": "仅有标题无实质内容"}
+{"id": "mem_cc5ddc2d", "verdict": "keep_fact", "cat": "DECISION", "conf": 0.9, "reason": "建立长期合作的业务决策"}
+{"id": "mem_a45f94a4", "verdict": "keep_fact", "cat": "DECISION", "conf": 0.8, "reason": "类目关注重点属业务决策"}
+{"id": "mem_6cac97d9", "verdict": "keep_fact", "cat": "INSIGHT", "conf": 0.9, "reason": "互动低影响传播属规律洞察"}
+{"id": "mem_b739444a", "verdict": "keep_fact", "cat": "DECISION", "conf": 0.9, "reason": "优化内容策略属业务决策"}
+{"id": "mem_d1c6883c", "verdict": "keep_fact", "cat": "INSIGHT", "conf": 0.9, "reason": "无直播经验影响带货属洞察"}
+{"id": "mem_3893f64f", "verdict": "keep_fact", "cat": "DECISION", "conf": 0.9, "reason": "建议直播带货属业务决策"}
+{"id": "mem_a4d9a40d", "verdict": "keep_fact", "cat": "FACT", "conf": 0.95, "reason": "粉丝增长具体数据属事实"}
+{"id": "mem_c6bc5702", "verdict": "keep_fact", "cat": "DECISION", "conf": 0.9, "reason": "加强营销策略属业务决策"}
+{"id": "mem_92e5b461", "verdict": "keep_fact", "cat": "FACT", "conf": 0.95, "reason": "人群占比具体数据属事实"}
+{"id": "mem_04bb8b14", "verdict": "keep_fact", "cat": "FACT", "conf": 0.9, "reason": "描述品类具体事实"}
+{"id": "mem_2005caa7", "verdict": "keep_fact", "cat": "PREFERENCE", "conf": 0.9, "reason": "价格带偏好约束"}
+{"id": "mem_f4888637", "verdict": "keep_fact", "cat": "PREFERENCE", "conf": 0.9, "reason": "风格偏好约束"}
+{"id": "mem_f6b4a786", "verdict": "keep_fact", "cat": "FACT", "conf": 0.95, "reason": "类目占比具体事实"}
+{"id": "mem_885d0e78", "verdict": "keep_fact", "cat": "DECISION", "conf": 0.9, "reason": "选品依据业务决策"}
+{"id": "mem_491c2622", "verdict": "keep_fact", "cat": "DECISION", "conf": 0.9, "reason": "选品方向业务决策"}
+{"id": "mem_a62d547b", "verdict": "keep_fact", "cat": "CORRECTION", "conf": 0.85, "reason": "数据覆盖规则修正"}
+{"id": "mem_5b51eee5", "verdict": "delete", "cat": "TASK", "conf": 0.95, "reason": "需确认ID任务指令"}
+{"id": "mem_60d301ca", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_02fb46e4", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_2e4da148", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_ed432898", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_aaf9f2f6", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_dc6ca274", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_64513c18", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_797b5432", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_d7335465", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_8ea55e96", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_683370ad", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_c96dc013", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_22721d53", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_e8a37641", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_9cca5ffa", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_72099b4b", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_dcb218d4", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_56a80b45", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_1c716ae2", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_145a2f83", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_ba02298a", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_21e7f789", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_6eb1c1b7", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_37198a50", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_37044f53", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_7bf13658", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_b8304955", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_989dd61f", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_61c07768", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_c8df4472", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_106cc3ef", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_d2d552bd", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_334c3e00", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_3260cdf1", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_0386314d", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_32ca0234", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_72c67d67", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_abe2e354", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_b51a03ea", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_e81e8cbb", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_94f07bc9", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_4d4b8a82", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_b5bbf70f", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_88cf62f7", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_c6d604fa", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_ba55990d", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_4264039c", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_ed12f5e9", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_4aad79d1", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_cc313c82", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_b0c7dbf8", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_867291f7", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_6ab8b346", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_a211420d", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_29982331", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_230ff40b", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_6ea99f3e", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_92adea8a", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_5d017a05", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_9cef6691", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_1fcdb1b7", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_8a8d33ac", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_72a76db5", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_b98dad79", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_ecd78694", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_ee32fa65", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_d8fe5d8a", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_b107a244", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_8d057f1c", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_ae307647", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_fadf15bc", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_42434199", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_b6e7fca4", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_505910e6", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_3b98573a", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_98ac2608", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_090daf0a", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_5b746ac0", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_fdff9313", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_ee56990d", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_7fc89e4e", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_ef57ba6d", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_13fc4aa3", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_36d78ff8", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_9ce10900", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_c0155e20", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_21b97675", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_2550fe60", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_da3eb9ab", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_ba0ddcbf", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_fa8d23f8", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_eb4628a7", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_da734b79", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_288636d5", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_594e54c1", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_4a4bed67", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_51f0d08d", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_a85c0d55", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_747d704e", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_832df702", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_38734793", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_d14fef54", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_78577fb4", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_92c34da4", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_f4e7092f", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_e6a5d5f9", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_5c8f37f8", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_46bdc73e", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_cbeb24a6", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_f90d856d", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_bc3dc4ae", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_84b2cb58", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_dffffafc", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_921a909e", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_79c8da61", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_81bcc82a", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_c75dc1c3", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_72d46b46", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_8fc338d4", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_daad234d", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_8d142654", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_b1f4dfd6", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_07bc4060", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_c750bda4", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_e447505d", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_d67a9057", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_db0db8f8", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_1275b2d7", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_81927bbb", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_8721463f", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_f6cb397a", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_ebe188e7", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_529631f5", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_f433ccef", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_55e460ea", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_bea7bb63", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_75db3b0c", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_f6d0b76b", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_171730d5", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_62f13047", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_da1c23a4", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_446af8d2", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_e84f9dbd", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_842909fe", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_d7142a68", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_ae6efc2e", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_054e237d", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_84e0f8af", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_5020ae85", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_49f16b87", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_69fcf0c1", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_d8941d8d", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_c3ddf5f7", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_169265d1", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_563fa16f", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_1a947556", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_63d1a2f2", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_9dd48617", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_1b0924e1", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_88c21797", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_becb2122", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_b049f311", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_fa35c991", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_0edc7adb", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_03480320", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_0bb1a9ad", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_68b28f58", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_32cbec0b", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_00d876c8", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_e25d4827", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_51aea969", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_7186e29b", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_64736e4a", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_0b535227", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_0b19e16c", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_f379c6ab", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_3600bd2e", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_4d18a94e", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_faca3f9f", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_94864f9e", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_b3b80f8f", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_500ffc27", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_79ccd28b", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_efa1d8b7", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_7ec2c022", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_e2469ae3b72d", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_74df32e214eb", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_25d1be774c26", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_daf44d64054e", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_ebd875d74170", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_76c6bbfe4a6e", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_73fc5538b1a7", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_054cd8ea4bd4", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_5a70c3203616", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_21a4c07d09a4", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_f92e7ec1e7db", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_89b250c7151c", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_d2bab898f147", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_2cff1c5f5fcf", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_b997d109ad7c", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_559b4715a30c", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_4e83f669bf8b", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_47a3b6559851", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_c204d64c0914", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_a8b22e6456c0", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_1e9fa750bab9", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_3df19ceede67", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_f28f8a39b9dc", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_5c7437a2f2d0", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_75d57aba8e7e", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_cdc1cfc2c36d", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_45cf418b614f", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_45957bbb8f47", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_ae6a5c317d39", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_2f6ed992ca54", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_86755b7295ec", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_ed649d96ae7b", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_e0d30f4d197a", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_4b274fa58a2d", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_d2e24f2e8b2b", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_0f88d50d76b1", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_bc4120f2b05b", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_171a43e2a5c7", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_5d89bbaa27f4", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_0db520decabd", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_3567594ef423", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_9eb95a242dd0", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_cfe38c0a6089", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_50c1fa664a9e", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_88925fc2bbdb", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_11bfca5b83c3", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_90c2453c6ba1", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_b13541a853d8", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_7540d173cd9d", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_e00e939b9f80", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_bacb337a8ad6", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_ad916c077e06", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_0a95ec615993", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_957323b8b2c1", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_115b27bc9c13", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_c43b41d9237a", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_684b4860e8aa", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_be1e2b07abf1", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_ac9f78d8d5a2", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_d93242b58a65", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_f230d8bc5f94", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_f3e9dac32bc6", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_ce80c0ef76fc", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_6b6bc6a06aaf", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_6d6336e3c3d1", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_84e360cf1f02", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_64e1ffca66de", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_c18825b827e2", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_10ddbb166add", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_88e6e916a63e", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_5b1fbefff1f4", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_16977aa3742e", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_626658940ca8", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_5cf614ab1914", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_ca19cd062c42", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_547bd11323ce", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_de89ec6d6d9f", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_0a1c8be05e43", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_4e7d5da084a2", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_fe72a58eda6a", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_bbd3c7ee3527", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_cba77410b594", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_6f7f90e3d538", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_ebc48c34b49b", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_096962db5e47", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_b3e5d56e7136", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_3e9f6637067e", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_a48b8f12a618", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_9fce6b0db980", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_0d80bf74cad6", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_6fa495acf971", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_a9c49f0f2342", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_c75125107ec6", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_e27e741ef517", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_42c7385a5490", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_46d9dcd0fb98", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_dream_6b1baa1396", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_dream_f375403cc2", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_dream_251c2f7cac", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_60d301ca", "verdict": "keep_fact", "cat": "EVENT", "conf": 0.9, "reason": "达人签约流程事件"}
+{"id": "mem_02fb46e4", "verdict": "keep_fact", "cat": "FACT", "conf": 0.9, "reason": "达人合作意向状态"}
+{"id": "mem_2e4da148", "verdict": "keep_fact", "cat": "FACT", "conf": 0.9, "reason": "达人恢复合作预期"}
+{"id": "mem_ed432898", "verdict": "keep_fact", "cat": "INSIGHT", "conf": 0.85, "reason": "画像匹配度洞察"}
+{"id": "mem_aaf9f2f6", "verdict": "keep_fact", "cat": "INSIGHT", "conf": 0.95, "reason": "画像受众差异洞察"}
+{"id": "mem_dc6ca274", "verdict": "delete", "cat": "TASK", "conf": 0.9, "reason": "需调查履约分原因"}
+{"id": "mem_64513c18", "verdict": "keep_fact", "cat": "FACT", "conf": 0.95, "reason": "达人具体业务事实"}
+{"id": "mem_797b5432", "verdict": "keep_fact", "cat": "FACT", "conf": 0.9, "reason": "达人库名单事实"}
+{"id": "mem_d7335465", "verdict": "keep_fact", "cat": "FACT", "conf": 1.0, "reason": "达人货盘数据事实"}
+{"id": "mem_8ea55e96", "verdict": "keep_fact", "cat": "INSIGHT", "conf": 0.9, "reason": "风险洞察与标记决策"}
+{"id": "mem_683370ad", "verdict": "keep_fact", "cat": "INSIGHT", "conf": 1.0, "reason": "达人合作评估洞察"}
+{"id": "mem_c96dc013", "verdict": "keep_fact", "cat": "INSIGHT", "conf": 1.0, "reason": "达人合作评估洞察"}
+{"id": "mem_22721d53", "verdict": "delete", "cat": "TASK", "conf": 1.0, "reason": "分析与录入操作指令"}
+{"id": "mem_e8a37641", "verdict": "keep_fact", "cat": "FACT", "conf": 1.0, "reason": "达人建档数据事实"}
+{"id": "mem_9cca5ffa", "verdict": "keep_fact", "cat": "FACT", "conf": 1.0, "reason": "达人货盘数据事实"}
+{"id": "mem_72099b4b", "verdict": "keep_fact", "cat": "PREFERENCE", "conf": 0.9, "reason": "合作授权边界约束"}
+{"id": "mem_dcb218d4", "verdict": "keep_fact", "cat": "FACT", "conf": 0.9, "reason": "达人等级事实"}
+{"id": "mem_56a80b45", "verdict": "keep_fact", "cat": "FACT", "conf": 0.9, "reason": "达人在地事实"}
+{"id": "mem_1c716ae2", "verdict": "keep_fact", "cat": "FACT", "conf": 0.9, "reason": "达人标签事实"}
+{"id": "mem_145a2f83", "verdict": "keep_fact", "cat": "FACT", "conf": 0.95, "reason": "带货方式事实"}
+{"id": "mem_ba02298a", "verdict": "keep_fact", "cat": "FACT", "conf": 0.95, "reason": "业务数据事实"}
+{"id": "mem_21e7f789", "verdict": "keep_fact", "cat": "FACT", "conf": 0.95, "reason": "业务数据事实"}
+{"id": "mem_6eb1c1b7", "verdict": "keep_fact", "cat": "PREFERENCE", "conf": 0.85, "reason": "合作偏好约束"}
+{"id": "mem_37198a50", "verdict": "delete", "cat": "TASK", "conf": 0.95, "reason": "执行录入任务"}
+{"id": "mem_37044f53", "verdict": "delete", "cat": "TASK", "conf": 0.9, "reason": "要求AI执行分析"}
+{"id": "mem_7bf13658", "verdict": "delete", "cat": "TASK", "conf": 0.95, "reason": "明确的录入指令"}
+{"id": "mem_b8304955", "verdict": "keep_fact", "cat": "FACT", "conf": 0.95, "reason": "达人具体属性"}
+{"id": "mem_989dd61f", "verdict": "delete", "cat": "TASK", "conf": 0.9, "reason": "要求提供数据指令"}
+{"id": "mem_61c07768", "verdict": "delete", "cat": "TASK", "conf": 0.95, "reason": "重复的录入指令"}
+{"id": "mem_c8df4472", "verdict": "keep_fact", "cat": "FACT", "conf": 0.95, "reason": "重复的达人属性"}
+{"id": "mem_106cc3ef", "verdict": "delete", "cat": "TASK", "conf": 0.8, "reason": "需确认的待办"}
+{"id": "mem_d2d552bd", "verdict": "keep_fact", "cat": "FACT", "conf": 0.95, "reason": "达人等级事实"}
+{"id": "mem_334c3e00", "verdict": "keep_fact", "cat": "FACT", "conf": 0.95, "reason": "达人带货方式事实"}
+{"id": "mem_3260cdf1", "verdict": "delete", "cat": "TASK", "conf": 0.95, "reason": "执行录入的指令"}
+{"id": "mem_0386314d", "verdict": "keep_fact", "cat": "FACT", "conf": 0.95, "reason": "视频GPM数据事实"}
+{"id": "mem_32ca0234", "verdict": "keep_fact", "cat": "FACT", "conf": 0.95, "reason": "内容标签事实"}
+{"id": "mem_72c67d67", "verdict": "keep_fact", "cat": "FACT", "conf": 0.9, "reason": "结算金额区间事实"}
+{"id": "mem_abe2e354", "verdict": "keep_fact", "cat": "FACT", "conf": 0.95, "reason": "达人昵称事实"}
+{"id": "mem_b51a03ea", "verdict": "delete", "cat": "TASK", "conf": 0.85, "reason": "确认ID的指令"}
+{"id": "mem_e81e8cbb", "verdict": "keep_fact", "cat": "FACT", "conf": 0.95, "reason": "达人带货方式事实"}
+{"id": "mem_94f07bc9", "verdict": "keep_fact", "cat": "FACT", "conf": 0.9, "reason": "具体业务数据"}
+{"id": "mem_4d4b8a82", "verdict": "keep_fact", "cat": "FACT", "conf": 0.9, "reason": "具体属性标签"}
+{"id": "mem_b5bbf70f", "verdict": "delete", "cat": "TASK", "conf": 0.95, "reason": "要求执行录入"}
+{"id": "mem_88cf62f7", "verdict": "keep_fact", "cat": "FACT", "conf": 0.9, "reason": "具体等级事实"}
+{"id": "mem_c6d604fa", "verdict": "keep_fact", "cat": "FACT", "conf": 0.9, "reason": "具体业务指标"}
+{"id": "mem_ba55990d", "verdict": "delete", "cat": "TASK", "conf": 0.9, "reason": "执行录入指令"}
+{"id": "mem_4264039c", "verdict": "keep_fact", "cat": "FACT", "conf": 0.95, "reason": "达人具体信息"}
+{"id": "mem_ed12f5e9", "verdict": "keep_fact", "cat": "FACT", "conf": 0.95, "reason": "达人唯一标识"}
+{"id": "mem_4aad79d1", "verdict": "delete", "cat": "TASK", "conf": 0.8, "reason": "含确认更新指令"}
+{"id": "mem_cc313c82", "verdict": "keep_fact", "cat": "FACT", "conf": 0.95, "reason": "具体属性事实"}
+{"id": "mem_b0c7dbf8", "verdict": "delete", "cat": "TASK", "conf": 0.95, "reason": "明确执行操作指令"}
+{"id": "mem_867291f7", "verdict": "keep_fact", "cat": "FACT", "conf": 0.95, "reason": "具体属性事实"}
+{"id": "mem_6ab8b346", "verdict": "keep_fact", "cat": "FACT", "conf": 0.95, "reason": "具体属性事实"}
+{"id": "mem_a211420d", "verdict": "keep_fact", "cat": "FACT", "conf": 0.95, "reason": "具体属性事实"}
+{"id": "mem_29982331", "verdict": "keep_fact", "cat": "FACT", "conf": 0.95, "reason": "具体属性事实"}
+{"id": "mem_230ff40b", "verdict": "keep_fact", "cat": "FACT", "conf": 0.95, "reason": "具体属性事实"}
+{"id": "mem_6ea99f3e", "verdict": "delete", "cat": "TASK", "conf": 0.7, "reason": "提示补全缺失数据"}
+{"id": "mem_92adea8a", "verdict": "keep_fact", "cat": "FACT", "conf": 0.9, "reason": "具体业务数据"}
+{"id": "mem_5d017a05", "verdict": "keep_fact", "cat": "FACT", "conf": 0.9, "reason": "具体业务数据"}
+{"id": "mem_9cef6691", "verdict": "keep_fact", "cat": "FACT", "conf": 0.9, "reason": "具体业务数据"}
+{"id": "mem_1fcdb1b7", "verdict": "keep_fact", "cat": "FACT", "conf": 0.9, "reason": "具体业务数据"}
+{"id": "mem_8a8d33ac", "verdict": "keep_fact", "cat": "FACT", "conf": 0.9, "reason": "具体业务数据"}
+{"id": "mem_72a76db5", "verdict": "delete", "cat": "TASK", "conf": 0.7, "reason": "提示补全缺失数据"}
+{"id": "mem_b98dad79", "verdict": "keep_fact", "cat": "FACT", "conf": 0.9, "reason": "具体业务数据"}
+{"id": "mem_ecd78694", "verdict": "keep_fact", "cat": "FACT", "conf": 0.95, "reason": "达人带货方式事实"}
+{"id": "mem_ee32fa65", "verdict": "keep_fact", "cat": "FACT", "conf": 0.95, "reason": "达人合作状态事实"}
+{"id": "mem_d8fe5d8a", "verdict": "keep_fact", "cat": "FACT", "conf": 0.95, "reason": "达人昵称事实"}
+{"id": "mem_b107a244", "verdict": "keep_fact", "cat": "FACT", "conf": 0.95, "reason": "达人ID事实"}
+{"id": "mem_8d057f1c", "verdict": "delete", "cat": "TASK", "conf": 0.8, "reason": "需确认更新的指令"}
+{"id": "mem_ae307647", "verdict": "keep_fact", "cat": "FACT", "conf": 0.95, "reason": "达人合作状态事实"}
+{"id": "mem_fadf15bc", "verdict": "keep_fact", "cat": "FACT", "conf": 0.95, "reason": "达人昵称事实"}
+{"id": "mem_42434199", "verdict": "keep_fact", "cat": "FACT", "conf": 0.95, "reason": "达人ID事实"}
+{"id": "mem_b6e7fca4", "verdict": "delete", "cat": "TASK", "conf": 0.8, "reason": "需确认更新等级"}
+{"id": "mem_505910e6", "verdict": "keep_fact", "cat": "FACT", "conf": 1.0, "reason": "达人合作状态事实"}
+{"id": "mem_3b98573a", "verdict": "keep_fact", "cat": "FACT", "conf": 1.0, "reason": "达人昵称事实"}
+{"id": "mem_98ac2608", "verdict": "keep_fact", "cat": "FACT", "conf": 1.0, "reason": "达人ID事实"}
+{"id": "mem_090daf0a", "verdict": "delete", "cat": "TASK", "conf": 0.8, "reason": "需确认更新等级"}
+{"id": "mem_5b746ac0", "verdict": "keep_fact", "cat": "FACT", "conf": 1.0, "reason": "达人合作状态事实"}
+{"id": "mem_fdff9313", "verdict": "keep_fact", "cat": "FACT", "conf": 1.0, "reason": "达人昵称事实"}
+{"id": "mem_ee56990d", "verdict": "keep_fact", "cat": "FACT", "conf": 1.0, "reason": "达人ID事实"}
+{"id": "mem_7fc89e4e", "verdict": "keep_fact", "cat": "FACT", "conf": 1.0, "reason": "具体业务事实"}
+{"id": "mem_ef57ba6d", "verdict": "keep_fact", "cat": "FACT", "conf": 1.0, "reason": "达人具体属性"}
+{"id": "mem_13fc4aa3", "verdict": "delete", "cat": "NOISE", "conf": 1.0, "reason": "无有效信息"}
+{"id": "mem_36d78ff8", "verdict": "delete", "cat": "NOISE", "conf": 1.0, "reason": "无有效信息"}
+{"id": "mem_9ce10900", "verdict": "keep_fact", "cat": "FACT", "conf": 1.0, "reason": "具体业务事实"}
+{"id": "mem_c0155e20", "verdict": "delete", "cat": "NOISE", "conf": 1.0, "reason": "无有效信息"}
+{"id": "mem_21b97675", "verdict": "delete", "cat": "NOISE", "conf": 1.0, "reason": "无有效信息"}
+{"id": "mem_2550fe60", "verdict": "delete", "cat": "NOISE", "conf": 1.0, "reason": "无有效信息"}
+{"id": "mem_da3eb9ab", "verdict": "delete", "cat": "TASK", "conf": 0.95, "reason": "要求执行更新操作"}
+{"id": "mem_ba0ddcbf", "verdict": "keep_fact", "cat": "FACT", "conf": 0.95, "reason": "达人属性事实"}
+{"id": "mem_fa8d23f8", "verdict": "keep_fact", "cat": "FACT", "conf": 0.95, "reason": "达人属性事实"}
+{"id": "mem_eb4628a7", "verdict": "keep_fact", "cat": "FACT", "conf": 0.95, "reason": "达人属性事实"}
+{"id": "mem_da734b79", "verdict": "keep_fact", "cat": "FACT", "conf": 0.9, "reason": "达人简介事实"}
+{"id": "mem_288636d5", "verdict": "keep_fact", "cat": "FACT", "conf": 0.95, "reason": "达人属性事实"}
+{"id": "mem_594e54c1", "verdict": "keep_fact", "cat": "FACT", "conf": 0.95, "reason": "达人属性事实"}
+{"id": "mem_4a4bed67", "verdict": "keep_fact", "cat": "FACT", "conf": 0.95, "reason": "达人结算事实"}
+{"id": "mem_51f0d08d", "verdict": "keep_fact", "cat": "FACT", "conf": 0.95, "reason": "具体业务数值"}
+{"id": "mem_a85c0d55", "verdict": "delete", "cat": "NOISE", "conf": 0.9, "reason": "无有效信息"}
+{"id": "mem_747d704e", "verdict": "keep_fact", "cat": "FACT", "conf": 0.95, "reason": "达人合作状态"}
+{"id": "mem_832df702", "verdict": "keep_fact", "cat": "FACT", "conf": 0.95, "reason": "互动数据事实"}
+{"id": "mem_38734793", "verdict": "delete", "cat": "TASK", "conf": 1.0, "reason": "明确任务指令"}
+{"id": "mem_d14fef54", "verdict": "keep_fact", "cat": "FACT", "conf": 0.95, "reason": "达人身份信息"}
+{"id": "mem_78577fb4", "verdict": "keep_fact", "cat": "FACT", "conf": 0.95, "reason": "带货时间事实"}
+{"id": "mem_92c34da4", "verdict": "keep_fact", "cat": "FACT", "conf": 0.7, "reason": "重复数据事实"}
+{"id": "mem_f4e7092f", "verdict": "keep_fact", "cat": "FACT", "conf": 1.0, "reason": "结算价格具体事实"}
+{"id": "mem_e6a5d5f9", "verdict": "delete", "cat": "CHITCHAT", "conf": 0.8, "reason": "简介寒暄无实质信息"}
+{"id": "mem_5c8f37f8", "verdict": "keep_fact", "cat": "FACT", "conf": 1.0, "reason": "客单价具体事实"}
+{"id": "mem_46bdc73e", "verdict": "keep_fact", "cat": "FACT", "conf": 1.0, "reason": "播放量具体事实"}
+{"id": "mem_cbeb24a6", "verdict": "keep_fact", "cat": "FACT", "conf": 1.0, "reason": "完播率具体事实"}
+{"id": "mem_f90d856d", "verdict": "delete", "cat": "TASK", "conf": 0.9, "reason": "包含修正与输出指令"}
+{"id": "mem_bc3dc4ae", "verdict": "delete", "cat": "TASK", "conf": 0.8, "reason": "确认录入状态指令"}
+{"id": "mem_84b2cb58", "verdict": "delete", "cat": "TASK", "conf": 1.0, "reason": "明确录入达人指令"}
+{"id": "mem_dffffafc", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_921a909e", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_79c8da61", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_81bcc82a", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_c75dc1c3", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_72d46b46", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_8fc338d4", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_daad234d", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_8d142654", "verdict": "keep_fact", "cat": "FACT", "conf": 0.95, "reason": "达人视频具体数据"}
+{"id": "mem_b1f4dfd6", "verdict": "keep_fact", "cat": "FACT", "conf": 0.95, "reason": "达人粉丝画像数据"}
+{"id": "mem_07bc4060", "verdict": "keep_fact", "cat": "DECISION", "conf": 0.9, "reason": "达人合作决策及打法"}
+{"id": "mem_c750bda4", "verdict": "delete", "cat": "NOISE", "conf": 0.9, "reason": "界面测试无价值"}
+{"id": "mem_e447505d", "verdict": "keep_fact", "cat": "EVENT", "conf": 0.85, "reason": "系统报错事件"}
+{"id": "mem_d67a9057", "verdict": "delete", "cat": "NOISE", "conf": 0.95, "reason": "测试验证无价值"}
+{"id": "mem_db0db8f8", "verdict": "keep_fact", "cat": "FACT", "conf": 0.9, "reason": "达人信息事实分析"}
+{"id": "mem_1275b2d7", "verdict": "delete", "cat": "TASK", "conf": 0.85, "reason": "更新画像任务建议"}
+{"id": "mem_81927bbb", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_8721463f", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_f6cb397a", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_ebe188e7", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_529631f5", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_f433ccef", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_55e460ea", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_bea7bb63", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_75db3b0c", "verdict": "keep_fact", "cat": "FACT", "conf": 0.9, "reason": "达人具体数据事实"}
+{"id": "mem_f6d0b76b", "verdict": "keep_fact", "cat": "INSIGHT", "conf": 0.8, "reason": "现状分析与推断"}
+{"id": "mem_171730d5", "verdict": "keep_fact", "cat": "INSIGHT", "conf": 0.85, "reason": "现状影响分析"}
+{"id": "mem_62f13047", "verdict": "keep_fact", "cat": "EVENT", "conf": 0.9, "reason": "群聊状态事件"}
+{"id": "mem_da1c23a4", "verdict": "keep_fact", "cat": "FACT", "conf": 0.85, "reason": "用户角色与能力事实"}
+{"id": "mem_446af8d2", "verdict": "delete", "cat": "TASK", "conf": 0.95, "reason": "明确的建议任务"}
+{"id": "mem_e84f9dbd", "verdict": "delete", "cat": "TASK", "conf": 0.95, "reason": "明确的建议任务"}
+{"id": "mem_842909fe", "verdict": "delete", "cat": "NOISE", "conf": 0.9, "reason": "残缺无信息量"}
+{"id": "mem_d7142a68", "verdict": "keep_fact", "cat": "PREFERENCE", "conf": 0.9, "reason": "描述用户行为偏好"}
+{"id": "mem_ae6efc2e", "verdict": "keep_fact", "cat": "PREFERENCE", "conf": 0.9, "reason": "描述用户关注偏好"}
+{"id": "mem_054e237d", "verdict": "delete", "cat": "NOISE", "conf": 1.0, "reason": "系统报错无价值"}
+{"id": "mem_84e0f8af", "verdict": "delete", "cat": "NOISE", "conf": 1.0, "reason": "系统报错无价值"}
+{"id": "mem_5020ae85", "verdict": "keep_fact", "cat": "FACT", "conf": 0.85, "reason": "包含达人具体事实"}
+{"id": "mem_49f16b87", "verdict": "keep_fact", "cat": "FACT", "conf": 0.85, "reason": "包含达人具体事实"}
+{"id": "mem_69fcf0c1", "verdict": "keep_fact", "cat": "FACT", "conf": 0.95, "reason": "达人ID具体事实"}
+{"id": "mem_d8941d8d", "verdict": "delete", "cat": "TASK", "conf": 0.95, "reason": "明确的任务指令"}
+{"id": "mem_c3ddf5f7", "verdict": "delete", "cat": "TASK", "conf": 0.8, "reason": "建议更新画像"}
+{"id": "mem_169265d1", "verdict": "delete", "cat": "TASK", "conf": 0.9, "reason": "推动讨论与应对错误"}
+{"id": "mem_563fa16f", "verdict": "keep_fact", "cat": "FACT", "conf": 0.8, "reason": "达人数据与群状态"}
+{"id": "mem_1a947556", "verdict": "keep_fact", "cat": "FACT", "conf": 1.0, "reason": "达人ID事实"}
+{"id": "mem_63d1a2f2", "verdict": "keep_fact", "cat": "FACT", "conf": 1.0, "reason": "达人名称事实"}
+{"id": "mem_9dd48617", "verdict": "keep_fact", "cat": "INSIGHT", "conf": 0.8, "reason": "缺画像影响匹配"}
+{"id": "mem_1b0924e1", "verdict": "keep_fact", "cat": "FACT", "conf": 1.0, "reason": "达人ID事实"}
+{"id": "mem_88c21797", "verdict": "delete", "cat": "TASK", "conf": 0.8, "reason": "跟进挖掘潜力建议"}
+{"id": "mem_becb2122", "verdict": "delete", "cat": "TASK", "conf": 0.8, "reason": "主动发起话题的指令"}
+{"id": "mem_b049f311", "verdict": "keep_fact", "cat": "DECISION", "conf": 0.85, "reason": "分配管理员职责决策"}
+{"id": "mem_fa35c991", "verdict": "delete", "cat": "NOISE", "conf": 0.9, "reason": "仅为标题无实质内容"}
+{"id": "mem_0edc7adb", "verdict": "delete", "cat": "TASK", "conf": 0.85, "reason": "建议跟进达人信息"}
+{"id": "mem_03480320", "verdict": "delete", "cat": "NOISE", "conf": 0.9, "reason": "仅为标题无实质内容"}
+{"id": "mem_0bb1a9ad", "verdict": "delete", "cat": "TASK", "conf": 0.8, "reason": "建议发起讨论的指令"}
+{"id": "mem_68b28f58", "verdict": "keep_fact", "cat": "PREFERENCE", "conf": 0.75, "reason": "建议遇挑战群聊提出"}
+{"id": "mem_32cbec0b", "verdict": "keep_fact", "cat": "FACT", "conf": 0.95, "reason": "具体达人粉丝及品类数据"}
+{"id": "mem_00d876c8", "verdict": "keep_fact", "cat": "FACT", "conf": 0.9, "reason": "达人具体属性数据"}
+{"id": "mem_e25d4827", "verdict": "delete", "cat": "NOISE", "conf": 0.8, "reason": "无实质信息量"}
+{"id": "mem_51aea969", "verdict": "delete", "cat": "TASK", "conf": 0.85, "reason": "建议执行跟进动作"}
+{"id": "mem_7186e29b", "verdict": "delete", "cat": "CHITCHAT", "conf": 0.9, "reason": "客套话无实质信息"}
+{"id": "mem_64736e4a", "verdict": "keep_fact", "cat": "FACT", "conf": 0.85, "reason": "达人数据异常事实"}
+{"id": "mem_0b535227", "verdict": "delete", "cat": "NOISE", "conf": 0.8, "reason": "信息残缺无价值"}
+{"id": "mem_0b19e16c", "verdict": "keep_fact", "cat": "FACT", "conf": 0.9, "reason": "达人ID具体事实"}
+{"id": "mem_f379c6ab", "verdict": "keep_fact", "cat": "FACT", "conf": 0.9, "reason": "达人名称具体事实"}
+{"id": "mem_3600bd2e", "verdict": "delete", "cat": "NOISE", "conf": 0.7, "reason": "仅为标题标识"}
+{"id": "mem_4d18a94e", "verdict": "keep_fact", "cat": "DECISION", "conf": 0.8, "reason": "建议进行合作"}
+{"id": "mem_faca3f9f", "verdict": "keep_fact", "cat": "FACT", "conf": 1.0, "reason": "达人ID事实"}
+{"id": "mem_94864f9e", "verdict": "keep_fact", "cat": "FACT", "conf": 1.0, "reason": "达人名称事实"}
+{"id": "mem_b3b80f8f", "verdict": "keep_fact", "cat": "DECISION", "conf": 0.8, "reason": "建议联名合作"}
+{"id": "mem_500ffc27", "verdict": "keep_fact", "cat": "DECISION", "conf": 0.9, "reason": "选品合作建议"}
+{"id": "mem_79ccd28b", "verdict": "keep_fact", "cat": "DECISION", "conf": 0.9, "reason": "联名合作建议"}
+{"id": "mem_efa1d8b7", "verdict": "delete", "cat": "TASK", "conf": 0.9, "reason": "要求更新画像"}
+{"id": "mem_7ec2c022", "verdict": "delete", "cat": "TASK", "conf": 0.9, "reason": "无建档时处理流程"}
+{"id": "kp_e2469ae3b72d", "verdict": "delete", "cat": "TASK", "conf": 0.9, "reason": "报告录入前需确认"}
+{"id": "kp_74df32e214eb", "verdict": "keep_fact", "cat": "PREFERENCE", "conf": 0.9, "reason": "报告格式及标注约束"}
+{"id": "kp_25d1be774c26", "verdict": "keep_fact", "cat": "INSIGHT", "conf": 0.85, "reason": "达人评级考量维度"}
+{"id": "kp_daf44d64054e", "verdict": "delete", "cat": "TASK", "conf": 0.9, "reason": "数据缺失处理流程"}
+{"id": "kp_ebd875d74170", "verdict": "keep_fact", "cat": "PREFERENCE", "conf": 0.9, "reason": "报告内容结构约束"}
+{"id": "kp_76c6bbfe4a6e", "verdict": "keep_fact", "cat": "INSIGHT", "conf": 0.85, "reason": "商品分析考量维度"}
+{"id": "kp_73fc5538b1a7", "verdict": "keep_fact", "cat": "INSIGHT", "conf": 0.85, "reason": "合作建议考量维度"}
+{"id": "kp_054cd8ea4bd4", "verdict": "keep_fact", "cat": "INSIGHT", "conf": 0.9, "reason": "总结合作权限规律"}
+{"id": "kp_5a70c3203616", "verdict": "keep_fact", "cat": "INSIGHT", "conf": 0.9, "reason": "总结信息整理规律"}
+{"id": "kp_21a4c07d09a4", "verdict": "keep_fact", "cat": "INSIGHT", "conf": 0.9, "reason": "总结分析报告规律"}
+{"id": "kp_f92e7ec1e7db", "verdict": "keep_fact", "cat": "INSIGHT", "conf": 0.95, "reason": "总结人设匹配规律"}
+{"id": "kp_89b250c7151c", "verdict": "keep_fact", "cat": "INSIGHT", "conf": 0.9, "reason": "总结签约机构规律"}
+{"id": "kp_d2bab898f147", "verdict": "keep_fact", "cat": "INSIGHT", "conf": 0.95, "reason": "揭示带货等级规律"}
+{"id": "kp_2cff1c5f5fcf", "verdict": "keep_fact", "cat": "INSIGHT", "conf": 0.9, "reason": "总结无机构合作规律"}
+{"id": "kp_b997d109ad7c", "verdict": "keep_fact", "cat": "INSIGHT", "conf": 0.9, "reason": "揭示画像差异规律"}
+{"id": "kp_559b4715a30c", "verdict": "keep_fact", "cat": "FACT", "conf": 0.9, "reason": "达人信息构成事实"}
+{"id": "kp_4e83f669bf8b", "verdict": "keep_fact", "cat": "FACT", "conf": 0.9, "reason": "合作价值指标事实"}
+{"id": "kp_47a3b6559851", "verdict": "keep_fact", "cat": "DECISION", "conf": 0.85, "reason": "合作确认授权决策"}
+{"id": "kp_c204d64c0914", "verdict": "keep_fact", "cat": "FACT", "conf": 0.9, "reason": "货盘分析指标事实"}
+{"id": "kp_a8b22e6456c0", "verdict": "keep_fact", "cat": "INSIGHT", "conf": 0.9, "reason": "达人适用场景规律"}
+{"id": "kp_1e9fa750bab9", "verdict": "keep_fact", "cat": "INSIGHT", "conf": 0.85, "reason": "爆款可持续性洞察"}
+{"id": "kp_3df19ceede67", "verdict": "keep_fact", "cat": "INSIGHT", "conf": 0.85, "reason": "流量质量隐患洞察"}
+{"id": "kp_f28f8a39b9dc", "verdict": "keep_fact", "cat": "INSIGHT", "conf": 0.9, "reason": "带货能力驱动规律"}
+{"id": "kp_5c7437a2f2d0", "verdict": "keep_fact", "cat": "INSIGHT", "conf": 0.8, "reason": "揭示匹配与互动问题"}
+{"id": "kp_75d57aba8e7e", "verdict": "keep_fact", "cat": "INSIGHT", "conf": 0.9, "reason": "揭示地域分布指导意义"}
+{"id": "kp_cdc1cfc2c36d", "verdict": "keep_fact", "cat": "INSIGHT", "conf": 0.9, "reason": "揭示粉丝与意愿正比"}
+{"id": "kp_45cf418b614f", "verdict": "keep_fact", "cat": "DECISION", "conf": 0.9, "reason": "给出邀约优先决策"}
+{"id": "kp_45957bbb8f47", "verdict": "keep_fact", "cat": "INSIGHT", "conf": 0.9, "reason": "揭示产品与合作相关性"}
+{"id": "kp_ae6a5c317d39", "verdict": "keep_fact", "cat": "DECISION", "conf": 0.9, "reason": "给出长期合作决策"}
+{"id": "kp_2f6ed992ca54", "verdict": "delete", "cat": "TASK", "conf": 0.8, "reason": "提出关注更新频率任务"}
+{"id": "kp_86755b7295ec", "verdict": "keep_fact", "cat": "INSIGHT", "conf": 0.9, "reason": "揭示匹配度影响效果"}
+{"id": "kp_ed649d96ae7b", "verdict": "keep_fact", "cat": "DECISION", "conf": 0.9, "reason": "特定类目选人策略"}
+{"id": "kp_e0d30f4d197a", "verdict": "keep_fact", "cat": "PREFERENCE", "conf": 0.85, "reason": "合作关注指标偏好"}
+{"id": "kp_4b274fa58a2d", "verdict": "delete", "cat": "TASK", "conf": 0.9, "reason": "合作前确认发票"}
+{"id": "kp_d2e24f2e8b2b", "verdict": "keep_fact", "cat": "DECISION", "conf": 0.9, "reason": "控制测试预算决策"}
+{"id": "kp_0f88d50d76b1", "verdict": "keep_fact", "cat": "PREFERENCE", "conf": 0.85, "reason": "合作选择参考偏好"}
+{"id": "kp_bc4120f2b05b", "verdict": "keep_fact", "cat": "PREFERENCE", "conf": 0.85, "reason": "画像契合度偏好"}
+{"id": "kp_171a43e2a5c7", "verdict": "keep_fact", "cat": "INSIGHT", "conf": 0.9, "reason": "指标反映带货能力"}
+{"id": "kp_5d89bbaa27f4", "verdict": "keep_fact", "cat": "INSIGHT", "conf": 0.85, "reason": "互动率与活跃关联"}
+{"id": "kp_0db520decabd", "verdict": "keep_fact", "cat": "PREFERENCE", "conf": 0.9, "reason": "应了解属偏好约束"}
+{"id": "kp_3567594ef423", "verdict": "keep_fact", "cat": "INSIGHT", "conf": 0.9, "reason": "发现比值评估指标"}
+{"id": "kp_9eb95a242dd0", "verdict": "keep_fact", "cat": "PREFERENCE", "conf": 0.9, "reason": "应考虑属偏好约束"}
+{"id": "kp_cfe38c0a6089", "verdict": "keep_fact", "cat": "INSIGHT", "conf": 0.9, "reason": "发现gpm参考指标"}
+{"id": "kp_50c1fa664a9e", "verdict": "keep_fact", "cat": "INSIGHT", "conf": 0.9, "reason": "发现相关性影响成功率"}
+{"id": "kp_88925fc2bbdb", "verdict": "keep_fact", "cat": "PREFERENCE", "conf": 0.9, "reason": "应了解属偏好约束"}
+{"id": "kp_11bfca5b83c3", "verdict": "keep_fact", "cat": "INSIGHT", "conf": 0.85, "reason": "发现互动率关键指标"}
+{"id": "kp_90c2453c6ba1", "verdict": "keep_fact", "cat": "INSIGHT", "conf": 0.9, "reason": "发现相关性影响成功率"}
+{"id": "mem_dffffafc", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_921a909e", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_79c8da61", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_81bcc82a", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_c75dc1c3", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_72d46b46", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_8fc338d4", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_daad234d", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "mem_81927bbb", "verdict": "keep_fact", "cat": "FACT", "conf": 0.8, "reason": "达人现状事实陈述"}
+{"id": "mem_8721463f", "verdict": "delete", "cat": "TASK", "conf": 0.9, "reason": "建议执行维护任务"}
+{"id": "mem_f6cb397a", "verdict": "delete", "cat": "TASK", "conf": 0.85, "reason": "建议完善达人信息"}
+{"id": "mem_ebe188e7", "verdict": "delete", "cat": "NOISE", "conf": 0.95, "reason": "仅标题无实质内容"}
+{"id": "mem_529631f5", "verdict": "delete", "cat": "TASK", "conf": 0.9, "reason": "建议检查代理配置"}
+{"id": "mem_f433ccef", "verdict": "delete", "cat": "TASK", "conf": 0.9, "reason": "建议整理分享结果"}
+{"id": "mem_55e460ea", "verdict": "delete", "cat": "CHITCHAT", "conf": 0.7, "reason": "群聊回复收到"}
+{"id": "mem_bea7bb63", "verdict": "delete", "cat": "CHITCHAT", "conf": 0.8, "reason": "群聊无实质补充"}
+{"id": "kp_b13541a853d8", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_7540d173cd9d", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_e00e939b9f80", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_bacb337a8ad6", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_ad916c077e06", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_0a95ec615993", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_957323b8b2c1", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_115b27bc9c13", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_c43b41d9237a", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_684b4860e8aa", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_be1e2b07abf1", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_ac9f78d8d5a2", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_d93242b58a65", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_f230d8bc5f94", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_f3e9dac32bc6", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_ce80c0ef76fc", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_6b6bc6a06aaf", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_6d6336e3c3d1", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_84e360cf1f02", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_64e1ffca66de", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_c18825b827e2", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_10ddbb166add", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_88e6e916a63e", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_5b1fbefff1f4", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_16977aa3742e", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_626658940ca8", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_5cf614ab1914", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_ca19cd062c42", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_547bd11323ce", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_de89ec6d6d9f", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_0a1c8be05e43", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_4e7d5da084a2", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_fe72a58eda6a", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_bbd3c7ee3527", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_cba77410b594", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_6f7f90e3d538", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_ebc48c34b49b", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_096962db5e47", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_b3e5d56e7136", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_3e9f6637067e", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_a48b8f12a618", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_9fce6b0db980", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_0d80bf74cad6", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_6fa495acf971", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_a9c49f0f2342", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_c75125107ec6", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_e27e741ef517", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_42c7385a5490", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_46d9dcd0fb98", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_dream_6b1baa1396", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_dream_f375403cc2", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
+{"id": "kp_dream_251c2f7cac", "verdict": "review", "cat": "UNPARSED", "conf": 0.0, "reason": "LLM 未返回该项, 转人工"}
