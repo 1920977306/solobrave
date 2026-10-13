@@ -13198,8 +13198,11 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
 #talentsMidSort,
 #talentsMidItems,
 #talentsMidPagination,
-#talentsMainItems,
 #navInfluencers{ display:none !important; }
+/* 〔fix/talents-fallback-css 2026-10-13〕#talentsMainItems 从兜底隐藏摘除:
+   switchTalentMidTab 用 inline style 控制它与 #talentsAnalyzedItems 互斥显隐 (inline-06),
+   原 !important 把兜底路径的"达人主库"tab 钉死成永远空白 (已分析列表本就不在规则里, 兜底只兜住一半)。
+   摘除后正常模式零影响 (#influencersMid 容器自身仍被本规则隐藏, 走新屏 sb2TalentsMain)。 */
 
 /* 〔fix/sb2-side-restore 20 轮批注③〕知识库 hero 副标对照原型 line 533-538
    修前: 标题 lh1.2 + 副标 12px/lh1.3/mt4px (与主区 13px 字体混同, 副标样式不独立)
