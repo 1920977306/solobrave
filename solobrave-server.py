@@ -6099,12 +6099,12 @@ def _upsert_knowledge_base(kb, user_id=''):
                 return cand['id']
         created_at = kb.get('createdAt') or kb.get('created_at') or now
         conn.execute('''
-            INSERT INTO kb_entries (id, title, content, category, category_id, project_id, scope, emp_id, status, chunk_count, created_by, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, 'global', ?, ?, 0, ?, ?, ?)
+            INSERT INTO kb_entries (id, title, content, category, category_id, project_id, scope, emp_id, status, chunk_count, created_by, created_at, updated_at, domain)
+            VALUES (?, ?, ?, ?, ?, ?, 'global', ?, ?, 0, ?, ?, ?, ?)
         ''', (
             kb_id, kb.get('title', ''), content,
             category_name, category_id, project_id, emp_id,
-            new_status, user_id, created_at, now
+            new_status, user_id, created_at, now, ks.KB_DEFAULT_DOMAIN
         ))
         conn.commit()
         return kb_id

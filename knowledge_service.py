@@ -48,6 +48,12 @@ AGENTS_FILE = os.path.join(DEFAULT_DATA_DIR, 'agents.json')
 #    修复：删除常量定义，改为函数内部实时读 os.environ。
 EMBEDDING_OVERRIDE_API_KEY = os.environ.get('SOLOBRAVE_EMBEDDING_API_KEY', '').strip()  # 仅留兼容性引用
 
+# ── domain 分区（知识域隔离）────────────────────────────
+# 检索可见域: 'global' 通识层跨域共享, 'tuangzhang' 团长业务域。
+# 叠加在 scope 租户隔离之上, 不改动任何 scope 逻辑。写入侧默认落 'tuangzhang'。
+KB_VISIBLE_DOMAINS = ('global', 'tuangzhang')
+KB_DEFAULT_DOMAIN = 'tuangzhang'
+
 
 def _read_json(filepath, default=None):
     """读取 JSON 文件，失败返回 default"""
@@ -1585,7 +1591,8 @@ def rag_retrieve_kb(query, emp_id, api_key=None, provider='openai', agent_config
         import struct
         q_vec = query_emb
 
-        where_clauses = ["e.status = 'ok'", "c.embedding_model = ?", "c.embedding IS NOT NULL"]
+        where_clauses = ["e.status = 'ok'", "c.embedding_model = ?", "c.embedding IS NOT NULL",
+                         "e.domain IN (" + ','.join(f"'{d}'" for d in KB_VISIBLE_DOMAINS) + ")"]
         sql_params = [embedding_model]
 
         # 4. 四层隔离（未提供 requester_id 时不限制，保持与 rag_retrieve 相同兼容行为）
@@ -2050,12 +2057,14 @@ def init_kb_entries_db():
                 chunk_count INTEGER DEFAULT 0,
                 created_by TEXT DEFAULT '',
                 created_at INTEGER,
-                updated_at INTEGER
+                updated_at INTEGER,
+                domain TEXT NOT NULL DEFAULT 'tuangzhang'
             )
         ''')
-        # 向后兼容：新增 category_id / project_id 字段
+        # 向后兼容：新增 category_id / project_id / domain 字段
         _add_column_if_not_exists(conn, 'kb_entries', 'category_id', 'INTEGER')
         _add_column_if_not_exists(conn, 'kb_entries', 'project_id', "TEXT DEFAULT ''")
+        _add_column_if_not_exists(conn, 'kb_entries', 'domain', "TEXT NOT NULL DEFAULT 'tuangzhang'")
         conn.execute('CREATE INDEX IF NOT EXISTS idx_kb_entries_scope ON kb_entries(scope)')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_kb_entries_category ON kb_entries(category)')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_kb_entries_category_id ON kb_entries(category_id)')
@@ -2482,9 +2491,9 @@ def kb_entry_create(title, content, category, created_by, scope='global', team_i
     conn = _db_conn()
     try:
         conn.execute('''
-            INSERT INTO kb_entries (id, title, content, category, category_id, project_id, scope, team_id, group_ids, emp_id, status, chunk_count, created_by, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 0, ?, ?, ?)
-        ''', (entry_id, title, content, category or '', category_id, project_id, scope, team_id or '', group_ids_json, emp_id or '', created_by or '', now, now))
+            INSERT INTO kb_entries (id, title, content, category, category_id, project_id, scope, team_id, group_ids, emp_id, status, chunk_count, created_by, created_at, updated_at, domain)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 0, ?, ?, ?, ?)
+        ''', (entry_id, title, content, category or '', category_id, project_id, scope, team_id or '', group_ids_json, emp_id or '', created_by or '', now, now, KB_DEFAULT_DOMAIN))
         conn.commit()
     finally:
         conn.close()
@@ -3735,9 +3744,9 @@ def kb_migrate_from_old_knowledge():
         conn = _db_conn()
         try:
             conn.execute('''
-                INSERT INTO kb_entries (id, title, content, category, scope, team_id, group_ids, emp_id, status, chunk_count, created_by, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (entry_id, title, content, row['category'] or '', scope, row['team_id'] or '', group_ids, emp_id, status, 0, '', created_at, updated_at))
+                INSERT INTO kb_entries (id, title, content, category, scope, team_id, group_ids, emp_id, status, chunk_count, created_by, created_at, updated_at, domain)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (entry_id, title, content, row['category'] or '', scope, row['team_id'] or '', group_ids, emp_id, status, 0, '', created_at, updated_at, KB_DEFAULT_DOMAIN))
             conn.commit()
         finally:
             conn.close()

@@ -53,7 +53,8 @@ CREATE TABLE kb_entries (
     chunk_count INTEGER DEFAULT 0,
     created_by TEXT DEFAULT '',
     created_at INTEGER,
-    updated_at INTEGER
+    updated_at INTEGER,
+    domain TEXT NOT NULL DEFAULT 'tuangzhang'
 )
 '''
 
