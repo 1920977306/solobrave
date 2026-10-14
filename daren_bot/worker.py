@@ -58,7 +58,13 @@ class Worker(threading.Thread):
             db.mark_task(task["id"], "done")
             if task["type"] == "douyin":
                 db.incr_week_count(tk, task["target"])
-            self._notify(tk, f"任务完成：{result_summary}", task.get("chat_id", ""))
+            if task["type"] == "douyin" and task.get("chat_id"):
+                # 报告推送：优先可视化长图卡片，渲染失败回退纯文字
+                from .executors import notify_report
+                notify_report(self.wm.get_sender(tk), task["chat_id"],
+                              task["target"], result_summary)
+            else:
+                self._notify(tk, f"任务完成：{result_summary}", task.get("chat_id", ""))
 
     def _fail(self, task: dict, reason: str) -> None:
         db.mark_task(task["id"], "failed", reason)

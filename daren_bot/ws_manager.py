@@ -35,8 +35,32 @@ class Sender:
             self._cv.notify()
 
     def send_image_path(self, chat_id: str, image_path: str) -> None:
-        """先传图拿 image_key 再发图消息（worker 推卡片用，P0 未启用）。"""
-        raise NotImplementedError
+        """先传图拿 image_key 再发图消息（同步执行，worker 线程调用）。"""
+        from lark_oapi.api.im.v1 import (CreateImageRequest, CreateImageRequestBody,
+                                         CreateMessageRequest, CreateMessageRequestBody)
+        import json as _json
+        with open(image_path, "rb") as f:
+            up = (CreateImageRequest.builder()
+                  .request_body(CreateImageRequestBody.builder()
+                                .image_type("message")
+                                .image(f)
+                                .build())
+                  .build())
+            resp = self.client.im.v1.image.create(up)
+        if not resp.success():
+            raise RuntimeError(f"image.create failed code={resp.code} msg={resp.msg}")
+        image_key = resp.data.image_key
+        req = (CreateMessageRequest.builder()
+               .receive_id_type("chat_id")
+               .request_body(CreateMessageRequestBody.builder()
+                             .receive_id(chat_id)
+                             .msg_type("image")
+                             .content(_json.dumps({"image_key": image_key}))
+                             .build())
+               .build())
+        resp = self.client.im.v1.message.create(req)
+        if not resp.success():
+            raise RuntimeError(f"message.create(image) failed code={resp.code} msg={resp.msg}")
 
     def download_image(self, message_id: str, image_key: str) -> bytes:
         """用本租户凭证下载消息图片（handler 3 秒约束内落盘用）。"""

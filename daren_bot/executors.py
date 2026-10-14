@@ -251,6 +251,8 @@ def _build_report(talent_id: str, douyin_id: str) -> str:
         """空值判定：None/空串/空容器/全零字典都算空（全零是视觉占位垃圾）。"""
         if v in (None, "", [], {}):
             return True
+        if isinstance(v, str) and v.strip() in ("[]", "{}"):
+            return True             # 列里存的 JSON 文本空容器
         if isinstance(v, dict):
             nums = [_to_pct_num(x) for x in v.values()]
             nums = [n for n in nums if n is not None]
@@ -636,3 +638,27 @@ def execute_product_collect(task: dict) -> str:
 
 def execute_image_vision(task: dict) -> str:
     raise NotImplementedError("vision 识别链路开发中")
+
+
+def notify_report(sender, chat_id: str, douyin_id: str, report_text: str) -> None:
+    """报告推送：优先渲染可视化长图卡片发图 + 一句话摘要；渲染失败回退纯文字。"""
+    if sender is None:
+        log.info("[notify-no-sender] douyin_id=%s", douyin_id)
+        return
+    try:
+        from .report_card import render_card
+        t = _read_talent("", douyin_id)
+        if t:
+            import tempfile
+            tmp = Path(tempfile.gettempdir()) / f"daren_card_{t['id']}.png"
+            render_card(t["id"], douyin_id, str(tmp))
+            sender.send_image_path(chat_id, str(tmp))
+            name = t.get("name") or douyin_id
+            verdict = t.get("risk_rating") or ""
+            sender.send_text(
+                chat_id,
+                f"📊 {name} 的账号数据报告如上　🎯 账号评估：{verdict or '见报告'}")
+            return
+    except Exception:
+        log.exception("render card failed, fallback to text: douyin_id=%s", douyin_id)
+    sender.send_text(chat_id, report_text)
