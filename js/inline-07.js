@@ -1555,20 +1555,25 @@ function sb2SettingsShow(){
 }
 
 /* ★ credit-window 2026-10-08 老大「把积分弄成窗口」: 积分中心悬浮窗开关
-   覆盖面板体系复用 sb2-kb-detail (overlay + panel .open), 内容容器/loader 原样来自原设置页视图。 */
+   覆盖面板体系复用 sb2-kb-detail (overlay + panel .open), 内容容器/loader 原样来自原设置页视图。
+   ★ fix/credit-panel-visibility: 面板 DOM 挂在 .app-container 子树 (app-main) 下, 而工作台 showDash()
+   会给 .app-container 设 style.visibility='hidden' (dashboard 是覆盖层体系)。
+   visibility 可继承 → 工作台上点开面板 display:flex 生效但视觉上全透明 (老大实测「点了没反应,
+   点别的反而弹出来」——点别的触发 hideDash 复位 visibility, 之前打开的面板才露出来)。
+   修法: 打开时内联 visibility:visible 顶掉祖先 hidden, 关闭时复位为空串 (回到继承链)。 */
 function sb2CreditOpen(){
   var ov = document.getElementById('sb2CreditOverlay');
   var p = document.getElementById('sb2CreditPanel');
-  if (ov) ov.classList.add('open');
-  if (p) p.classList.add('open');
+  if (ov) { ov.classList.add('open'); ov.style.visibility = 'visible'; }
+  if (p) { p.classList.add('open'); p.style.visibility = 'visible'; }
   if (typeof loadCreditCheckin === 'function') loadCreditCheckin();
   if (typeof loadComputeStats === 'function') loadComputeStats();
 }
 function sb2CreditClose(){
   var ov = document.getElementById('sb2CreditOverlay');
   var p = document.getElementById('sb2CreditPanel');
-  if (ov) ov.classList.remove('open');
-  if (p) p.classList.remove('open');
+  if (ov) { ov.classList.remove('open'); ov.style.visibility = ''; }
+  if (p) { p.classList.remove('open'); p.style.visibility = ''; }
 }
 
 /* 〔settings-redesign 2026-10-08 老大批注「太杂了」〕统一视图激活:
@@ -6915,16 +6920,18 @@ function renderCreditDashboard(balances, quotas, todayRecords, summary, dr, usag
   // 今日消耗（按员工聚合）
   var todayMap = {};
   todayRecords.forEach(function (r) { todayMap[r.agent_id] = (todayMap[r.agent_id] || 0) + (r.credits_used || 0); });
-  // 员工列表：优先 emps 全量，再补充只有积分账户的员工
+  // 员工列表：只显示真实在职员工 (fix/credit-panel-visibility 老大批注「有一些不存在的ai, 就不要显示出来了」)
+  // — emps 侧过滤: 历史默认员工 (_isDefaultEmp) 与已归档 (status/archived 标记)
+  // — 删「只有积分账户就补充」分支: 孤儿账户 (已删员工/系统号如 knowledge_admin/zilong/老id) 全部不显示,
+  //   避免钱包里有余额的已删 AI 混进名单
   var agents = [];
   var seen = {};
   (typeof emps !== 'undefined' ? emps : []).forEach(function (e) {
     if (!e || !e.id || seen[e.id]) return;
+    if (typeof _isDefaultEmp === 'function' && _isDefaultEmp(e)) return;
+    if (e.status === 'archived' || e.archived) return;
     seen[e.id] = true;
     agents.push({ id: e.id, name: e.name || e.id });
-  });
-  Object.keys(balMap).forEach(function (id) {
-    if (!seen[id]) { seen[id] = true; agents.push({ id: id, name: id }); }
   });
 
   var html = '';
