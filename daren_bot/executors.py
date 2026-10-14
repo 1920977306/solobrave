@@ -60,6 +60,7 @@ def execute_douyin_collect(task: dict) -> str:
         raise RuntimeError(f"采集器拒绝任务: {res}")
 
     deadline = time.time() + JOB_WAIT_TIMEOUT
+    not_found_streak = 0
     while time.time() < deadline:
         time.sleep(JOB_POLL_INTERVAL)
         try:
@@ -67,6 +68,13 @@ def execute_douyin_collect(task: dict) -> str:
         except Exception as e:
             log.warning("job poll failed: %s", e)
             continue
+        if job.get("error") == "not found":
+            # 采集器重启会导致内存任务表丢失, 快速失败让用户重发, 不傻等超时
+            not_found_streak += 1
+            if not_found_streak >= 3:
+                raise RuntimeError("采集器重启导致任务丢失，积分已返还，请重新发送抖音号")
+            continue
+        not_found_streak = 0
         status = job.get("status", "")
         if status == "done":
             return _build_report(job.get("talent_id", ""), douyin_id)
