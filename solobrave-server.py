@@ -3252,20 +3252,23 @@ def _backfill_openclaw_agents():
 def _backup_data_dir():
     """启动时将 data/ 快照到 data/backups/YYYYMMDD_HHMMSS/，只保留最近 7 份。
 
-    备份自身目录（backups/）会被排除，避免递归复制。
+    备份自身目录（backups/）与 buyin_browser/（浏览器档案，可再生且体量大）被排除。
+    ★ fix/disk-root-cause (2026-10-15 磁盘急救复盘):
+      1. 排除 buyin_browser/ —— 单份快照 1.7G+ → ~30M, 曾经 130 份积 21G 的直接元凶
+      2. 清理逻辑独立执行 —— 原实现 copytree 失败即 return 跳过清理,
+         磁盘紧张时快照只增不减 (130 份积压的放大器); 现无论快照成败都执行轮换
     """
     backups_root = os.path.join(DATA_DIR, 'backups')
     os.makedirs(backups_root, exist_ok=True)
     ts = datetime.now().strftime('%Y%m%d_%H%M%S')
     dst = os.path.join(backups_root, ts)
     try:
-        shutil.copytree(DATA_DIR, dst, ignore=shutil.ignore_patterns('backups'))
+        shutil.copytree(DATA_DIR, dst, ignore=shutil.ignore_patterns('backups', 'buyin_browser'))
         logger.info(f'[Backup] 数据快照已保存: {os.path.abspath(dst)}')
     except Exception as e:
         logger.error(f'[Backup] 数据快照失败: {e}')
-        return
 
-    # 只保留最近 7 份快照（按目录名时间戳识别）
+    # 只保留最近 7 份快照（按目录名时间戳识别）——独立执行，快照失败也照常轮换
     try:
         snapshots = []
         for name in os.listdir(backups_root):
@@ -35066,6 +35069,27 @@ def main():
     for _origin in (f'http://localhost:{PORT}', f'http://127.0.0.1:{PORT}'):
         if _origin not in ALLOWED_ORIGINS:
             ALLOWED_ORIGINS.append(_origin)
+
+    # ★ fix/disk-root-cause (2026-10-15): 双开防护 —— launchd 实例与手动实例抢同一端口曾造成
+    #   崩溃循环：每 90 秒重启 → 先刷 1.7G 快照 → bind 失败 OSError 未捕获 → 异常退出 →
+    #   launchd KeepAlive 裸 true 无 ThrottleInterval → 循环刷满磁盘。
+    #   探测必须放在 _backup_data_dir() 之前：被占方零快照零噪音退出。
+    #   决策：占用方若是健康实例(/) → 本进程 exit 0。不杀占用方 —— 占用方可能是用户
+    #   手动起的有效实例，杀它才是事故；exit 0 后 launchd SuccessfulExit 判定正常退出，
+    #   不再拉起，双开与崩溃循环同时根治。
+    import socket as _probe_sk
+    _ps = _probe_sk.socket()
+    try:
+        _ps.bind((BIND, PORT))
+    except OSError:
+        try:
+            urllib.request.urlopen(f'http://127.0.0.1:{PORT}/', timeout=3)
+            logger.info(f'[Startup] 端口 {PORT} 已由健康实例服务, 本进程退出防双开')
+            sys.exit(0)
+        except Exception:
+            logger.error(f'[Startup] 端口 {PORT} 被占用且非健康实例, 仍尝试绑定')
+    finally:
+        _ps.close()
 
     # Override data directory if specified
     if args.data:
