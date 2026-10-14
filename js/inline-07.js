@@ -2088,7 +2088,8 @@ function sb2TalentsRowHtml(t, pageMaxGpm, pageMaxGmv){
     + '<td><span class="sb2-talents-rating r-' + bucket + '">' + bucket + '</span></td>'
     + '<td><span class="sb2-talents-status s-' + sb2TalentsEsc(statusKey) + '">' + sb2TalentsEsc(statusLabel) + '</span></td>'
     /* ★ r39-P0: 行操作 cell — AI 匹配弹窗入口 (规格项 2, 仿 22 轮批注③ 居中弹窗 precedent) */
-    + '<td class="sb2-talents-cell-action"><button class="sb2-talents-aimatch-btn" onclick="sb2TalentsOpenAiMatch(\'' + id.replace(/'/g, "\\'") + '\')">AI 匹配</button></td>'
+    + '<td class="sb2-talents-cell-action"><button class="sb2-talents-aimatch-btn" onclick="sb2TalentsOpenAiMatch(\'' + id.replace(/'/g, "\\'") + '\')">AI 匹配</button>'
+    + ' <button class="sb2-talents-del-btn" onclick="event.stopPropagation(); sb2TalentsDelete(\'' + id.replace(/'/g, "\\'") + '\', \'' + name.replace(/'/g, "\\'") + '\')">删除</button></td>'
     + '</tr>';
 }
 
@@ -4656,7 +4657,8 @@ function sb2PdsRender(){
     /* ★ r39.3-P0: 行操作 cell — 找达人弹窗入口 (规格项 3, 仿 r39.1 项 2 sb2TalentsOpenAiMatch precedent)
        跟项 2 对称: 商品行 hover 操作区 cell + 居中 720 弹窗 + sb2-pds-rise 动画
        r38 IIFE 踩坑: HTML onclick 必须 window.* 暴露 */
-    html += '<td class="sb2-pds-cell-action"><button class="sb2-pds-findtalent-btn" onclick="sb2PdsOpenFindTalents(\'' + escAttr(p.id) + '\')">找达人</button></td>';
+    html += '<td class="sb2-pds-cell-action"><button class="sb2-pds-findtalent-btn" onclick="sb2PdsOpenFindTalents(\'' + escAttr(p.id) + '\')">找达人</button>'
+      + ' <button class="sb2-pds-del-btn" onclick="event.stopPropagation(); sb2PdsDelete(\'' + escAttr(p.id) + '\', \'' + escAttr(p.name || '') + '\')">删除</button></td>';
     html += '</tr>';
   });
   tbody.innerHTML = html;
@@ -5097,6 +5099,45 @@ async function sb2ProductsInit(){
     if (sortEl) sortEl.addEventListener('change', function(){ sb2PdsOnSortChange(sortEl.value); });
   }
 })();
+
+/* feat/talent-product-delete: 达人/商品行删除 — 软删 (server 置 status='archived', 列表自动过滤)
+   行 td 里 onclick 已挂 window 暴露, 刷新走各自加载入口 */
+async function sb2TalentsDelete(id, name){
+  if (!id) return;
+  if (!confirm('确定删除达人「' + (name || id) + '」？（删除后列表不再显示，历史合作单保留）')) return;
+  try {
+    var resp = await apiFetch('/api/talents/' + encodeURIComponent(id), { method: 'DELETE' });
+    if (!resp || !resp.ok) {
+      var msg = '';
+      try { var err = await resp.json(); msg = (err && err.error) || ''; } catch (e) {}
+      showToast('❌ 删除失败' + (msg ? ': ' + msg : ' (HTTP ' + (resp ? resp.status : '?') + ')'), 'error');
+      return;
+    }
+    showToast('✅ 已删除 ' + (name || id), 'success');
+    if (typeof sb2TalentsLoad === 'function') sb2TalentsLoad();
+  } catch (e) {
+    showToast('❌ 网络错误: ' + (e && e.message || e), 'error');
+  }
+}
+async function sb2PdsDelete(id, name){
+  if (!id) return;
+  if (!confirm('确定删除商品「' + (name || id) + '」？（删除后列表不再显示）')) return;
+  try {
+    var resp = await apiFetch('/api/products/' + encodeURIComponent(id), { method: 'DELETE' });
+    if (!resp || !resp.ok) {
+      var msg = '';
+      try { var err = await resp.json(); msg = (err && err.error) || ''; } catch (e) {}
+      showToast('❌ 删除失败' + (msg ? ': ' + msg : ' (HTTP ' + (resp ? resp.status : '?') + ')'), 'error');
+      return;
+    }
+    showToast('✅ 已删除 ' + (name || id), 'success');
+    if (typeof sb2ProductsInit === 'function') sb2ProductsInit();
+  } catch (e) {
+    showToast('❌ 网络错误: ' + (e && e.message || e), 'error');
+  }
+}
+window.sb2TalentsDelete = sb2TalentsDelete;
+window.sb2PdsDelete = sb2PdsDelete;
 
 window.sb2ProductsInit = sb2ProductsInit;
 window.switchProductsCategory = switchProductsCategory;

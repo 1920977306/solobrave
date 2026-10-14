@@ -12103,6 +12103,16 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
 .sb2-pds-findtalent-btn:disabled{
   opacity:.4; cursor:not-allowed;
 }
+/* feat/talent-product-delete: 行内删除键 — 红色危险描边, 跟找达人主按钮并排 */
+.sb2-pds-del-btn{
+  font:500 11px/1 "PingFang SC",sans-serif; color:var(--sb2-danger, #e5484d);
+  background:transparent; border:1px solid var(--sb2-danger, #e5484d);
+  border-radius:var(--sb2-r-full); padding:4px 10px; cursor:pointer;
+  transition:background .12s, color .12s;
+}
+.sb2-pds-del-btn:hover{
+  background:var(--sb2-danger, #e5484d); color:#fff;
+}
 
 .sb2-pds-findtalent-overlay{
   position:fixed; inset:0; background:rgba(0,0,0,0.45);
@@ -13023,6 +13033,16 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
 }
 .sb2-talents-aimatch-btn:disabled{
   opacity:.4; cursor:not-allowed;
+}
+/* feat/talent-product-delete: 行内删除键 — 红色危险描边, 跟 AI 匹配主按钮并排 */
+.sb2-talents-del-btn{
+  font:500 11px/1 "PingFang SC",sans-serif; color:var(--sb2-danger, #e5484d);
+  background:transparent; border:1px solid var(--sb2-danger, #e5484d);
+  border-radius:var(--sb2-r-full); padding:4px 10px; cursor:pointer;
+  transition:background .12s, color .12s;
+}
+.sb2-talents-del-btn:hover{
+  background:var(--sb2-danger, #e5484d); color:#fff;
 }
 
 .sb2-tln-aimatch-overlay{
@@ -19369,7 +19389,7 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
      v2 (202609241444): 初始破缓存 + skip-device 守卫
      v3 (202609241420): probe 误导文案澄清 (fingerprint fallback → token-only) -->
 <script src="openclaw-client.js?v=ocowner1a20261008"></script>
-<script src="js/inline-07.js?v=phase4a20261012"></script>
+<script src="js/inline-07.js?v=delbtn1a20261014"></script>
 
 <!-- Match Result Modal -->
 <div class="product-modal-overlay" id="matchModalOverlay" onclick="closeMatchModal()">
