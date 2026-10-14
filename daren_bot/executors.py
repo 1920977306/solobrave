@@ -283,6 +283,26 @@ def _build_report(talent_id: str, douyin_id: str) -> str:
     if basics:
         lines.append("｜".join(basics))
 
+    # 内容总览（概览 tab 核心数据）
+    overview = []
+    ct = pick("content_total")
+    if ct:
+        overview.append(f"发布 {ct} 条")
+    wt = pick("watch_total")
+    if wt:
+        overview.append(f"总观看 {wt}万" if isinstance(wt, (int, float)) and wt < 10000 else f"总观看 {wt}")
+    va = pick("video_count_all")
+    if va:
+        overview.append(f"视频 {va}")
+    lc = pick("live_count")
+    if lc not in (None, ""):
+        overview.append(f"直播 {lc} 场")
+    tw = pick("tuwen_count")
+    if tw:
+        overview.append(f"图文 {tw}")
+    if overview:
+        lines.append("内容总览：" + "｜".join(str(x) for x in overview))
+
     # 带货能力
     gmv = []
     if t.get("total_gmv"):
@@ -291,14 +311,23 @@ def _build_report(talent_id: str, douyin_id: str) -> str:
         gmv.append(f"场均直播GMV {_fmt_wan(t['avg_live_gmv'])}")
     if t.get("live_gpm"):
         gmv.append(f"直播GPM {float(t['live_gpm']):.0f}")
-    if t.get("video_gpm"):
+    vg = pick("video_gpm_text")
+    if vg:
+        gmv.append(f"视频GPM {vg}")
+    elif t.get("video_gpm"):
         gmv.append(f"视频GPM {float(t['video_gpm']):.0f}{_bench_tag(t, 'video_gpm')}")
     if t.get("average_price"):
-        gmv.append(f"客单价 {float(t['average_price']):.0f}元{_bench_tag(t, 'average_price')}")
+        gmv.append(f"平均件单价 {float(t['average_price']):.0f}元{_bench_tag(t, 'average_price')}")
+    vaprice = pick("video_avg_price")
+    if vaprice:
+        gmv.append(f"视频件单价 {vaprice}")
     if t.get("total_products"):
         gmv.append(f"带过 {t['total_products']} 品")
     if t.get("total_shops"):
         gmv.append(f"合作 {t['total_shops']} 店")
+    vsr = pick("video_settlement_ratio")
+    if vsr:
+        gmv.append(f"视频结算占比 {vsr}")
     if t.get("single_video_settlement"):
         gmv.append(f"单视频结算 {t['single_video_settlement']}")
     ms = pick("monthly_settlement")
@@ -321,7 +350,7 @@ def _build_report(talent_id: str, douyin_id: str) -> str:
         if _years and all(2023 <= y <= 2035 for y in _years):
             gmv.append(f"数据周期 {dp}")
     if gmv:
-        lines.append("带货：" + "｜".join(gmv))
+        lines.append("带货：" + "｜".join(str(x) for x in gmv))
 
     # 内容表现
     content = []
@@ -395,6 +424,12 @@ def _build_report(talent_id: str, douyin_id: str) -> str:
         except (json.JSONDecodeError, TypeError):
             pass
         fans.append(f"价格偏好 {fpr}")
+    fcl = _fmt_dist(_loads_dist(pick("fan_consume_level")))
+    if fcl:
+        fans.append(f"消费水平 {fcl}")
+    fpp = pick("fan_purchase_pref")
+    if fpp:
+        fans.append(f"购买偏好 {fpp}")
     cp = pick("content_preference")
     if cp and not ('偏好' in str(cp) and not any(ch.isdigit() for ch in str(cp))):
         fans.append(f"内容偏好 {cp}")
@@ -407,9 +442,9 @@ def _build_report(talent_id: str, douyin_id: str) -> str:
     if t.get("fulfillment_score"):
         fans.append(f"履约 {float(t['fulfillment_score']):.1f}")
     if fans:
-        lines.append("粉丝/口碑：" + "｜".join(fans))
+        lines.append("粉丝/口碑：" + "｜".join(str(x) for x in fans))
 
-    # 历史带货评价（总评+三维+好评率+标签+联系方式）
+    # 历史带货评价（总评+三维+好评率+明细+联系方式）
     rc = pick("review_count")
     if rc:
         rev = [f"评价 {rc} 条"]
@@ -422,9 +457,9 @@ def _build_report(talent_id: str, douyin_id: str) -> str:
         if dims:
             rev.append("｜".join(dims))
         rg, rm, rb = pick("review_good"), pick("review_mid"), pick("review_bad")
-        if rg:
-            rev.append(f"好评 {rg}" + (f"/中评 {rm}/差评 {rb}" if rm or rb else ""))
-        lines.append("口碑：" + "｜".join(rev))
+        if rg not in (None, ""):
+            rev.append(f"好评 {rg}/中评 {rm or 0}/差评 {rb or 0}")
+        lines.append("口碑：" + "｜".join(str(x) for x in rev))
         try:
             rtags = pick("review_tags")
             if isinstance(rtags, dict) and rtags:
@@ -433,13 +468,44 @@ def _build_report(talent_id: str, douyin_id: str) -> str:
                     sorted(rtags.items(), key=lambda kv: kv[1], reverse=True)[:8]))
         except (json.JSONDecodeError, TypeError):
             pass
+        # 评价明细（商家/星级/内容/电话/日期）
+        reviews = pick("reviews")
+        if isinstance(reviews, str):
+            try:
+                reviews = json.loads(reviews)
+            except (json.JSONDecodeError, TypeError):
+                reviews = None
+        if isinstance(reviews, list) and reviews:
+            lines.append("评价明细：")
+            for rv in reviews[:3]:
+                if not isinstance(rv, dict):
+                    continue
+                shop = rv.get("商家") or rv.get("商家名") or "?"
+                star = rv.get("星级") or ""
+                text_ = rv.get("内容") or rv.get("评价原文") or rv.get("评价") or ""
+                date_ = rv.get("日期") or ""
+                phone = rv.get("联系电话") or rv.get("电话") or ""
+                seg = f"  · {shop} {star}".rstrip()
+                if date_:
+                    seg += f"（{date_}）"
+                lines.append(seg)
+                if text_:
+                    lines.append(f"    {str(text_).strip()[:60]}")
+                if phone:
+                    lines.append(f"    📞 {phone}")
         rcontact = pick("review_contact")
-        if rcontact:
+        if rcontact and not (isinstance(reviews, list) and any(
+                str(rcontact) in json.dumps(r, ensure_ascii=False) for r in reviews)):
             lines.append(f"📞 合作联系方式（来自评价区）：{rcontact}")
 
     # 类目与品牌结构
     struct = []
-    cats = _loads_dist(pick("category_distribution"))
+    cats_raw = pick("category_distribution")
+    if isinstance(cats_raw, list):      # 深度提取可能是 [{category,percentage}] 数组
+        cats = {str(it.get('category')): it.get('percentage') for it in cats_raw
+                if isinstance(it, dict) and it.get('category') is not None}
+    else:
+        cats = _loads_dist(cats_raw)
     cats_items = [(k, _to_pct_num(v)) for k, v in cats.items()]
     cats_items = [(k, n) for k, n in cats_items if n is not None]
     if cats_items:
@@ -451,8 +517,12 @@ def _build_report(talent_id: str, douyin_id: str) -> str:
         else:
             struct.append("类目 " + "、".join(f"{k} {n:.0f}%"
                           for k, n in sorted(cats_items, key=lambda kv: kv[1], reverse=True)[:4]))
-    brands = _loads_dist(pick("cooperating_brands")
-                         or pick("cooperating_brands_distribution"))
+    brands_raw = pick("cooperating_brands") or pick("cooperating_brands_distribution")
+    if isinstance(brands_raw, list):
+        brands = {str(it.get('brand')): it.get('percentage') for it in brands_raw
+                  if isinstance(it, dict) and it.get('brand') is not None}
+    else:
+        brands = _loads_dist(brands_raw)
     brand_items = [(k, _to_pct_num(v)) for k, v in brands.items()]
     brand_items = [(k, n) for k, n in brand_items if n is not None and k != '其他']
     if brand_items:
@@ -460,6 +530,44 @@ def _build_report(talent_id: str, douyin_id: str) -> str:
                       for k, n in sorted(brand_items, key=lambda kv: kv[1], reverse=True)[:5]))
     if struct:
         lines.append("结构：" + "｜".join(struct))
+
+    # 近期带货视频明细（概览 tab 历史内容卡片）
+    hvs = pick("history_videos")
+    if isinstance(hvs, str):
+        try:
+            hvs = json.loads(hvs)
+        except (json.JSONDecodeError, TypeError):
+            hvs = None
+    if isinstance(hvs, list) and hvs:
+        shown = 0
+        for v_ in hvs:
+            if not isinstance(v_, dict):
+                continue
+            title = str(v_.get('title') or '').strip()
+            if len(title) < 2:
+                continue
+            parts = []
+            d_ = v_.get('publish_date') or v_.get('发布日期')
+            if d_:
+                parts.append(str(d_)[5:])          # 只留月-日
+            views = v_.get('views') or v_.get('观看人数')
+            if views not in (None, ''):
+                parts.append(f"观看{views}")
+            likes = v_.get('likes') or v_.get('点赞数')
+            if likes not in (None, ''):
+                parts.append(f"赞{likes}")
+            settle = v_.get('settlement') or v_.get('结算额')
+            if settle:
+                parts.append(f"结算{settle}")
+            price = v_.get('到手价') or v_.get('price')
+            if price:
+                parts.append(f"到手{price}")
+            if shown == 0:
+                lines.append("近期带货视频：")
+            shown += 1
+            lines.append(f"  {shown}. {title[:18]}" + ("｜" + "｜".join(parts) if parts else ""))
+            if shown >= 4:
+                break
 
     # 近期带货
     try:

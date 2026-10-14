@@ -258,6 +258,59 @@ def _vision_junk_value(v) -> bool:
     return False
 
 
+# 视觉提取按 tab 聚焦的字段清单：一次索要 ~50 个字段会严重稀释读图精度，
+# 每个 tab 用各自的字段清单单独读（实测覆盖率从 46 字段/多垃圾 → 52 字段/高可用）
+_VISION_IRON = (
+    '铁律：数值必须来自截图原文，严禁编造或估算；截图里确实没有的字段填 null。'
+    '金额区间（如"¥250万-500万"）保留原文。百分数输出数字（54.74 表示54.74%）。'
+    '只输出一个 JSON 对象，不要输出任何其他文字。'
+)
+_VISION_TAB_PROMPTS = {
+    '概览': (
+        '读巨量百应达人详情页【概览】tab截图。提取：'
+        'content_total(发布内容总数,整数) watch_total(观看总次数,万字数字) '
+        'live_count(直播场次) video_count_all(视频个数) tuwen_count(图文个数) '
+        'history_videos(历史带货视频明细,数组,每项含title/publish_date/duration/views/likes/'
+        'comments/settlement/到手价/原价,能读多少读多少) '
+        'fan_gender/fan_age/fan_region/fan_crowd(粉丝画像分布,对象,百分比数字) '
+        'fan_purchase_pref(粉丝购买偏好,如"服装22.68%") fan_consume_level(粉丝消费水平,对象) '
+        'category_distribution(带货最多品类TOP5,对象,百分比数字) '
+        'cooperating_brands_distribution(品牌集中度TOP5,对象,百分比数字)。' + _VISION_IRON
+    ),
+    '带货分析': (
+        '读巨量百应达人详情页【带货分析】tab截图。提取：'
+        'total_gmv_text(结算总额) total_products(带货商品数) total_shops(合作店铺数) '
+        'average_price(平均件单价) '
+        'live_settlement_ratio/live_avg_gmv_text/live_gpm_text/live_product_count/'
+        'live_shop_count/live_avg_price(直播带货数据块,无数据显示null) '
+        'video_settlement_ratio/single_video_settlement/video_gpm_text/video_product_count/'
+        'video_shop_count/video_avg_price(视频带货数据块)。' + _VISION_IRON
+    ),
+    '粉丝分析': (
+        '读巨量百应达人详情页【粉丝分析】tab截图。提取：'
+        'fan_gender/fan_age/fan_region/fan_crowd(分布对象,百分比数字。'
+        '性别以页面文字摘要为准如"男性居多 54.74%"，不要凭饼图颜色猜) '
+        'fan_feature_gender/fan_feature_age/fan_feature_region/fan_feature_crowd(粉丝特征pill,原样字符串) '
+        'consume_pref_price/consume_pref_category(消费偏好pill,原样字符串) '
+        'fan_growth(近2月粉丝变化数,带符号整数) fan_growth_rate(粉丝变化率,字符串) '
+        'fan_consume_level(消费水平分布,对象)。' + _VISION_IRON
+    ),
+    '评价详情': (
+        '读巨量百应达人详情页【评价详情】tab截图。提取：'
+        'review_count(全部) review_good(好评) review_mid(中评) review_bad(差评) '
+        'rating_effect/rating_fulfill/rating_communication(三维分,无数据显示null) '
+        'reviews(评价明细数组,每项: 商家名/星级/评价原文/联系电话/日期,联系电话原样照抄数字) '
+        'review_contact(评价里出现的联系电话)。' + _VISION_IRON
+    ),
+    '场景分析': (
+        '读巨量百应达人详情页【场景分析】tab截图。提取：'
+        'live_scene/video_scene/tuwen_scene/chuchuang_scene(各场景数据对象,有则提取;'
+        '页面显示"暂无数据"就填 null)。' + _VISION_IRON
+    ),
+}
+_VISION_TAB_KEYS = tuple(_VISION_TAB_PROMPTS.keys()) + ('视频详情', '直播详情')
+
+
 def _vision_extract_fields(shots):
     """glm-4v-plus 直接看 tab 截图做视觉提取，补齐 DOM 提取缺失/不准的字段。
     截图压缩后每 3 张一批（单次 6 张会 400），多批结果合并。
@@ -316,9 +369,26 @@ def _vision_extract_fields(shots):
         'reviews(评价明细,数组,每项含商家/内容/电话/日期) '
         'review_contact(评价中出现的合作联系电话,字符串)'
     )
+    # ★ 按 tab 分组聚焦提取：每 tab 用自己的字段清单，组内每 3 张一批；
+    # 没匹配上已知 tab 的截图（旧版布局的视频详情/直播详情等）走全量通用清单
+    groups: dict = {}
+    for p in shots:
+        base = Path(p).stem
+        for kw in _VISION_TAB_KEYS:
+            if kw in base:
+                groups.setdefault(kw, []).append(p)
+                break
+        else:
+            groups.setdefault('*', []).append(p)
+
+    batches = []          # (prompt, [paths])
+    for tab, paths in groups.items():
+        tprompt = _VISION_TAB_PROMPTS.get(tab) or prompt
+        for start in range(0, len(paths), 3):
+            batches.append((tprompt, paths[start:start + 3]))
+
     merged = {}
-    for start in range(0, len(shots), 3):
-        batch = shots[start:start + 3]
+    for bidx, (prompt, batch) in enumerate(batches, 1):
         for attempt in (1, 2):
             try:
                 imgs = []
@@ -371,9 +441,9 @@ def _vision_extract_fields(shots):
                             merged[k] = v
                 break
             except Exception as e:
-                log(f'  [LLM] 视觉提取批次{start // 3 + 1}第{attempt}次失败: {e}')
+                log(f'  [LLM] 视觉提取批次{bidx}第{attempt}次失败: {e}')
                 if attempt == 2:
-                    log(f'  [LLM] 视觉提取批次{start // 3 + 1}放弃（非致命）')
+                    log(f'  [LLM] 视觉提取批次{bidx}放弃（非致命）')
     return merged
 
 
