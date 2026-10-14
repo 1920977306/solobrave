@@ -107,6 +107,23 @@ def _fmt_crowd(d: dict) -> str:
     return "、".join(f"{k} {v/total*100:.0f}%" for k, v in items)
 
 
+def _fmt_dist(d: dict, top: int = 3) -> str:
+    """分布对象取 topN，值是百分比数字就原样带%，是计数就归一化成占比。"""
+    if not isinstance(d, dict) or not d:
+        return ""
+    items = sorted(d.items(), key=lambda kv: kv[1], reverse=True)[:top]
+    total = sum(v for v in d.values() if isinstance(v, (int, float))) or 0
+    out = []
+    for k, v in items:
+        if not isinstance(v, (int, float)):
+            continue
+        if total > 100:            # 计数 → 占比
+            out.append(f"{k} {v/total*100:.0f}%")
+        else:                       # 已是百分数
+            out.append(f"{k} {v:.0f}%")
+    return "、".join(out)
+
+
 def _build_report(talent_id: str, douyin_id: str) -> str:
     t = _read_talent(talent_id, douyin_id)
     if not t:
@@ -172,17 +189,62 @@ def _build_report(talent_id: str, douyin_id: str) -> str:
     # 粉丝画像
     fans = []
     try:
-        c = _fmt_crowd(json.loads(t.get("fan_crowd") or "{}"))
-        if c:
-            fans.append(f"消费层级 {c}")
+        g = _fmt_dist(json.loads(t.get("fan_gender") or "{}"))
+        if g:
+            g = g.replace("female", "女性").replace("male", "男性")
+            fans.append(f"性别 {g}")
     except (json.JSONDecodeError, TypeError):
         pass
+    try:
+        a = _fmt_dist(json.loads(t.get("fan_age") or "{}"))
+        if a:
+            fans.append(f"年龄 {a}")
+    except (json.JSONDecodeError, TypeError):
+        pass
+    try:
+        r = _fmt_dist(json.loads(t.get("fan_region") or "{}"), top=2)
+        if r:
+            fans.append(f"地域 {r}")
+    except (json.JSONDecodeError, TypeError):
+        pass
+    try:
+        c = _fmt_dist(json.loads(t.get("fan_crowd") or "{}"), top=2)
+        if c:
+            fans.append(f"人群 {c}")
+    except (json.JSONDecodeError, TypeError):
+        pass
+    if t.get("fan_price_range"):
+        fpr = t["fan_price_range"]
+        try:
+            fpr = _fmt_dist(json.loads(fpr)) or fpr
+        except (json.JSONDecodeError, TypeError):
+            pass
+        fans.append(f"价格偏好 {fpr}")
     if t.get("rating_score"):
         fans.append(f"带货评分 {float(t['rating_score']):.1f}")
     if t.get("fulfillment_score"):
         fans.append(f"履约 {float(t['fulfillment_score']):.1f}")
     if fans:
         lines.append("粉丝/口碑：" + "｜".join(fans))
+
+    # 类目与品牌结构
+    struct = []
+    try:
+        cats = json.loads(t.get("category_distribution") or "{}")
+        if cats:
+            struct.append("类目 " + "、".join(f"{k}({v})" for k, v in
+                          sorted(cats.items(), key=lambda kv: kv[1], reverse=True)[:4]))
+    except (json.JSONDecodeError, TypeError):
+        pass
+    try:
+        brands = json.loads(t.get("cooperating_brands") or "{}")
+        if brands:
+            struct.append("品牌 " + "、".join(f"{k}({v})" for k, v in
+                          sorted(brands.items(), key=lambda kv: kv[1], reverse=True)[:5]))
+    except (json.JSONDecodeError, TypeError):
+        pass
+    if struct:
+        lines.append("结构：" + "｜".join(struct))
 
     # 近期带货
     try:
@@ -193,6 +255,12 @@ def _build_report(talent_id: str, douyin_id: str) -> str:
                 lines.append(f"  {i}. {str(p)[:60]}")
     except (json.JSONDecodeError, TypeError):
         pass
+
+    # AI 合作评估（buyin_worker 落库的团长视角评估）
+    if t.get('risk_rating'):
+        lines.append(f"🎯 评估结论：{t['risk_rating']}")
+    if t.get('ai_analysis'):
+        lines.append(t['ai_analysis'])
 
     # AI 摘要（buyin_worker 的 LLM 画像，去掉内部来源后缀）
     notes = (t.get("notes") or "").split("｜")[0].strip()

@@ -205,6 +205,174 @@ def extract_fields(collect_name, collect_douyin_id, tabs_dom, xhr_dump):
     raise LLMError(last_err)
 
 
+def _repair_json_text(s):
+    """glm-4v 常把中文单位裸写进数字字段（"followers": 450万），补引号让它可解析。"""
+    s = re.sub(r':\s*(-?[0-9][0-9.,]*[\u4e00-\u9fff%][^,\}\]]*)', r': "\1"', s)
+    s = re.sub(r':\s*([\u4e00-\u9fff][^,\}\]"]*)', r': "\1"', s)
+    return s
+
+
+_VISION_NUMERIC_KEYS = {
+    'followers', 'total_products', 'total_shops', 'average_price',
+    'live_ratio', 'video_ratio', 'live_sessions', 'live_views',
+    'video_completion_rate', 'video_interaction_rate', 'fan_growth',
+    'fulfillment_score', 'rating_score',
+}
+
+# 区间类文本字段的常识校验：单视频结算额不可能到"万"级，模型把结算总额抄过来时能拦住
+_VISION_TEXT_GUARDS = {
+    'single_video_settlement': lambda s: '万' not in str(s) and '亿' not in str(s),
+}
+
+
+def _vision_text_ok(key, value) -> bool:
+    guard = _VISION_TEXT_GUARDS.get(key)
+    return guard(value) if guard else True
+
+
+def _vision_extract_fields(shots):
+    """glm-4v-plus 直接看 tab 截图做视觉提取，补齐 DOM 提取缺失/不准的字段。
+    截图压缩后每 3 张一批（单次 6 张会 400），多批结果合并。
+    返回 fields dict（key 与 extract_fields 对齐）；失败返回 {}（非致命）。"""
+    import base64
+    import io
+
+    def _b64_img(path):
+        from PIL import Image
+        im = Image.open(path).convert('RGB')
+        if im.width > 960:
+            im = im.resize((960, int(im.height * 960 / im.width)), Image.LANCZOS)
+        buf = io.BytesIO()
+        im.save(buf, 'JPEG', quality=82)
+        return base64.b64encode(buf.getvalue()).decode()
+
+    shots = [p for p in (shots or []) if not str(p).endswith('_profile.png')]
+    if not shots:
+        return {}
+    prompt = (
+        '你是电商数据提取引擎。给你某抖音达人在巨量百应详情页各 tab 的真实页面截图，'
+        '逐张仔细读图，提取下列字段。只输出一个 JSON 对象，不要输出任何其他文字。\n'
+        '铁律：\n'
+        '1. 数值必须来自截图原文，严禁编造或估算；截图里确实没有的字段填 null\n'
+        '2. 括号里带 % 的才是百分比，输出百分数数字（75 表示75%）；纯数字是计数\n'
+        '3. 金额区间（如 "¥250万-500万"）保留原文字符串，不要换算\n'
+        '4. 五大标签（粉丝特征/消费偏好这类 pill 标签）原样照抄\n'
+        '输出字段（严格用这些 key）：\n'
+        'name(昵称) douyin_id(抖音号,字符串) followers(粉丝数,整数) talent_type(达人类型) '
+        'city(地区) level(等级) tags(平台标签,数组) fulfillment_score(履约分) rating_score(评价分) '
+        'category(主推类目) content_style(内容标签) agency(所属机构) bio(简介) '
+        'data_period(统计周期) '
+        'total_products(带货商品数,整数) total_shops(合作店铺数) '
+        'total_gmv_text(结算总额区间原文) '
+        'live_ratio(直播销售占比数字) live_sessions(带货直播场次) '
+        'avg_live_gmv_text(场均结算额区间原文) live_gpm_text(直播GPM区间原文) '
+        'video_ratio(视频销售占比数字) video_plays(视频播放量,字符串) '
+        'single_video_settlement(单视频结算额区间原文) video_gpm_text(视频GPM区间原文) '
+        'monthly_settlement(月结算额) average_price(平均件单价) '
+        'category_distribution(主推类目分布,对象,如{"服饰内衣":167}) '
+        'cooperating_brands(合作品牌分布,对象,如{"纳维凯尔":12}) '
+        'fan_gender(粉丝性别分布,对象) fan_age(粉丝年龄分布,对象) '
+        'fan_region(粉丝地域分布,对象) fan_crowd(粉丝人群标签,对象) '
+        'fan_price_range(粉丝价格偏好) '
+        'video_completion_rate(视频完播率) video_interaction_rate(视频互动率) '
+        'fan_growth(粉丝变化数,带符号整数) fan_growth_rate(粉丝变化率,字符串)'
+    )
+    merged = {}
+    for start in range(0, len(shots), 3):
+        batch = shots[start:start + 3]
+        for attempt in (1, 2):
+            try:
+                imgs = []
+                for p in batch:
+                    imgs.append({'type': 'image_url',
+                                 'image_url': {'url': f'data:image/jpeg;base64,{_b64_img(p)}'}})
+                base, key = _zhipu_cfg()
+                req = urllib.request.Request(
+                    base + '/chat/completions',
+                    data=json.dumps({
+                        'model': 'glm-4v-plus',
+                        'messages': [{'role': 'user', 'content':
+                                      [{'type': 'text', 'text': prompt}] + imgs}],
+                        'temperature': 0.0,
+                    }).encode('utf-8'),
+                    headers={'Content-Type': 'application/json',
+                             'Authorization': f'Bearer {key}'},
+                    method='POST')
+                with urllib.request.urlopen(req, timeout=300) as resp:
+                    data = json.loads(resp.read().decode())
+                content = (data.get('choices') or [{}])[0].get('message', {}).get('content') or ''
+                candidate = _balanced_json(content)
+                if not candidate:
+                    raise LLMError(f'视觉提取输出中无 JSON: {content[:200]}')
+                try:
+                    vf = json.loads(candidate)
+                except json.JSONDecodeError:
+                    vf = json.loads(_repair_json_text(candidate))
+                if isinstance(vf, dict):
+                    for k, v in vf.items():
+                        if k in ('name', 'douyin_id'):
+                            continue  # 身份字段以 DOM 提取+回填为准，视觉不覆盖
+                        if k in _VISION_NUMERIC_KEYS and not isinstance(v, (int, float)):
+                            continue  # 数字字段收到脏字符串直接丢弃，保留 DOM 值
+                        if k in ('total_products', 'total_shops', 'followers',
+                                 'average_price') and v == 0:
+                            continue  # 这些字段为 0 必是读图失败，不能覆盖 DOM 值
+                        if not _vision_text_ok(k, v):
+                            continue  # 常识校验不过，保留 DOM 值
+                        if v not in (None, '', [], {}):
+                            merged[k] = v
+                break
+            except Exception as e:
+                log(f'  [LLM] 视觉提取批次{start // 3 + 1}第{attempt}次失败: {e}')
+                if attempt == 2:
+                    log(f'  [LLM] 视觉提取批次{start // 3 + 1}放弃（非致命）')
+    return merged
+
+
+def analyze_talent(fields):
+    """团长视角的达人合作评估。返回 (verdict, analysis_text, reason)，失败返回 ('','','')。"""
+    prompt = (
+        '你是抖音电商团长方的达人评估专家。基于以下达人结构化数据，从团长选达人带货的视角产出合作评估。\n'
+        '只输出一个 JSON 对象：{"verdict":"推荐合作|谨慎合作|暂不推荐",'
+        '"highlights":["..."], "risks":["..."], "suggestions":["..."]}\n'
+        '要求：每条 40 字以内，具体、有数据支撑、不喊空话；亮点 2-4 条，风险 1-3 条，'
+        '建议 2-4 条（面向团长下一步动作）；所有数字必须来自输入数据，没有的维度不要硬编。'
+    )
+    safe = {k: v for k, v in fields.items() if not isinstance(v, (bytes, bytearray))}
+    content = ''
+    for model in ('glm-4.7', 'glm-4-flash'):   # 主模型挂了就降级便宜模型，评估不能空
+        try:
+            content = llm_chat([
+                {'role': 'user',
+                 'content': prompt + '\n【达人数据】' + json.dumps(safe, ensure_ascii=False)[:20000]},
+            ], max_tokens=1500, temperature=0.0,
+                **({'model': model} if model != 'glm-4.7' else {}))
+            if content.strip():
+                break
+        except Exception as e:
+            log(f'  [LLM] 达人评估({model})失败，降级: {e}')
+            content = ''
+    if not content.strip():
+        log('  [LLM] 达人评估全部失败（非致命）')
+        return '', '', ''
+    try:
+        candidate = _balanced_json(content)
+        if not candidate:
+            raise LLMError('评估输出无 JSON')
+        obj = json.loads(candidate)
+        verdict = str(obj.get('verdict') or '').strip()
+        lines = []
+        for title, key in (('亮点', 'highlights'), ('风险', 'risks'), ('建议', 'suggestions')):
+            items = obj.get(key) or []
+            if items:
+                lines.append(f'【{title}】')
+                lines.extend(f'· {x}' for x in items[:5])
+        return verdict, '\n'.join(lines), ''
+    except Exception as e:
+        log(f'  [LLM] 达人评估输出解析失败（非致命）: {e}')
+        return '', '', ''
+
+
 def summarize_for_notes(fields):
     """把提取结果压成 notes 摘要（达人档案速览）。"""
     try:
@@ -1569,6 +1737,18 @@ def _run_collect_impl(row):
         if douyin_id and not fields.get('douyin_id'):
             fields['douyin_id'] = douyin_id
         fields['platform'] = '抖音'
+
+        # ── 视觉补齐：glm-4v-plus 直接读 tab 截图，覆盖 DOM 提取缺失/不准的字段 ──
+        _job_set(cid, stage='AI 视觉提取（读截图补齐字段）')
+        vf = _vision_extract_fields(material.get('shots') or [])
+        merged = 0
+        for k, v in vf.items():
+            if v not in (None, '', [], {}):
+                fields[k] = v
+                merged += 1
+        if merged:
+            log(f'[Job] {cid} 视觉提取补齐/覆盖 {merged} 个字段')
+
         provenance = f'buyin_worker 自动采集 {time.strftime("%Y-%m-%d %H:%M")}'
         notes = summarize_for_notes(fields)
         notes = (notes + '｜' if notes else '') + provenance
@@ -1580,6 +1760,14 @@ def _run_collect_impl(row):
         log(f'[Job] {cid} 提取完成: {list(fields.keys())[:12]}…')
         _fill_missing_fields(fields)
         fields = _normalize_fields(fields)
+
+        # ── 团长视角合作评估（ai_analysis/risk_rating 落库，报告端展示）──
+        _job_set(cid, stage='AI 合作评估')
+        verdict, analysis_text, _reason = analyze_talent(fields)
+        if verdict:
+            fields['risk_rating'] = verdict
+            fields['ai_analysis'] = analysis_text
+            log(f'[Job] {cid} 评估结论: {verdict}')
 
         # ── 写库：POST 优先（服务端去重），重名/已存在则 PUT 更新（管理员身份，可更新主库）──
         _job_set(cid, stage='写入达人库')
