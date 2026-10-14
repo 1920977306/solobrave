@@ -9403,20 +9403,6 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 self._handle_delete_notification(notif_id)
                 return
 
-        # 达人库：软删除 (status='archived', 列表自动过滤, deals/tasks 外键不悬空)
-        if path.startswith('/api/talents/'):
-            talent_id = path[len('/api/talents/'):]
-            if talent_id and '/' not in talent_id:
-                self._handle_delete_talent(talent_id)
-                return
-
-        # 商品库：软删除
-        if path.startswith('/api/products/'):
-            product_id = path[len('/api/products/'):]
-            if product_id and '/' not in product_id:
-                self._handle_delete_product(product_id)
-                return
-
         # OpenClaw
         if path.startswith('/api/openclaw/agents/'):
             agent_name = path[len('/api/openclaw/agents/'):]
@@ -17009,64 +16995,6 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             logger.error(f'  [Deals] delete failed: {e}')
             self._send_json_error(500, 'Delete failed')
 
-    def _handle_delete_talent(self, talent_id):
-        """DELETE /api/talents/<id> — 软删除 (status='archived')"""
-        auth = _authenticate(self.headers, self.client_address[0], self)
-        if not auth.is_authenticated:
-            self._send_auth_error(auth.error, auth.status)
-            return
-        if not self._require_module_permission(auth, 'influencers'): return
-        deny = _check_agent_role_write_scope(auth, 'talent')
-        if deny:
-            self._send_json_error(deny[1], deny[0])
-            return
-        try:
-            conn = _db_conn()
-            try:
-                row = conn.execute('SELECT id FROM talents WHERE id = ?', (talent_id,)).fetchone()
-                if not row:
-                    self._send_json_error(404, 'Talent not found')
-                    return
-                deny = _check_talent_write_permission(auth, talent_id)
-                if deny:
-                    self._send_json_error(deny[1], deny[0])
-                    return
-                cur = conn.execute(
-                    "UPDATE talents SET status = 'archived', updated_at = ? WHERE id = ?",
-                    (int(time.time()), talent_id))
-                conn.commit()
-            finally:
-                conn.close()
-            self._send_json(200, {'deleted': cur.rowcount > 0, 'id': talent_id})
-        except Exception as e:
-            logger.error(f'  [Talents] delete failed: {e}')
-            self._send_json_error(500, 'Delete failed')
-
-    def _handle_delete_product(self, product_id):
-        """DELETE /api/products/<id> — 软删除 (status='archived')"""
-        auth = _authenticate(self.headers, self.client_address[0], self)
-        if not auth.is_authenticated:
-            self._send_auth_error(auth.error, auth.status)
-            return
-        if not self._require_module_permission(auth, 'products'): return
-        try:
-            conn = _db_conn()
-            try:
-                row = conn.execute('SELECT id FROM products WHERE id = ?', (product_id,)).fetchone()
-                if not row:
-                    self._send_json_error(404, 'Product not found')
-                    return
-                cur = conn.execute(
-                    "UPDATE products SET status = 'archived', updated_at = ? WHERE id = ?",
-                    (int(time.time()), product_id))
-                conn.commit()
-            finally:
-                conn.close()
-            self._send_json(200, {'deleted': cur.rowcount > 0, 'id': product_id})
-        except Exception as e:
-            logger.error(f'  [Products] delete failed: {e}')
-            self._send_json_error(500, 'Delete failed')
-
     def _handle_post_kb_search(self):
         """POST /api/knowledge/search — 新版语义搜索"""
         auth = _authenticate(self.headers, self.client_address[0], self)
@@ -19288,7 +19216,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         self._send_json(200, updated)
 
     def _handle_delete_product(self, product_id):
-        """DELETE /api/products/{id} — 删除商品（硬删除，符合常规 CRUD 语义）"""
+        """DELETE /api/products/{id} — 软删除 (status='archived', 列表自动过滤; 改硬删→软删防 deals/tasks 外键悬空)"""
         auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
@@ -19301,7 +19229,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             return
         conn = _db_conn()
         try:
-            cur = conn.execute('DELETE FROM products WHERE id = ?', (product_id,))
+            cur = conn.execute(
+                "UPDATE products SET status = 'archived', updated_at = ? WHERE id = ? AND status != 'archived'",
+                (int(time.time()), product_id))
             conn.commit()
             deleted = cur.rowcount > 0
         finally:
@@ -20349,7 +20279,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         self._send_json(200, _talent_row_to_dict(row_out))
 
     def _handle_delete_talent(self, talent_id):
-        """DELETE /api/talents/:id — 删除达人"""
+        """DELETE /api/talents/:id — 软删除 (status='archived', deals/tasks 外键不悬空; 改硬删→软删)"""
         auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
@@ -20368,8 +20298,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         conn = _db_conn()
         try:
             talent = conn.execute('SELECT group_id FROM talents WHERE id = ?', (talent_id,)).fetchone()
-            cur = conn.execute('DELETE FROM talents WHERE id = ?', (talent_id,))
-            conn.execute('DELETE FROM product_talent_match WHERE talent_id = ?', (talent_id,))
+            cur = conn.execute(
+                "UPDATE talents SET status = 'archived', updated_at = ? WHERE id = ? AND status != 'archived'",
+                (int(time.time()), talent_id))
             conn.commit()
             if talent and talent['group_id']:
                 _update_brand_product_stats(conn, talent['group_id'])
