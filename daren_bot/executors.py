@@ -124,6 +124,60 @@ def _fmt_dist(d: dict, top: int = 3) -> str:
     return "、".join(out)
 
 
+_PEER_MIN = 8          # 同类样本少于这个数就退化为全库对标
+_bench_cache: dict = {}
+
+
+def _bench(t: dict, key: str):
+    """库内对标：返回 (高于百分比, 样本数, 口径)，数据不足返回 None。
+    优先同 category 对比，样本太少则全库对比。"""
+    try:
+        v = float(t.get(key) or 0)
+    except (TypeError, ValueError):
+        return None
+    if v <= 0:
+        return None
+    cat = (t.get("category") or "").strip()
+    tid = t.get("id") or ""
+    cache_key = (cat, key)
+    if cache_key not in _bench_cache:
+        conn = sqlite3.connect(f"file:{SOLOBRAVE_DB}?mode=ro", uri=True, timeout=10)
+        try:
+            if cat:
+                rows = conn.execute(
+                    f"SELECT {key} FROM talents WHERE status='active' "
+                    f"AND category=? AND {key} > 0", (cat,)).fetchall()
+                scope = "同类"
+            else:
+                rows, scope = [], "全库"
+            if len(rows) < _PEER_MIN:
+                rows = conn.execute(
+                    f"SELECT {key} FROM talents WHERE status='active' "
+                    f"AND {key} > 0").fetchall()
+                scope = "全库"
+            _bench_cache[cache_key] = ([float(r[0]) for r in rows], scope)
+        finally:
+            conn.close()
+    vals, scope = _bench_cache[cache_key]
+    vals = [x for x in vals if True]  # 保留全体，self 已在分子分母中各计一次，影响可忽略
+    if len(vals) < _PEER_MIN:
+        return None
+    higher = sum(1 for x in vals if x < v) / len(vals) * 100
+    return higher, len(vals), scope
+
+
+def _bench_tag(t: dict, key: str) -> str:
+    r = _bench(t, key)
+    if not r:
+        return ""
+    higher, n, scope = r
+    if higher >= 95:
+        return f"（{scope}顶尖，{n}人中第1档）"
+    if higher < 5:
+        return f"（{scope}偏低，{n}人中靠后）"
+    return f"（高于{higher:.0f}% {scope}{n}人）"
+
+
 def _build_report(talent_id: str, douyin_id: str) -> str:
     t = _read_talent(talent_id, douyin_id)
     if not t:
@@ -148,7 +202,7 @@ def _build_report(talent_id: str, douyin_id: str) -> str:
     # 基础信息
     basics = []
     if t.get("followers"):
-        basics.append(f"粉丝 {_fmt_wan(t['followers'])}")
+        basics.append(f"粉丝 {_fmt_wan(t['followers'])}{_bench_tag(t, 'followers')}")
     if t.get("category"):
         basics.append(f"主营类目 {t['category']}")
     if t.get("talent_type"):
@@ -163,15 +217,15 @@ def _build_report(talent_id: str, douyin_id: str) -> str:
     # 带货能力
     gmv = []
     if t.get("total_gmv"):
-        gmv.append(f"总GMV {_fmt_wan(t['total_gmv'])}")
+        gmv.append(f"总GMV {_fmt_wan(t['total_gmv'])}{_bench_tag(t, 'total_gmv')}")
     if t.get("avg_live_gmv"):
         gmv.append(f"场均直播GMV {_fmt_wan(t['avg_live_gmv'])}")
     if t.get("live_gpm"):
         gmv.append(f"直播GPM {float(t['live_gpm']):.0f}")
     if t.get("video_gpm"):
-        gmv.append(f"视频GPM {float(t['video_gpm']):.0f}")
+        gmv.append(f"视频GPM {float(t['video_gpm']):.0f}{_bench_tag(t, 'video_gpm')}")
     if t.get("average_price"):
-        gmv.append(f"客单价 {float(t['average_price']):.0f}元")
+        gmv.append(f"客单价 {float(t['average_price']):.0f}元{_bench_tag(t, 'average_price')}")
     if t.get("total_products"):
         gmv.append(f"带过 {t['total_products']} 品")
     if t.get("total_shops"):
