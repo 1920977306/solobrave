@@ -389,7 +389,9 @@ def _vision_extract_fields(shots):
 
     merged = {}
     for bidx, (prompt, batch) in enumerate(batches, 1):
-        for attempt in (1, 2):
+        if bidx > 1:
+            time.sleep(6)               # 批间限速，防 glm-4v RPM 触发 429
+        for attempt in (1, 2, 3):
             try:
                 imgs = []
                 for p in batch:
@@ -442,7 +444,9 @@ def _vision_extract_fields(shots):
                 break
             except Exception as e:
                 log(f'  [LLM] 视觉提取批次{bidx}第{attempt}次失败: {e}')
-                if attempt == 2:
+                if '429' in str(e):
+                    time.sleep(20 * attempt)    # 429 限速：退避 20/40/60s 再试
+                if attempt == 3:
                     log(f'  [LLM] 视觉提取批次{bidx}放弃（非致命）')
     return merged
 
