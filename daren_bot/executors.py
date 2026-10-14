@@ -113,21 +113,57 @@ def _fmt_crowd(d: dict) -> str:
     return "、".join(f"{k} {v/total*100:.0f}%" for k, v in items)
 
 
+def _to_pct_num(v):
+    """百分比值容错：数字原样，'45.26%'/'0.6%' 字符串剥 %，其他返回 None。"""
+    if isinstance(v, (int, float)):
+        return float(v)
+    if isinstance(v, str):
+        s = v.strip().rstrip('%').strip()
+        try:
+            return float(s)
+        except ValueError:
+            return None
+    return None
+
+
 def _fmt_dist(d: dict, top: int = 3) -> str:
-    """分布对象取 topN，值是百分比数字就原样带%，是计数就归一化成占比。"""
+    """分布对象取 topN，值是百分比数字就原样带%，是计数就归一化成占比。
+    兼容字符串百分比（'45.26%'）与全零占位垃圾（视觉提取失败返回全是 0 的字典）。"""
     if not isinstance(d, dict) or not d:
         return ""
-    items = sorted(d.items(), key=lambda kv: kv[1], reverse=True)[:top]
-    total = sum(v for v in d.values() if isinstance(v, (int, float))) or 0
+    num_items = [(k, n) for k, v in d.items() if (n := _to_pct_num(v)) is not None]
+    if not num_items or all(n == 0 for _, n in num_items):
+        return ""                       # 全零 = 视觉占位垃圾，不当真数据展示
+    items = sorted(num_items, key=lambda kv: kv[1], reverse=True)[:top]
+    total = sum(n for _, n in num_items)
     out = []
-    for k, v in items:
-        if not isinstance(v, (int, float)):
-            continue
-        if total > 100:            # 计数 → 占比
-            out.append(f"{k} {v/total*100:.0f}%")
-        else:                       # 已是百分数
-            out.append(f"{k} {v:.0f}%")
+    for k, n in items:
+        if total > 100:                 # 计数 → 占比
+            out.append(f"{k} {n/total*100:.0f}%")
+        else:                           # 已是百分数
+            out.append(f"{k} {n:.0f}%")
     return "、".join(out)
+
+
+def _loads_dist(v) -> dict:
+    """读分布列：容忍双重 JSON 编码（列里存的是 JSON 字符串的 JSON 字符串）。"""
+    if isinstance(v, dict):
+        return v
+    if not v or not isinstance(v, str):
+        return {}
+    try:
+        parsed = json.loads(v)
+    except (json.JSONDecodeError, TypeError):
+        return {}
+    if isinstance(parsed, dict):
+        return parsed
+    if isinstance(parsed, str):         # 双重编码，再解一次
+        try:
+            parsed2 = json.loads(parsed)
+            return parsed2 if isinstance(parsed2, dict) else {}
+        except (json.JSONDecodeError, TypeError):
+            return {}
+    return {}
 
 
 _PEER_MIN = 8          # 同类样本少于这个数就退化为全库对标
@@ -211,11 +247,23 @@ def _build_report(talent_id: str, douyin_id: str) -> str:
             except (json.JSONDecodeError, TypeError):
                 continue
 
+    def _is_empty_val(v) -> bool:
+        """空值判定：None/空串/空容器/全零字典都算空（全零是视觉占位垃圾）。"""
+        if v in (None, "", [], {}):
+            return True
+        if isinstance(v, dict):
+            nums = [_to_pct_num(x) for x in v.values()]
+            nums = [n for n in nums if n is not None]
+            return bool(nums) and all(n == 0 for n in nums)
+        if isinstance(v, (int, float)) and v == 0:
+            return True
+        return False
+
     def pick(key, default=""):
         v = t.get(key)
-        if v in (None, "", [], {}):
+        if _is_empty_val(v):
             v = ocr.get(key)
-        return v if v not in (None, "", [], {}) else default
+        return default if _is_empty_val(v) else v
 
     name = t.get("name") or "-"
     lines = [f"📊 达人报告：{name}（抖音号 {t.get('douyin_id') or douyin_id}）"]
@@ -253,11 +301,25 @@ def _build_report(talent_id: str, douyin_id: str) -> str:
         gmv.append(f"合作 {t['total_shops']} 店")
     if t.get("single_video_settlement"):
         gmv.append(f"单视频结算 {t['single_video_settlement']}")
-    if t.get("monthly_settlement"):
-        gmv.append(f"月结算 {t['monthly_settlement']}")
+    ms = pick("monthly_settlement")
+    if ms:
+        gmv.append(f"月结算 {ms}")
     hd = pick("total_history_days")
     if hd:
         gmv.append(f"历史带货 {hd} 天")
+    gt = pick("total_gmv_text")
+    if gt and not t.get("total_gmv"):
+        gmv.append(f"累计GMV {gt}")
+    alg = pick("avg_live_gmv_text")
+    if alg:
+        gmv.append(f"场均直播GMV {alg}")
+    dp = pick("data_period")
+    if dp:
+        import re as _re
+        _years = [int(y) for y in _re.findall(r'(20\d\d)', str(dp))]
+        # 视觉把年份识别错的概率高（如 2026→2020），年份离谱就不展示
+        if _years and all(2023 <= y <= 2035 for y in _years):
+            gmv.append(f"数据周期 {dp}")
     if gmv:
         lines.append("带货：" + "｜".join(gmv))
 
@@ -266,6 +328,9 @@ def _build_report(talent_id: str, douyin_id: str) -> str:
     vc = pick("video_count")
     if vc:
         content.append(f"带货视频 {vc} 条")
+    vap = pick("video_avg_plays")
+    if vap:
+        content.append(f"视频均播 {vap}")
     if t.get("video_plays") and str(t.get("video_plays", "0")).isdigit() and int(t["video_plays"]) > 0:
         content.append(f"视频均播 {_fmt_wan(t['video_plays'])}")
     vpr = pick("video_plays_range")
@@ -280,38 +345,49 @@ def _build_report(talent_id: str, douyin_id: str) -> str:
         content.append(f"赞{vl}/评{pick('video_comments','0')}/转{pick('video_shares','0')}")
     if t.get("live_ratio"):
         content.append(f"直播占比 {_fmt_pct(t['live_ratio'])}")
-    if t.get("video_ratio"):
-        content.append(f"视频占比 {_fmt_pct(t['video_ratio'])}")
+    vr = pick("video_ratio")
+    if vr:
+        content.append(f"视频占比 {_fmt_pct(vr)}")
+    _tags = pick("tags")
+    if _tags:
+        if isinstance(_tags, str):
+            _s = _tags.strip()
+            for _ in range(3):          # 列里可能是 JSON 字符串的 JSON 字符串（多重编码）
+                if not isinstance(_s, str):
+                    break
+                try:
+                    _s2 = json.loads(_s)
+                except (json.JSONDecodeError, TypeError):
+                    break
+                if _s2 == _s:
+                    break
+                _s = _s2
+            _tags = _s
+        if isinstance(_tags, list):
+            _tags = "、".join(str(x) for x in _tags if str(x).strip())
+        if isinstance(_tags, str) and _tags.strip() and _tags.strip() not in ("[]",):
+            content.append(f"标签 {_tags.strip()}")
+    _bio = pick("bio")
+    if _bio and str(_bio).strip():
+        content.append(f"简介 {str(_bio).strip()[:40]}")
     if content:
         lines.append("内容：" + "｜".join(content))
 
     # 粉丝画像
     fans = []
-    try:
-        g = _fmt_dist(json.loads(t.get("fan_gender") or "{}"))
-        if g:
-            g = g.replace("female", "女性").replace("male", "男性")
-            fans.append(f"性别 {g}")
-    except (json.JSONDecodeError, TypeError):
-        pass
-    try:
-        a = _fmt_dist(json.loads(t.get("fan_age") or "{}"))
-        if a:
-            fans.append(f"年龄 {a}")
-    except (json.JSONDecodeError, TypeError):
-        pass
-    try:
-        r = _fmt_dist(json.loads(t.get("fan_region") or "{}"), top=2)
-        if r:
-            fans.append(f"地域 {r}")
-    except (json.JSONDecodeError, TypeError):
-        pass
-    try:
-        c = _fmt_dist(json.loads(t.get("fan_crowd") or "{}"), top=2)
-        if c:
-            fans.append(f"人群 {c}")
-    except (json.JSONDecodeError, TypeError):
-        pass
+    g = _fmt_dist(_loads_dist(t.get("fan_gender")))
+    if g:
+        g = g.replace("female", "女性").replace("male", "男性")
+        fans.append(f"性别 {g}")
+    a = _fmt_dist(_loads_dist(t.get("fan_age")))
+    if a:
+        fans.append(f"年龄 {a}")
+    r = _fmt_dist(_loads_dist(t.get("fan_region")), top=2)
+    if r:
+        fans.append(f"地域 {r}")
+    c = _fmt_dist(_loads_dist(t.get("fan_crowd")), top=2)
+    if c:
+        fans.append(f"人群 {c}")
     if t.get("fan_price_range"):
         fpr = t["fan_price_range"]
         try:
@@ -363,20 +439,25 @@ def _build_report(talent_id: str, douyin_id: str) -> str:
 
     # 类目与品牌结构
     struct = []
-    try:
-        cats = json.loads(t.get("category_distribution") or "{}")
-        if cats:
-            struct.append("类目 " + "、".join(f"{k}({v})" for k, v in
-                          sorted(cats.items(), key=lambda kv: kv[1], reverse=True)[:4]))
-    except (json.JSONDecodeError, TypeError):
-        pass
-    try:
-        brands = json.loads(t.get("cooperating_brands") or "{}")
-        if brands:
-            struct.append("品牌 " + "、".join(f"{k}({v})" for k, v in
-                          sorted(brands.items(), key=lambda kv: kv[1], reverse=True)[:5]))
-    except (json.JSONDecodeError, TypeError):
-        pass
+    cats = _loads_dist(pick("category_distribution"))
+    cats_items = [(k, _to_pct_num(v)) for k, v in cats.items()]
+    cats_items = [(k, n) for k, n in cats_items if n is not None]
+    if cats_items:
+        # 值总计 >100 视为计数（场次），归一成占比；否则已是百分比
+        total = sum(n for _, n in cats_items)
+        if total > 100:
+            struct.append("类目 " + "、".join(f"{k} {n/total*100:.0f}%"
+                          for k, n in sorted(cats_items, key=lambda kv: kv[1], reverse=True)[:4]))
+        else:
+            struct.append("类目 " + "、".join(f"{k} {n:.0f}%"
+                          for k, n in sorted(cats_items, key=lambda kv: kv[1], reverse=True)[:4]))
+    brands = _loads_dist(pick("cooperating_brands")
+                         or pick("cooperating_brands_distribution"))
+    brand_items = [(k, _to_pct_num(v)) for k, v in brands.items()]
+    brand_items = [(k, n) for k, n in brand_items if n is not None and k != '其他']
+    if brand_items:
+        struct.append("品牌 " + "、".join(f"{k} {n:.0f}%"
+                      for k, n in sorted(brand_items, key=lambda kv: kv[1], reverse=True)[:5]))
     if struct:
         lines.append("结构：" + "｜".join(struct))
 
@@ -389,7 +470,8 @@ def _build_report(talent_id: str, douyin_id: str) -> str:
             shown = 0
             for p in tops:
                 s = str(p).strip().replace('\n', ' ')
-                if len(s) < 4:             # 单字符碎片是解析残渣，不展示
+                # 单字符碎片是解析残渣；tab 栏文本是新版布局点击未弹窗的残渣，都不展示
+                if len(s) < 4 or '概览' in s:
                     continue
                 if shown == 0:
                     lines.append("近期带货 top：")

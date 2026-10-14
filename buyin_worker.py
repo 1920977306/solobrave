@@ -230,6 +230,34 @@ def _vision_text_ok(key, value) -> bool:
     return guard(value) if guard else True
 
 
+def _vision_junk_value(v) -> bool:
+    """视觉提取占位垃圾判定：None/空容器/纯零值。
+    glm-4v 识别失败时常返回 {"男性": 0.0, "女性": 0.0}、0、'0.0'、'0%' 这类占位，
+    绝不能写进 fields（会覆盖掉 DOM 提取的好数据）。"""
+    if v is None or v == '' or v == [] or v == {}:
+        return True
+    if isinstance(v, (int, float)) and v == 0:
+        return True
+    if isinstance(v, str):
+        s = v.strip().rstrip('%').strip()
+        if s in ('0', '0.0', '0.00'):
+            return True
+    if isinstance(v, dict):
+        nums = []
+        for x in v.values():
+            if isinstance(x, (int, float)):
+                nums.append(float(x))
+            elif isinstance(x, str):
+                try:
+                    nums.append(float(x.strip().rstrip('%')))
+                except ValueError:
+                    return False        # 有非数字值，当正常数据
+        return bool(nums) and all(n == 0 for n in nums)
+    if isinstance(v, list) and all(_vision_junk_value(x) for x in v):
+        return True
+    return False
+
+
 def _vision_extract_fields(shots):
     """glm-4v-plus 直接看 tab 截图做视觉提取，补齐 DOM 提取缺失/不准的字段。
     截图压缩后每 3 张一批（单次 6 张会 400），多批结果合并。
@@ -1800,9 +1828,20 @@ def _run_collect_impl(row):
         vf = _vision_extract_fields(material.get('shots') or [])
         merged = 0
         for k, v in vf.items():
-            if v not in (None, '', [], {}):
-                fields[k] = v
-                merged += 1
+            if _vision_junk_value(v):
+                continue                    # 零值/占位垃圾：不写入，更不覆盖已有好数据
+            # followers 单位事故防护：视觉把 "1.2万" 读成浮点 1.2，比 DOM 值小一个量级时不采纳
+            if k == 'followers':
+                try:
+                    _dom_f = float(fields[k])
+                    _vis_f = float(v)
+                    if _dom_f >= 1000 and _vis_f < _dom_f / 10:
+                        log(f'[Job] {cid} 视觉followers单位疑似丢失({_vis_f})，保留DOM({_dom_f})')
+                        continue
+                except (TypeError, ValueError):
+                    pass
+            fields[k] = v
+            merged += 1
         if merged:
             log(f'[Job] {cid} 视觉提取补齐/覆盖 {merged} 个字段')
         # 视觉原始提取全量留档（含无专属列的字段：评价明细/视频趋势/标签等），报告端从这里取
