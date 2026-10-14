@@ -482,9 +482,9 @@ def _build_report(talent_id: str, douyin_id: str) -> str:
     except (json.JSONDecodeError, TypeError):
         pass
 
-    # AI 合作评估（buyin_worker 落库的团长视角评估）
+    # AI 账号诊断（buyin_worker 落库的达人视角评估，读者是达人本人）
     if t.get('risk_rating'):
-        lines.append(f"🎯 评估结论：{t['risk_rating']}")
+        lines.append(f"🎯 账号评估：{t['risk_rating']}")
     if t.get('ai_analysis'):
         lines.append(t['ai_analysis'])
 
