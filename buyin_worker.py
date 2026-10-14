@@ -834,6 +834,24 @@ def self_pages(page):
         return []
 
 
+def _list_tabs(page):
+    """枚举达人主页实际存在的 tab。百应有两版布局（旧版6tab/新版场景分析版），
+    固定清单会点空，必须以页面实际 tab 为准。"""
+    try:
+        container = page.locator('#daren-profile-main-tabs')
+        if container.count() == 0:
+            return []
+        texts = container.first.inner_text(timeout=5000)
+        tabs = []
+        for t in (texts or '').split('\n'):
+            t = t.strip()
+            if 2 <= len(t) <= 8 and t not in tabs:
+                tabs.append(t)
+        return tabs
+    except Exception:
+        return []
+
+
 def _click_tab(page, tab_name):
     """在 #daren-profile-main-tabs 容器内点击指定 tab。"""
     try:
@@ -1365,7 +1383,15 @@ def collect_pipeline(collect_id, name, douyin_id):
         bucket = []
         _attach_sniffer(profile, bucket)
 
-        for tab in TABS:
+        # 动态枚举实际存在的 tab（新旧两版布局都兼容），枚举失败退回固定清单
+        live_tabs = _list_tabs(profile)
+        tabs_to_visit = [t for t in live_tabs if t in TABS] + \
+                        [t for t in live_tabs if t not in TABS]
+        if not tabs_to_visit:
+            tabs_to_visit = TABS
+        log(f'  [Collect] 本轮 tab 清单: {tabs_to_visit}')
+
+        for tab in tabs_to_visit:
             _ensure_alive(profile)
             _human_sleep(1.2, 2.0)
             if not _click_tab(profile, tab):

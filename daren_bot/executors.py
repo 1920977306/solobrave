@@ -191,10 +191,25 @@ def _build_report(talent_id: str, douyin_id: str) -> str:
                 f"请联系运营核查")
 
     # 无专属列的丰富字段（评价明细/视频趋势/标签等）从视觉原始提取里取
-    try:
-        ocr = json.loads(t.get("ocr_raw_fields") or "{}") or {}
-    except (json.JSONDecodeError, TypeError):
-        ocr = {}
+    # 兼容双重 JSON 编码（服务端写库口径差异，读端兜底）
+    ocr = {}
+    raw = t.get("ocr_raw_fields") or ""
+    for candidate in (raw, ):
+        try:
+            parsed = json.loads(candidate) if candidate else {}
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if isinstance(parsed, dict):
+            ocr = parsed
+            break
+        if isinstance(parsed, str):      # 双重编码，再解一次
+            try:
+                parsed2 = json.loads(parsed)
+                if isinstance(parsed2, dict):
+                    ocr = parsed2
+                    break
+            except (json.JSONDecodeError, TypeError):
+                continue
 
     def pick(key, default=""):
         v = t.get(key)
@@ -305,7 +320,7 @@ def _build_report(talent_id: str, douyin_id: str) -> str:
             pass
         fans.append(f"价格偏好 {fpr}")
     cp = pick("content_preference")
-    if cp:
+    if cp and not ('偏好' in str(cp) and not any(ch.isdigit() for ch in str(cp))):
         fans.append(f"内容偏好 {cp}")
     fg = pick("fan_growth")
     fgr = pick("fan_growth_rate")
@@ -368,10 +383,20 @@ def _build_report(talent_id: str, douyin_id: str) -> str:
     # 近期带货
     try:
         tops = json.loads(t.get("top_products") or "[]")
-        if tops:
-            lines.append("近期带货 top：")
-            for i, p in enumerate(tops[:3], 1):
-                lines.append(f"  {i}. {str(p)[:60]}")
+        if isinstance(tops, str):          # 双重 JSON 编码兜底
+            tops = json.loads(tops)
+        if isinstance(tops, list) and tops:
+            shown = 0
+            for p in tops:
+                s = str(p).strip().replace('\n', ' ')
+                if len(s) < 4:             # 单字符碎片是解析残渣，不展示
+                    continue
+                if shown == 0:
+                    lines.append("近期带货 top：")
+                shown += 1
+                lines.append(f"  {shown}. {s[:60]}")
+                if shown >= 3:
+                    break
     except (json.JSONDecodeError, TypeError):
         pass
 
