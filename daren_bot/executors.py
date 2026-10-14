@@ -86,15 +86,15 @@ def execute_douyin_collect(task: dict) -> str:
 
 
 def _fmt_pct(v) -> str:
-    """百分比格式化。库里有的字段存 0-1 小数、有的存 0-100 百分数，两者都兼容。"""
+    """百分比格式化。库里统一存 0-100 的百分数数字（0.6 表示0.6%），原样展示不再换算。"""
     try:
         n = float(v or 0)
     except (TypeError, ValueError):
         return "-"
     if n <= 0:
         return "-"
-    if n <= 1.5:            # 0-1 小数
-        n *= 100
+    if n < 10:
+        return f"{n:g}%"
     return f"{n:.0f}%"
 
 
@@ -129,6 +129,18 @@ def _build_report(talent_id: str, douyin_id: str) -> str:
     if not t:
         return (f"采集完成，但达人档案读取失败(talent_id={talent_id})，"
                 f"请联系运营核查")
+
+    # 无专属列的丰富字段（评价明细/视频趋势/标签等）从视觉原始提取里取
+    try:
+        ocr = json.loads(t.get("ocr_raw_fields") or "{}") or {}
+    except (json.JSONDecodeError, TypeError):
+        ocr = {}
+
+    def pick(key, default=""):
+        v = t.get(key)
+        if v in (None, "", [], {}):
+            v = ocr.get(key)
+        return v if v not in (None, "", [], {}) else default
 
     name = t.get("name") or "-"
     lines = [f"📊 达人报告：{name}（抖音号 {t.get('douyin_id') or douyin_id}）"]
@@ -168,17 +180,29 @@ def _build_report(talent_id: str, douyin_id: str) -> str:
         gmv.append(f"单视频结算 {t['single_video_settlement']}")
     if t.get("monthly_settlement"):
         gmv.append(f"月结算 {t['monthly_settlement']}")
+    hd = pick("total_history_days")
+    if hd:
+        gmv.append(f"历史带货 {hd} 天")
     if gmv:
         lines.append("带货：" + "｜".join(gmv))
 
     # 内容表现
     content = []
+    vc = pick("video_count")
+    if vc:
+        content.append(f"带货视频 {vc} 条")
     if t.get("video_plays") and str(t.get("video_plays", "0")).isdigit() and int(t["video_plays"]) > 0:
         content.append(f"视频均播 {_fmt_wan(t['video_plays'])}")
+    vpr = pick("video_plays_range")
+    if vpr:
+        content.append(f"30天播放 {vpr}")
     if t.get("video_completion_rate"):
         content.append(f"完播 {_fmt_pct(t['video_completion_rate'])}")
     if t.get("video_interaction_rate"):
         content.append(f"互动 {_fmt_pct(t['video_interaction_rate'])}")
+    vl = pick("video_likes")
+    if vl:
+        content.append(f"赞{vl}/评{pick('video_comments','0')}/转{pick('video_shares','0')}")
     if t.get("live_ratio"):
         content.append(f"直播占比 {_fmt_pct(t['live_ratio'])}")
     if t.get("video_ratio"):
@@ -220,12 +244,47 @@ def _build_report(talent_id: str, douyin_id: str) -> str:
         except (json.JSONDecodeError, TypeError):
             pass
         fans.append(f"价格偏好 {fpr}")
+    cp = pick("content_preference")
+    if cp:
+        fans.append(f"内容偏好 {cp}")
+    fg = pick("fan_growth")
+    fgr = pick("fan_growth_rate")
+    if fg or fgr:
+        fans.append(f"近2月涨粉 {fg if fg else '?'}{'（' + fgr + '）' if fgr else ''}")
     if t.get("rating_score"):
         fans.append(f"带货评分 {float(t['rating_score']):.1f}")
     if t.get("fulfillment_score"):
         fans.append(f"履约 {float(t['fulfillment_score']):.1f}")
     if fans:
         lines.append("粉丝/口碑：" + "｜".join(fans))
+
+    # 历史带货评价（总评+三维+好评率+标签+联系方式）
+    rc = pick("review_count")
+    if rc:
+        rev = [f"评价 {rc} 条"]
+        dims = []
+        for label, key in (("带货效果", "rating_effect"), ("合作履约", "rating_fulfill"),
+                           ("沟通态度", "rating_communication")):
+            dv = pick(key)
+            if dv:
+                dims.append(f"{label} {dv}")
+        if dims:
+            rev.append("｜".join(dims))
+        rg, rm, rb = pick("review_good"), pick("review_mid"), pick("review_bad")
+        if rg:
+            rev.append(f"好评 {rg}" + (f"/中评 {rm}/差评 {rb}" if rm or rb else ""))
+        lines.append("口碑：" + "｜".join(rev))
+        try:
+            rtags = pick("review_tags")
+            if isinstance(rtags, dict) and rtags:
+                lines.append("评价标签：" + "、".join(
+                    f"{k}({v})" for k, v in
+                    sorted(rtags.items(), key=lambda kv: kv[1], reverse=True)[:8]))
+        except (json.JSONDecodeError, TypeError):
+            pass
+        rcontact = pick("review_contact")
+        if rcontact:
+            lines.append(f"📞 合作联系方式（来自评价区）：{rcontact}")
 
     # 类目与品牌结构
     struct = []

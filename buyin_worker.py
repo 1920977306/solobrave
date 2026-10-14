@@ -254,28 +254,39 @@ def _vision_extract_fields(shots):
         '逐张仔细读图，提取下列字段。只输出一个 JSON 对象，不要输出任何其他文字。\n'
         '铁律：\n'
         '1. 数值必须来自截图原文，严禁编造或估算；截图里确实没有的字段填 null\n'
-        '2. 括号里带 % 的才是百分比，输出百分数数字（75 表示75%）；纯数字是计数\n'
+        '2. 括号里带 % 的才是百分比，输出百分数数字（75 表示75%，0.6 表示0.6%）；纯数字是计数\n'
         '3. 金额区间（如 "¥250万-500万"）保留原文字符串，不要换算\n'
-        '4. 五大标签（粉丝特征/消费偏好这类 pill 标签）原样照抄\n'
+        '4. 五大标签（粉丝特征/消费偏好这类 pill 标签）原样照抄，包括百分比\n'
+        '5. 评价明细里的商家名、评价内容、联系电话、日期都要；联系电话脱敏规则：'
+        '原样照抄数字即可\n'
         '输出字段（严格用这些 key）：\n'
         'name(昵称) douyin_id(抖音号,字符串) followers(粉丝数,整数) talent_type(达人类型) '
-        'city(地区) level(等级) tags(平台标签,数组) fulfillment_score(履约分) rating_score(评价分) '
+        'city(地区) level(等级) tags(平台标签,数组) fulfillment_score(履约分) rating_score(评价总分) '
         'category(主推类目) content_style(内容标签) agency(所属机构) bio(简介) '
         'data_period(统计周期) '
         'total_products(带货商品数,整数) total_shops(合作店铺数) '
+        'total_history_days(历史带货天数,整数) '
         'total_gmv_text(结算总额区间原文) '
         'live_ratio(直播销售占比数字) live_sessions(带货直播场次) '
         'avg_live_gmv_text(场均结算额区间原文) live_gpm_text(直播GPM区间原文) '
-        'video_ratio(视频销售占比数字) video_plays(视频播放量,字符串) '
+        'video_ratio(视频销售占比数字) video_count(带货视频数量,整数) '
+        'video_plays(带货视频播放量,字符串) video_avg_plays(视频平均播放量,字符串) '
+        'video_plays_range(近30天播放量区间,字符串,如"最低53,最高66.2万,均值2.78万") '
         'single_video_settlement(单视频结算额区间原文) video_gpm_text(视频GPM区间原文) '
-        'monthly_settlement(月结算额) average_price(平均件单价) '
-        'category_distribution(主推类目分布,对象,如{"服饰内衣":167}) '
-        'cooperating_brands(合作品牌分布,对象,如{"纳维凯尔":12}) '
+        'monthly_settlement(月结算额) average_price(平均件单价) video_avg_price(视频平均件单价) '
+        'video_completion_rate(视频完播率百分数) video_interaction_rate(视频互动率百分数) '
+        'video_likes(点赞数) video_comments(评论数) video_shares(转发数) '
+        'category_distribution(带货主推类目分布,对象,含全部类目) '
+        'cooperating_brands(合作品牌分布,对象,含全部品牌) '
         'fan_gender(粉丝性别分布,对象) fan_age(粉丝年龄分布,对象) '
         'fan_region(粉丝地域分布,对象) fan_crowd(粉丝人群标签,对象) '
-        'fan_price_range(粉丝价格偏好) '
-        'video_completion_rate(视频完播率) video_interaction_rate(视频互动率) '
-        'fan_growth(粉丝变化数,带符号整数) fan_growth_rate(粉丝变化率,字符串)'
+        'fan_price_range(粉丝价格偏好) content_preference(粉丝内容偏好,如"偏好服装37") '
+        'fan_growth(粉丝变化数,带符号整数) fan_growth_rate(粉丝变化率,字符串) '
+        'rating_effect(带货效果分) rating_fulfill(合作履约分) rating_communication(沟通态度分) '
+        'review_count(评价总数) review_good(好评数) review_mid(中评数) review_bad(差评数) '
+        'review_tags(评价标签及次数,对象) '
+        'reviews(评价明细,数组,每项含商家/内容/电话/日期) '
+        'review_contact(评价中出现的合作联系电话,字符串)'
     )
     merged = {}
     for start in range(0, len(shots), 3):
@@ -315,8 +326,17 @@ def _vision_extract_fields(shots):
                         if k in _VISION_NUMERIC_KEYS and not isinstance(v, (int, float)):
                             continue  # 数字字段收到脏字符串直接丢弃，保留 DOM 值
                         if k in ('total_products', 'total_shops', 'followers',
-                                 'average_price') and v == 0:
+                                 'average_price', 'total_history_days', 'video_count',
+                                 'rating_effect', 'rating_fulfill', 'rating_communication') and v == 0:
                             continue  # 这些字段为 0 必是读图失败，不能覆盖 DOM 值
+                        if isinstance(v, dict) and any('全部' in str(kk) for kk in v):
+                            continue  # {"全部品牌":"全部品牌"} 这类占位垃圾
+                        if k == 'video_avg_price' and str(v) in ('¥0', '0', '0.0', ''):
+                            continue
+                        if k == 'video_plays_range' and ('最低0' in str(v) or '最高0' in str(v)):
+                            continue
+                        if k == 'fan_growth_rate' and str(v) in ('0%', '0.0%', ''):
+                            continue
                         if not _vision_text_ok(k, v):
                             continue  # 常识校验不过，保留 DOM 值
                         if v not in (None, '', [], {}):
@@ -1358,6 +1378,17 @@ def collect_pipeline(collect_id, name, douyin_id):
                 job_shots.append(str(shot))
             except Exception:
                 pass
+            # 下滚补拍一张：性别/年龄分布图、视频列表、商品表格、评价明细都在首屏之下
+            try:
+                profile.mouse.wheel(0, 850)
+                _human_sleep(1.0, 1.8)
+                shot2 = SHOTS_DIR / f'{collect_id}_{safe}_{tab}_下.png'
+                profile.screenshot(path=str(shot2))
+                job_shots.append(str(shot2))
+                profile.mouse.wheel(0, -850)
+                _human_sleep(0.5, 1.0)
+            except Exception:
+                pass
             all_xhr.append({'tab': tab, 'xhr': bucket[-XHR_MAX_PER_TAB:]})
 
         # ── 带货分析：点开 TOP 商品明细（可点的行）──
@@ -1748,6 +1779,9 @@ def _run_collect_impl(row):
                 merged += 1
         if merged:
             log(f'[Job] {cid} 视觉提取补齐/覆盖 {merged} 个字段')
+        # 视觉原始提取全量留档（含无专属列的字段：评价明细/视频趋势/标签等），报告端从这里取
+        if vf:
+            fields['ocr_raw_fields'] = json.dumps(vf, ensure_ascii=False)
 
         provenance = f'buyin_worker 自动采集 {time.strftime("%Y-%m-%d %H:%M")}'
         notes = summarize_for_notes(fields)
