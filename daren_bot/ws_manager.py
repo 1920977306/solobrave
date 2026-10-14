@@ -97,7 +97,8 @@ class TenantConnection:
                       .build())
         self._client = lark.ws.Client(app_id=tenant["app_id"],
                                       app_secret=app_secret,
-                                      event_handler=dispatcher)
+                                      event_handler=dispatcher,
+                                      log_level=lark.LogLevel.DEBUG)
         self.sender = Sender(tenant["app_id"], app_secret)
         self._thread = None
 

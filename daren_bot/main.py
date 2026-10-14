@@ -25,8 +25,14 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(name)s %(message)s",
     handlers=[logging.StreamHandler(sys.stdout)])
+# lark SDK 自带 logger 默认 WARNING, 长连接状态(connected/connect failed)都看不到。
+# 且它自带的 handler 绑 import 时的 stdout, daemon 场景不可靠 —— 换成 stderr 显式接管。
+_lark = logging.getLogger("Lark")
+_lark.setLevel(logging.DEBUG)
+for _h in list(_lark.handlers):
+    _lark.removeHandler(_h)
+_lark.addHandler(logging.StreamHandler(sys.stderr))
 log = logging.getLogger("daren-bot.main")
-
 _STATE = {"ws": None}
 
 

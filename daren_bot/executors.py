@@ -51,10 +51,16 @@ def _fmt_wan(v) -> str:
 
 def execute_douyin_collect(task: dict) -> str:
     douyin_id = task["target"].strip()
-    log.info("submit buyin collect: douyin_id=%s", douyin_id)
+    name_hint = ""
+    try:
+        name_hint = json.loads(task.get("payload") or "{}").get("name_hint", "")
+    except (json.JSONDecodeError, TypeError, AttributeError):
+        pass
+    submit_name = name_hint or douyin_id   # 客户带名字发号时，名字用于搜索核验
+    log.info("submit buyin collect: douyin_id=%s name_hint=%s", douyin_id, name_hint)
     try:
         res = _http_json("POST", f"{BUYIN_CONTROL}/collect",
-                         {"name": douyin_id, "douyin_id": douyin_id})
+                         {"name": submit_name, "douyin_id": douyin_id})
     except (urllib.error.URLError, ConnectionError, OSError) as e:
         raise RuntimeError(f"采集器未启动或不可达({BUYIN_CONTROL}): {e}")
     cid = res.get("collect_id", "")

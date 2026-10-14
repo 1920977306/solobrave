@@ -116,6 +116,11 @@ def init_db():
     config.IMAGE_DIR.mkdir(parents=True, exist_ok=True)
     with db_ctx() as conn:
         conn.executescript(DDL)
+        # 轻量迁移：tasks 表补 payload 列（存名字提示等任务负载，JSON）
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(bot_collect_tasks)")}
+        if "payload" not in cols:
+            conn.execute("ALTER TABLE bot_collect_tasks "
+                         "ADD COLUMN payload TEXT DEFAULT ''")
 
 
 def now_ts() -> int:
@@ -247,7 +252,7 @@ def incr_week_count(tenant_key: str, douyin_id: str, week_no: int = None) -> int
 
 def enqueue_task(tenant_key: str, task_type: str, target: str,
                  credits_cost: int, cache_hit: int = 0,
-                 chat_id: str = '') -> str:
+                 chat_id: str = '', payload: str = '') -> str:
     """入队，幂等：同租户同目标存在 pending/collecting 时返回原任务 id。"""
     with db_ctx() as conn:
         r = conn.execute(
@@ -260,10 +265,10 @@ def enqueue_task(tenant_key: str, task_type: str, target: str,
         task_id = uuid.uuid4().hex
         conn.execute(
             """INSERT INTO bot_collect_tasks
-               (id, tenant_key, type, target, chat_id, status, cache_hit, credits_cost, created_at)
-               VALUES (?,?,?,?,?,'pending',?,?,?)""",
+               (id, tenant_key, type, target, chat_id, status, cache_hit, credits_cost, payload, created_at)
+               VALUES (?,?,?,?,?,'pending',?,?,?,?)""",
             (task_id, tenant_key, task_type, target, chat_id,
-             cache_hit, credits_cost, now_ts()))
+             cache_hit, credits_cost, payload, now_ts()))
         return task_id
 
 

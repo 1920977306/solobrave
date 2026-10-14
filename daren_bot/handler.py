@@ -38,6 +38,15 @@ def normalize_product_url(url: str) -> str:
         return url
 
 
+def _extract_name_hint(text: str, dy_id: str) -> str:
+    """客户常带名字发号：「洁洁爱户外\n抖音号：hlb725」→ 「洁洁爱户外」。
+    去掉抖音号标注和 id 后剩余的中文/字母数字视作名字提示，仅作搜索核验用。"""
+    t = text.replace(dy_id, ' ')
+    t = re.sub(r'抖音[号IDid]*\s*[:：]?', ' ', t)
+    t = re.sub(r'[^\w\u4e00-\u9fff]', '', t)
+    return t[:20] if 1 < len(t) <= 20 else ''
+
+
 class Router:
     def __init__(self, ws_manager):
         self.wm = ws_manager
@@ -76,7 +85,8 @@ class Router:
             text = content.get("text", "")
             m = DOUYIN_IN_TEXT_RE.search(text) or DOUYIN_RE.match(text)
             if m:
-                self._route_douyin(tenant, chat_id, m.group(1), sender)
+                self._route_douyin(tenant, chat_id, m.group(1), sender,
+                                   name_hint=_extract_name_hint(text, m.group(1)))
             elif URL_RE.search(text):
                 self._route_link(tenant, chat_id, text, sender)
             else:
@@ -92,7 +102,7 @@ class Router:
 
     # ---------- ① 抖音号（spec 4.1） ----------
 
-    def _route_douyin(self, tenant, chat_id, dy_id, sender) -> None:
+    def _route_douyin(self, tenant, chat_id, dy_id, sender, name_hint: str = "") -> None:
         tk = tenant["tenant_key"]
         bound = tenant.get("bind_douyin_id") or ""
         first_bind = False
@@ -126,7 +136,9 @@ class Router:
             sender.send_text(chat_id, "积分余额不足，联系运营老师补充额度")
             return
         db.enqueue_task(tk, "douyin", bound, config.COST_COLLECT_DOUYIN,
-                        chat_id=chat_id)
+                        chat_id=chat_id,
+                        payload=json.dumps({"name_hint": name_hint},
+                                           ensure_ascii=False) if name_hint else '')
         if first_bind:
             log.info("tenant=%s first-bind douyin_id=%s", tk, bound)
 
