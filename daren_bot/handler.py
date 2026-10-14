@@ -16,7 +16,8 @@ from . import config, db
 
 log = logging.getLogger("daren-bot.handler")
 
-DOUYIN_RE = re.compile(r"^\s*(\d{5,25})\s*$")
+DOUYIN_RE = re.compile(r"^\s*([A-Za-z0-9_]{5,24})\s*$")
+DOUYIN_IN_TEXT_RE = re.compile(r"抖音号\s*[:：]?\s*([A-Za-z0-9_]{4,24})")
 URL_RE = re.compile(r"https?://[^\s，。]+")
 TRACKING_PREFIXES = ("utm_", "spm", "fbclid", "gclid", "tt_")
 
@@ -65,11 +66,15 @@ class Router:
         except json.JSONDecodeError:
             content = {}
 
+        log.info("message received: tenant=%s type=%s chat=%s from=%s",
+                 tenant["tenant_key"], msg.message_type, chat_id,
+                 getattr(data.event.sender.sender_id, "open_id", "?"))
+
         if msg.message_type == "image":
             self._route_image(tenant, msg, content, sender)
         elif msg.message_type == "text":
             text = content.get("text", "")
-            m = DOUYIN_RE.match(text)
+            m = DOUYIN_IN_TEXT_RE.search(text) or DOUYIN_RE.match(text)
             if m:
                 self._route_douyin(tenant, chat_id, m.group(1), sender)
             elif URL_RE.search(text):
