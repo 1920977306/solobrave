@@ -39,9 +39,11 @@ def _fmt_wan(v) -> str:
     if n <= 0:
         return "-"
     if n >= 1e8:
-        return f"{n/1e8:.1f}亿"
+        s = f"{n/1e8:.1f}"
+        return f"{s.rstrip('0').rstrip('.')}亿"
     if n >= 1e4:
-        return f"{n/1e4:.1f}万"
+        s = f"{n/1e4:.1f}"
+        return f"{s.rstrip('0').rstrip('.')}万"
     return f"{n:.0f}"
 
 
@@ -83,6 +85,28 @@ def execute_douyin_collect(task: dict) -> str:
     raise RuntimeError("采集超时(15分钟)，积分已返还，可稍后再试")
 
 
+def _fmt_pct(v) -> str:
+    """百分比格式化。库里有的字段存 0-1 小数、有的存 0-100 百分数，两者都兼容。"""
+    try:
+        n = float(v or 0)
+    except (TypeError, ValueError):
+        return "-"
+    if n <= 0:
+        return "-"
+    if n <= 1.5:            # 0-1 小数
+        n *= 100
+    return f"{n:.0f}%"
+
+
+def _fmt_crowd(d: dict) -> str:
+    """粉丝消费层级分布取 top2。"""
+    if not d:
+        return ""
+    items = sorted(d.items(), key=lambda kv: kv[1], reverse=True)[:2]
+    total = sum(d.values()) or 1
+    return "、".join(f"{k} {v/total*100:.0f}%" for k, v in items)
+
+
 def _build_report(talent_id: str, douyin_id: str) -> str:
     t = _read_talent(talent_id, douyin_id)
     if not t:
@@ -91,9 +115,13 @@ def _build_report(talent_id: str, douyin_id: str) -> str:
 
     name = t.get("name") or "-"
     lines = [f"📊 达人报告：{name}（抖音号 {t.get('douyin_id') or douyin_id}）"]
+
+    # 基础信息
     basics = []
     if t.get("followers"):
         basics.append(f"粉丝 {_fmt_wan(t['followers'])}")
+    if t.get("category"):
+        basics.append(f"主营类目 {t['category']}")
     if t.get("talent_type"):
         basics.append(f"类型 {t['talent_type']}")
     if t.get("city"):
@@ -103,6 +131,7 @@ def _build_report(talent_id: str, douyin_id: str) -> str:
     if basics:
         lines.append("｜".join(basics))
 
+    # 带货能力
     gmv = []
     if t.get("total_gmv"):
         gmv.append(f"总GMV {_fmt_wan(t['total_gmv'])}")
@@ -112,34 +141,50 @@ def _build_report(talent_id: str, douyin_id: str) -> str:
         gmv.append(f"直播GPM {float(t['live_gpm']):.0f}")
     if t.get("video_gpm"):
         gmv.append(f"视频GPM {float(t['video_gpm']):.0f}")
-    if gmv:
-        lines.append("｜".join(gmv))
-
-    ratios = []
-    if t.get("live_ratio"):
-        ratios.append(f"直播占比 {float(t['live_ratio'])*100:.0f}%")
-    if t.get("video_ratio"):
-        ratios.append(f"视频占比 {float(t['video_ratio'])*100:.0f}%")
     if t.get("average_price"):
-        ratios.append(f"客单价 {_fmt_wan(t['average_price'])}")
-    if ratios:
-        lines.append("｜".join(ratios))
+        gmv.append(f"客单价 {float(t['average_price']):.0f}元")
+    if t.get("total_products"):
+        gmv.append(f"带过 {t['total_products']} 品")
+    if t.get("total_shops"):
+        gmv.append(f"合作 {t['total_shops']} 店")
+    if t.get("single_video_settlement"):
+        gmv.append(f"单视频结算 {t['single_video_settlement']}")
+    if t.get("monthly_settlement"):
+        gmv.append(f"月结算 {t['monthly_settlement']}")
+    if gmv:
+        lines.append("带货：" + "｜".join(gmv))
 
-    scores = []
-    if t.get("fulfillment_score"):
-        scores.append(f"履约 {float(t['fulfillment_score']):.1f}")
-    if t.get("rating_score"):
-        scores.append(f"评分 {float(t['rating_score']):.1f}")
-    if scores:
-        lines.append("｜".join(scores))
+    # 内容表现
+    content = []
+    if t.get("video_plays") and str(t.get("video_plays", "0")).isdigit() and int(t["video_plays"]) > 0:
+        content.append(f"视频均播 {_fmt_wan(t['video_plays'])}")
+    if t.get("video_completion_rate"):
+        content.append(f"完播 {_fmt_pct(t['video_completion_rate'])}")
+    if t.get("video_interaction_rate"):
+        content.append(f"互动 {_fmt_pct(t['video_interaction_rate'])}")
+    if t.get("live_ratio"):
+        content.append(f"直播占比 {_fmt_pct(t['live_ratio'])}")
+    if t.get("video_ratio"):
+        content.append(f"视频占比 {_fmt_pct(t['video_ratio'])}")
+    if content:
+        lines.append("内容：" + "｜".join(content))
 
+    # 粉丝画像
+    fans = []
     try:
-        tags = json.loads(t.get("tags") or "[]")
-        if tags:
-            lines.append("标签：" + "、".join(str(x) for x in tags[:6]))
+        c = _fmt_crowd(json.loads(t.get("fan_crowd") or "{}"))
+        if c:
+            fans.append(f"消费层级 {c}")
     except (json.JSONDecodeError, TypeError):
         pass
+    if t.get("rating_score"):
+        fans.append(f"带货评分 {float(t['rating_score']):.1f}")
+    if t.get("fulfillment_score"):
+        fans.append(f"履约 {float(t['fulfillment_score']):.1f}")
+    if fans:
+        lines.append("粉丝/口碑：" + "｜".join(fans))
 
+    # 近期带货
     try:
         tops = json.loads(t.get("top_products") or "[]")
         if tops:
@@ -148,6 +193,11 @@ def _build_report(talent_id: str, douyin_id: str) -> str:
                 lines.append(f"  {i}. {str(p)[:60]}")
     except (json.JSONDecodeError, TypeError):
         pass
+
+    # AI 摘要（buyin_worker 的 LLM 画像，去掉内部来源后缀）
+    notes = (t.get("notes") or "").split("｜")[0].strip()
+    if notes:
+        lines.append(f"画像：{notes}")
 
     lines.append(f"—— 数据来自巨量百应，采集于 "
                  f"{time.strftime('%m-%d %H:%M')} ——")
