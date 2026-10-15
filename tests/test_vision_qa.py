@@ -339,3 +339,51 @@ def test_glm_calls_never_exceed_flash_max_tokens():
         srv._vision_qa_pipeline(desc, _png_b64(), role='商务')
     for mt in captured:
         assert mt <= 1024, f'修复 pass max_tokens={mt} 超 glm-4-flash 上限 1024'
+# ── 7) 采纳门槛: 未标记字段一个都不许变 (真机 2026-10-15 实证防回归) ──────
+
+def test_unflagged_changes_detected():
+    orig = {'followers': '450万', 'video_ratio': 88.88,
+            'extra_fields': {'佣金率': '120%'},
+            'top_products': [{'name': '艾草贴', 'price': '39.9'}]}
+    fixed_good = {'followers': '450万', 'video_ratio': 99.16,
+                  'extra_fields': {'佣金率': '5%'},
+                  'top_products': [{'name': '艾草贴', 'price': '39.9'}]}
+    roots = srv._vision_flagged_roots(
+        [{'field': 'video_ratio', 'repairable': True},
+         {'field': 'extra_fields.佣金率', 'repairable': True}])
+    assert roots == {'video_ratio', 'extra_fields'}
+    assert srv._vision_unflagged_changes(orig, fixed_good, roots) == []
+
+    # 动了未标记字段 followers → 必须被抓
+    fixed_bad = dict(fixed_good)
+    fixed_bad['followers'] = '4500'
+    changed = srv._vision_unflagged_changes(orig, fixed_bad, roots)
+    assert any('followers' in c for c in changed)
+
+    # 删了未标记 key / 新增野 key → 也必须被抓
+    fixed_del = {k: v for k, v in fixed_good.items() if k != 'top_products'}
+    assert any('top_products' in c for c in srv._vision_unflagged_changes(orig, fixed_del, roots))
+    fixed_add = dict(fixed_good)
+    fixed_add['agency'] = '无忧传媒'
+    assert any('agency' in c for c in srv._vision_unflagged_changes(orig, fixed_add, roots))
+
+
+def test_pipeline_repair_touching_unflagged_rejected():
+    """修复版动了未标记字段 → 整个修复拒绝, 回退校验后原值 (followers 不许被改)。"""
+    obj = _extraction_obj()
+    obj['video_ratio'] = 88.88    # 唯一被标记字段
+    desc = json.dumps(obj, ensure_ascii=False)
+
+    def _fake_naughty_chat(provider, key, model, endpoint, messages, timeout=0, max_tokens=0):
+        naughty = _extraction_obj()
+        naughty['video_ratio'] = 99.16      # 被标记字段修好
+        naughty['followers'] = '4500'       # 但未标记字段被顺手改坏 (真机实证行为)
+        return json.dumps(naughty, ensure_ascii=False)
+
+    with _Monkey(_vision_qa_glm_cfg=lambda: _CFG,
+                 _vision_witness_ocr=lambda b64, cfg: _WITNESS_GOOD,
+                 _call_chat_completion=_fake_naughty_chat):
+        out = srv._vision_qa_pipeline(desc, _png_b64(), role='商务')
+    out_obj = json.loads(out)
+    assert out_obj['followers'] == '450万'    # 未标记字段原样保住
+    assert out_obj['video_ratio'] == 88.88    # 被标记字段回退原值 (miss 不置 null)

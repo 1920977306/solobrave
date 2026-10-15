@@ -24833,6 +24833,57 @@ def _vision_repair_with_witness(obj, issues, witness_text, cfg):
     return None
 
 
+def _vision_flatten(obj, prefix=''):
+    """把嵌套 JSON 压平成 {路径: 标量值}, 供采纳校验逐路径对比。
+    路径形式: 'followers' / 'fan_age[18-23]' / 'top_products[0].price' / 'extra_fields.佣金率'。"""
+    items = {}
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            p = f'{prefix}.{k}' if prefix else str(k)
+            items.update(_vision_flatten(v, p))
+    elif isinstance(obj, list):
+        for i, v in enumerate(obj):
+            items.update(_vision_flatten(v, f'{prefix}[{i}]'))
+    else:
+        items[prefix] = obj
+    return items
+
+
+def _vision_flagged_roots(issues):
+    """从 issue 列表提取被标记字段的顶层根集合 (用于采纳校验放行被修字段的所有路径)。"""
+    roots = set()
+    for i in issues:
+        if not i.get('repairable'):
+            continue
+        f = i['field']
+        roots.add(f.split('.key:')[0].split('[')[0].split('.')[0])
+    return roots
+
+
+def _vision_unflagged_changes(orig, fixed, flagged_roots):
+    """采纳校验核心: 修复版里凡是不属于被标记字段根的路径, 值必须与原值完全一致
+    (增/删/改任何未标记路径都算修复模型不听话, 整个修复拒绝)。
+    返回被改动的未标记路径列表 (空 = 干净)。"""
+    orig_flat = _vision_flatten(orig)
+    fixed_flat = _vision_flatten(fixed)
+
+    def _root(p):
+        return p.split('.key:')[0].split('[')[0].split('.')[0]
+
+    changed = []
+    for p, v in fixed_flat.items():
+        if _root(p) in flagged_roots:
+            continue
+        if orig_flat.get(p, object()) != v:
+            changed.append(f'{p}: 新增/改值')
+    for p in orig_flat:
+        if _root(p) in flagged_roots:
+            continue
+        if p not in fixed_flat:
+            changed.append(f'{p}: 被删')
+    return changed
+
+
 def _vision_qa_pipeline(desc_text, image_base64, role=None):
     """截图提取 P0 校验修复主入口: 接在 _call_kimi_vision 之后、下游解析之前。
     返回最终 desc 文本 (修过 = 重 dump 的 JSON; 无问题 = 原文直出, 零回归)。
@@ -24871,13 +24922,23 @@ def _vision_qa_pipeline(desc_text, image_base64, role=None):
 
         logger.info(f'  [VisionQA] 待修复: 常识{hard_n}处 + grounding {len(grounding_misses)}处, '
                     f'进入修复 pass')
-        fixed = _vision_repair_with_witness(obj, sanity_issues + grounding_misses, witness, cfg)
+        all_issues = sanity_issues + grounding_misses
+        # 采纳门槛前置算好: 被标记字段根集合 (这些路径允许变, 其他一律不许动)
+        flagged_roots = _vision_flagged_roots(all_issues)
+        fixed = _vision_repair_with_witness(obj, all_issues, witness, cfg)
         if fixed is not None:
-            # 采纳门槛: 修复结果不许引入新的常识硬错误, grounding miss 不许比修复前更多
+            # 采纳门槛三层: ① 修复结果不许引入新的常识硬错误
+            #   ② grounding miss 不许比修复前更多 ③ 未标记字段一个都不许变
+            #   (真机 2026-10-15 实证: 无此条时 glm-4-flash 顺手把未被标记的 followers
+            #   '450万' 改成 '4500' 还判 grounding 持平通过采纳 — 对改错+新增错可凑平 miss 数)
             fixed_sanity = _vision_sanity_check(fixed, fix=False)
             if not any(i.get('hard') for i in fixed_sanity):
                 fixed_ground = _vision_grounding_check(fixed, witness)
-                if len(fixed_ground) <= len(grounding_misses):
+                unflagged = _vision_unflagged_changes(obj, fixed, flagged_roots)
+                if unflagged:
+                    logger.warning(f'  [VisionQA] 修复版动了未标记字段 {len(unflagged)} 处, '
+                                   f'拒绝采纳: {unflagged[:5]}')
+                elif len(fixed_ground) <= len(grounding_misses):
                     fixed_hard = sum(1 for i in fixed_sanity if i.get('hard'))
                     logger.info(f'  [VisionQA] 修复采纳: 常识硬错 {hard_n}→{fixed_hard}, '
                                 f'grounding {len(grounding_misses)}→{len(fixed_ground)}')
