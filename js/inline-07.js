@@ -2625,14 +2625,18 @@ function _sb2TalentsRefitLocal(){
   var rowH = row ? row.offsetHeight : 0;
   if (!(rowH > 0)) return; /* 首屏未渲出行不猜 */
   var avail = wrap.clientHeight - (head ? head.offsetHeight : 41);
-  var fit = Math.max(6, Math.min(30, Math.floor(avail / rowH)));
+  /* ★ 容差 8px: 差 8px 内视为放得下 — 实测 9 行 504px vs 容器 499px,
+     硬 floor 会锁 8 行留白 51px; 配套 CSS overflow-y:hidden (2~5px 溢出不出滚动条),
+     缩小分支的溢出判定也用同一容差, 防刚放大又被自己缩回去 */
+  var TOL = 8;
+  var fit = Math.max(6, Math.min(30, Math.floor((avail + TOL) / rowH)));
   var oldLimit = _sb2TalentsLimit;
   /* 放大: 还有剩余空间且后面还有数据 → 补满; 缩小: 内容溢出滚动 → 减行 */
   if (fit > oldLimit && _sb2TalentsList.length > oldLimit){
     var firstIdx = (_sb2TalentsPage - 1) * oldLimit;
     _sb2TalentsLimit = fit;
     _sb2TalentsPage = Math.max(1, Math.floor(firstIdx / fit) + 1);
-  } else if (fit < oldLimit && wrap.scrollHeight > wrap.clientHeight + 4){
+  } else if (fit < oldLimit && wrap.scrollHeight > wrap.clientHeight + TOL){
     var firstIdx2 = (_sb2TalentsPage - 1) * oldLimit;
     _sb2TalentsLimit = fit;
     _sb2TalentsPage = Math.max(1, Math.floor(firstIdx2 / fit) + 1);
