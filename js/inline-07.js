@@ -5563,20 +5563,32 @@ function sb2PtnRender(){
     html += '</div>';
   });
   listEl.innerHTML = html;
-  /* fix/page-size-fit 批注①: 主容器溢出 → 减行重渲, 一次收敛 (锁防递归) */
+  /* fix/ptn-fit-exact 批注①复诊「还是有空的」: 上一版只缩不涨（溢出才收敛，放大/算小了永不回补）
+     → 改几何直算: 能放几行算几行, 放大缩小一轮收敛 (锁防递归)
+     可用高 = 主容器高 - hero/chips/footer 实测高 - padding 40 - footer margin-top 16
+     列数从 computed grid-template-columns 实测 (宽屏 2 列 / <900px 单列), 行高用已渲染卡片实测 */
   var _ptnMain = document.getElementById('sb2PatternsMain');
-  if (_ptnMain && !_sb2PtnFit && _ptnMain.scrollHeight > _ptnMain.clientHeight + 1 && _sb2PtnLimit > 4){
-    var _card = listEl.querySelector('.sb2-ptn-card');
-    var _cardH = _card ? (_card.offsetHeight + 12) : 100; /* +grid gap */
+  var _card = listEl.querySelector('.sb2-ptn-card');
+  if (_ptnMain && _card && !_sb2PtnFit){
+    var _cs = getComputedStyle(listEl);
+    var _cols = (_cs.gridTemplateColumns || '').split(' ').filter(function(s){ return s && s !== 'none'; }).length || 2;
+    var _cardH = _card.offsetHeight + 12; /* +grid gap */
     if (_cardH <= 12) _cardH = 100;
-    var _over = _ptnMain.scrollHeight - _ptnMain.clientHeight;
-    var _rowsNow = Math.ceil(ptnLimit / 2); /* 两列网格 */
-    var _rows = Math.max(1, _rowsNow - Math.ceil(_over / _cardH));
-    _sb2PtnFit = _rows * 2;
-    _sb2PtnLimit = _sb2PtnFit; /* 持久化, 翻页/筛选页数计算同源 */
-    _sb2PtnPage = 1;
-    sb2PtnRender();
-    _sb2PtnFit = 0;
+    var _chromeH = 56; /* padding 20*2 + footer margin-top 16 + 余量 4 */
+    ['.sb2-ptn-hero', '.sb2-ptn-chips', '.sb2-ptn-footer'].forEach(function(sel){
+      var e = _ptnMain.querySelector(sel);
+      if (e) _chromeH += e.offsetHeight;
+    });
+    var _rows = Math.max(1, Math.floor((_ptnMain.clientHeight - _chromeH) / _cardH));
+    var _fit = _rows * _cols;
+    if (_fit !== ptnLimit){
+      _sb2PtnFit = _fit;
+      _sb2PtnLimit = _fit; /* 持久化, 翻页/筛选页数计算同源 */
+      var _firstIdx = (_sb2PtnPage - 1) * ptnLimit;
+      _sb2PtnPage = Math.max(1, Math.floor(_firstIdx / _fit) + 1);
+      sb2PtnRender();
+      _sb2PtnFit = 0;
+    }
   }
 }
 
