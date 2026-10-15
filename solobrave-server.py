@@ -2226,7 +2226,9 @@ _FAKE_TOOL_BLOCK_RE = re.compile(
 
 
 def _strip_fake_tool_calls(content):
-    """剥掉 AI 回复里的假 <tool>/<parameter> 块, 收尾清理多余空行。"""
+    """剥掉 AI 回复里的假 <tool>/<parameter> 块, 收尾清理多余空行。
+    (注意: 模块尾部 29690 行附近有同名活定义覆盖本函数, 真生效的是那个;
+     尖括号 <tool_call> 形态在那边处理, 这里仅保留历史 <tool> 块逻辑)"""
     if not content or '<tool>' not in content:
         return content
     prev = None
@@ -2236,6 +2238,29 @@ def _strip_fake_tool_calls(content):
         cur = _FAKE_TOOL_BLOCK_RE.sub('\n', cur)
     cur = re.sub(r'\n{3,}', '\n\n', cur).strip()
     return cur
+
+
+# ─── 聊天处理进度 (feat/chat-progress 2026-10-15) ─────────────────────
+# 老大真机反馈: 截图消息整条链路约 2.5 分钟, 前端只有顶部进度条, 不知道在干什么。
+# 后端在 _handle_post_chat 关键阶段写进度, GET /api/chat/:agentId/progress 供前端轮询,
+# 占位气泡按阶段显示"正在识别截图/正在校验数据/AI 生成回复"。
+_CHAT_PROGRESS = {}
+_CHAT_PROGRESS_LOCK = threading.Lock()
+
+
+def _set_chat_progress(agent_id, stage, detail=''):
+    if not agent_id:
+        return
+    with _CHAT_PROGRESS_LOCK:
+        _CHAT_PROGRESS[agent_id] = {
+            'stage': stage, 'detail': detail, 'updated_at': time.time()}
+
+
+def _clear_chat_progress(agent_id):
+    if not agent_id:
+        return
+    with _CHAT_PROGRESS_LOCK:
+        _CHAT_PROGRESS.pop(agent_id, None)
 
 
 def _load_chat(agent_id):
@@ -8557,6 +8582,12 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 agent_id = sub[:-len('/heavy-status')]
                 if agent_id:
                     self._handle_get_heavy_status(agent_id)
+                    return
+            # /api/chat/:agentId/progress (feat/chat-progress: 前端等回复时轮询"正在干什么")
+            if sub.endswith('/progress'):
+                agent_id = sub[:-len('/progress')]
+                if agent_id:
+                    self._handle_get_chat_progress(agent_id)
                     return
             # /api/chat/:agentId
             agent_id = sub
@@ -22190,6 +22221,21 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             conn.close()
         self._send_json(200, {'id': talent_id, 'ai_analysis': {'content': analysis_text, 'rating': ai_rating}})
 
+    def _handle_get_chat_progress(self, agent_id):
+        """GET /api/chat/:agentId/progress — 聊天处理阶段轮询 (feat/chat-progress)。
+        前端等 POST /api/chat 响应期间每 1.5s 调一次, 占位气泡按 stage 显示状态。
+        无进行中请求时返回空对象 (stage=null)。"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        with _CHAT_PROGRESS_LOCK:
+            info = dict(_CHAT_PROGRESS.get(agent_id) or {})
+        if info:
+            self._send_json(200, info)
+        else:
+            self._send_json(200, {'stage': None, 'detail': '', 'updated_at': None})
+
     def _handle_get_chat(self, agent_id):
         """GET /api/chat/:agentId?type=personal|group"""
         auth = _authenticate(self.headers, self.client_address[0], self)
@@ -22283,6 +22329,15 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             text))
 
     def _handle_post_chat(self, agent_id):
+        """POST /api/chat/:agentId — 包装层: 全程写处理进度供前端轮询 (feat/chat-progress)"""
+        _set_chat_progress(agent_id, 'received', '请求已受理')
+        try:
+            self._handle_post_chat_impl(agent_id)
+        finally:
+            # HeavyPipe 多图旁路有自己的 heavy-status 轮询, 不读这个 registry, 清掉无影响
+            _clear_chat_progress(agent_id)
+
+    def _handle_post_chat_impl(self, agent_id):
         """POST /api/chat/:agentId"""
         logger.info(f'  [ChatPOST] 收到请求: {agent_id} path={self.path}')
         auth = _authenticate(self.headers, self.client_address[0], self)
@@ -22556,6 +22611,27 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                     else:
                         logger.error(f'  [ChatPOST] {agent_id} self-update intent apply failed: {su_msg}')
 
+            # ★ feat/vision-p0-server-preocr: 商务单图 → 服务端 vision+P0 闭环预识别注入,
+            #   模型免看图; 多图/非商务/识别失败 → 照旧 image_url 直连 (零回归)
+            #   预识别必须先于达人注入执行: 提取到的达人名要补跑库里查重 (fix/preocr-talent-name)
+            _preocr_items = None
+            if images:
+                _preocr_items, _preocr_name = _preocr_chat_images(images, agent_id, agent.get('role'))
+                # ★ fix/preocr-talent-name (2026-10-15 真机): 纯截图消息文本层识别不到达人,
+                #   旧行为只注入"库里没有TA"提示 → 模型自己假 exec curl 查库(把戏演给用户看)。
+                #   现在用预识别出的名字直查达人库, 命中 → 换成查重提示+完整档案注入,
+                #   模型拿到真数据自然不再演戏; 未命中保持原有注入不变。
+                if _preocr_name and not _talent_id_hit:
+                    _hit = _talent_id_by_name(_preocr_name, auth)
+                    if _hit:
+                        _talent_id_hit = _hit
+                        talent_injection = (
+                            _build_talent_dedup_hint(_hit, auth)
+                            + _build_single_talent_injection(_hit, auth))
+                        logger.info(
+                            f'  [TalentInject] {agent_id} 预识别名「{_preocr_name}」命中库内达人 '
+                            f'talent_id={_hit}, 已切换为档案注入 len={len(talent_injection)}')
+
             # 达人相关提问：把后端直查的【系统数据】拼到用户消息末尾，
             # LLM 只做分析和润色，不负责数据查询，从架构上杜绝编造
             if talent_injection:
@@ -22563,11 +22639,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 logger.info(f'  [TalentInject] {agent_id} 命中达人关键词，系统数据拼入用户消息 len={len(talent_injection)}')
             if images:
                 user_payload = [{'type': 'text', 'text': content}]
-                # ★ feat/vision-p0-server-preocr: 商务单图 → 服务端 vision+P0 闭环预识别注入,
-                #   模型免看图; 多图/非商务/识别失败 → 照旧 image_url 直连 (零回归)
-                user_payload.extend(_preocr_chat_images(images, agent_id, agent.get('role')))
+                user_payload.extend(_preocr_items if _preocr_items is not None else [])
             else:
                 user_payload = content
+            _set_chat_progress(agent_id, 'ai', 'AI 生成回复')
             allowed_cats = _allowed_knowledge_categories(auth)
             # 〔21 轮批注③-1 透传〕return_stats=True 拿注入条数；早期 return 路径（校验失败/无 key）
             # 可能返回非 tuple，这里统一归一化，零条数也是真值不编造
@@ -24980,20 +25055,30 @@ def _preocr_chat_images(images, agent_id, role):
     - 只对 role=='商务' 且恰好 1 张图预识别 (多图走 HeavyPipe 或保持直连, 不动)
     - 识别成功 → 注入【截图识别结果】text 块, 不再传 image_url (省 token + 免模型肉眼)
     - 识别失败 → 回退 image_url 直连带图 (现状), 绝不裸奔
-    返回 user_payload 内容块列表 (text / image_url 混合), 任何异常都不 raise。"""
+    返回 (user_payload 内容块列表, 提取到的达人名或 None), 任何异常都不 raise。
+    ★ feat/chat-progress: 视觉/校验阶段写进度; ★ fix/preocr-talent-name: 透出提取名供库里查重。"""
     items = []
+    extracted_name = None
     do_preocr = (role == '商务' and len(images or []) == 1)
     for img in images or []:
         b64 = img.get('base64', '') if isinstance(img, dict) else str(img)
         vision_text = None
         if do_preocr and b64:
             try:
+                _set_chat_progress(agent_id, 'vision', '视觉提取截图数据')
                 raw = _call_kimi_vision(b64, agent_id=agent_id, role='商务')
                 if raw:
+                    _set_chat_progress(agent_id, 'witness', 'OCR 对照校验提取数据')
                     vision_text = _vision_qa_pipeline(raw, b64, '商务')
             except Exception as e:
                 logger.warning(f'  [PreOCR] {agent_id} 预识别异常: {type(e).__name__}: {e}')
         if vision_text:
+            # 透出达人名(供 _handle_post_chat 补跑库里查重, 根治模型假 exec curl 查库)
+            _obj = _parse_vision_json(vision_text)
+            if isinstance(_obj, dict):
+                _n = str(_obj.get('name') or '').strip()
+                if _n and _n.lower() not in ('null', 'none', '-') and _n not in ('未提供', '未知'):
+                    extracted_name = _n
             items.append({'type': 'text', 'text': (
                 '【截图识别结果·已经过系统双重校验，以下数据真实可信，'
                 '直接采信使用，不要自己重新读图也不要怀疑数据】\n' + vision_text)})
@@ -25002,7 +25087,7 @@ def _preocr_chat_images(images, agent_id, role):
             items.append({'type': 'image_url', 'image_url': {'url': b64}})
             if do_preocr:
                 logger.warning(f'  [PreOCR] {agent_id} 预识别失败, 回退直连带图')
-    return items
+    return items, extracted_name
 
 
 # ★ fix/helen-vision-final-integration: _vision_coverage_gate + 2 个常量删除 (任务 20 已取消硬拦截,
@@ -27956,6 +28041,43 @@ def _specific_mentioned_names(text):
             if c and not any(w in c for w in _TALENT_NAME_PHRASE_WORDS)}
 
 
+def _talent_id_by_name(name, auth):
+    """按名字直查达人库（无关键词门槛——供 PreOCR 视觉提取名使用，用户消息里可能根本没提名字）。
+    命中顺序: 全局去重表 → 精确(name/douyin_id/real_name, 带权限过滤) → LIKE 模糊(≥3字才走)。
+    返回 talent_id 或 None。权限逻辑与 _extract_talent_from_text 对齐。"""
+    if not name or not isinstance(name, str):
+        return None
+    name = name.strip()
+    if not name:
+        return None
+    try:
+        dedupe = _deduplicate_talent(name)
+        if dedupe and dedupe.get('id'):
+            return dedupe['id']
+        conn = _db_conn()
+        try:
+            uid = auth.user_info.get('userId', '') if auth and auth.user_info else ''
+            is_admin = bool(auth.is_admin) if auth else False
+            row = conn.execute(
+                "SELECT id, created_by FROM talents "
+                "WHERE name = ? OR douyin_id = ? OR real_name = ? LIMIT 1",
+                (name, name, name)).fetchone()
+            if row and (is_admin or (row['created_by'] or '') == uid):
+                return row['id']
+            if len(name) >= 3:
+                rows = conn.execute(
+                    "SELECT id, created_by FROM talents WHERE name LIKE ? LIMIT 3",
+                    (f'%{name}%',)).fetchall()
+                for r in rows:
+                    if is_admin or (r['created_by'] or '') == uid:
+                        return r['id']
+        finally:
+            conn.close()
+    except Exception as e:
+        logger.error(f'  [TalentByName] 按名查达人失败: {e}')
+    return None
+
+
 def _extract_talent_from_text(text, auth):
     """从用户消息文本识别具体达人,返回 talent_id 或 None。
     命中:先按名称/douyin_id/real_name 精确匹配,失败再模糊 LIKE(候选≥3字才走,防"妈妈"误配)。
@@ -29554,8 +29676,13 @@ def _append_self_update_prompt(system_prompt):
 
 # 伪工具调用剥离：员工无真实工具时模型会在正文里演戏，输出 exec(command="curl ...")、
 # tool_call(...) 等伪命令行工具调用文本。正则剥离替换为占位文案，不让用户看到技术噪音。
+# ★ fix/fake-toolcall-bracket-form (2026-10-15 真机 21:05, MiniMax 回落): 模型还吐尖括号形态
+#   `<tool_call>exec(cmd="curl ...")<tool_call>exec(...)` — 开闭同标签、常无闭合、可连吐多行。
+#   旧 alternation 只认 exec(command= / tool_call( 字面形态, 对 <tool_call>exec(cmd= 两种特征全漏,
+#   整段漏网直接展示给用户。现先剥尖括号跨度(标签起至行尾), 再走原有形态; exec(cmd= 一并兼容。
+_FAKE_TOOLCALL_INLINE_RE = re.compile(r'<\|?/?tool_call[^\n]*')
 _FAKE_TOOL_CALL_RE = re.compile(
-    r'(?:exec\s*\(\s*command\s*=|tool_call\s*\(|tool_use\s*\(|function_call\s*\()[^\n]*')
+    r'(?:exec\s*\(\s*(?:command|cmd)\s*=|tool_call\s*\(|tool_use\s*\(|function_call\s*\()[^\n]*')
 _FAKE_TOOL_PLACEHOLDER = '（正在查询系统数据…）'
 _FAKE_TOOL_PLACEHOLDER_RUN_RE = re.compile(
     r'（正在查询系统数据…）(?:\s*（正在查询系统数据…）)+')
@@ -29566,7 +29693,12 @@ def _strip_fake_tool_calls(text):
     替换为"（正在查询系统数据…）"，连续多个占位合并为一个。无命中返回原文。"""
     if not text or not isinstance(text, str):
         return text
-    cleaned = _FAKE_TOOL_CALL_RE.sub(_FAKE_TOOL_PLACEHOLDER, text)
+    # 历史 <tool>exec</tool>+<parameter>{...}</parameter> 多块形态整块替换
+    cleaned = _FAKE_TOOL_BLOCK_RE.sub(_FAKE_TOOL_PLACEHOLDER, text)
+    # 尖括号 <tool_call>exec(cmd=...) 形态(标签起至行尾)
+    cleaned = _FAKE_TOOLCALL_INLINE_RE.sub(_FAKE_TOOL_PLACEHOLDER, cleaned)
+    # exec(command=/cmd=)/tool_call(/tool_use(/function_call( 字面形态至行尾
+    cleaned = _FAKE_TOOL_CALL_RE.sub(_FAKE_TOOL_PLACEHOLDER, cleaned)
     cleaned = _FAKE_TOOL_PLACEHOLDER_RUN_RE.sub(_FAKE_TOOL_PLACEHOLDER, cleaned)
     return cleaned.strip()
 
