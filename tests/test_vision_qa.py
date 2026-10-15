@@ -368,25 +368,24 @@ def test_unflagged_changes_detected():
     assert any('agency' in c for c in srv._vision_unflagged_changes(orig, fixed_add, roots))
 
 
-def test_pipeline_repair_touching_unflagged_rejected():
-    """修复版动了未标记字段 → 整个修复拒绝, 回退校验后原值 (followers 不许被改)。"""
+def test_pipeline_repair_touching_unflagged_ignored():
+    """★ fix/vision-p0-realworld4 新契约: 修复输出里对未标记字段的改动被程序合并层
+    直接忽略 (不可能生效), 被标记字段照修 — 比旧契约"整体拒绝"更好: 该修的修好,
+    未标记的零风险。followers 任何情况下不许被改。"""
     obj = _extraction_obj()
     obj['video_ratio'] = 88.88    # 唯一被标记字段
     desc = json.dumps(obj, ensure_ascii=False)
 
     def _fake_naughty_chat(provider, key, model, endpoint, messages, timeout=0, max_tokens=0):
-        naughty = _extraction_obj()
-        naughty['video_ratio'] = 99.16      # 被标记字段修好
-        naughty['followers'] = '4500'       # 但未标记字段被顺手改坏 (真机实证行为)
-        return json.dumps(naughty, ensure_ascii=False)
+        return json.dumps({'video_ratio': 99.16, 'followers': '4500'}, ensure_ascii=False)
 
     with _Monkey(_vision_qa_glm_cfg=lambda: _CFG,
                  _vision_witness_ocr=lambda b64, cfg: _WITNESS_GOOD,
                  _call_chat_completion=_fake_naughty_chat):
         out = srv._vision_qa_pipeline(desc, _png_b64(), role='商务')
     out_obj = json.loads(out)
-    assert out_obj['followers'] == '450万'    # 未标记字段原样保住
-    assert out_obj['video_ratio'] == 88.88    # 被标记字段回退原值 (miss 不置 null)
+    assert out_obj['followers'] == '450万'    # 未标记字段改动被程序层挡下
+    assert out_obj['video_ratio'] == 99.16    # 被标记字段正常修复采纳
 
 
 # ── 8) witness 质量验收 (真机 2026-10-15: glm-4v-flash 中文转录成韩文乱码) ──
@@ -491,3 +490,67 @@ def test_preocr_exception_never_raises():
     with _Monkey(_call_kimi_vision=_boom):
         items = srv._preocr_chat_images([{'base64': _B64}], 'emp_x', '商务')
     assert items == [{'type': 'image_url', 'image_url': {'url': _B64}}]
+
+
+# ── 10) fixes 合并契约 + 履约分百分制 (真机 2026-10-15 realworld4) ─────────
+
+def test_apply_field_fixes_paths():
+    obj = {'video_ratio': 88.88, 'extra_fields': {'履约分': None},
+           'top_products': [{'name': 'a', 'price': '9.9'}], 'fan_age': {'18-23': 4.0}}
+    roots = {'video_ratio', 'extra_fields', 'top_products', 'fan_age'}
+    applied = srv._vision_apply_field_fixes(obj, {
+        'video_ratio': 99.16,
+        'extra_fields.履约分': 82,
+        'top_products[0]': {'name': 'a', 'price': '19.9'},
+        'fan_age': {'18-23': 4.33, '24-30': 24.84},
+    }, roots)
+    assert set(applied) == {'video_ratio', 'extra_fields.履约分', 'top_products[0]', 'fan_age'}
+    assert obj['video_ratio'] == 99.16
+    assert obj['extra_fields']['履约分'] == 82
+    assert obj['top_products'][0]['price'] == '19.9'
+    assert obj['fan_age'] == {'18-23': 4.33, '24-30': 24.84}
+
+
+def test_apply_field_fixes_rejects_wild_paths():
+    obj = {'followers': '450万', 'video_ratio': 88.88}
+    roots = {'video_ratio'}
+    applied = srv._vision_apply_field_fixes(obj, {
+        'followers': '4500',            # 不在 flagged_roots → 拒
+        'agency': '无忧传媒',            # 野 key → 拒
+        'video_ratio': 99.16,           # 合法 → 应用
+        'top_products[9]': {},          # 根不在 + 越界 → 拒
+    }, roots)
+    assert applied == ['video_ratio']
+    assert obj == {'followers': '450万', 'video_ratio': 99.16}
+
+
+def test_pipeline_fixes_partial_merge_adopted():
+    """修复只输出部分被标记字段 → 只合并这部分, 其余保持原值。"""
+    obj = _extraction_obj()
+    obj['video_ratio'] = 88.88
+    obj['rating_score'] = 9.9    # 第二个被标记字段 (常识硬错已置 null 前)
+    desc = json.dumps(obj, ensure_ascii=False)
+
+    def _fake_partial_chat(provider, key, model, endpoint, messages, timeout=0, max_tokens=0):
+        return json.dumps({'video_ratio': 99.16}, ensure_ascii=False)    # 只修一个
+
+    with _Monkey(_vision_qa_glm_cfg=lambda: _CFG,
+                 _vision_witness_ocr=lambda b64, cfg: _WITNESS_GOOD,
+                 _call_chat_completion=_fake_partial_chat):
+        out = srv._vision_qa_pipeline(desc, _png_b64(), role='商务')
+    out_obj = json.loads(out)
+    assert out_obj['video_ratio'] == 99.16    # 修好的采纳
+    assert out_obj['followers'] == '450万'    # 未涉及字段不动
+
+
+def test_sanity_lvdoufen_percent_no_longer_nulled():
+    """★ 真机误杀修复: 百应履约分=12 是百分制, 不再被 score5 规则置 null。"""
+    obj = {'extra_fields': {'履约分': '12'}}
+    issues = srv._vision_sanity_check(obj, fix=True)
+    assert not any(i.get('hard') for i in issues)
+    assert obj['extra_fields']['履约分'] == '12'
+    # 百分制越界 (>101.5) 仍然拦
+    obj2 = {'extra_fields': {'履约分': '150'}}
+    issues2 = srv._vision_sanity_check(obj2, fix=True)
+    assert any(i.get('hard') for i in issues2)
+    assert obj2['extra_fields']['履约分'] is None
