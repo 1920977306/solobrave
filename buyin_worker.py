@@ -1551,10 +1551,12 @@ def teardown_url_pipeline(job_id, url):
                         .map(v => v.src || (v.querySelector('source')||{}).src || '').filter(Boolean)""")
                 except Exception:
                     srcs = []
+                srcs = [s for s in (srcs or []) if not str(s).startswith('blob:')]
                 with _media_lock:
                     fresh = [u for u in _MEDIA_URLS[before:]
                              if 'mime_type=video_mp4' in u or '.mp4' in u]
-                src = (srcs[0] if srcs else (fresh[-1] if fresh else ''))
+                # 抖音 web 播放器是 blob:MSE，真实 mp4 要走网络嗅探；嗅探优先，DOM src 兜底
+                src = (fresh[-1] if fresh else (srcs[0] if srcs else ''))
                 if src:
                     break
             if not src:
