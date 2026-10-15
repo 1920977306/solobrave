@@ -662,3 +662,86 @@ def notify_report(sender, chat_id: str, douyin_id: str, report_text: str) -> Non
     except Exception:
         log.exception("render card failed, fallback to text: douyin_id=%s", douyin_id)
     sender.send_text(chat_id, report_text)
+
+
+# ---------------- 业务问答（spec ① 意图分类的问答类，1 积分/次） ----------------
+
+def _zhipu_cfg_daren():
+    cfg = json.load(open(Path.home() / '.openclaw' / 'openclaw.json', encoding='utf-8'))
+    zp = cfg.get('models', {}).get('providers', {}).get('zhipu') or {}
+    base = (zp.get('baseUrl') or 'https://open.bigmodel.cn/api/paas/v4/').rstrip('/')
+    key = zp.get('apiKey') or ''
+    if not key:
+        raise RuntimeError('openclaw.json 缺少 zhipu apiKey')
+    return base, key
+
+
+def _qa_llm(prompt: str, model: str = 'glm-4-flash') -> str:
+    """问答用便宜模型（glm-4-flash），OpenAI chat 协议直连。"""
+    base, key = _zhipu_cfg_daren()
+    req = urllib.request.Request(
+        base + '/chat/completions',
+        data=json.dumps({
+            'model': model,
+            'messages': [{'role': 'user', 'content': prompt}],
+            'temperature': 0.3,
+            'max_tokens': 800,
+        }).encode('utf-8'),
+        headers={'Content-Type': 'application/json',
+                 'Authorization': f'Bearer {key}'},
+        method='POST')
+    with urllib.request.urlopen(req, timeout=120) as resp:
+        data = json.loads(resp.read().decode())
+    return (data.get('choices') or [{}])[0].get('message', {}).get('content') or ''
+
+
+def _talent_context(tk: str) -> str:
+    """该达人绑定的账号画像摘要，作为问答上下文。"""
+    try:
+        from . import db
+        tenant = db.get_tenant(tk)
+        dyid = (tenant or {}).get("bind_douyin_id") or ""
+        if not dyid:
+            return ""
+        t = _read_talent("", dyid)
+        if not t:
+            return ""
+        notes = (t.get('notes') or '').split('｜')[0].strip()
+        head = f"昵称{t.get('name') or '?'}（抖音号{dyid}）"
+        return f"{head}。{notes}" if notes else head
+    except Exception:
+        return ""
+
+
+def execute_qa(task: dict) -> str:
+    """业务问答：结合该达人自己的画像回答；超出带货范围由模型拒答。"""
+    from . import db as _db
+    q = (task.get("target") or "").strip()
+    if not q:
+        return "没收到问题内容，重新发一下～"
+    ctx = _talent_context(task.get("tenant_key", ""))
+    prompt = (
+        '你是抖音电商达人的AI选品顾问，用第二人称"你"回答问题。\n'
+        '只回答抖音带货、选品、商品判断、账号运营、粉丝画像、直播相关的问题。\n'
+        '如果问题与这些无关（闲聊、天气、代码、数学、新闻等），只输出一个字：拒\n'
+        '回答要求：优先结合该达人自己的数据给具体可执行的建议（40-150字），'
+        '有数据必须引用数据，没有的维度不要编造数字，不要喊口号。\n'
+        + (f'【该达人的账号数据】{ctx}\n' if ctx else '')
+        + f'【达人问】{q}'
+    )
+    content = ""
+    for attempt in (1, 2):
+        try:
+            content = _qa_llm(prompt)
+        except Exception as e:
+            log.warning("qa llm attempt %d failed: %s", attempt, e)
+            content = ""
+        if content.strip():
+            break
+    ans = content.strip()
+    if not ans:
+        return "AI 刚才没反应过来，你稍等几秒再问一次～"
+    if ans.startswith("拒") and len(ans) <= 3:
+        return ("我是你的带货选品助手，账号分析、选品建议、商品判断都可以找我，"
+                "其他问题帮不上忙哦～")
+    return ans[:600]

@@ -18,6 +18,7 @@ EXECUTORS = {
     "douyin": executors.execute_douyin_collect,
     "product": executors.execute_product_collect,
     "image": executors.execute_image_vision,
+    "qa": executors.execute_qa,
 }
 
 
@@ -64,7 +65,9 @@ class Worker(threading.Thread):
                 notify_report(self.wm.get_sender(tk), task["chat_id"],
                               task["target"], result_summary)
             else:
-                self._notify(tk, f"任务完成：{result_summary}", task.get("chat_id", ""))
+                # qa 是对话型回答，不带「任务完成：」前缀，直接推送答案
+                prefix = "" if task["type"] == "qa" else "任务完成："
+                self._notify(tk, f"{prefix}{result_summary}", task.get("chat_id", ""))
 
     def _fail(self, task: dict, reason: str) -> None:
         db.mark_task(task["id"], "failed", reason)

@@ -24,6 +24,9 @@ TRACKING_PREFIXES = ("utm_", "spm", "fbclid", "gclid", "tt_")
 UNRELATED_REPLY = ("我是你的带货选品助手，账号分析、选品建议、商品判断都可以找我，"
                    "其他问题帮不上忙哦～")
 UNSUPPORTED_REPLY = "这类消息我还处理不了，发我抖音号、商品截图或商品链接都可以～"
+GREETING_RE = re.compile(r"^(你好|在吗|在么|您好|hi|hello|嗨|早|早上好|晚上好|下午好|哈喽|在不在)[!！~～\s]*$", re.I)
+GREETING_REPLY = ("你好呀，我是你的带货选品助手。发我你的抖音号可以做账号分析，"
+                  "直接问选品、带货、粉丝画像的问题我也都能答～")
 
 
 def normalize_product_url(url: str) -> str:
@@ -89,9 +92,11 @@ class Router:
                                    name_hint=_extract_name_hint(text, m.group(1)))
             elif URL_RE.search(text):
                 self._route_link(tenant, chat_id, text, sender)
+            elif len(text.strip()) <= 8 and GREETING_RE.search(text):
+                sender.send_text(chat_id, GREETING_REPLY)
             else:
-                # 意图分类未接入前的零成本兜底（spec 4.4：不进主链路、零积分变动）
-                sender.send_text(chat_id, UNRELATED_REPLY)
+                # 业务问答：入队异步走 LLM（扣 1 积分），超出带货范围由模型拒答
+                self._route_qa(tenant, chat_id, text, sender)
         else:
             sender.send_text(chat_id, UNSUPPORTED_REPLY)
 
@@ -179,6 +184,30 @@ class Router:
         # vision 走 worker（3 秒硬约束）；废图（识别不出）在 worker 里返还
         db.enqueue_task(tk, "image", str(path), config.COST_VISION,
                         chat_id=chat_id)
+
+    # ---------- ③ 业务问答（spec ① 意图分类的问答类） ----------
+
+    def _route_qa(self, tenant, chat_id, text, sender) -> None:
+        tk = tenant["tenant_key"]
+        q = text.strip()
+        if not q:
+            sender.send_text(chat_id, UNSUPPORTED_REPLY)
+            return
+        if len(q) > 300:
+            sender.send_text(chat_id, "问题太长了，简短一点问我～")
+            return
+        if db.get_balance(tk) < config.COST_QA:
+            sender.send_text(
+                chat_id,
+                f"这个动作需要 {config.COST_QA} 积分，你的余额不够啦。"
+                "联系运营老师补充额度（内测期免费发放）")
+            return
+        ok, _ = db.deduct(tk, config.COST_QA, "qa")
+        if not ok:
+            sender.send_text(chat_id, "积分余额不足，联系运营老师补充额度")
+            return
+        sender.send_text(chat_id, "收到，我想一下～")
+        db.enqueue_task(tk, "qa", q[:200], config.COST_QA, chat_id=chat_id)
 
     # ---------- ③ 商品链接（spec 4.3） ----------
 
