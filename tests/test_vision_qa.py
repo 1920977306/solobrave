@@ -630,3 +630,18 @@ def test_chat_progress_set_and_clear():
     srv._clear_chat_progress('emp_prog')
     # 空 agent_id 防御
     srv._set_chat_progress('', 'ai')
+
+
+def test_repair_bare_thousands_number():
+    """★ 真机 2026-10-15: 修复 pass 吐 {"video_count": 2,734} 裸千分位非法 JSON,
+    解析失败白跑一轮修复。修复后引号外裸数字修好, 引号内文本值原样保留。"""
+    # 裸千分位 → 数字
+    assert srv._parse_vision_json('```json\n{"video_count": 2,734}\n```') == {'video_count': 2734}
+    # 引号内 "2,734" 是文本值, 不动
+    obj = srv._parse_vision_json('{"video_plays": "2,734", "a": 1,000}')
+    assert obj == {'video_plays': '2,734', 'a': 1000}
+    # 多级千分位
+    assert srv._parse_vision_json('{"gmv": 1,234,567}') == {'gmv': 1234567}
+    # 字符串内转义引号不误伤
+    obj2 = srv._parse_vision_json('{"bio": "他说\\"1,000\\"次", "n": 2,500}')
+    assert obj2 == {'bio': '他说"1,000"次', 'n': 2500}
