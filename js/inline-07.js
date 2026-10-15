@@ -2608,6 +2608,39 @@ function sb2TalentsRenderLocal(){
   sb2TalentsRenderTable();
   sb2TalentsRenderPager();
   sb2TalentsUpdateFooter();
+  /* ★ fix/talents-local-refit 老大 21:44 批注「好大的空白」: 本地分页后翻页不再过 load,
+     _sb2TalentsFitLimit 只在拉取前测一次 — 那时 tbody 还是「载入中…」占位行, 行高取兜底 57,
+     若此刻容器尚未完成布局, 实测高偏小, fit 锁死下限 6 行 → 表格下方大片空白再也收不回。
+     修法: 每次本地重渲后拿真实 DOM 行高/容器高再收放一轮 (本地切片零成本, 防递归用标志位) */
+  _sb2TalentsRefitLocal();
+}
+var _sb2TalentsRefitLock = false;
+function _sb2TalentsRefitLocal(){
+  if (_sb2TalentsRefitLock) return;
+  var wrap = document.querySelector('.sb2-talents-table-wrap');
+  if (!wrap || !wrap.clientHeight) return;
+  if (!(_sb2TalentsList || []).length) return; /* 空态不重排 */
+  var head = wrap.querySelector('thead');
+  var row = wrap.querySelector('tbody tr');
+  var rowH = row ? row.offsetHeight : 0;
+  if (!(rowH > 0)) return; /* 首屏未渲出行不猜 */
+  var avail = wrap.clientHeight - (head ? head.offsetHeight : 41);
+  var fit = Math.max(6, Math.min(30, Math.floor(avail / rowH)));
+  var oldLimit = _sb2TalentsLimit;
+  /* 放大: 还有剩余空间且后面还有数据 → 补满; 缩小: 内容溢出滚动 → 减行 */
+  if (fit > oldLimit && _sb2TalentsList.length > oldLimit){
+    var firstIdx = (_sb2TalentsPage - 1) * oldLimit;
+    _sb2TalentsLimit = fit;
+    _sb2TalentsPage = Math.max(1, Math.floor(firstIdx / fit) + 1);
+  } else if (fit < oldLimit && wrap.scrollHeight > wrap.clientHeight + 4){
+    var firstIdx2 = (_sb2TalentsPage - 1) * oldLimit;
+    _sb2TalentsLimit = fit;
+    _sb2TalentsPage = Math.max(1, Math.floor(firstIdx2 / fit) + 1);
+  } else {
+    return; /* 已贴合 */
+  }
+  _sb2TalentsRefitLock = true;
+  try { sb2TalentsRenderLocal(); } finally { _sb2TalentsRefitLock = false; }
 }
 
 async function sb2TalentsLoad(){
