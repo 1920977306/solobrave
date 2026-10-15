@@ -110,15 +110,21 @@ def add_record(tenant_key: str, table: str, values: dict) -> None:
           {"fields": fields})
 
 
+def _s(v) -> str:
+    """数值转字符串，保留 0，只把 None/空串归一为 ''。"""
+    return "" if v is None or v == "" else str(v)
+
+
 def sync_profile(tenant_key: str, talent: dict, verdict: str, summary: str) -> None:
     """账号报告 -> 账号档案表。"""
     add_record(tenant_key, "profile", {
         "日期": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
         "抖音号": talent.get("douyin_id") or talent.get("dyid") or "",
         "昵称": talent.get("name") or "",
-        "粉丝": str(talent.get("followers") or ""),
-        "累计GMV": str(talent.get("total_gmv") or talent.get("gmv") or ""),
-        "视频占比": str(talent.get("video_gmv_ratio") or talent.get("video_ratio") or ""),
+        "粉丝": _s(talent.get("followers")),
+        "累计GMV": _s(talent.get("total_gmv") if talent.get("total_gmv") is not None
+                      else talent.get("gmv")),
+        "视频占比": _s(talent.get("video_gmv_ratio") or talent.get("video_ratio")),
         "评估结论": verdict or "",
         "报告摘要": summary or "",
     })
