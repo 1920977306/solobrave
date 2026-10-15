@@ -387,3 +387,43 @@ def test_pipeline_repair_touching_unflagged_rejected():
     out_obj = json.loads(out)
     assert out_obj['followers'] == '450万'    # 未标记字段原样保住
     assert out_obj['video_ratio'] == 88.88    # 被标记字段回退原值 (miss 不置 null)
+
+
+# ── 8) witness 质量验收 (真机 2026-10-15: glm-4v-flash 中文转录成韩文乱码) ──
+
+# 真机抓到的坏 witness 样本 (简化版): 韩文标签 + 错误数字
+_BAD_WITNESS = ('\ucd09\uacc4\n\uc804\uccb4 dy99887766\n\uc804\uccb4 4500\n'
+                '\uc804\uccb4 4.8\n\uc804\uccb4 99.16%\n\uc804\uccb4 50B-100g\n'
+                '\uc804\uccb4 128\n18-23 4.33%\n24-30 24.84%\n31-40 42.87%')
+
+
+def test_witness_quality_garbage_rejected():
+    ok, why = srv._vision_witness_quality(_BAD_WITNESS)
+    assert not ok and '\u4e71\u7801' in why   # CJK(\u4e2d\u6587) \u5360\u6bd4\u8fc7\u4f4e
+
+
+def test_witness_quality_good_accepted():
+    ok, _ = srv._vision_witness_quality(_WITNESS_GOOD)
+    assert ok
+
+
+def test_witness_quality_short_and_nodigit_rejected():
+    ok, _ = srv._vision_witness_quality('\u77ed')
+    assert not ok
+    ok, why = srv._vision_witness_quality('\u8fbe\u4eba\u6570\u636e\u622a\u56fe\u8fbe\u4eba\u6570\u636e\u622a\u56fe\u8fbe\u4eba\u6570\u636e\u622a\u56fe\u8fbe\u4eba\u6570\u636e\u622a\u56fe')
+    assert not ok and '\u6f0f\u5f55' in why
+
+
+def test_pipeline_garbage_witness_never_corrupts_good_data():
+    """\u574f witness \u88ab\u5f03\u7528 \u2192 \u4fee\u590d pass \u4e0d\u8dd1, kimi \u63d0\u5bf9\u7684\u503c\u539f\u6837\u4fdd\u4f4f (\u771f\u673a\u6848\u4f8b: '450\u4e07' \u4e0d\u8bb8\u88ab\u6539\u6210 '4500')\u3002"""
+    obj = _extraction_obj()    # kimi \u63d0\u53d6\u7248 (\u5168\u5bf9)
+    desc = json.dumps(obj, ensure_ascii=False)
+
+    def _fake_chat(provider, key, model, endpoint, messages, timeout=0, max_tokens=0):
+        raise AssertionError('\u574f witness \u4e0b\u4fee\u590d pass \u4e0d\u8be5\u88ab\u8c03\u7528')
+
+    with _Monkey(_vision_qa_glm_cfg=lambda: _CFG,
+                 _vision_witness_ocr=lambda b64, cfg: _BAD_WITNESS,
+                 _call_chat_completion=_fake_chat):
+        out = srv._vision_qa_pipeline(desc, _png_b64(), role='\u5546\u52a1')
+    assert json.loads(out) == obj    # \u539f\u6587\u4e00\u5b57\u4e0d\u52a8

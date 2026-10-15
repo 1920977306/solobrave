@@ -24689,6 +24689,26 @@ def _vision_qa_glm_cfg():
     return None
 
 
+def _vision_witness_quality(text):
+    """witness 质量验收: 乱码/漏录的 witness 没资格当权威依据 (真机 2026-10-15 实证:
+    glm-4v-flash 对合成截图翻大车 — 中文标签转录成韩文'전체', '450万'转录成'4500',
+    '50万-100万'转录成'50B-100g', 坏 witness 会把 kimi 原本提对的值'修'坏)。
+    ① CJK 占比 <0.3 → 不合格 (疑似整段乱码)
+    ② 数字 token <5 → 不合格 (逐字转录任务, 商务截图通常几十处数字)
+    返回 (ok, reason)。"""
+    if not text or len(text.strip()) < 20:
+        return False, f'过短(len={len(text or "")})'
+    import re
+    total = len(text)
+    cjk = len(re.findall(r'[\u4e00-\u9fff]', text))
+    if cjk / total < 0.3:
+        return False, f'CJK占比{cjk / total:.2f}<0.3, 疑似乱码'
+    nums = len(re.findall(r'\d+(?:\.\d+)?', text))
+    if nums < 5:
+        return False, f'数字token仅{nums}<5, 疑似漏录'
+    return True, ''
+
+
 def _vision_witness_ocr(image_base64, cfg):
     """witness OCR: glm-4v-flash 独立转录截图全部可见文字 (权威依据, 与 kimi 提取不同源)。
     失败/超时返回 None (调用方降级)。temperature=0 追求逐字忠实。"""
@@ -24837,6 +24857,12 @@ def _vision_qa_pipeline(desc_text, image_base64, role=None):
                 return json.dumps(obj, ensure_ascii=False)
             return desc_text
         witness = _vision_witness_ocr(image_base64, cfg)
+        if witness:
+            # 质量验收: 乱码/漏录的 witness 没资格当权威依据, 按 witness 失败降级
+            _wq_ok, _wq_why = _vision_witness_quality(witness)
+            if not _wq_ok:
+                logger.warning(f'  [VisionQA] witness 质量不合格 ({_wq_why}), 弃用降级常识规则')
+                witness = None
         if not witness:
             if sanity_issues:
                 return json.dumps(obj, ensure_ascii=False)
