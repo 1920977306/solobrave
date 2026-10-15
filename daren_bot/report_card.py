@@ -421,7 +421,7 @@ def render_card(talent_id: str, douyin_id: str, out_path: str) -> str:
     y += 20
     dr.line((M, y, W - M, y), fill=LINE, width=2)
     y += 18
-    dr.text((M, y), f"数据来自巨量百应　采集于 {time.strftime('%Y-%m-%d %H:%M')}",
+    dr.text((M, y), f"数据来源：AI 带货助手　采集于 {time.strftime('%Y-%m-%d %H:%M')}",
             font=_font(20), fill=GRAY)
     y += 44
 

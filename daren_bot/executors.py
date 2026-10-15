@@ -603,7 +603,7 @@ def _build_report(talent_id: str, douyin_id: str) -> str:
     if notes:
         lines.append(f"画像：{notes}")
 
-    lines.append(f"—— 数据来自巨量百应，采集于 "
+    lines.append(f"—— 数据来源：AI 带货助手，采集于 "
                  f"{time.strftime('%m-%d %H:%M')} ——")
     return "\n".join(lines)
 
