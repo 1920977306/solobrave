@@ -5268,7 +5268,11 @@ async function sb2PdsDelete(id, name){
       return;
     }
     showToast('✅ 已删除 ' + (name || id), 'success');
-    if (typeof sb2ProductsInit === 'function') sb2ProductsInit();
+    /* ★ fix/pds-local-delete: 本地剔除 + 重渲, 零网络等待
+       (商品库本就走一次拉全本地分页, 唯一卡顿点就是删完整表重拉) */
+    _sb2PdsProducts = (_sb2PdsProducts || []).filter(function(p){ return p.id !== id; });
+    _sb2PdsTotal = _sb2PdsProducts.length;
+    sb2PdsRender();
   } catch (e) {
     showToast('❌ 网络错误: ' + (e && e.message || e), 'error');
   }
@@ -5330,7 +5334,10 @@ async function sb2PdsRestore(id, name){
       return;
     }
     showToast('✅ 已还原 ' + (name || id), 'success');
-    if (typeof sb2ProductsInit === 'function') sb2ProductsInit();
+    /* ★ fix/pds-local-delete: 还原后从归档本地缓存剔除 (还在归档视图), 零网络等待 */
+    _sb2PdsProducts = (_sb2PdsProducts || []).filter(function(p){ return p.id !== id; });
+    _sb2PdsTotal = _sb2PdsProducts.length;
+    sb2PdsRender();
   } catch (e) {
     showToast('❌ 网络错误: ' + (e && e.message || e), 'error');
   }
