@@ -443,7 +443,7 @@ def test_preocr_business_single_image_injects_text():
 
     with _Monkey(_call_kimi_vision=_fake_vision,
                  _vision_qa_pipeline=lambda raw, b64, role: raw):
-        items = srv._preocr_chat_images([{'base64': _B64}], 'emp_x', '商务')
+        items, _name = srv._preocr_chat_images([{'base64': _B64}], 'emp_x', '商务')
     assert len(calls) == 1 and calls[0][1] == '商务'
     assert len(items) == 1 and items[0]['type'] == 'text'
     assert '截图识别结果' in items[0]['text'] and '450万' in items[0]['text']
@@ -452,7 +452,7 @@ def test_preocr_business_single_image_injects_text():
 def test_preocr_fallback_to_image_url_on_vision_failure():
     """识别失败 (vision 返回 None) → 回退 image_url 直连带图, 绝不裸奔。纯str元素兼容。"""
     with _Monkey(_call_kimi_vision=lambda b64, agent_id=None, role=None: None):
-        items = srv._preocr_chat_images([_B64], 'emp_x', '商务')    # 元素是纯字符串
+        items, _name = srv._preocr_chat_images([_B64], 'emp_x', '商务')    # 元素是纯字符串
     assert items == [{'type': 'image_url', 'image_url': {'url': _B64}}]
 
 
@@ -460,7 +460,7 @@ def test_preocr_fallback_when_qa_returns_none():
     """vision 成功但 QA 管线返回 None (比如非提取输出) → 也回退 image_url。"""
     with _Monkey(_call_kimi_vision=lambda b64, agent_id=None, role=None: '散文描述',
                  _vision_qa_pipeline=lambda raw, b64, role: None):
-        items = srv._preocr_chat_images([{'base64': _B64}], 'emp_x', '商务')
+        items, _name = srv._preocr_chat_images([{'base64': _B64}], 'emp_x', '商务')
     assert items == [{'type': 'image_url', 'image_url': {'url': _B64}}]
 
 
@@ -468,7 +468,7 @@ def test_preocr_skipped_for_non_business_role():
     """非商务角色带图 → 不预识别, 直接 image_url (保持现状零变化)。"""
     calls = []
     with _Monkey(_call_kimi_vision=lambda b64, agent_id=None, role=None: calls.append(1) or 'x'):
-        items = srv._preocr_chat_images([{'base64': _B64}], 'emp_x', 'CEO助理')
+        items, _name = srv._preocr_chat_images([{'base64': _B64}], 'emp_x', 'CEO助理')
     assert calls == []
     assert items == [{'type': 'image_url', 'image_url': {'url': _B64}}]
 
@@ -478,7 +478,7 @@ def test_preocr_skipped_for_multi_image():
     calls = []
     imgs = [{'base64': _B64}, {'base64': _B64}, {'base64': _B64}]
     with _Monkey(_call_kimi_vision=lambda b64, agent_id=None, role=None: calls.append(1) or 'x'):
-        items = srv._preocr_chat_images(imgs, 'emp_x', '商务')
+        items, _name = srv._preocr_chat_images(imgs, 'emp_x', '商务')
     assert calls == []
     assert len(items) == 3 and all(i['type'] == 'image_url' for i in items)
 
@@ -488,7 +488,7 @@ def test_preocr_exception_never_raises():
     def _boom(b64, agent_id=None, role=None):
         raise RuntimeError('炸')
     with _Monkey(_call_kimi_vision=_boom):
-        items = srv._preocr_chat_images([{'base64': _B64}], 'emp_x', '商务')
+        items, _name = srv._preocr_chat_images([{'base64': _B64}], 'emp_x', '商务')
     assert items == [{'type': 'image_url', 'image_url': {'url': _B64}}]
 
 
@@ -554,3 +554,79 @@ def test_sanity_lvdoufen_percent_no_longer_nulled():
     issues2 = srv._vision_sanity_check(obj2, fix=True)
     assert any(i.get('hard') for i in issues2)
     assert obj2['extra_fields']['履约分'] is None
+
+
+# ── 11) 假 tool_call 剥离 + 预识别达人名透出 + 聊天进度 (真机 2026-10-15 21:05) ──
+
+def test_strip_fake_toolcall_exec_form():
+    """★ 真机漏网形态: MiniMax 回落吐 `<tool_call>exec(cmd="curl...")<tool_call>exec(...)`
+    (开闭同标签、无闭合、连吐多行)。旧正则只认 <tool>exec</tool> 形态, 这种直接展示给用户。
+    修复后整段剥掉, 保留正常正文, 且不再误剥含 'tool_call' 子串的普通词。"""
+    reply = (
+        '收到截图，正在写入达人档案。\n\n'
+        '先查库里是否已有「李婶儿」建档：<tool_call>exec(cmd="curl -s \'http://localhost:8081/api/talents?q=李婶儿\'")\n'
+        '<tool_call>exec(cmd="curl -s http://localhost:8081/api/tasks?assignee=xx")\n\n'
+        '分析结论：该达人粉丝画像偏年轻。'
+    )
+    out = srv._strip_fake_tool_calls(reply)
+    assert '<tool_call' not in out
+    assert 'exec(cmd' not in out
+    assert 'curl' not in out
+    assert '收到截图，正在写入达人档案。' in out
+    assert '分析结论：该达人粉丝画像偏年轻。' in out
+    # 普通正文不过敏
+    assert srv._strip_fake_tool_calls('今天聊聊工具调用的话题') == '今天聊聊工具调用的话题'
+
+
+def test_strip_fake_toolcall_keeps_existing_tool_form():
+    """回归: exec(command=...) 字面形态 + 历史 <tool>exec</tool> 块形态 → 占位替换, 正文保留。"""
+    reply = '先跑一下：exec(command="curl -s http://x/api/talents")\n结论OK'
+    out = srv._strip_fake_tool_calls(reply)
+    assert 'exec(' not in out and 'curl' not in out
+    assert '（正在查询系统数据…）' in out and '结论OK' in out
+    # <tool> 块形态(历史 minimax 语料)
+    reply2 = '<tool>exec</tool>\n<parameter>{"command": "curl x"}</parameter>\n结论OK'
+    out2 = srv._strip_fake_tool_calls(reply2)
+    assert '<tool>' not in out2 and 'parameter' not in out2 and 'curl' not in out2
+    assert '结论OK' in out2
+
+
+def test_preocr_extracts_talent_name():
+    """★ fix/preocr-talent-name: 预识别 JSON 里的 name 字段随返回值透出, 供库里查重。"""
+    def _fake_vision(b64, agent_id=None, role=None):
+        return '{"name": "李婷儿", "followers": "12.8万", "level": "L4"}'
+    with _Monkey(_call_kimi_vision=_fake_vision,
+                 _vision_qa_pipeline=lambda raw, b64, role: raw):
+        items, name = srv._preocr_chat_images([{'base64': _B64}], 'emp_x', '商务')
+    assert name == '李婷儿'
+    assert items[0]['type'] == 'text'
+    # 无 name 字段 → None, 不炸
+    with _Monkey(_call_kimi_vision=lambda b64, agent_id=None, role=None: '{"followers": "1万"}',
+                 _vision_qa_pipeline=lambda raw, b64, role: raw):
+        items2, name2 = srv._preocr_chat_images([{'base64': _B64}], 'emp_x', '商务')
+    assert name2 is None and len(items2) == 1
+
+
+def test_talent_id_by_name_miss_returns_none():
+    """★ fix/preocr-talent-name: 库里没有该名字 → None (只读查询, 不造数)。"""
+    class _Auth:
+        is_admin = True
+        user_info = {'userId': 'u_x'}
+    assert srv._talent_id_by_name('绝不存在的人名xyz987', _Auth()) is None
+    assert srv._talent_id_by_name('', _Auth()) is None
+    assert srv._talent_id_by_name(None, _Auth()) is None
+
+
+def test_chat_progress_set_and_clear():
+    """★ feat/chat-progress: 进度写入/读取/清理的 registry 契约。"""
+    srv._set_chat_progress('emp_prog', 'vision', '视觉提取')
+    with srv._CHAT_PROGRESS_LOCK:
+        info = dict(srv._CHAT_PROGRESS.get('emp_prog') or {})
+    assert info['stage'] == 'vision' and info['detail'] == '视觉提取'
+    srv._clear_chat_progress('emp_prog')
+    with srv._CHAT_PROGRESS_LOCK:
+        assert 'emp_prog' not in srv._CHAT_PROGRESS
+    # 幂等: 清不存在的 key 不炸
+    srv._clear_chat_progress('emp_prog')
+    # 空 agent_id 防御
+    srv._set_chat_progress('', 'ai')

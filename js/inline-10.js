@@ -535,6 +535,31 @@
     var _phLastRow = _phRows[_phRows.length - 1];
     var placeholderEl = _phLastRow ? _phLastRow.querySelector('.sb2-chat-bubble-body') : null;
 
+    // ★ feat/chat-progress (2026-10-15 老大真机反馈): 截图链路 2.5min 前端只有一个进度条,
+    //   不知道在干什么。轮询服务端 /progress, 占位气泡按阶段显示"正在识别截图/校验数据/生成回复"。
+    var _PROG_TEXT = {
+      received: '已收到，正在处理…',
+      vision: '正在识别截图（视觉提取，约半分钟）…',
+      witness: '正在校验提取数据（OCR 逐字对照）…',
+      ai: 'AI 正在生成回复…'
+    };
+    var _progTimer = null;
+    function _sb2StopProg() {
+      if (_progTimer) { clearInterval(_progTimer); _progTimer = null; }
+    }
+    function _sb2PollProg() {
+      apiFetch('/api/chat/' + encodeURIComponent(_sb2Chat.agentId) + '/progress').then(function (r) {
+        if (!r || !r.ok) return;
+        return r.json().then(function (j) {
+          var t = j && j.stage && _PROG_TEXT[j.stage];
+          if (t && placeholderEl) placeholderEl.textContent = t;
+        });
+      }).catch(function () {});
+    }
+    if (placeholderEl) placeholderEl.textContent = '已收到，正在处理…';
+    _sb2PollProg();
+    _progTimer = setInterval(_sb2PollProg, 1500);
+
     // 3. POST
     // 〔stop-cmd 2026-10-08〕/stop 真中止: AbortController signal 透传 apiFetch (options 展开进 fetch)
     _sb2Chat.abortCtrl = new AbortController();
@@ -551,6 +576,7 @@
           mentions: __mentions
         })
       });
+      _sb2StopProg();  // feat/chat-progress: 响应已回, 停止阶段轮询
       if (!resp) {
         sb2_failBubble(placeholderEl);
         return;
@@ -622,6 +648,7 @@
         sb2_failBubble(placeholderEl);
       }
     } finally {
+      _sb2StopProg();  // feat/chat-progress: 异常/中止路径兜底停轮询
       _sb2Chat.sending = false;
       _sb2Chat.abortCtrl = null;
       if (progress) progress.hidden = true;
