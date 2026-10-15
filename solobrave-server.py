@@ -22564,7 +22564,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             if images:
                 user_payload = [{'type': 'text', 'text': content}]
                 for img in images:
-                    user_payload.append({'type': 'image_url', 'image_url': {'url': img.get('base64', '')}})
+                    # ★ fix/chat-images-str-compat: 前端发的 images 元素是纯 base64 字符串时
+                    #   img.get 直接 AttributeError 500 (真机 2026-10-15 老大发截图发送失败根因);
+                    #   兼容写法与同文件 _handle_vision_describe / HeavyPipe 一致
+                    b64 = img.get('base64', '') if isinstance(img, dict) else str(img)
+                    user_payload.append({'type': 'image_url', 'image_url': {'url': b64}})
             else:
                 user_payload = content
             allowed_cats = _allowed_knowledge_categories(auth)
