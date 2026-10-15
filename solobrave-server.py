@@ -24779,12 +24779,14 @@ def _vision_witness_ocr(image_base64, cfg):
               '区间(保留万/亿/%单位)、标签、表格的列名和每个单元格数值、图例、角标小字。'
               '不要概括、不要解释、不要翻译、不要单位换算, 原样照抄。能看清多少转录多少。')
     try:
+        # ★ fix/vision-p0-realworld: glm-4v-flash 的 max_tokens 上限就是 1024
+        #   (真机 2026-10-15 实证: 传 2500 → HTTP 400 code 1210 "限制数值范围[1,1024]")
         text = _call_chat_completion(
             'zhipu', cfg['key'], model, cfg['base'],
             [{'role': 'user', 'content': [
                 {'type': 'text', 'text': prompt},
                 {'type': 'image_url', 'image_url': {'url': f'data:{media_type};base64,{data}'}}]}],
-            timeout=60, max_tokens=2500)
+            timeout=60, max_tokens=1024)
         if text and text.strip():
             logger.info(f'  [VisionQA] witness OCR 成功 len={len(text)}')
             return text
@@ -24816,9 +24818,11 @@ def _vision_repair_with_witness(obj, issues, witness_text, cfg):
         '2. 未标记字段: 原样保留, 一个都不许动。\n'
         '3. 只输出 JSON 本体, 不要任何解释、不要 markdown 围栏。')
     try:
+        # max_tokens 同样卡 glm-4-flash 的 1024 上限 (见 witness 处 fix 注释);
+        # 截断的修复 JSON 由 _parse_vision_json 的 _repair_vision_json 兜底, 采纳校验再挡一层
         text = _call_chat_completion('zhipu', cfg['key'], model, cfg['base'],
                                      [{'role': 'user', 'content': prompt}],
-                                     timeout=60, max_tokens=3500)
+                                     timeout=60, max_tokens=1024)
     except Exception as e:
         logger.warning(f'  [VisionQA] 修复 pass 异常: {e}')
         return None

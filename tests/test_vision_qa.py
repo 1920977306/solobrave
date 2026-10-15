@@ -311,3 +311,31 @@ def test_pipeline_exception_never_raises():
     assert srv._vision_qa_pipeline(None, _png_b64()) is None
     assert srv._vision_qa_pipeline('', _png_b64()) == ''
     assert srv._vision_qa_pipeline('{}', 'garbage-base64!!!') == '{}'
+
+
+def test_glm_calls_never_exceed_flash_max_tokens():
+    """★ fix/vision-p0-realworld 防回归: glm-4v-flash 的 max_tokens 硬上限就是 1024
+    (真机 2026-10-15 传 2500 → HTTP 400 code 1210)。witness 和修复 pass 都不许再超。"""
+    captured = []
+
+    def _fake_chat(provider, key, model, endpoint, messages, timeout=0, max_tokens=0):
+        captured.append(max_tokens)
+        return json.dumps(_extraction_obj(), ensure_ascii=False)
+
+    # 直接调真实 _vision_witness_ocr 验证它传的 max_tokens (打真 HTTP 会被网络层拦, 只看传参)
+    import inspect
+    src = inspect.getsource(srv._vision_witness_ocr)
+    assert 'max_tokens=1024' in src, 'witness 必须卡 glm-4v-flash 的 1024 上限'
+    src2 = inspect.getsource(srv._vision_repair_with_witness)
+    assert 'max_tokens=1024' in src2, '修复 pass 必须卡 glm-4v-flash 的 1024 上限'
+
+    # 管线里修复 pass 的传参也不许超
+    obj = _extraction_obj()
+    obj['video_ratio'] = 88.88
+    desc = json.dumps(obj, ensure_ascii=False)
+    with _Monkey(_vision_qa_glm_cfg=lambda: _CFG,
+                 _vision_witness_ocr=lambda b64, cfg: _WITNESS_GOOD,
+                 _call_chat_completion=_fake_chat):
+        srv._vision_qa_pipeline(desc, _png_b64(), role='商务')
+    for mt in captured:
+        assert mt <= 1024, f'修复 pass max_tokens={mt} 超 glm-4-flash 上限 1024'
