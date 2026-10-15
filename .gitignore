@@ -43,3 +43,8 @@ set_permission.py
 code-backup-*/
 rebase-cleanup-backup-*/
 
+
+tmp_verify/
+logs/
+minutes/
+.DS_Store
