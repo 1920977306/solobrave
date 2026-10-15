@@ -524,8 +524,10 @@ def _parse_md_sections(md: str):
     return [(t, ls) for t, ls in sections if t]
 
 
-def render_teardown_card(video_title: str, report_md: str, out_path: str) -> str:
-    """带货视频拆解报告 → 分节卡片式长图。渲染失败由调用方回退纯文字。"""
+def render_teardown_card(video_title: str, report_md: str, out_path: str,
+                         kicker: str = "AI 视频拆解",
+                         chip: str = "带货话术 · 结构 · 可复制") -> str:
+    """分节卡片式长图（视频拆解/商品分析共用）。渲染失败由调用方回退纯文字。"""
     sections = _parse_md_sections(report_md)
     im = Image.new("RGB", (W, 4200), PAGE_BG)
     dr = ImageDraw.Draw(im)
@@ -533,13 +535,12 @@ def render_teardown_card(video_title: str, report_md: str, out_path: str) -> str
     # ── 渐变头图 ──
     hdr_h = 250
     _vgrad(dr, (0, 0, W, hdr_h), (96, 66, 214), (46, 32, 110))
-    dr.text((M, 42), "AI 视频拆解", font=_font(24), fill=(208, 198, 246))
+    dr.text((M, 42), kicker, font=_font(24), fill=(208, 198, 246))
     t_lines = _wrap(video_title or "视频拆解报告", _font(40, True), W - 2 * M, dr)[:2]
     ty = 84
     for tl in t_lines:
         dr.text((M, ty), tl, font=_font(40, True), fill="white")
         ty += 54
-    chip = "带货话术 · 结构 · 可复制"
     cw = _text_w(dr, chip, _font(21)) + 36
     _round(dr, (M, ty + 6, M + cw, ty + 44), 19, "white")
     dr.text((M + 18, ty + 13), chip, font=_font(21), fill=(46, 32, 110))

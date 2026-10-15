@@ -223,7 +223,7 @@ class Router:
         url = URL_RE.search(text).group(0)
         product_key = normalize_product_url(url)
 
-        sender.send_text(chat_id, "收到链接，分析中")
+        sender.send_text(chat_id, "收到链接，打开商品页分析中，大约 1-2 分钟～")
 
         cached = db.cache_get(product_key)
         if cached:

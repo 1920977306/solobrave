@@ -1961,6 +1961,8 @@ def _browser_loop():
                 _run_teardown_job(row)
             elif row.get('_product'):
                 _run_product_impl(row)
+            elif row.get('_product_url'):
+                _run_product_url_impl(row)
             else:
                 _run_collect_impl(row)
         except BrowserLoopPoisoned:
@@ -1979,6 +1981,85 @@ def _browser_loop():
                        daren_browser_up=dup, daren_logged_in=dlogged)
         except Exception:
             pass
+
+
+PRODUCT_URL_PROMPT = '''你是电商商品信息提取器。从抖音电商商品页的标题和正文里提取以下字段，只输出 JSON（不要输出任何其他文字）：
+{"name":"商品名","price":"到手价(字符串,带¥)","commission":"佣金(字符串)","commission_rate":"佣金率(字符串,百分数)","sales":"销量(字符串)","shop":"店铺名","category":"类目","shop_score":"店铺体验分(字符串,没有则空)","highlights":"核心卖点(一句话,60字内)","target_crowd":"目标人群(一句话)","coupon":"优惠信息(字符串,没有则空)"}
+规则：
+1. 只提取页面里明确出现的字段，没有的填空字符串，绝对不要编造数字（尤其价格/佣金/销量）。
+2. 页面可能有多个商品，取主商品（标题对应的那个）。
+3. 金额保持页面原文格式（如 ¥29.9、29.9元）。'''
+
+
+def _llm_extract_product(title: str, text: str) -> dict:
+    """商品页正文 → 结构化字段。glm-4-flash 优先，失败退 glm-4.7。"""
+    messages = [{'role': 'user', 'content':
+                 PRODUCT_URL_PROMPT + f'\n【页面标题】{title}\n【页面正文】\n{text}'}]
+    for model in ('glm-4-flash', 'glm-4.7'):
+        try:
+            content = llm_chat(messages, max_tokens=1500, model=model)
+        except Exception as e:
+            log(f'[ProductURL] llm({model}) 失败: {e}')
+            continue
+        raw = _balanced_json(content)
+        if raw:
+            try:
+                d = json.loads(raw)
+                if isinstance(d, dict) and d.get('name'):
+                    return d
+            except Exception:
+                pass
+    raise RuntimeError('AI 提取商品字段失败')
+
+
+def _run_product_url_impl(row):
+    """商品链接采集（团长端浏览器）：打开商品页 → 取正文 → LLM 结构化 → result 落 job。
+    result = JSON 字符串：{name,price,commission,commission_rate,sales,shop,category,
+    shop_score,highlights,target_crowd,coupon,resolved_url}"""
+    cid, url = row['id'], (row.get('url') or '').strip()
+    _job_set(cid, status='collecting', stage='启动团长端浏览器', started=time.time())
+    log(f'[ProductURL] {cid} 开始商品链接采集: {url}')
+    try:
+        page = BROWSER.ensure()
+        _job_set(cid, stage='打开商品页')
+        page.goto(url, timeout=60000)
+        page.wait_for_load_state('domcontentloaded')
+        _human_sleep(3, 5)
+        resolved = page.url
+        try:
+            _check_login_state(page)
+        except NeedLogin:
+            # 短链可能跳到非百应域名（精选联盟详情页也在百应域），仅百应域校验 cookie
+            if 'jinritemai.com' in resolved:
+                raise
+            log(f'[ProductURL] {cid} 非百应域名({resolved})，跳过 cookie 校验')
+        _job_set(cid, stage='提取页面内容')
+        title = (page.title() or '')[:200]
+        text = page.evaluate(
+            "() => (document.body ? (document.body.innerText || '') : '')")[:9000]
+        if len(text.strip()) < 50:
+            raise RuntimeError('页面正文过短，可能是登录墙或页面未加载完成')
+        _job_set(cid, stage='AI 提取商品字段')
+        fields = _llm_extract_product(title, text)
+        fields['resolved_url'] = resolved
+        _job_set(cid, status='done', stage='完成',
+                 result=json.dumps(fields, ensure_ascii=False))
+        log(f'[ProductURL] {cid} 完成: {list(fields.keys())[:12]}')
+    except NeedLogin as e:
+        err = f'团长端登录态缺失: {e}'
+        log(f'[ProductURL] {cid} {err}')
+        _job_set(cid, status='need_login', error=err)
+    except BrowserLoopPoisoned:
+        raise
+    except Exception as e:
+        err = f'{type(e).__name__}: {e}'
+        log(f'[ProductURL] {cid} 失败: {err}\n{traceback.format_exc()[:1200]}')
+        try:
+            if BROWSER.page:
+                _dump_page(BROWSER.page, 'fatal', cid)
+        except Exception:
+            pass
+        _job_set(cid, status='failed', error=err)
 
 
 def _run_product_impl(row):
@@ -2272,6 +2353,16 @@ class ControlHandler(BaseHTTPRequestHandler):
             # 只读探测：当前 URL + cookie 名，不导航不点击（登录诊断用）
             JOB_Q.put({'_probe_daren': True})
             self._json(200, {'ok': True, 'msg': 'probe 已入队，随后 GET /probe-result'})
+            return
+        if self.path == '/collect-product-url':
+            # 商品链接采集：{url} → 团长端浏览器打开 → LLM 提取 → GET /jobs/<id> 取 result
+            url = str(body.get('url') or '').strip()
+            if not url:
+                self._json(400, {'error': 'missing url'})
+                return
+            cid = f"pur_{int(time.time()*1000)}_{secrets.token_hex(3)}"
+            submit_collect({'_product_url': True, 'id': cid, 'url': url})
+            self._json(200, {'ok': True, 'collect_id': cid})
             return
         if self.path == '/collect-product':
             # 商品采集：{url? 或 name+shop?} → 入队由达人端浏览器执行

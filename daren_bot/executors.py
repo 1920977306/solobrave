@@ -633,7 +633,107 @@ def _read_talent(talent_id: str, douyin_id: str):
 # ---------------- 未接入（诚实失败路径，spec 4.2/4.3） ----------------
 
 def execute_product_collect(task: dict) -> str:
-    raise NotImplementedError("商品采集链路开发中（团长端商品页）")
+    """商品链接分析：缓存命中直接用缓存；未命中调 buyin_worker /collect-product-url
+    浏览器抓取 → 商品共享缓存 → 结合该达人画像出「能带/慎带/别带」结论。
+    返回值为「商品名\n结论Markdown」，展示层由 worker 分支决定。"""
+    from . import db as _db
+    product_key = (task.get("target") or "").strip()
+    if not product_key:
+        return "没收到商品链接，重新发一下～"
+
+    stats = None
+    if task.get("cache_hit"):
+        cached = _db.cache_get(product_key)
+        if cached:
+            try:
+                stats = json.loads(cached["stats_json"] or "{}")
+            except Exception:
+                stats = None
+
+    if stats is None:
+        try:
+            res = _http_json("POST", f"{BUYIN_CONTROL}/collect-product-url",
+                             {"url": product_key})
+        except Exception as e:
+            raise RuntimeError(f"采集器未启动或不可达({BUYIN_CONTROL}): {e}")
+        cid = res.get("collect_id") or ""
+        if not cid:
+            raise RuntimeError(f"采集器未返回任务号: {res}")
+        deadline = time.time() + 240      # 开页+提取约1-2分钟，最多等4分钟
+        job = {}
+        while time.time() < deadline:
+            time.sleep(JOB_POLL_INTERVAL)
+            try:
+                job = _http_json("GET", f"{BUYIN_CONTROL}/jobs/{cid}")
+            except Exception:
+                job = {}
+            st = job.get("status") or ""
+            if st in ("done", "failed", "need_login"):
+                break
+        st = (job or {}).get("status") or ""
+        if st == "need_login":
+            raise RuntimeError("百应登录态过期了，跟运营老师说一声扫码重登就好")
+        if st != "done":
+            raise RuntimeError((job or {}).get("error") or "商品采集超时，过会儿再试")
+        try:
+            stats = json.loads((job or {}).get("result") or "{}")
+        except Exception:
+            stats = {}
+        if not stats.get("name"):
+            raise RuntimeError("没能从页面里识别出商品信息，发个商品截图给我也行")
+        # 写商品共享缓存（全平台达人共用，TTL 7 天）
+        try:
+            _db.cache_put(product_key,
+                          name=stats.get("name", ""),
+                          price=stats.get("price", ""),
+                          commission=stats.get("commission", ""),
+                          stats=stats,
+                          source_url=stats.get("resolved_url") or product_key)
+        except Exception:
+            log.exception("product cache_put failed: key=%s", product_key)
+
+    verdict = _product_verdict(task.get("tenant_key", ""), stats)
+    title = stats.get("name") or "商品分析"
+    return f"{title}\n{verdict}"
+
+
+PRODUCT_VERDICT_PROMPT = '''你是抖音电商达人的AI选品顾问。根据【商品信息】和【该达人的账号数据】判断这个商品适不适合这个达人带货，输出 Markdown（不要输出其他内容）：
+
+## 结论
+🟢 能带 / 🟡 慎带 / 🔴 别带（三选一，标题后接一句不超过30字的理由）
+## 匹配分析
+- 价格匹配：商品价格 vs 该达人粉丝消费力
+- 人群匹配：商品目标人群 vs 该达人粉丝画像（性别/年龄/地域）
+- 佣金评估：佣金率是否有吸引力（没有佣金数据就明说没有，不要编）
+## 行动建议
+- 2-3条具体可执行的建议（怎么讲卖点、适合什么内容形式）
+
+规则：
+1. 有数据必须引用数据；没有的维度明说"没有数据"，绝对不要编造数字。
+2. 如果商品信息里关键字段（价格/佣金）缺失，结论最多给"🟡 慎带"并说明缺什么。'''
+
+
+def _product_verdict(tenant_key: str, stats: dict) -> str:
+    ctx = _talent_context(tenant_key)
+    lines = [f"- {k}：{v}" for k, v in stats.items()
+             if v and k != "resolved_url"]
+    prompt = (PRODUCT_VERDICT_PROMPT
+              + "\n【商品信息】\n" + ("\n".join(lines) if lines else "(空)")
+              + ("\n【该达人的账号数据】" + ctx if ctx else "\n【该达人的账号数据】暂无"))
+    content = ""
+    for attempt in (1, 2):
+        try:
+            content = _qa_llm(prompt, model='glm-4-flash')
+        except Exception as e:
+            log.warning("product verdict attempt %d failed: %s", attempt, e)
+            content = ""
+        if content.strip():
+            break
+    ans = content.strip()
+    if not ans:
+        return ("## 结论\n🟡 慎带（AI 分析暂时没出结果，可稍后重试）\n\n"
+                "## 商品信息\n" + ("\n".join(lines) if lines else "- （无）"))
+    return ans[:4000]
 
 
 def execute_image_vision(task: dict) -> str:
@@ -906,6 +1006,37 @@ def execute_video(task: dict) -> str:
         if status == "failed":
             raise RuntimeError(err or "视频拆解失败（链接可能要求登录或已失效）")
     raise RuntimeError("拆解超时（>15分钟），任务还在后台跑，过会儿问运营老师要结果")
+
+
+def notify_product_card(sender, chat_id: str, result_text: str, tenant_key: str) -> None:
+    """商品分析推送：分节卡片长图（复用拆解渲染器）+ 标题 + 文字版 + 多维表格。"""
+    if sender is None:
+        log.info("[notify-no-sender] product tenant=%s", tenant_key)
+        return
+    title, _, report = (result_text or "").partition("\n")
+    try:
+        from .report_card import render_teardown_card
+        import tempfile
+        tmp = Path(tempfile.gettempdir()) / f"daren_product_{abs(hash(title)) % 10**8}.png"
+        render_teardown_card(title, report, str(tmp),
+                             kicker="商品分析",
+                             chip="能带 · 慎带 · 别带")
+        sender.send_image_path(chat_id, str(tmp))
+        sender.send_text(chat_id, f"🛒 商品分析完成：{title}")
+        _send_text_quiet(sender, chat_id,
+                         f"🛒 {title}\n{_md_to_text(report)}")
+        try:
+            from . import bitable_sync
+            bitable_sync.sync_log(
+                tenant_key, "商品分析",
+                (result_text or "").split("\n", 1)[0][:500],
+                _md_to_text(report))
+        except Exception:
+            log.exception("bitable sync log failed: tenant=%s", tenant_key)
+        return
+    except Exception:
+        log.exception("render product card failed, fallback to text: tenant=%s", tenant_key)
+    sender.send_text(chat_id, f"🛒 {title}\n\n{_md_to_text(report)}")
 
 
 def notify_video_card(sender, chat_id: str, result_text: str, tenant_key: str) -> None:
