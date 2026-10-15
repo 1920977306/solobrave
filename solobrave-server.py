@@ -9093,6 +9093,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             if len(parts) == 2 and parts[1] == 'promote':
                 self._handle_promote_talent(parts[0])
                 return
+            if len(parts) == 2 and parts[1] == 'restore':
+                self._handle_restore_talent(parts[0])
+                return
 
         # Product API
         if path == '/api/products':
@@ -9118,6 +9121,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 return
             if len(parts) == 2 and parts[1] == 'match-talents':
                 self._handle_match_product_talents(parts[0])
+                return
+            if len(parts) == 2 and parts[1] == 'restore':
+                self._handle_restore_product(parts[0])
                 return
 
         # Influencer API (legacy JSON)
@@ -18250,11 +18256,14 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
     # 商品库 API
     # ═══════════════════════════════════════════════════
 
-    def _load_products(self):
-        """从 SQLite 加载全部商品（返回兼容旧格式的 dict）"""
+    def _load_products(self, include_archived=False):
+        """从 SQLite 加载全部商品（返回兼容旧格式的 dict）；include_archived=True 时含已归档（回收站用）"""
         conn = _db_conn()
         try:
-            rows = conn.execute("SELECT * FROM products WHERE status != 'archived' ORDER BY updated_at DESC").fetchall()
+            if include_archived:
+                rows = conn.execute('SELECT * FROM products ORDER BY updated_at DESC').fetchall()
+            else:
+                rows = conn.execute("SELECT * FROM products WHERE status != 'archived' ORDER BY updated_at DESC").fetchall()
             products = [_product_row_to_dict(r) for r in rows]
             return {'products': products, 'total': len(products), 'version': '1.0'}
         finally:
@@ -18271,10 +18280,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_auth_error(auth.error, auth.status)
             return
         if not self._require_module_permission(auth, 'products'): return
-        data = self._load_products()
-        products = data.get('products', [])
-        # 解析 query string 做筛选
+        # 解析 query string 做筛选（先解析，status=archived 时加载含归档全集，回收站用）
         query = parse_qs(urlparse(self.path).query)
+        want_status = query.get('status', [''])[0]
+        data = self._load_products(include_archived=(want_status == 'archived'))
+        products = data.get('products', [])
         if query.get('category'):
             cat = query['category'][0]
             products = [p for p in products if p.get('category') == cat]
@@ -19248,6 +19258,31 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             except Exception as e:
                 logger.warning(f'  [DeleteProduct] 缓存文件删除失败: {cache_path}, err={e}')
         self._send_json(200, {'deleted': deleted, 'id': product_id})
+
+    def _handle_restore_product(self, product_id):
+        """POST /api/products/:id/restore — 从回收站还原 (status='active')，鉴权链与删除一致"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'products'): return
+        role_guard = _check_agent_role_write_scope(auth, 'product')
+        if role_guard:
+            self._send_json(role_guard[1], {'error': role_guard[0]})
+            return
+        conn = _db_conn()
+        try:
+            row = conn.execute('SELECT id FROM products WHERE id = ?', (product_id,)).fetchone()
+            if not row:
+                self._send_json_error(404, 'Product not found')
+                return
+            cur = conn.execute(
+                "UPDATE products SET status = 'active', updated_at = ? WHERE id = ? AND status = 'archived'",
+                (int(time.time()), product_id))
+            conn.commit()
+        finally:
+            conn.close()
+        self._send_json(200, {'restored': cur.rowcount > 0, 'id': product_id})
 
     def _handle_search_products(self):
         """POST /api/products/search — 高级搜索/匹配"""
@@ -20311,6 +20346,38 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         finally:
             conn.close()
         self._send_json(200, {'deleted': cur.rowcount > 0, 'id': talent_id})
+
+    def _handle_restore_talent(self, talent_id):
+        """POST /api/talents/:id/restore — 从回收站还原 (status='active')，鉴权链与删除一致"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'influencers'): return
+        role_guard = _check_agent_role_write_scope(auth, 'talent')
+        if role_guard:
+            self._send_json(role_guard[1], {'error': role_guard[0]})
+            return
+        write_guard = _check_talent_write_permission(auth, talent_id)
+        if write_guard:
+            self._send_json(write_guard[1], {'error': write_guard[0]})
+            return
+        conn = _db_conn()
+        try:
+            talent = conn.execute('SELECT group_id FROM talents WHERE id = ?', (talent_id,)).fetchone()
+            if not talent:
+                self._send_json_error(404, 'Talent not found')
+                return
+            cur = conn.execute(
+                "UPDATE talents SET status = 'active', updated_at = ? WHERE id = ? AND status = 'archived'",
+                (int(time.time()), talent_id))
+            conn.commit()
+            if talent['group_id']:
+                _update_brand_product_stats(conn, talent['group_id'])
+                conn.commit()
+        finally:
+            conn.close()
+        self._send_json(200, {'restored': cur.rowcount > 0, 'id': talent_id})
 
     def _handle_get_talent_follow_ups(self, talent_id):
         """GET /api/talents/:id/follow-ups — 获取跟进记录列表"""

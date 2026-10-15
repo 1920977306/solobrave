@@ -1928,6 +1928,8 @@ function toggleEmpAdv(){
  * ============================================================ */
 var _sb2TalentsList = [];
 var _sb2TalentsTotal = 0;
+/* feat/recycle-bin: 回收站开关 — true 时列表查 status=archived，行操作换「还原」 */
+var _sb2TalentsShowArchived = false;
 /* ★ fix/talents-hotfix: 服务端响应带全量 facets (rating/category/cooperation GROUP BY),
    前端不再从当前页 _sb2TalentsList 算聚合 (之前用 list 算 → 全部 50 = 当前页 limit)
    apply when: 任何「侧栏聚合需全库数据」必须服务端 GROUP BY 一次拿, 禁前端从当前页算 */
@@ -2094,7 +2096,9 @@ function sb2TalentsRowHtml(t, pageMaxGpm, pageMaxGmv){
     + '<td><span class="sb2-talents-status s-' + sb2TalentsEsc(statusKey) + '">' + sb2TalentsEsc(statusLabel) + '</span></td>'
     /* ★ r39-P0: 行操作 cell — AI 匹配弹窗入口 (规格项 2, 仿 22 轮批注③ 居中弹窗 precedent) */
     + '<td class="sb2-talents-cell-action"><button class="sb2-talents-aimatch-btn" onclick="sb2TalentsOpenAiMatch(\'' + id.replace(/'/g, "\\'") + '\')">AI 匹配</button>'
-    + ' <button class="sb2-talents-del-btn" onclick="event.stopPropagation(); sb2TalentsDelete(\'' + id.replace(/'/g, "\\'") + '\', \'' + name.replace(/'/g, "\\'") + '\')">删除</button></td>'
+    + (_sb2TalentsShowArchived
+      ? ' <button class="sb2-talents-restore-btn" onclick="event.stopPropagation(); sb2TalentsRestore(\'' + id.replace(/'/g, "\\'") + '\', \'' + name.replace(/'/g, "\\'") + '\')">还原</button>'
+      : ' <button class="sb2-talents-del-btn" onclick="event.stopPropagation(); sb2TalentsDelete(\'' + id.replace(/'/g, "\\'") + '\', \'' + name.replace(/'/g, "\\'") + '\')">删除</button>') + '</td>'
     + '</tr>';
 }
 
@@ -2504,6 +2508,8 @@ async function sb2TalentsLoad(){
   if (_sb2TalentsSearchQ) params.push('q=' + encodeURIComponent(_sb2TalentsSearchQ));
   if (_sb2TalentsFilterStatus) params.push('cooperation=' + encodeURIComponent(_sb2TalentsFilterStatus));
   if (_sb2TalentsFilterCategory) params.push('talent_category=' + encodeURIComponent(_sb2TalentsFilterCategory));
+  // 回收站模式：服务端显式查 status=archived（默认不传=active，跟原行为一致）
+  if (_sb2TalentsShowArchived) params.push('status=archived');
   // rating 维不走后端 SUBSTR level (实测 SUBSTR 选不出), 改前端 filter
   var url = '/api/talents?' + params.join('&');
   try {
@@ -2556,7 +2562,7 @@ async function sb2TalentsLoad(){
     var pageIds = {};
     list.forEach(function(t){ if (t.id) pageIds[t.id] = true; });
     Object.keys(_sb2TalentsSelectedIds).forEach(function(k){ if (!pageIds[k]) delete _sb2TalentsSelectedIds[k]; });
-    if (heroSub) heroSub.textContent = _sb2TalentsTotal + ' 位在库 · 按评级与类目分层';
+    if (heroSub) heroSub.textContent = (_sb2TalentsShowArchived ? '已归档 · ' : '') + _sb2TalentsTotal + ' 位' + (_sb2TalentsShowArchived ? '' : '在库 · 按评级与类目分层');
     sb2TalentsUpdateFilterBtn();
     sb2TalentsRenderSide();
     sb2TalentsRenderTable();
@@ -4481,8 +4487,10 @@ window.sb2TasksToast = sb2TasksToast;
 function escHtml(s){ return String(s==null?'':s).replace(/[&<>"\x27]/g, function(c){ return ({'&amp;':'&amp;','&lt;':'&lt;','&gt;':'&gt;','&quot;':'&quot;',"&#39;":'&#39;'})[c]; }); }
 function escAttr(s){ return String(s==null?'':s).replace(/[&<>"\x27]/g, function(c){ return ({'&amp;':'&amp;','&lt;':'&lt;','&gt;':'&gt;','&quot;':'&quot;',"&#39;":'&#39;'})[c]; }); }
 
-var _sb2PdsStatusLabel = { active:'在售', out_of_stock:'缺货', discontinued:'停售' };
+var _sb2PdsStatusLabel = { active:'在售', out_of_stock:'缺货', discontinued:'停售', archived:'已归档' };
 var _sb2PdsProducts = []; var _sb2PdsTotal = 0;
+/* feat/recycle-bin: 回收站开关 — true 时拉 status=archived，行操作换「还原」 */
+var _sb2PdsShowArchived = false;
 var _sb2PdsCat = ''; var _sb2PdsStatus = ''; var _sb2PdsBrand = '';
 var _sb2PdsQ = ''; var _sb2PdsSort = 'default'; var _sb2PdsPage = 1;
 var _sb2PdsBrands = [];
@@ -4576,7 +4584,7 @@ function sb2PdsRender(){
     var c = p.category || '';
     if (c && !_cats[c]) { _cats[c] = 1; catCount++; }
   });
-  if (heroSub) heroSub.textContent = '共 ' + _sb2PdsTotal + ' 商品 · ' + catCount + ' 类目 · 在售 ' + totalActive + ' · 缺货 ' + totalOos;
+  if (heroSub) heroSub.textContent = (_sb2PdsShowArchived ? '已归档 · ' : '') + '共 ' + _sb2PdsTotal + ' 商品 · ' + catCount + ' 类目 · 在售 ' + totalActive + ' · 缺货 ' + totalOos;
 
   if (filtered.length === 0) {
     tbody.innerHTML = '<tr><td colspan="8"><div class="sb2-pds-empty">'
@@ -4663,7 +4671,9 @@ function sb2PdsRender(){
        跟项 2 对称: 商品行 hover 操作区 cell + 居中 720 弹窗 + sb2-pds-rise 动画
        r38 IIFE 踩坑: HTML onclick 必须 window.* 暴露 */
     html += '<td class="sb2-pds-cell-action"><button class="sb2-pds-findtalent-btn" onclick="sb2PdsOpenFindTalents(\'' + escAttr(p.id) + '\')">找达人</button>'
-      + ' <button class="sb2-pds-del-btn" onclick="event.stopPropagation(); sb2PdsDelete(\'' + escAttr(p.id) + '\', \'' + escAttr(p.name || '') + '\')">删除</button></td>';
+      + (_sb2PdsShowArchived
+        ? ' <button class="sb2-pds-restore-btn" onclick="event.stopPropagation(); sb2PdsRestore(\'' + escAttr(p.id) + '\', \'' + escAttr(p.name || '') + '\')">还原</button>'
+        : ' <button class="sb2-pds-del-btn" onclick="event.stopPropagation(); sb2PdsDelete(\'' + escAttr(p.id) + '\', \'' + escAttr(p.name || '') + '\')">删除</button>') + '</td>';
     html += '</tr>';
   });
   tbody.innerHTML = html;
@@ -5054,7 +5064,7 @@ async function sb2ProductsInit(){
     var tbody = document.getElementById('sb2PdsTbody');
     if (tbody) tbody.innerHTML = '<tr><td colspan="8" class="sb2-pds-empty">载入中…</td></tr>';
 
-    var resp = await apiFetch('/api/products?limit=500');
+    var resp = await apiFetch('/api/products?limit=500' + (_sb2PdsShowArchived ? '&status=archived' : ''));
     if (!resp || !resp.ok) {
       if (heroSub) heroSub.textContent = '加载失败 (HTTP ' + (resp ? resp.status : 'no response') + ')';
       if (tbody) tbody.innerHTML = '<tr><td colspan="8"><div class="sb2-pds-empty"><div class="sb2-pds-empty-icon"><i class=sb2-ico-box></i></div><div class="sb2-pds-empty-text">加载失败，请刷新重试</div></div></td></tr>';
@@ -5143,6 +5153,65 @@ async function sb2PdsDelete(id, name){
 }
 window.sb2TalentsDelete = sb2TalentsDelete;
 window.sb2PdsDelete = sb2PdsDelete;
+/* feat/recycle-bin: 回收站 — 开关切换 + 还原 */
+function sb2TalentsToggleArchive(){
+  _sb2TalentsShowArchived = !_sb2TalentsShowArchived;
+  _sb2TalentsPage = 1;
+  var btn = document.getElementById('sb2TalentsArchiveBtn');
+  if (btn) {
+    btn.textContent = _sb2TalentsShowArchived ? '← 返回列表' : '回收站';
+    btn.classList.toggle('sb2-archive-on', _sb2TalentsShowArchived);
+  }
+  sb2TalentsLoad();
+}
+async function sb2TalentsRestore(id, name){
+  if (!id) return;
+  if (!confirm('确定还原达人「' + (name || id) + '」？还原后回到正常列表')) return;
+  try {
+    var resp = await apiFetch('/api/talents/' + encodeURIComponent(id) + '/restore', { method: 'POST' });
+    if (!resp || !resp.ok) {
+      var msg = '';
+      try { var err = await resp.json(); msg = (err && err.error) || ''; } catch (e) {}
+      showToast('❌ 还原失败' + (msg ? ': ' + msg : ' (HTTP ' + (resp ? resp.status : '?') + ')'), 'error');
+      return;
+    }
+    showToast('✅ 已还原 ' + (name || id), 'success');
+    if (typeof sb2TalentsLoad === 'function') sb2TalentsLoad();
+  } catch (e) {
+    showToast('❌ 网络错误: ' + (e && e.message || e), 'error');
+  }
+}
+window.sb2TalentsToggleArchive = sb2TalentsToggleArchive;
+window.sb2TalentsRestore = sb2TalentsRestore;
+/* feat/recycle-bin: 商品回收站 — 开关切换 + 还原 */
+function sb2PdsToggleArchive(){
+  _sb2PdsShowArchived = !_sb2PdsShowArchived;
+  var btn = document.getElementById('sb2PdsArchiveBtn');
+  if (btn) {
+    btn.textContent = _sb2PdsShowArchived ? '← 返回列表' : '回收站';
+    btn.classList.toggle('sb2-archive-on', _sb2PdsShowArchived);
+  }
+  if (typeof sb2ProductsInit === 'function') sb2ProductsInit();
+}
+async function sb2PdsRestore(id, name){
+  if (!id) return;
+  if (!confirm('确定还原商品「' + (name || id) + '」？还原后回到正常列表')) return;
+  try {
+    var resp = await apiFetch('/api/products/' + encodeURIComponent(id) + '/restore', { method: 'POST' });
+    if (!resp || !resp.ok) {
+      var msg = '';
+      try { var err = await resp.json(); msg = (err && err.error) || ''; } catch (e) {}
+      showToast('❌ 还原失败' + (msg ? ': ' + msg : ' (HTTP ' + (resp ? resp.status : '?') + ')'), 'error');
+      return;
+    }
+    showToast('✅ 已还原 ' + (name || id), 'success');
+    if (typeof sb2ProductsInit === 'function') sb2ProductsInit();
+  } catch (e) {
+    showToast('❌ 网络错误: ' + (e && e.message || e), 'error');
+  }
+}
+window.sb2PdsToggleArchive = sb2PdsToggleArchive;
+window.sb2PdsRestore = sb2PdsRestore;
 
 window.sb2ProductsInit = sb2ProductsInit;
 window.switchProductsCategory = switchProductsCategory;

@@ -12113,6 +12113,19 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
 .sb2-pds-del-btn:hover{
   background:var(--sb2-danger, #e5484d); color:#fff;
 }
+/* feat/recycle-bin: 行内还原键 — 绿色描边; 回收站开关激活态 */
+.sb2-pds-restore-btn{
+  font:500 11px/1 "PingFang SC",sans-serif; color:#2e9e5b;
+  background:transparent; border:1px solid #2e9e5b;
+  border-radius:var(--sb2-r-full); padding:4px 10px; cursor:pointer;
+  transition:background .12s, color .12s;
+}
+.sb2-pds-restore-btn:hover{
+  background:#2e9e5b; color:#fff;
+}
+.sb2-btn-ink.sb2-archive-on{
+  background:var(--sb2-brand); color:var(--sb2-s1);
+}
 
 .sb2-pds-findtalent-overlay{
   position:fixed; inset:0; background:rgba(0,0,0,0.45);
@@ -13043,6 +13056,19 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
 }
 .sb2-talents-del-btn:hover{
   background:var(--sb2-danger, #e5484d); color:#fff;
+}
+/* feat/recycle-bin: 行内还原键 — 绿色描边; 回收站开关激活态 */
+.sb2-talents-restore-btn{
+  font:500 11px/1 "PingFang SC",sans-serif; color:#2e9e5b;
+  background:transparent; border:1px solid #2e9e5b;
+  border-radius:var(--sb2-r-full); padding:4px 10px; cursor:pointer;
+  transition:background .12s, color .12s;
+}
+.sb2-talents-restore-btn:hover{
+  background:#2e9e5b; color:#fff;
+}
+.sb2-talents-btn.sb2-archive-on{
+  background:var(--sb2-brand); color:var(--sb2-s1);
 }
 
 .sb2-tln-aimatch-overlay{
@@ -15914,6 +15940,7 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
         <option value="commission_desc">佣金率降序</option>
         <option value="influencer_desc">带货达人降序</option>
       </select>
+      <button class="sb2-btn sb2-btn-ink" id="sb2PdsArchiveBtn" onclick="sb2PdsToggleArchive()">回收站</button>
       <button class="sb2-btn sb2-btn-ink" onclick="createNewProduct()">+ 录入商品</button>
     </div>
   </div>
@@ -16047,6 +16074,8 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
         <div class="sb2-talents-hero-acts">
           <button class="sb2-talents-btn" id="sb2TalentsCollectBtn" onclick="sb2TalentsToggleCollect()">AI 采集 <span id="sb2TalentsCollectBadge" style="display:none"></span></button>
           <button class="sb2-talents-btn" id="sb2TalentsFilterBtn" onclick="sb2TalentsToggleFilter()">筛选 ▾</button>
+          <!-- feat/recycle-bin: 回收站开关 — 点击看已归档达人，行内可还原 -->
+          <button class="sb2-talents-btn" id="sb2TalentsArchiveBtn" onclick="sb2TalentsToggleArchive()">回收站</button>
           <button class="sb2-talents-btn" onclick="sb2TalentsToast('导出功能在 MVP5')">导出</button>
           <!-- ★ fix/sb2-talents-full-restore (commit 1): 「+ 录入达人」改全角「＋ 录入达人」(原型 btn-brand line 580)
                 之前: 半角 + (ASCII), 跟原型 btn-brand 的全角＋ (U+FF0B) 不一致
@@ -19389,7 +19418,7 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
      v2 (202609241444): 初始破缓存 + skip-device 守卫
      v3 (202609241420): probe 误导文案澄清 (fingerprint fallback → token-only) -->
 <script src="openclaw-client.js?v=ocowner1a20261008"></script>
-<script src="js/inline-07.js?v=creditvis1a20261015"></script>
+<script src="js/inline-07.js?v=recycle1a20261015"></script>
 
 <!-- Match Result Modal -->
 <div class="product-modal-overlay" id="matchModalOverlay" onclick="closeMatchModal()">
