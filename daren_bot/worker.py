@@ -64,6 +64,10 @@ class Worker(threading.Thread):
                 from .executors import notify_report
                 notify_report(self.wm.get_sender(tk), task["chat_id"],
                               task["target"], result_summary)
+            elif task["type"] == "qa" and task.get("chat_id"):
+                # 问答推送：优先可视化卡片，渲染失败回退纯文字
+                executors.notify_qa_card(self.wm.get_sender(tk), task["chat_id"],
+                                         task["target"], result_summary, tk)
             else:
                 # qa 是对话型回答，不带「任务完成：」前缀，直接推送答案
                 prefix = "" if task["type"] == "qa" else "任务完成："

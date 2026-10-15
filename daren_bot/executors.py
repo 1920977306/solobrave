@@ -664,6 +664,39 @@ def notify_report(sender, chat_id: str, douyin_id: str, report_text: str) -> Non
     sender.send_text(chat_id, report_text)
 
 
+def _talent_name(tk: str) -> str:
+    """租户绑定账号的昵称，取不到返回空串。"""
+    try:
+        from . import db
+        tenant = db.get_tenant(tk)
+        dyid = (tenant or {}).get("bind_douyin_id") or ""
+        if not dyid:
+            return ""
+        t = _read_talent("", dyid)
+        return (t or {}).get("name") or ""
+    except Exception:
+        return ""
+
+
+def notify_qa_card(sender, chat_id: str, question: str, answer: str,
+                   tenant_key: str) -> None:
+    """问答推送：优先渲染问答卡片发图；渲染失败回退纯文字答案。"""
+    if sender is None:
+        log.info("[notify-no-sender] qa tenant=%s", tenant_key)
+        return
+    try:
+        from .report_card import render_qa_card
+        import tempfile
+        tmp = Path(tempfile.gettempdir()) / f"daren_qa_{abs(hash(question)) % 10**8}.png"
+        render_qa_card(question, answer, _talent_name(tenant_key), str(tmp))
+        sender.send_image_path(chat_id, str(tmp))
+        return
+    except Exception:
+        log.exception("render qa card failed, fallback to text: tenant=%s", tenant_key)
+    sender.send_text(chat_id, answer)
+
+
+
 # ---------------- 业务问答（spec ① 意图分类的问答类，1 积分/次） ----------------
 
 def _zhipu_cfg_daren():

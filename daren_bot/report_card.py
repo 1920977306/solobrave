@@ -377,3 +377,62 @@ def render_card(talent_id: str, douyin_id: str, out_path: str) -> str:
     card = im.crop((0, 0, W, y + 10))
     card.save(out_path, "PNG")
     return out_path
+
+
+# ---------------------------------------------------------------- 问答卡片
+
+QA_PURPLE = (108, 76, 224)
+
+
+def render_qa_card(question: str, answer: str, talent_name: str = "",
+                   out_path: str = "") -> str:
+    """业务问答可视化卡片：问句引用块 + 回答正文 + 页脚。
+
+    渲染失败由调用方回退纯文字推送。
+    """
+    im = Image.new("RGB", (W, 3000), "white")
+    dr = ImageDraw.Draw(im)
+    y = 0
+
+    # ── 头部 ──
+    hdr_h = 210
+    _round(dr, (0, 0, W, hdr_h), 0, QA_PURPLE)
+    dr.text((M, 40), "AI 选品顾问", font=_font(24), fill=(216, 206, 250))
+    dr.text((M, 82), "选品问答", font=_font(48, True), fill="white")
+    if talent_name:
+        tag = f"@{talent_name}"
+        tw = _text_w(dr, tag, _font(24))
+        _round(dr, (W - M - tw - 40, 44, W - M, 92), 24, (255, 255, 255))
+        dr.text((W - M - tw - 20, 56), tag, font=_font(24), fill=QA_PURPLE)
+    dr.text((M, 156), "回答结合你的账号数据生成", font=_font(22), fill=(216, 206, 250))
+    y = hdr_h + 30
+
+    # ── 问题引用块 ──
+    q_font = _font(27)
+    q_lines = _wrap(f"问　{question}", q_font, W - 2 * M - 64, dr)
+    box_h = len(q_lines) * 42 + 36
+    _round(dr, (M, y, W - M, y + box_h), 16, LIGHT)
+    for i, ql in enumerate(q_lines):
+        dr.text((M + 32, y + 18 + i * 42), ql, font=q_font, fill=DARK)
+    y += box_h + 34
+
+    # ── 回答正文 ──
+    dr.text((M, y), "答", font=_font(27, True), fill=QA_PURPLE)
+    y += 48
+    a_font = _font(27)
+    for wl in _wrap(answer, a_font, W - 2 * M - 20, dr):
+        dr.text((M + 10, y), wl, font=a_font, fill=DARK)
+        y += 44
+    y += 14
+
+    # ── 页脚 ──
+    y += 14
+    dr.line((M, y, W - M, y), fill=LINE, width=2)
+    y += 18
+    dr.text((M, y), f"全可AI Office　{time.strftime('%Y-%m-%d %H:%M')}",
+            font=_font(20), fill=GRAY)
+    y += 44
+
+    card = im.crop((0, 0, W, y + 10))
+    card.save(out_path, "PNG")
+    return out_path
