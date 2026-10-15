@@ -24277,6 +24277,48 @@ def _fix_single_quotes(s):
     return re.sub(r"'([^'\"\\]*)'", r'"\1"', s)
 
 
+def _fix_bare_thousands(s):
+    """把 JSON 文本【引号外】裸写的千分位数字 2,734 → 2734。
+    真机 2026-10-15: 修复 pass 吐 {\"video_count\": 2,734}, 裸逗号是非法 JSON,
+    _parse_vision_json 解析失败 → 白跑一轮修复只能保留原值。
+    引号内的 "2,734" 是文本值, 原样保留 (grounding digit-run 匹配依赖原文形态)。
+    状态机扫描 (转义感知), 不靠正则猜引号, 循环到不动点兼容 1,234,567。"""
+    out = []
+    buf = []            # 引号外的累积段
+    in_str = False
+    esc = False
+
+    def _flush_buf():
+        if not buf:
+            return
+        seg = ''.join(buf)
+        buf.clear()
+        prev = None
+        while seg != prev:
+            prev = seg
+            seg = re.sub(r'(?<=\d),(?=\d{3}(\D|$))', '', seg)
+        out.append(seg)
+
+    for ch in s:
+        if in_str:
+            out.append(ch)
+            if esc:
+                esc = False
+            elif ch == '\\':
+                esc = True
+            elif ch == '"':
+                in_str = False
+            continue
+        if ch == '"':
+            _flush_buf()
+            out.append(ch)
+            in_str = True
+        else:
+            buf.append(ch)
+    _flush_buf()
+    return ''.join(out)
+
+
 def _closing_brackets(text):
     """扫一段文本算还欠哪些闭合符, 倒序返回 (e.g. 欠 1 个 { 和 1 个 [ → '}]').
     只认还没闭合的容器, 字符串内的括号不计 (跟 _repair_truncated 同一套跳过规则)."""
@@ -24408,6 +24450,7 @@ def _repair_vision_json(text):
         s = _drop_bare_key_lines(s)
         s = _fix_trailing_commas(s)
         s = _fix_single_quotes(s)
+        s = _fix_bare_thousands(s)
         s = _repair_truncated(s)
     except Exception as e:
         logger.warning(f'  [VisionJSON] 自研修复异常, 退回原文: {type(e).__name__}: {e}')
