@@ -1943,6 +1943,9 @@ function toggleEmpAdv(){
  * ============================================================ */
 var _sb2TalentsList = [];
 var _sb2TalentsTotal = 0;
+/* fix/talents-local-pagination 老大 21:11「翻页卡顿/删除很慢」: 原每页翻页/筛选/删除都重打服务端
+   → 改一次拉全(按 status 模式), 本地缓存 _sb2TalentsAll, 翻页/筛选/删除全走本地重渲, 零网络等待 */
+var _sb2TalentsAll = [];
 /* feat/recycle-bin: 回收站开关 — true 时列表查 status=archived，行操作换「还原」 */
 var _sb2TalentsShowArchived = false;
 /* fix/page-size-fit 批注② 老大 20:01「画面铺满下面空一大截」: 页尺寸按容器实测动态算
@@ -2151,7 +2154,8 @@ function sb2TalentsRowHtml(t, pageMaxGpm, pageMaxGmv){
 function sb2TalentsRenderTable(){
   var tbody = document.getElementById('sb2TalentsTbody');
   if (!tbody) return;
-  var list = _sb2TalentsList || [];
+  /* ★ fix/talents-local-pagination: _sb2TalentsList 是过滤后全量, 表格只渲当前页 */
+  var list = sb2TalentsPageItems();
   if (list.length === 0){
     tbody.innerHTML = _sb2TalentsShowArchived
       ? '<tr><td colspan="12" class="sb2-talents-empty"><span class="em">🗑</span>回收站是空的，删除的达人会出现在这里</td></tr>'
@@ -2321,7 +2325,8 @@ function sb2TalentsUpdateFooter(){
   if (checkAll){
     var keys = Object.keys(_sb2TalentsSelectedIds || {});
     var n = keys.length;
-    var listLen = (_sb2TalentsList || []).length;
+    /* ★ fix/talents-local-pagination: 跟可见行一致, 只统计当前页 */
+    var listLen = sb2TalentsPageItems().length;
     checkAll.checked = listLen > 0 && n === listLen;
     checkAll.indeterminate = n > 0 && n < listLen;
   }
@@ -2457,8 +2462,15 @@ function sb2TalentsOnSideClick(dim, val){
   _sb2TalentsPage = 1;
   var pop = document.getElementById('sb2TalentsFilterPop');
   if (pop) pop.classList.remove('on');
-  sb2TalentsUpdateFilterBtn();
-  sb2TalentsLoad();
+  /* ★ fix/talents-local-pagination: 有全量缓存就本地过滤重渲, 零网络等待 */
+  if (_sb2TalentsLoaded && (_sb2TalentsAll || []).length){
+    sb2TalentsApplyFilters();
+    sb2TalentsRenderLocal();
+    sb2TalentsStartMatchCount(sb2TalentsPageItems());
+  } else {
+    sb2TalentsUpdateFilterBtn();
+    sb2TalentsLoad();
+  }
   /* 〔fix/sb2-side-restore commit 4 D1c 作用域墙〕守卫改 window.* + 强制重渲
      修前 bug: 点了「已合作」表格真过滤 (9 行 ✓), 但侧栏 active 不动
      sb2TalentsLoad 末尾 D1b 重渲在 IIFE 私有作用域下恒跳过
@@ -2484,22 +2496,36 @@ function sb2TalentsOnSearch(v){
     if (sideInput && sideInput.value !== v) sideInput.value = v;
     if (heroInput && heroInput.value !== v) heroInput.value = v;
     _sb2TalentsPage = 1;
-    sb2TalentsLoad();
+    /* ★ fix/talents-local-pagination: 有全量缓存就本地过滤重渲, 零网络等待 */
+    if (_sb2TalentsLoaded && (_sb2TalentsAll || []).length){
+      sb2TalentsApplyFilters();
+      sb2TalentsRenderLocal();
+      sb2TalentsStartMatchCount(sb2TalentsPageItems());
+    } else {
+      sb2TalentsLoad();
+    }
   }, 300);
 }
 
-/* ★ MVP1: 翻页 */
+/* ★ MVP1: 翻页 — 本地缓存下零网络等待 (fix/talents-local-pagination) */
 function sb2TalentsGoPage(p){
   if (p < 1 || p > Math.ceil(_sb2TalentsTotal / _sb2TalentsLimit)) return;
   _sb2TalentsPage = p;
-  sb2TalentsLoad();
+  if (_sb2TalentsLoaded && (_sb2TalentsAll || []).length){
+    sb2TalentsRenderLocal();
+    /* 换页后补当前页匹配商品数 (已 populate 的走缓存秒显) */
+    sb2TalentsStartMatchCount(sb2TalentsPageItems());
+  } else {
+    sb2TalentsLoad();
+  }
 }
 
 /* ★ MVP1: 全选/单选 */
 function sb2TalentsToggleAll(checked){
   _sb2TalentsSelectedIds = {};
   if (checked){
-    (_sb2TalentsList || []).forEach(function(t){
+    /* ★ fix/talents-local-pagination: 全选只选当前页可见行, 跟 checkAll 态一致 */
+    sb2TalentsPageItems().forEach(function(t){
       if (t.id) _sb2TalentsSelectedIds[t.id] = true;
     });
   }
@@ -2542,7 +2568,48 @@ function sb2TalentsUpdateHeroTitle(){
   hero.textContent = '全部达人';
 }
 
-/* ★ MVP1: 主加载 — 端点契约 GET /api/talents?xxx */
+/* ★ MVP1: 主加载 — 一次拉全 (按 status 模式), 之后翻页/筛选全本地 (fix/talents-local-pagination)
+   端点契约 GET /api/talents?status=&limit=500；q/cooperation/talent_category/rating 四维全改前端过滤 */
+function sb2TalentsApplyFilters(){
+  var q = (_sb2TalentsSearchQ || '').toLowerCase();
+  var list = (_sb2TalentsAll || []).filter(function(t){
+    if (_sb2TalentsFilterStatus && (t.cooperation_status || '') !== _sb2TalentsFilterStatus) return false;
+    if (_sb2TalentsFilterCategory && (t.category || '') !== _sb2TalentsFilterCategory) return false;
+    if (_sb2TalentsFilterRating && sb2TalentsRatingBucket(t.rating_score) !== _sb2TalentsFilterRating) return false;
+    if (q){
+      var hay = ((t.name || '') + ' ' + (t.douyin_id || '') + ' ' + (t.bio || '')).toLowerCase();
+      if (hay.indexOf(q) === -1) return false;
+    }
+    return true;
+  });
+  _sb2TalentsList = list;
+  _sb2TalentsTotal = list.length;
+  var totalPages = Math.max(1, Math.ceil(_sb2TalentsTotal / _sb2TalentsLimit));
+  if (_sb2TalentsPage > totalPages) _sb2TalentsPage = totalPages;
+  return list;
+}
+/* 当前页切片 (表格/全选/并发池都只吃当前页) */
+function sb2TalentsPageItems(){
+  var list = _sb2TalentsList || [];
+  var start = (_sb2TalentsPage - 1) * _sb2TalentsLimit;
+  return list.slice(start, start + _sb2TalentsLimit);
+}
+/* 本地重渲: 翻页/筛选/删除后走这里, 不打接口 */
+function sb2TalentsRenderLocal(){
+  sb2TalentsUpdateHeroTitle();
+  var heroSub = document.getElementById('sb2TalentsHeroSub');
+  if (heroSub) heroSub.textContent = (_sb2TalentsShowArchived ? '已归档 · ' : '') + _sb2TalentsTotal + ' 位' + (_sb2TalentsShowArchived ? '' : '在库 · 按评级与类目分层');
+  var pageItems = sb2TalentsPageItems();
+  var pageIds = {};
+  pageItems.forEach(function(t){ if (t.id) pageIds[t.id] = true; });
+  Object.keys(_sb2TalentsSelectedIds).forEach(function(k){ if (!pageIds[k]) delete _sb2TalentsSelectedIds[k]; });
+  sb2TalentsUpdateFilterBtn();
+  sb2TalentsRenderSide();
+  sb2TalentsRenderTable();
+  sb2TalentsRenderPager();
+  sb2TalentsUpdateFooter();
+}
+
 async function sb2TalentsLoad(){
   _sb2TalentsFitLimit(); /* 批注②: 拉取前按容器实测收放页尺寸 */
   sb2TalentsUpdateHeroTitle();
@@ -2550,15 +2617,11 @@ async function sb2TalentsLoad(){
   var heroSub = document.getElementById('sb2TalentsHeroSub');
   if (tbody) tbody.innerHTML = '<tr><td colspan="12" class="sb2-talents-empty"><span class="em">⏳</span>载入中…</td></tr>';
   if (heroSub) heroSub.textContent = '载入中…';
-  var params = [];
-  params.push('limit=' + _sb2TalentsLimit);
-  params.push('offset=' + ((_sb2TalentsPage - 1) * _sb2TalentsLimit));
-  if (_sb2TalentsSearchQ) params.push('q=' + encodeURIComponent(_sb2TalentsSearchQ));
-  if (_sb2TalentsFilterStatus) params.push('cooperation=' + encodeURIComponent(_sb2TalentsFilterStatus));
-  if (_sb2TalentsFilterCategory) params.push('talent_category=' + encodeURIComponent(_sb2TalentsFilterCategory));
+  /* ★ fix/talents-local-pagination: 一次拉全 (limit=500 无上限, 只按 status 模式),
+     翻页/筛选/删除全走本地 (_sb2TalentsAll + ApplyFilters), 零网络等待 */
+  var params = ['limit=500'];
   // 回收站模式：服务端显式查 status=archived（默认不传=active，跟原行为一致）
   if (_sb2TalentsShowArchived) params.push('status=archived');
-  // rating 维不走后端 SUBSTR level (实测 SUBSTR 选不出), 改前端 filter
   var url = '/api/talents?' + params.join('&');
   try {
     var resp = await apiFetch(url);
@@ -2568,61 +2631,29 @@ async function sb2TalentsLoad(){
       return;
     }
     var data = await resp.json();
-    var list = (data && Array.isArray(data.talents)) ? data.talents : [];
-    // 前端 rating 维过滤 (老大实测 SUBSTR 不行)
-    if (_sb2TalentsFilterRating){
-      list = list.filter(function(t){ return sb2TalentsRatingBucket(t.rating_score) === _sb2TalentsFilterRating; });
-    }
-    _sb2TalentsList = list;
-    _sb2TalentsTotal = (data && typeof data.total === 'number') ? data.total : list.length;
-    /* ★ fix/talents-hotfix: 服务端响应 facets 全量聚合 (跟 total 同口径)
-       之前: 侧栏从 _sb2TalentsList (当前页 50 条) 算 → 全部 50, 不准
-       现在: 服务端 GROUP BY 全量 → 全部 1847/240 等, 跟 total 一致 */
+    var all = (data && Array.isArray(data.talents)) ? data.talents : [];
+    _sb2TalentsAll = all;
+    /* 本请求无过滤参数, 服务端 facets 恒为全量 GROUP BY → 无条件覆盖全局快照
+       (旧 hasFilter 判断的前提已消失, 留旧逻辑反而让侧栏计数定格在首屏) */
     _sb2TalentsFacets = (data && data.facets) ? data.facets : null;
-    /* ★ fix/sb2-side-restore commit 1: 镜像到 window._sb2TalentFacetCounts (renderer 期望 plural key)
-       原型侧栏 line 729-734 评级/类目/状态 三维带计数 — 全局变量跨模块可读
-       server 返回 {rating, category, cooperation} → 客户端映射 {ratings, categories, statuses}
-       未加载 (sb2TalentsLoad 未跑过 / fetch 失败) 时 null, renderer 兜底空对象 + 显「–」
-       〔fix/sb2-side-restore commit 5 任务 C〕侧栏计数全局化:
-         server 端 facets 是 WHERE 过滤后 GROUP BY (e0b8e28 已拍),
-         修前 bug: 点「已合作」→ server 返合作桶 facets=9 (过滤后), 侧栏 badge 跟着变成 9 → 试投中/待联系变 0,
-                  原型侧栏计数是全局静态 (107 全部), 不该跟过滤集变
-         修法: 检测 hasFilter, 仅无过滤时才覆盖 _sb2TalentFacetCounts
-              有过滤时保持旧值 (上次无过滤的全局快照), 侧栏 renderer 读 window._sb2TalentFacetCounts 不变 */
-    var hasFilter = !!( _sb2TalentsFilterRating || _sb2TalentsFilterCategory || _sb2TalentsFilterStatus || _sb2TalentsSearchQ );
-    if (!hasFilter) {
-      window._sb2TalentFacetCounts = _sb2TalentsFacets ? {
-        total: _sb2TalentsTotal,
-        ratings: _sb2TalentsFacets.rating || {},
-        categories: _sb2TalentsFacets.category || {},
-        statuses: _sb2TalentsFacets.cooperation || {}
-      } : null;
-    }
-    /* 〔fix/sb2-side-restore commit 4 D1b 作用域墙〕守卫改 window.*
-       修前 bug: sb2-shell-js IIFE 内 renderSideFor / SB2_CURRENT_MODULE 私有,
-                typeof SB2_CURRENT_MODULE !== 'undefined' 恒 false 静默跳过
-       修法: 跨块访问走 window.* (commit 4 已挂 window, 见 line 46088 后注释) */
+    window._sb2TalentFacetCounts = _sb2TalentsFacets ? {
+      total: all.length,
+      ratings: _sb2TalentsFacets.rating || {},
+      categories: _sb2TalentsFacets.category || {},
+      statuses: _sb2TalentsFacets.cooperation || {}
+    } : null;
+    /* 本地四维过滤 (q/类目/状态/评级) + 页码收敛, 再取当前页切片 */
+    sb2TalentsApplyFilters();
+    var pageItems = sb2TalentsPageItems();
+    /* 〔fix/sb2-side-restore commit 4 D1b 作用域墙〕守卫改 window.* */
     if (typeof window !== 'undefined' && window.SB2_CURRENT_MODULE === 'influencers'
         && typeof window.renderSideFor === 'function') {
       window.renderSideFor('influencers');
     }
-    // 清掉不在当前页的选中
-    var pageIds = {};
-    list.forEach(function(t){ if (t.id) pageIds[t.id] = true; });
-    Object.keys(_sb2TalentsSelectedIds).forEach(function(k){ if (!pageIds[k]) delete _sb2TalentsSelectedIds[k]; });
-    if (heroSub) heroSub.textContent = (_sb2TalentsShowArchived ? '已归档 · ' : '') + _sb2TalentsTotal + ' 位' + (_sb2TalentsShowArchived ? '' : '在库 · 按评级与类目分层');
-    sb2TalentsUpdateFilterBtn();
-    sb2TalentsRenderSide();
-    sb2TalentsRenderTable();
-    sb2TalentsRenderPager();
-    sb2TalentsUpdateFooter();
-    /* ★ r39-P0: 启动匹配商品数并发池 (P0 人货撮合链项 1)
-       老大红线「262 行全表逐行 ai-match 太贵」避规:
-       ① 先看 t.matched_products 数组是否已 populate (server 24h 缓存或历史, 协调人已代补 Array.isArray + length 兜底)
-       ② 未 populate (length=0) 的才进并发池 — 上限 6, 调 ai-match talent-to-product limit=1, 取 total
-       ③ 拉完后 sb2TalentsPatchMatchCell 单 td 替换 (不重渲整表, 26 轮② 教训)
-       切页/筛选: cache 保留 (跨 tab 不丢, 切回秒显示) */
-    sb2TalentsStartMatchCount(list);
+    /* hero 副标题/侧栏/表格/翻页/footer 一次本地重渲 (含不在当前页选中清理) */
+    sb2TalentsRenderLocal();
+    /* ★ r39-P0: 启动匹配商品数并发池 — 只对当前页未 populate 的行, 翻页换页自行补 */
+    sb2TalentsStartMatchCount(pageItems);
     sb2TalentsRefreshCollectBadge();
     _sb2TalentsLoaded = true;
   } catch (e) {
@@ -5179,7 +5210,11 @@ async function sb2TalentsDelete(id, name){
       return;
     }
     showToast('✅ 已删除 ' + (name || id), 'success');
-    if (typeof sb2TalentsLoad === 'function') sb2TalentsLoad();
+    /* ★ fix/talents-local-pagination: 本地剔除 + 重渲, 零网络等待
+       (缓存是全量拉的那份, 删掉即当前模式下不再出现) */
+    _sb2TalentsAll = (_sb2TalentsAll || []).filter(function(t){ return t.id !== id; });
+    sb2TalentsApplyFilters();
+    sb2TalentsRenderLocal();
   } catch (e) {
     showToast('❌ 网络错误: ' + (e && e.message || e), 'error');
   }
@@ -5226,7 +5261,10 @@ async function sb2TalentsRestore(id, name){
       return;
     }
     showToast('✅ 已还原 ' + (name || id), 'success');
-    if (typeof sb2TalentsLoad === 'function') sb2TalentsLoad();
+    /* ★ fix/talents-local-pagination: 还原后从归档本地缓存剔除 (还在归档视图), 零网络等待 */
+    _sb2TalentsAll = (_sb2TalentsAll || []).filter(function(t){ return t.id !== id; });
+    sb2TalentsApplyFilters();
+    sb2TalentsRenderLocal();
   } catch (e) {
     showToast('❌ 网络错误: ' + (e && e.message || e), 'error');
   }
