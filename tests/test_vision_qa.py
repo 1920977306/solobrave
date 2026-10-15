@@ -427,3 +427,67 @@ def test_pipeline_garbage_witness_never_corrupts_good_data():
                  _call_chat_completion=_fake_chat):
         out = srv._vision_qa_pipeline(desc, _png_b64(), role='\u5546\u52a1')
     assert json.loads(out) == obj    # \u539f\u6587\u4e00\u5b57\u4e0d\u52a8
+
+
+# ── 9) 服务端预识别 _preocr_chat_images (老大 2026-10-15 拍板方案A) ──────────
+
+_B64 = 'aGVsbG8='    # 假 base64, 内容无所谓
+
+
+def test_preocr_business_single_image_injects_text():
+    """商务单图 + vision/QA 成功 → 注入校验文本块, 不再传 image_url (模型免看图)。"""
+    calls = []
+
+    def _fake_vision(b64, agent_id=None, role=None):
+        calls.append((b64, role))
+        return '{"followers": "450万"}'
+
+    with _Monkey(_call_kimi_vision=_fake_vision,
+                 _vision_qa_pipeline=lambda raw, b64, role: raw):
+        items = srv._preocr_chat_images([{'base64': _B64}], 'emp_x', '商务')
+    assert len(calls) == 1 and calls[0][1] == '商务'
+    assert len(items) == 1 and items[0]['type'] == 'text'
+    assert '截图识别结果' in items[0]['text'] and '450万' in items[0]['text']
+
+
+def test_preocr_fallback_to_image_url_on_vision_failure():
+    """识别失败 (vision 返回 None) → 回退 image_url 直连带图, 绝不裸奔。纯str元素兼容。"""
+    with _Monkey(_call_kimi_vision=lambda b64, agent_id=None, role=None: None):
+        items = srv._preocr_chat_images([_B64], 'emp_x', '商务')    # 元素是纯字符串
+    assert items == [{'type': 'image_url', 'image_url': {'url': _B64}}]
+
+
+def test_preocr_fallback_when_qa_returns_none():
+    """vision 成功但 QA 管线返回 None (比如非提取输出) → 也回退 image_url。"""
+    with _Monkey(_call_kimi_vision=lambda b64, agent_id=None, role=None: '散文描述',
+                 _vision_qa_pipeline=lambda raw, b64, role: None):
+        items = srv._preocr_chat_images([{'base64': _B64}], 'emp_x', '商务')
+    assert items == [{'type': 'image_url', 'image_url': {'url': _B64}}]
+
+
+def test_preocr_skipped_for_non_business_role():
+    """非商务角色带图 → 不预识别, 直接 image_url (保持现状零变化)。"""
+    calls = []
+    with _Monkey(_call_kimi_vision=lambda b64, agent_id=None, role=None: calls.append(1) or 'x'):
+        items = srv._preocr_chat_images([{'base64': _B64}], 'emp_x', 'CEO助理')
+    assert calls == []
+    assert items == [{'type': 'image_url', 'image_url': {'url': _B64}}]
+
+
+def test_preocr_skipped_for_multi_image():
+    """多图 (≥2) → 不预识别, 全部 image_url (多图场景归 HeavyPipe 管道管)。"""
+    calls = []
+    imgs = [{'base64': _B64}, {'base64': _B64}, {'base64': _B64}]
+    with _Monkey(_call_kimi_vision=lambda b64, agent_id=None, role=None: calls.append(1) or 'x'):
+        items = srv._preocr_chat_images(imgs, 'emp_x', '商务')
+    assert calls == []
+    assert len(items) == 3 and all(i['type'] == 'image_url' for i in items)
+
+
+def test_preocr_exception_never_raises():
+    """vision 抛异常 → 该图回退 image_url, 函数不 raise。"""
+    def _boom(b64, agent_id=None, role=None):
+        raise RuntimeError('炸')
+    with _Monkey(_call_kimi_vision=_boom):
+        items = srv._preocr_chat_images([{'base64': _B64}], 'emp_x', '商务')
+    assert items == [{'type': 'image_url', 'image_url': {'url': _B64}}]
