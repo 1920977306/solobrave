@@ -452,17 +452,26 @@ def _vision_extract_fields(shots):
 
 
 def analyze_talent(fields):
-    """达人视角的账号诊断。报告读者是达人本人（客户），不是团长。
-    返回 (verdict, analysis_text, reason)，失败返回 ('','','')。"""
+    """达人视角的账号深度诊断。报告读者是达人本人（客户），不是团长。
+    返回 (verdict, analysis_text, reason)，失败返回 ('','','')。
+    analysis_text 为分区文本：亮点/风险/建议/粉丝解读/选品方向/内容策略。"""
     prompt = (
         '你是抖音电商达人的 AI 运营顾问。达人本人发来自己的账号数据，想知道自己账号做得怎么样、'
-        '下一步该怎么提升带货。基于以下结构化数据产出账号诊断，用第二人称"你"对达人说话。\n'
+        '下一步该怎么提升带货。基于以下结构化数据产出深度账号诊断，用第二人称"你"对达人说话。\n'
         '只输出一个 JSON 对象：{"verdict":"潜力型|稳健型|待提升型",'
-        '"highlights":["..."], "risks":["..."], "suggestions":["..."]}\n'
-        '要求：每条 40 字以内，具体、有数据支撑、不喊空话；亮点 2-4 条（账号优势），'
-        '风险 1-3 条（不改进会影响带货的问题），建议 2-4 条（达人自己的下一步动作：'
-        '拍什么内容、要不要开播、选什么品、怎么涨粉）；所有数字必须来自输入数据，'
-        '没有的维度不要硬编。输入里已有的带货数据（带过多少品、月结算多少）必须引用具体数字，'
+        '"highlights":["..."], "risks":["..."], "suggestions":["..."],'
+        '"fan_insight":["..."], "product_directions":["..."], "content_strategy":["..."]}\n'
+        '要求：每条 60 字以内，具体、有数据支撑、不喊空话；\n'
+        'highlights 2-4 条（账号优势）；risks 1-3 条（不改进会影响带货的问题）；'
+        'suggestions 2-4 条（达人自己的下一步动作：拍什么内容、要不要开播、选什么品、怎么涨粉）；\n'
+        'fan_insight 2-3 条（解读粉丝画像对带货的含义：谁在看、买得起什么、爱买什么，'
+        '结合性别/年龄/地域/消费水平/购买偏好给出判断）；\n'
+        'product_directions 3-5 条（适合带的选品方向：类目、价格带、品牌/店铺类型，'
+        '必须结合粉丝消费水平、已有类目分布、带货商品数等数据，给出"为什么是这类"的一句话理由）；\n'
+        'content_strategy 2-4 条（内容策略：视频怎么拍、多久发一条、要不要开播、'
+        '结合视频/直播占比和近期视频表现说）；\n'
+        '所有数字必须来自输入数据，没有的维度不要硬编。'
+        '输入里已有的带货数据（带过多少品、月结算多少）必须引用具体数字，'
         '禁止说"带货数据未体现"这类无视输入的话。'
     )
     safe = {k: v for k, v in fields.items() if not isinstance(v, (bytes, bytearray))}
@@ -472,7 +481,7 @@ def analyze_talent(fields):
             content = llm_chat([
                 {'role': 'user',
                  'content': prompt + '\n【达人数据】' + json.dumps(safe, ensure_ascii=False)[:20000]},
-            ], max_tokens=1500, temperature=0.0,
+            ], max_tokens=2200, temperature=0.0,
                 **({'model': model} if model != 'glm-4.7' else {}))
             if content.strip():
                 break
@@ -489,11 +498,13 @@ def analyze_talent(fields):
         obj = json.loads(candidate)
         verdict = str(obj.get('verdict') or '').strip()
         lines = []
-        for title, key in (('亮点', 'highlights'), ('风险', 'risks'), ('建议', 'suggestions')):
+        for title, key in (('亮点', 'highlights'), ('风险', 'risks'), ('建议', 'suggestions'),
+                           ('粉丝解读', 'fan_insight'), ('选品方向', 'product_directions'),
+                           ('内容策略', 'content_strategy')):
             items = obj.get(key) or []
             if items:
                 lines.append(f'【{title}】')
-                lines.extend(f'· {x}' for x in items[:5])
+                lines.extend(f'· {x}' for x in items[:6])
         return verdict, '\n'.join(lines), ''
     except Exception as e:
         log(f'  [LLM] 达人评估输出解析失败（非致命）: {e}')
@@ -1180,6 +1191,35 @@ def _extract_video_rows(page):
     return items
 
 
+def _extract_tab_table_rows(page, marker: str):
+    """通用 auxo-table 抓行：视频详情/直播详情等明细 tab → [{cells:[...], title}]。
+    marker 用于定位包含该文本的最小表格容器；行首列含日期才保留（滤掉表头/汇总行）。"""
+    raw = page.evaluate("""(marker) => {
+      const anchor = document.querySelector('#daren-profile-main-tabs');
+      const root = (anchor && anchor.parentElement) || document;
+      let wrap = null;
+      root.querySelectorAll('div[class*="auxo-table"], div[class*="table-wrapper"]').forEach(w => {
+        const t = w.innerText || '';
+        if (!t.includes(marker)) return;
+        if (!wrap || wrap.contains(w)) wrap = w;
+      });
+      if (!wrap) return {rows: [], layout: 'no-table'};
+      const out = [];
+      wrap.querySelectorAll('.auxo-table-row').forEach((tr) => {
+        const cells = Array.from(tr.querySelectorAll('.auxo-table-cell'))
+          .map(td => (td.innerText || '').trim()).filter(c => c !== '');
+        if (cells.length < 3) return;
+        if (!/\\d{4}\\/\\d{2}\\/\\d{2}/.test(cells[0])) return;   // 只留含日期的明细行
+        out.push({title: cells[0].slice(0, 150), cells: cells.slice(0, 10)});
+      });
+      return {rows: out.slice(0, 30), layout: 'auxo-table:' + out.length};
+    }""", marker)
+    rows = []
+    for r in (raw or {}).get('rows') or []:
+        rows.append({'title': r.get('title') or '', 'cells': r.get('cells') or []})
+    return rows
+
+
 def _lark_json(args, timeout=180):
     """调 lark-cli，解析其 stdout 里的第一个完整 JSON 对象。"""
     env = dict(os.environ)
@@ -1551,16 +1591,32 @@ def collect_pipeline(collect_id, name, douyin_id):
         except Exception as e:
             log(f'  [Collect] TOP商品明细点击失败（非致命）: {e}')
 
-        # ── 视频详情：滚动加载更多视频 ──
+        # ── 视频/直播明细：滚动加载更多 + 抓表格行（报告端「近期明细」展示）──
         _ensure_alive(profile)
-        try:
-            if _click_tab(profile, '视频详情'):
-                for _ in range(3):
+        details = {}
+        for tab_key, out_key, marker in (('视频详情', 'video_details', '视频信息'),
+                                         ('直播详情', 'live_details', '直播')):
+            try:
+                if not _click_tab(profile, tab_key):
+                    continue
+                _human_sleep(2.0, 3.0)
+                rows = _extract_tab_table_rows(profile, marker)
+                for _ in range(2):
                     profile.mouse.wheel(0, 1200)
                     _human_sleep(1.0, 1.8)
-                tabs_dom['视频详情_滚动后'] = _dom_snapshot(profile)
-        except Exception:
-            pass
+                if tab_key == '视频详情':
+                    tabs_dom['视频详情_滚动后'] = _dom_snapshot(profile)
+                rows2 = _extract_tab_table_rows(profile, marker)
+                seen, merged_rows = set(), []
+                for r in rows + rows2:
+                    key = ((r.get('cells') or [''])[0]) or r.get('title') or ''
+                    if key and key not in seen:
+                        seen.add(key)
+                        merged_rows.append(r)
+                details[out_key] = merged_rows[:12]
+                log(f'  [Collect] {tab_key} 明细抓取 {len(merged_rows)} 行')
+            except Exception as e:
+                log(f'  [Collect] {tab_key} 明细抓取失败（非致命）: {e}')
 
         xhr_dump = []
         for group in all_xhr:
@@ -1576,6 +1632,7 @@ def collect_pipeline(collect_id, name, douyin_id):
             'tabs_dom': tabs_dom,
             'xhr_dump': xhr_dump,
             'top_products': top_products,
+            'details': details,
             'shots': job_shots,
             'profile_url': profile.url,
             'profile_name': profile_name,
@@ -1924,8 +1981,14 @@ def _run_collect_impl(row):
         if merged:
             log(f'[Job] {cid} 视觉提取补齐/覆盖 {merged} 个字段')
         # 视觉原始提取全量留档（含无专属列的字段：评价明细/视频趋势/标签等），报告端从这里取
-        if vf:
-            fields['ocr_raw_fields'] = json.dumps(vf, ensure_ascii=False)
+        det = material.get('details') or {}
+        if vf or det:
+            raw_all = dict(vf)
+            for _k in ('video_details', 'live_details'):
+                if det.get(_k):
+                    raw_all[_k] = det[_k]
+                    fields[_k] = det[_k]          # 分析输入用（list），normalize 时会滤掉非表列
+            fields['ocr_raw_fields'] = json.dumps(raw_all, ensure_ascii=False)
 
         provenance = f'buyin_worker 自动采集 {time.strftime("%Y-%m-%d %H:%M")}'
         notes = summarize_for_notes(fields)
@@ -1938,6 +2001,16 @@ def _run_collect_impl(row):
         log(f'[Job] {cid} 提取完成: {list(fields.keys())[:12]}…')
         _fill_missing_fields(fields)
         fields = _normalize_fields(fields)
+        # 已知视觉脏值清理：月结算与件单价数值相同 = 量级读错（带百品月结¥129.72 不可能）
+        try:
+            import re as _re
+            _ms = _re.sub(r'[^\d.]', '', str(fields.get('monthly_settlement') or ''))
+            if _ms and fields.get('average_price') and int(fields.get('total_products') or 0) > 20 \
+                    and abs(float(_ms) - float(fields['average_price'])) < 0.01:
+                fields.pop('monthly_settlement', None)
+                log(f'[Job] {cid} 清理脏值 monthly_settlement（与件单价同值）')
+        except Exception:
+            pass
 
         # ── 团长视角合作评估（ai_analysis/risk_rating 落库，报告端展示）──
         _job_set(cid, stage='AI 合作评估')

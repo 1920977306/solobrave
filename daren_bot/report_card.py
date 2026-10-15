@@ -331,6 +331,45 @@ def render_card(talent_id: str, douyin_id: str, out_path: str) -> str:
                             f"📞 {phone}", font=_font(22), fill=GREEN)
                 y += 112
 
+    # ── 近期带货视频 / 直播明细 ──
+    for _det_key, _det_title in (("video_details", "近期带货视频"),
+                                 ("live_details", "近期直播明细")):
+        det = ocr.get(_det_key)
+        if isinstance(det, str):
+            try:
+                det = json.loads(det)
+            except Exception:
+                det = None
+        if not isinstance(det, list) or not det:
+            continue
+        sec_title(_det_title)
+        for item in det[:5]:
+            if not isinstance(item, dict):
+                continue
+            cells = [str(c).strip() for c in (item.get("cells") or []) if str(c).strip()]
+            if not cells:
+                continue
+            head = cells[0].splitlines()
+            title = (head[0] if head else "")[:38]
+            date_ = ""
+            for ln in head[1:] + cells[1:]:
+                import re as _re
+                m = _re.search(r"\d{4}/\d{2}/\d{2}", ln)
+                if m:
+                    date_ = m.group(0)
+                    break
+            meta = "　｜　".join(c.replace("\n", " ")[:20] for c in cells[1:5])
+            box_h = 88 if meta else 56
+            _round(dr, (M, y, W - M, y + box_h), 12, LIGHT)
+            dr.text((M + 20, y + 12), title or "-", font=_font(23, True), fill=DARK)
+            if date_:
+                dr.text((W - M - 20 - _text_w(dr, date_, _font(19)), y + 14),
+                        date_, font=_font(19), fill=GRAY)
+            if meta:
+                dr.text((M + 20, y + 50), meta, font=_font(20), fill=GRAY)
+            y += box_h + 12
+        y += 4
+
     # ── 账号评估 ──
     verdict = t.get("risk_rating") or ""
     analysis = (t.get("ai_analysis") or "").strip()
@@ -341,8 +380,9 @@ def render_card(talent_id: str, douyin_id: str, out_path: str) -> str:
             _round(dr, (M, y, M + _text_w(dr, verdict, _font(28, True)) + 48, y + 52), 26, vcolor)
             dr.text((M + 24, y + 10), verdict, font=_font(28, True), fill="white")
             y += 70
-        # 解析亮点/风险/建议
-        blocks = {"亮点": [], "风险": [], "建议": []}
+        # 解析亮点/风险/建议/粉丝解读/选品方向/内容策略
+        blocks = {"亮点": [], "风险": [], "建议": [], "粉丝解读": [],
+                  "选品方向": [], "内容策略": []}
         cur = None
         for ln in analysis.splitlines():
             ln = ln.strip()
@@ -353,13 +393,14 @@ def render_card(talent_id: str, douyin_id: str, out_path: str) -> str:
             else:
                 if cur and ln:
                     blocks[cur].append(ln.lstrip("· ").strip())
-        colors = {"亮点": GREEN, "风险": RED, "建议": BLUE}
+        colors = {"亮点": GREEN, "风险": RED, "建议": BLUE,
+                  "粉丝解读": (108, 76, 224), "选品方向": ORANGE, "内容策略": (16, 150, 140)}
         for tag, items in blocks.items():
             if not items:
                 continue
             dr.text((M, y), tag, font=_font(24, True), fill=colors[tag])
             y += 38
-            for it in items[:3]:
+            for it in items[:4]:
                 for j, wl in enumerate(_wrap(f"· {it}", _font(23), W - 2 * M - 30, dr)[:2]):
                     dr.text((M + 14, y), wl, font=_font(23), fill=DARK)
                     y += 34

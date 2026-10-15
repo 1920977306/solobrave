@@ -718,7 +718,7 @@ def _qa_llm(prompt: str, model: str = 'glm-4-flash') -> str:
             'model': model,
             'messages': [{'role': 'user', 'content': prompt}],
             'temperature': 0.3,
-            'max_tokens': 800,
+            'max_tokens': 1200,
         }).encode('utf-8'),
         headers={'Content-Type': 'application/json',
                  'Authorization': f'Bearer {key}'},
@@ -729,7 +729,8 @@ def _qa_llm(prompt: str, model: str = 'glm-4-flash') -> str:
 
 
 def _talent_context(tk: str) -> str:
-    """该达人绑定的账号画像摘要，作为问答上下文。"""
+    """该达人绑定的账号画像摘要（问答上下文）：
+    基础档案 + 粉丝画像分布 + 类目/品牌结构 + 近期视频表现。"""
     try:
         from . import db
         tenant = db.get_tenant(tk)
@@ -739,9 +740,38 @@ def _talent_context(tk: str) -> str:
         t = _read_talent("", dyid)
         if not t:
             return ""
+        parts = [f"昵称{t.get('name') or '?'}（抖音号{dyid}）"]
         notes = (t.get('notes') or '').split('｜')[0].strip()
-        head = f"昵称{t.get('name') or '?'}（抖音号{dyid}）"
-        return f"{head}。{notes}" if notes else head
+        if notes:
+            parts.append(notes)
+        raw = t.get('ocr_raw_fields') or ''
+        try:
+            raw = json.loads(raw)
+            if isinstance(raw, str):
+                raw = json.loads(raw)
+        except Exception:
+            raw = {}
+        if isinstance(raw, dict):
+            for label, key in (('粉丝性别分布', 'fan_gender'), ('年龄分布', 'fan_age'),
+                               ('地域分布', 'fan_region'), ('人群分布', 'fan_crowd'),
+                               ('消费水平', 'fan_consume_level'),
+                               ('带货类目分布', 'category_distribution'),
+                               ('品牌集中度', 'cooperating_brands')):
+                v = raw.get(key)
+                if v:
+                    parts.append(f'{label}: {json.dumps(v, ensure_ascii=False)}')
+            vp = raw.get('video_details')
+            if isinstance(vp, list) and vp:
+                tops = []
+                for it in vp[:3]:
+                    cells = [str(c).strip() for c in (it.get('cells') or []) if str(c).strip()]
+                    if cells:
+                        first = cells[0].splitlines()[0][:20]
+                        stat = ' '.join(c.replace('\n', ' ')[:16] for c in cells[1:3])
+                        tops.append(f"{first}（{stat}）")
+                if tops:
+                    parts.append('近期视频: ' + '；'.join(tops))
+        return '。'.join(parts)
     except Exception:
         return ""
 
@@ -757,8 +787,9 @@ def execute_qa(task: dict) -> str:
         '你是抖音电商达人的AI选品顾问，用第二人称"你"回答问题。\n'
         '只回答抖音带货、选品、商品判断、账号运营、粉丝画像、直播相关的问题。\n'
         '如果问题与这些无关（闲聊、天气、代码、数学、新闻等），只输出一个字：拒\n'
-        '回答要求：优先结合该达人自己的数据给具体可执行的建议（40-150字），'
-        '有数据必须引用数据，没有的维度不要编造数字，不要喊口号。\n'
+        '回答要求：优先结合该达人自己的数据给具体可执行的建议（80-250字），'
+        '结构为「结论 + 数据依据 + 行动建议」；有数据必须引用数据，'
+        '没有的维度不要编造数字，不要喊口号。\n'
         + (f'【该达人的账号数据】{ctx}\n' if ctx else '')
         + f'【达人问】{q}'
     )
@@ -777,4 +808,4 @@ def execute_qa(task: dict) -> str:
     if ans.startswith("拒") and len(ans) <= 3:
         return ("我是你的带货选品助手，账号分析、选品建议、商品判断都可以找我，"
                 "其他问题帮不上忙哦～")
-    return ans[:600]
+    return ans[:900]
