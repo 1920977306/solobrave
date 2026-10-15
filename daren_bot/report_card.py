@@ -40,6 +40,16 @@ def _round(draw, box, r, fill):
     draw.rounded_rectangle(box, radius=r, fill=fill)
 
 
+def _vgrad(draw, box, c1, c2):
+    """纵向渐变填充（PIL 无原生渐变，逐行插值）。"""
+    x0, y0, x1, y1 = box
+    h = max(int(y1 - y0), 1)
+    for i in range(h):
+        t = i / max(h - 1, 1)
+        c = tuple(int(a + (b - a) * t) for a, b in zip(c1, c2))
+        draw.line((x0, y0 + i, x1, y0 + i), fill=c)
+
+
 def _is_empty(v):
     if v in (None, "", [], {}):
         return True
@@ -117,7 +127,7 @@ def render_card(talent_id: str, douyin_id: str, out_path: str) -> str:
 
     # ── 头部色块 ──
     hdr_h = 300
-    _round(dr, (0, 0, W, hdr_h), 0, BLUE)
+    _vgrad(dr, (0, 0, W, hdr_h), (43, 90, 237), (18, 40, 120))
     dr.text((M, 44), "达人数据报告", font=_font(26), fill=(190, 208, 255))
     name = t.get("name") or "-"
     dr.text((M, 88), name, font=_font(52, True), fill="white")
@@ -437,7 +447,7 @@ def render_qa_card(question: str, answer: str, talent_name: str = "",
 
     # ── 头部 ──
     hdr_h = 210
-    _round(dr, (0, 0, W, hdr_h), 0, QA_PURPLE)
+    _vgrad(dr, (0, 0, W, hdr_h), (108, 76, 224), (52, 36, 128))
     dr.text((M, 40), "AI 选品顾问", font=_font(24), fill=(216, 206, 250))
     dr.text((M, 82), "选品问答", font=_font(48, True), fill="white")
     if talent_name:
@@ -475,5 +485,127 @@ def render_qa_card(question: str, answer: str, talent_name: str = "",
     y += 44
 
     card = im.crop((0, 0, W, y + 10))
+    card.save(out_path, "PNG")
+    return out_path
+
+
+# ---------------------------------------------------------------- 视频拆解卡片
+
+PAGE_BG = (246, 247, 250)
+CARD_BG = "white"
+SECTION_ACCENTS = [ORANGE, GREEN, BLUE, (108, 76, 224), (16, 150, 140), RED]
+
+
+def _parse_md_sections(md: str):
+    """拆解报告 Markdown → [(heading, [body lines])]，跳过顶级 H1 和表格分隔行。"""
+    sections, cur_title, cur_lines = [], None, []
+
+    def flush():
+        nonlocal cur_title, cur_lines
+        if cur_title is not None:
+            sections.append((cur_title, cur_lines))
+        cur_title, cur_lines = None, []
+
+    for ln in (md or "").splitlines():
+        s = ln.strip()
+        if s.startswith("## "):
+            flush()
+            cur_title = s[3:].strip()
+        elif s.startswith("# "):
+            continue                      # 顶级标题（卡片头图已展示）
+        elif not s or set(s) <= set("|-: "):
+            continue                      # 空行/表格分隔行
+        else:
+            s = s.replace("**", "")
+            if cur_title is None:
+                cur_title = ""            # H1 与第一个 H2 之间的游离行
+            cur_lines.append(s)
+    flush()
+    return [(t, ls) for t, ls in sections if t]
+
+
+def render_teardown_card(video_title: str, report_md: str, out_path: str) -> str:
+    """带货视频拆解报告 → 分节卡片式长图。渲染失败由调用方回退纯文字。"""
+    sections = _parse_md_sections(report_md)
+    im = Image.new("RGB", (W, 4200), PAGE_BG)
+    dr = ImageDraw.Draw(im)
+
+    # ── 渐变头图 ──
+    hdr_h = 250
+    _vgrad(dr, (0, 0, W, hdr_h), (96, 66, 214), (46, 32, 110))
+    dr.text((M, 42), "AI 视频拆解", font=_font(24), fill=(208, 198, 246))
+    t_lines = _wrap(video_title or "视频拆解报告", _font(40, True), W - 2 * M, dr)[:2]
+    ty = 84
+    for tl in t_lines:
+        dr.text((M, ty), tl, font=_font(40, True), fill="white")
+        ty += 54
+    chip = "带货话术 · 结构 · 可复制"
+    cw = _text_w(dr, chip, _font(21)) + 36
+    _round(dr, (M, ty + 6, M + cw, ty + 44), 19, "white")
+    dr.text((M + 18, ty + 13), chip, font=_font(21), fill=(46, 32, 110))
+    y = hdr_h + 28
+
+    sec_i = 0
+    body_w = W - 2 * M - 72              # 卡片内文本宽（含左边条缩进）
+    for heading, lines in sections:
+        accent = SECTION_ACCENTS[sec_i % len(SECTION_ACCENTS)]
+        sec_i += 1
+        # ── 分节卡片 ──
+        # 先量高度
+        laid = []                        # (kind, payload)
+        for s in lines:
+            if s.startswith("|") and s.endswith("|"):
+                cells = [c.strip() for c in s.strip("|").split("|")]
+                cells = [c for c in cells if c]
+                if len(cells) >= 2:
+                    laid.append(("row", cells))
+                    continue
+            prefix = "· " if s.startswith("- ") else ""
+            s2 = prefix + s.lstrip("- ").strip()
+            indent = 14 if prefix else 0
+            wrapped = _wrap(s2, _font(24), body_w - indent, dr)
+            laid.append(("text", (indent, wrapped)))
+
+        inner_h = 44                      # 卡片上下留白
+        inner_h += 44                     # 节标题行
+        for kind, payload in laid:
+            if kind == "text":
+                inner_h += len(payload[1]) * 38 + 6
+            else:
+                inner_h += 46
+        inner_h += 8
+
+        cy = y
+        _round(dr, (M, cy, W - M, cy + inner_h), 18, CARD_BG)
+        dr.rectangle((M, cy, M + 8, cy + inner_h), fill=accent)   # 左侧强调条
+        tx = M + 34
+        ty2 = cy + 22
+        dr.rectangle((tx, ty2 + 4, tx + 10, ty2 + 30), fill=accent)
+        dr.text((tx + 22, ty2), heading, font=_font(28, True), fill=DARK)
+        ty2 += 54
+        for kind, payload in laid:
+            if kind == "text":
+                indent, wrapped = payload
+                for wl in wrapped:
+                    dr.text((tx + indent, ty2), wl, font=_font(24), fill=(51, 61, 84))
+                    ty2 += 38
+                ty2 += 6
+            else:
+                cells = payload
+                c0 = cells[0][:14]
+                c1 = "｜".join(cells[1:])[:34]
+                _round(dr, (tx, ty2, W - M - 26, ty2 + 38), 10, LIGHT)
+                dr.text((tx + 14, ty2 + 6), c0, font=_font(22, True), fill=DARK)
+                dr.text((tx + 250, ty2 + 6), c1, font=_font(22), fill=(51, 61, 84))
+                ty2 += 46
+        y = cy + inner_h + 22
+
+    # ── 页脚 ──
+    y += 6
+    dr.text((M, y), f"全可AI Office · AI 拆解仅供参考　{time.strftime('%Y-%m-%d %H:%M')}",
+            font=_font(20), fill=GRAY)
+    y += 40
+
+    card = im.crop((0, 0, W, y + 12))
     card.save(out_path, "PNG")
     return out_path

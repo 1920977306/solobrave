@@ -69,6 +69,10 @@ class Worker(threading.Thread):
                 # 问答推送：优先可视化卡片，渲染失败回退纯文字
                 executors.notify_qa_card(self.wm.get_sender(tk), task["chat_id"],
                                          task["target"], result_summary, tk)
+            elif task["type"] == "video" and task.get("chat_id"):
+                # 视频拆解推送：优先分节卡片长图，渲染失败回退纯文本
+                executors.notify_video_card(self.wm.get_sender(tk), task["chat_id"],
+                                            result_summary, tk)
             else:
                 # qa/video 是对话型/报告型推送，不带「任务完成：」前缀
                 prefix = "" if task["type"] in ("qa", "video") else "任务完成："

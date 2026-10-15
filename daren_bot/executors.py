@@ -819,31 +819,34 @@ VIDEO_POLL_INTERVAL = 10
 
 
 def _video_job_result(job_id: str):
-    """读 video_jobs/talent_videos → (status, 推送文本, error)。"""
+    """读 video_jobs/talent_videos → (status, title, 报告md原文, error)。"""
     conn = sqlite3.connect(f"file:{SOLOBRAVE_DB}?mode=ro", uri=True, timeout=10)
     try:
         r = conn.execute("SELECT status, error FROM video_jobs WHERE id=?",
                          (job_id,)).fetchone()
         if not r:
-            return "running", "", ""
+            return "running", "", "", ""
         if r[0] != "done":
-            return r[0], "", r[1] or ""
+            return r[0], "", "", r[1] or ""
         v = conn.execute(
             "SELECT title, report FROM talent_videos WHERE job_id=? AND status='done' "
             "ORDER BY rank LIMIT 1", (job_id,)).fetchone()
         if not v or not v[1]:
-            return "done", "视频处理完成，但报告为空", ""
-        report = v[1]
-        # Markdown 标题转成可读的分节符，飞书纯文本更顺眼
-        lines = [ln.replace("## ", "▎", 1) if ln.startswith("## ") else ln
-                 for ln in report.splitlines()]
-        return "done", f"📹 视频拆解：{v[0]}\n\n" + "\n".join(lines), ""
+            return "done", v[0] if v else "", "", ""
+        return "done", v[0], v[1], ""
     finally:
         conn.close()
 
 
+def _md_to_text(md: str) -> str:
+    """Markdown 报告转飞书纯文本（## → ▎），卡片渲染失败时兜底用。"""
+    return "\n".join(ln.replace("## ", "▎", 1) if ln.startswith("## ") else ln
+                     for ln in (md or "").splitlines())
+
+
 def execute_video(task: dict) -> str:
-    """视频链接拆解：调 buyin_worker /teardown_url，轮询到完成后返回报告。"""
+    """视频链接拆解：调 buyin_worker /teardown_url，轮询到完成后返回报告。
+    返回值为「标题\n报告Markdown原文」，展示层（卡片/纯文本）由 worker 分支决定。"""
     url = (task.get("target") or "").strip()
     if not url:
         return "没收到视频链接，重新发一下～"
@@ -864,9 +867,30 @@ def execute_video(task: dict) -> str:
     deadline = time.time() + VIDEO_POLL_TIMEOUT
     while time.time() < deadline:
         time.sleep(VIDEO_POLL_INTERVAL)
-        status, text, err = _video_job_result(job_id)
+        status, title, report, err = _video_job_result(job_id)
         if status == "done":
-            return text
+            if not report:
+                return f"{title or '视频'}\n(拆解完成，报告为空)"
+            return f"{title or '视频拆解报告'}\n{report}"
         if status == "failed":
             raise RuntimeError(err or "视频拆解失败（链接可能要求登录或已失效）")
     raise RuntimeError("拆解超时（>15分钟），任务还在后台跑，过会儿问运营老师要结果")
+
+
+def notify_video_card(sender, chat_id: str, result_text: str, tenant_key: str) -> None:
+    """视频拆解推送：优先渲染分节卡片长图发图+标题；渲染失败回退纯文本。"""
+    if sender is None:
+        log.info("[notify-no-sender] video tenant=%s", tenant_key)
+        return
+    title, _, report = (result_text or "").partition("\n")
+    try:
+        from .report_card import render_teardown_card
+        import tempfile
+        tmp = Path(tempfile.gettempdir()) / f"daren_teardown_{abs(hash(title)) % 10**8}.png"
+        render_teardown_card(title, report, str(tmp))
+        sender.send_image_path(chat_id, str(tmp))
+        sender.send_text(chat_id, f"📹 视频拆解完成：{title}")
+        return
+    except Exception:
+        log.exception("render teardown card failed, fallback to text: tenant=%s", tenant_key)
+    sender.send_text(chat_id, f"📹 视频拆解：{title}\n\n{_md_to_text(report)}")
