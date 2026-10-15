@@ -640,8 +640,16 @@ def execute_image_vision(task: dict) -> str:
     raise NotImplementedError("vision 识别链路开发中")
 
 
+def _send_text_quiet(sender, chat_id: str, text: str) -> None:
+    """补发文字版消息；失败只记日志，绝不影响已发出的卡片。"""
+    try:
+        sender.send_text(chat_id, text)
+    except Exception:
+        log.exception("text version send failed: chat_id=%s", chat_id)
+
+
 def notify_report(sender, chat_id: str, douyin_id: str, report_text: str) -> None:
-    """报告推送：优先渲染可视化长图卡片发图 + 一句话摘要；渲染失败回退纯文字。"""
+    """报告推送：卡片长图 + 一句话摘要 + 完整文字版（便于复制）。"""
     if sender is None:
         log.info("[notify-no-sender] douyin_id=%s", douyin_id)
         return
@@ -658,6 +666,17 @@ def notify_report(sender, chat_id: str, douyin_id: str, report_text: str) -> Non
             sender.send_text(
                 chat_id,
                 f"📊 {name} 的账号数据报告如上　🎯 账号评估：{verdict or '见报告'}")
+            _send_text_quiet(sender, chat_id, report_text)
+            try:
+                from . import bitable_sync, db as ddb
+                tenant = ddb.get_tenant_by_douyin(douyin_id)
+                if tenant:
+                    summary = (t.get("ai_summary") or t.get("notes") or "")[:2000]
+                    bitable_sync.sync_profile(
+                        tenant["tenant_key"], t,
+                        t.get("risk_rating") or "", summary)
+            except Exception:
+                log.exception("bitable sync profile failed: douyin_id=%s", douyin_id)
             return
     except Exception:
         log.exception("render card failed, fallback to text: douyin_id=%s", douyin_id)
@@ -690,6 +709,12 @@ def notify_qa_card(sender, chat_id: str, question: str, answer: str,
         tmp = Path(tempfile.gettempdir()) / f"daren_qa_{abs(hash(question)) % 10**8}.png"
         render_qa_card(question, answer, _talent_name(tenant_key), str(tmp))
         sender.send_image_path(chat_id, str(tmp))
+        _send_text_quiet(sender, chat_id, f"💬 {answer}")
+        try:
+            from . import bitable_sync
+            bitable_sync.sync_log(tenant_key, "问答", question, answer)
+        except Exception:
+            log.exception("bitable sync log failed: tenant=%s", tenant_key)
         return
     except Exception:
         log.exception("render qa card failed, fallback to text: tenant=%s", tenant_key)
@@ -890,6 +915,16 @@ def notify_video_card(sender, chat_id: str, result_text: str, tenant_key: str) -
         render_teardown_card(title, report, str(tmp))
         sender.send_image_path(chat_id, str(tmp))
         sender.send_text(chat_id, f"📹 视频拆解完成：{title}")
+        _send_text_quiet(sender, chat_id,
+                         f"📹 {title}\n{_md_to_text(report)}")
+        try:
+            from . import bitable_sync
+            bitable_sync.sync_log(
+                tenant_key, "视频拆解",
+                (result_text or "").split("\n", 1)[0][:500],
+                _md_to_text(report))
+        except Exception:
+            log.exception("bitable sync log failed: tenant=%s", tenant_key)
         return
     except Exception:
         log.exception("render teardown card failed, fallback to text: tenant=%s", tenant_key)

@@ -169,6 +169,15 @@ def get_tenant(tenant_key: str):
         return dict(r) if r else None
 
 
+def get_tenant_by_douyin(douyin_id: str):
+    """按绑定抖音号反查租户（notify_report 场景：只有 douyin_id 没有 tenant_key）。"""
+    with db_ctx() as conn:
+        r = conn.execute(
+            "SELECT * FROM bot_tenants WHERE bind_douyin_id=? AND status='active'",
+            (douyin_id,)).fetchone()
+        return dict(r) if r else None
+
+
 # ---------- 积分 ----------
 
 def _ledger(conn, tenant_key, action, cost, balance_after,
@@ -310,6 +319,16 @@ def bind_douyin_id(tenant_key: str, douyin_id: str) -> None:
         conn.execute(
             "UPDATE bot_tenants SET bind_douyin_id=?, updated_at=? WHERE tenant_key=?",
             (douyin_id, now_ts(), tenant_key))
+
+
+# ---------- 多维表格联动（spec 第8条：卡片+表格双写） ----------
+
+def save_bitable_refs(tenant_key: str, app_token: str, table_ids: dict) -> None:
+    """回写租户的多维表格引用（app_token + 各表 table_id JSON）。"""
+    with db_ctx() as conn:
+        conn.execute(
+            "UPDATE bot_tenants SET bitable_app_token=?, bitable_table_ids=?, updated_at=? WHERE tenant_key=?",
+            (app_token, json.dumps(table_ids, ensure_ascii=False), now_ts(), tenant_key))
 
 
 # ---------- 商品共享缓存（TTL 7-14 天，spec 3.3） ----------
