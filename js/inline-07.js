@@ -1893,6 +1893,21 @@ var _sb2PtnPage = 1;
 var _sb2PtnLimit = 12;
 var _sb2PtnFilteredTotal = 0; // sb2PtnRender 每次刷新, sb2PtnGoPage 翻页上限用
 var _sb2PtnSearchQ = '';      // 〔r70 批注③〕规律库专属搜索词 (hero 搜索框, 过滤 pattern_text/category)
+/* fix/page-size-fit 批注① 老大 20:01「无法滑动,做成分页」: 主容器 overflow:hidden,
+   12 条/页在矮屏溢出时分页条被顶出视口且整页滚不动 → 渲后实测溢出量,
+   按卡片真实行高反推能放下的行数一次性收敛 (_sb2PtnFit 锁防递归, 仿 _sb2PdsShrink) */
+var _sb2PtnFit = 0;
+(function _sb2PtnResizeWatch(){
+  var timer = null;
+  window.addEventListener('resize', function(){
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(function(){
+      var main = document.getElementById('sb2PatternsMain');
+      /* 重置回 12 再渲, 渲后 fit 逻辑会自动往收敛 (窗口变高也能放回来) */
+      if (main && main.classList.contains('active')) { _sb2PtnLimit = 12; _sb2PtnPage = 1; sb2PtnRender(); }
+    }, 200);
+  });
+})();
 
 /* 〔r70 批注③ 老大 15:22「弄个专属搜索」: hero 搜索框 oninput 入口
    — 文本过滤 (pattern_text + category 包含匹配), 搜索时回到第 1 页, 复用 sb2PtnRender 渲染链 */
@@ -1930,6 +1945,36 @@ var _sb2TalentsList = [];
 var _sb2TalentsTotal = 0;
 /* feat/recycle-bin: 回收站开关 — true 时列表查 status=archived，行操作换「还原」 */
 var _sb2TalentsShowArchived = false;
+/* fix/page-size-fit 批注② 老大 20:01「画面铺满下面空一大截」: 页尺寸按容器实测动态算
+   (仿商品库 _sb2PdsPageSize 思路, 但达人走服务端分页, 改 limit 后需重新拉取)
+   行高/表头从已渲染 DOM 实测, 兜底 57/41; clamp 6..30 */
+function _sb2TalentsFitLimit(){
+  var wrap = document.querySelector('.sb2-talents-table-wrap');
+  if (!wrap || !wrap.clientHeight) return false; /* 模块未激活/无高 → 保持现值 */
+  var head = wrap.querySelector('thead');
+  var row = wrap.querySelector('tbody tr');
+  var rowH = row ? row.offsetHeight : 57;
+  if (!(rowH > 0)) rowH = 57;
+  var avail = wrap.clientHeight - (head ? head.offsetHeight : 41);
+  var fit = Math.floor(avail / rowH);
+  fit = Math.max(6, Math.min(30, fit));
+  if (fit === _sb2TalentsLimit) return false;
+  var oldLimit = _sb2TalentsLimit || 12;
+  var firstIdx = (_sb2TalentsPage - 1) * oldLimit;
+  _sb2TalentsLimit = fit;
+  _sb2TalentsPage = Math.max(1, Math.floor(firstIdx / fit) + 1);
+  return true;
+}
+(function _sb2TalentsResizeWatch(){
+  var timer = null;
+  window.addEventListener('resize', function(){
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(function(){
+      var main = document.getElementById('sb2TalentsMain');
+      if (main && main.classList.contains('active') && _sb2TalentsFitLimit()) sb2TalentsLoad();
+    }, 200);
+  });
+})();
 /* ★ fix/talents-hotfix: 服务端响应带全量 facets (rating/category/cooperation GROUP BY),
    前端不再从当前页 _sb2TalentsList 算聚合 (之前用 list 算 → 全部 50 = 当前页 limit)
    apply when: 任何「侧栏聚合需全库数据」必须服务端 GROUP BY 一次拿, 禁前端从当前页算 */
@@ -2499,6 +2544,7 @@ function sb2TalentsUpdateHeroTitle(){
 
 /* ★ MVP1: 主加载 — 端点契约 GET /api/talents?xxx */
 async function sb2TalentsLoad(){
+  _sb2TalentsFitLimit(); /* 批注②: 拉取前按容器实测收放页尺寸 */
   sb2TalentsUpdateHeroTitle();
   var tbody = document.getElementById('sb2TalentsTbody');
   var heroSub = document.getElementById('sb2TalentsHeroSub');
@@ -5420,6 +5466,7 @@ function _sb2PtnPromoRenderStages(){
 
 function sb2PtnRender(){
   sb2PtnUpdateHeroTitle();
+  var ptnLimit = _sb2PtnFit || _sb2PtnLimit; /* fit 锁有值时直接用收敛值 (仿 _sb2PdsShrink) */
   var heroSub = document.getElementById('sb2PtnHeroSub');
   var listEl = document.getElementById('sb2PtnList');
   if (!listEl) return;
@@ -5483,12 +5530,12 @@ function sb2PtnRender(){
     _sb2PtnRenderPagerUI(0, 1);
     return;
   }
-  /* 〔r39-16 批注③〕前端切片分页: 筛选结果按 _sb2PtnLimit 分页, 只渲染当前页 */
-  var totalPages = Math.max(1, Math.ceil(filtered.length / _sb2PtnLimit));
+  /* 〔r39-16 批注③〕前端切片分页: 筛选结果按 ptnLimit 分页, 只渲染当前页 */
+  var totalPages = Math.max(1, Math.ceil(filtered.length / ptnLimit));
   if (_sb2PtnPage > totalPages) _sb2PtnPage = totalPages;
   _sb2PtnFilteredTotal = filtered.length;
   _sb2PtnRenderPagerUI(filtered.length, totalPages);
-  var pageItems = filtered.slice((_sb2PtnPage - 1) * _sb2PtnLimit, _sb2PtnPage * _sb2PtnLimit);
+  var pageItems = filtered.slice((_sb2PtnPage - 1) * ptnLimit, _sb2PtnPage * ptnLimit);
   // render cards
   var html = '';
   pageItems.forEach(function(p){
@@ -5516,6 +5563,21 @@ function sb2PtnRender(){
     html += '</div>';
   });
   listEl.innerHTML = html;
+  /* fix/page-size-fit 批注①: 主容器溢出 → 减行重渲, 一次收敛 (锁防递归) */
+  var _ptnMain = document.getElementById('sb2PatternsMain');
+  if (_ptnMain && !_sb2PtnFit && _ptnMain.scrollHeight > _ptnMain.clientHeight + 1 && _sb2PtnLimit > 4){
+    var _card = listEl.querySelector('.sb2-ptn-card');
+    var _cardH = _card ? (_card.offsetHeight + 12) : 100; /* +grid gap */
+    if (_cardH <= 12) _cardH = 100;
+    var _over = _ptnMain.scrollHeight - _ptnMain.clientHeight;
+    var _rowsNow = Math.ceil(ptnLimit / 2); /* 两列网格 */
+    var _rows = Math.max(1, _rowsNow - Math.ceil(_over / _cardH));
+    _sb2PtnFit = _rows * 2;
+    _sb2PtnLimit = _sb2PtnFit; /* 持久化, 翻页/筛选页数计算同源 */
+    _sb2PtnPage = 1;
+    sb2PtnRender();
+    _sb2PtnFit = 0;
+  }
 }
 
 /* 〔r39-16 批注③〕规律库底栏分页: 翻页 + 页码渲染
