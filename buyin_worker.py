@@ -472,7 +472,10 @@ def analyze_talent(fields):
         '结合视频/直播占比和近期视频表现说）；\n'
         '所有数字必须来自输入数据，没有的维度不要硬编。'
         '输入里已有的带货数据（带过多少品、月结算多少）必须引用具体数字，'
-        '禁止说"带货数据未体现"这类无视输入的话。'
+        '禁止说"带货数据未体现"这类无视输入的话。\n'
+        '特别注意：average_price 是平均件单价（每单金额），不是月结算额；'
+        'monthly_settlement 为空表示没有月结算数据，禁止拿件单价充当月结算，'
+        '也不要编造"月结算仅X元"这类句子。'
     )
     safe = {k: v for k, v in fields.items() if not isinstance(v, (bytes, bytearray))}
     content = ''
@@ -497,11 +500,15 @@ def analyze_talent(fields):
             raise LLMError('评估输出无 JSON')
         obj = json.loads(candidate)
         verdict = str(obj.get('verdict') or '').strip()
+        # 数据守卫：输入里没有月结算数据时，丢弃一切引用"月结算"的条目（弱模型爱拿件单价冒充）
+        _no_ms = not fields.get('monthly_settlement')
         lines = []
         for title, key in (('亮点', 'highlights'), ('风险', 'risks'), ('建议', 'suggestions'),
                            ('粉丝解读', 'fan_insight'), ('选品方向', 'product_directions'),
                            ('内容策略', 'content_strategy')):
             items = obj.get(key) or []
+            if _no_ms:
+                items = [x for x in items if '月结算' not in str(x)]
             if items:
                 lines.append(f'【{title}】')
                 lines.extend(f'· {x}' for x in items[:6])
