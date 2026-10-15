@@ -22563,12 +22563,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 logger.info(f'  [TalentInject] {agent_id} 命中达人关键词，系统数据拼入用户消息 len={len(talent_injection)}')
             if images:
                 user_payload = [{'type': 'text', 'text': content}]
-                for img in images:
-                    # ★ fix/chat-images-str-compat: 前端发的 images 元素是纯 base64 字符串时
-                    #   img.get 直接 AttributeError 500 (真机 2026-10-15 老大发截图发送失败根因);
-                    #   兼容写法与同文件 _handle_vision_describe / HeavyPipe 一致
-                    b64 = img.get('base64', '') if isinstance(img, dict) else str(img)
-                    user_payload.append({'type': 'image_url', 'image_url': {'url': b64}})
+                # ★ feat/vision-p0-server-preocr: 商务单图 → 服务端 vision+P0 闭环预识别注入,
+                #   模型免看图; 多图/非商务/识别失败 → 照旧 image_url 直连 (零回归)
+                user_payload.extend(_preocr_chat_images(images, agent_id, agent.get('role')))
             else:
                 user_payload = content
             allowed_cats = _allowed_knowledge_categories(auth)
@@ -24907,6 +24904,38 @@ def _vision_qa_pipeline(desc_text, image_base64, role=None):
     except Exception as e:
         logger.warning(f'  [VisionQA] 管线异常 (退回原文): {type(e).__name__}: {e}')
         return desc_text
+
+
+def _preocr_chat_images(images, agent_id, role):
+    """★ feat/vision-p0-server-preocr (老大 2026-10-15 拍板方案 A):
+    商务角色【单图】消息的服务端预识别 — _call_kimi_vision + P0 校验闭环把截图转成
+    结构化提取文本注入 prompt, 模型只做分析不用看图 (分析质量挂钩 P0 准确率收益)。
+    - 只对 role=='商务' 且恰好 1 张图预识别 (多图走 HeavyPipe 或保持直连, 不动)
+    - 识别成功 → 注入【截图识别结果】text 块, 不再传 image_url (省 token + 免模型肉眼)
+    - 识别失败 → 回退 image_url 直连带图 (现状), 绝不裸奔
+    返回 user_payload 内容块列表 (text / image_url 混合), 任何异常都不 raise。"""
+    items = []
+    do_preocr = (role == '商务' and len(images or []) == 1)
+    for img in images or []:
+        b64 = img.get('base64', '') if isinstance(img, dict) else str(img)
+        vision_text = None
+        if do_preocr and b64:
+            try:
+                raw = _call_kimi_vision(b64, agent_id=agent_id, role='商务')
+                if raw:
+                    vision_text = _vision_qa_pipeline(raw, b64, '商务')
+            except Exception as e:
+                logger.warning(f'  [PreOCR] {agent_id} 预识别异常: {type(e).__name__}: {e}')
+        if vision_text:
+            items.append({'type': 'text', 'text': (
+                '【截图识别结果·已经过系统双重校验，以下数据真实可信，'
+                '直接采信使用，不要自己重新读图也不要怀疑数据】\n' + vision_text)})
+            logger.info(f'  [PreOCR] {agent_id} 服务端预识别成功 len={len(vision_text)}, 模型免看图')
+        else:
+            items.append({'type': 'image_url', 'image_url': {'url': b64}})
+            if do_preocr:
+                logger.warning(f'  [PreOCR] {agent_id} 预识别失败, 回退直连带图')
+    return items
 
 
 # ★ fix/helen-vision-final-integration: _vision_coverage_gate + 2 个常量删除 (任务 20 已取消硬拦截,
