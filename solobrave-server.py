@@ -24366,6 +24366,460 @@ def _parse_vision_json(desc):
         return None
 
 
+# ══════════════════════════════════════════════════════════════════════
+# ★ feat/vision-p0-validation: 截图提取 P0 校验修复闭环
+#   业界依据: SOB 基准 (arXiv 2604.25359) — VLM 提取 schema 合规近满分但图像值准确率
+#   仅 ~67%, "格式对值错"是 silent failure 主因; PARSE/SCOPE (EMNLP 2025) 三段校验+重试
+#   首次消 92% 错误。单 pass 调 prompt 到不了 95%+, 必须上"提取→见证→校验→修复"闭环。
+#   架构: Pass1 kimi 视觉提取(不动) → 独立 witness OCR (glm-4v-flash 逐字转录, 同 key 免费档)
+#   → 程序化双层校验 (常识规则 + 原文 grounding, key 粘连检测靠 digit-run 不在 witness 自然暴露)
+#   → 修复 pass (glm-4-flash 拿 witness 当依据只改被标记字段) → 修不动保留原值+记日志 (不置 null 不误杀)。
+#   生效路径: /api/vision/describe + HeavyPipe stage1 (共用 _call_kimi_vision 的两处都接了)。
+#   开关: SOLOBRAVE_VISION_QA=0 关闭 (默认开); witness/修复模型 SOLOBRAVE_VISION_WITNESS_MODEL
+#   / SOLOBRAVE_VISION_QA_MODEL 可覆盖, 默认 glm-4v-flash / glm-4-flash。
+#   降级链: 无 glm 配置 → 只跑常识规则; witness 失败 → 常识规则结果直出; 全程不 raise 不阻塞主链路。
+# ══════════════════════════════════════════════════════════════════════
+
+_VISION_QA_MIN_WIDTH = 640     # 低于此宽度的截图小字识别不可靠, 记警告日志 (不拒收, 避免误伤)
+_VISION_QA_MIN_HEIGHT = 480
+
+# 数值字段 → 规则类型。percent: 全部数量级须在 [0, 100]; score5: [0, 5];
+# count: 非负 (followers 额外卡 5 亿上限, 抖音粉丝上限 ~1.9 亿); money: 非负 (GMV 上不封顶)。
+_VISION_NUMERIC_FIELDS = {
+    'live_ratio': 'percent', 'video_ratio': 'percent',
+    'video_completion_rate': 'percent', 'video_interaction_rate': 'percent',
+    'rating_score': 'score5', 'fulfillment_score': 'score5',
+    'followers': 'count', 'product_count': 'count', 'total_history_days': 'count',
+    'total_shops': 'count', 'live_sessions': 'count', 'live_views': 'count',
+    'video_count': 'count', 'video_plays': 'count', 'video_likes': 'count',
+    'video_comments': 'count', 'video_shares': 'count',
+    'total_gmv': 'money', 'single_video_settlement': 'money', 'video_gpm': 'money',
+    'average_price': 'money', 'video_avg_price': 'money',
+}
+
+# extra_fields 自由 key 的通用规则: key 含这些词且值是数字 → 按 percent / score5 卡
+_VISION_PERCENT_KEY_HINTS = ('占比', '比例', '佣金率', '费率', '转化率', '退货率', '复购率', '通过率')
+_VISION_SCORE_KEY_HINTS = ('评分', '履约分', '服务分', '分数')
+
+# 完整分布类 dict: 做占比求和巡检 (warn-only, 求和错定位不到具体哪个值错, 不给修复 pass)
+_VISION_DIST_FIELDS = {
+    'fan_gender', 'fan_age', 'fan_city_tier', 'fan_crowd', 'fan_price_range',
+    'fan_category', 'fan_group_gender', 'fan_group_age', 'fan_group_crowd',
+    'fan_group_activity', 'fan_group_device', 'fan_group_price', 'fan_group_category',
+    'category_distribution', 'price_distribution', 'brand_distribution',
+    'live_audience_city_tier', 'video_audience_city_tier',
+}
+
+# 判定"这是商务提取 JSON"的强标记: ≥2 个命中才算 (通用 describe 输出天然拦在外面)
+_VISION_SCHEMA_MARKERS = {
+    'followers', 'total_gmv', 'top_products', 'top_categories', 'top_brands',
+    'live_sessions', 'video_gpm', 'product_count', 'fan_age', 'cooperation_status',
+}
+
+_VISION_DIST_SUM_STRICT = {'fan_gender', 'fan_group_gender'}   # 性别分布必须 ≈100 (±3)
+_VISION_DIST_SUM_TOL = 3.0
+
+
+def _vision_qa_enabled():
+    """开关: SOLOBRAVE_VISION_QA, 默认开 ('1'/未设), '0' 关。每次调用现读, 方便测试和线上热停。"""
+    return os.environ.get('SOLOBRAVE_VISION_QA', '1').strip() != '0'
+
+
+def _vision_image_size(image_base64):
+    """从 base64/data-URL 解出图片宽高 (w, h), 解不出返回 None。
+    手写 PNG/GIF/JPEG 头解析, 不依赖 PIL (server 跑的 python 不一定装)。
+    只用于守卫告警, 解析失败静默放行。"""
+    try:
+        data = image_base64
+        if image_base64.startswith('data:'):
+            data = image_base64.split(',', 1)[1]
+        raw = base64.b64decode(data[:4096] + '===')  # 头部就够了, 截断防巨串
+    except Exception:
+        return None
+    try:
+        if raw[:8] == b'\x89PNG\r\n\x1a\n' and len(raw) >= 24:
+            return (int.from_bytes(raw[16:20], 'big'), int.from_bytes(raw[20:24], 'big'))
+        if raw[:6] in (b'GIF87a', b'GIF89a') and len(raw) >= 10:
+            return (int.from_bytes(raw[6:8], 'little'), int.from_bytes(raw[8:10], 'little'))
+        if raw[:2] == b'\xff\xd8':
+            # JPEG: 扫 marker 找 SOF0/1/2 (FFC0-FFCF, 排除 C4/C8/CC)
+            i = 2
+            while i + 9 < len(raw):
+                if raw[i] != 0xFF:
+                    i += 1
+                    continue
+                marker = raw[i + 1]
+                if marker in (0xC0, 0xC1, 0xC2, 0xC3, 0xC5, 0xC6, 0xC7,
+                              0xC9, 0xCA, 0xCB, 0xCD, 0xCE, 0xCF):
+                    h = int.from_bytes(raw[i + 5:i + 7], 'big')
+                    w = int.from_bytes(raw[i + 7:i + 9], 'big')
+                    if w and h:
+                        return (w, h)
+                    return None
+                if marker in (0xD8, 0xD9) or 0xD0 <= marker <= 0xD7:
+                    i += 2
+                    continue
+                seg_len = int.from_bytes(raw[i + 2:i + 4], 'big')
+                if seg_len < 2:
+                    return None
+                i += 2 + seg_len
+    except Exception:
+        return None
+    return None
+
+
+def _vision_magnitudes(v):
+    """从值里抽出全部数量级 (float list): 支持 '50万-100万' '1.2亿' '99.16%' '1,234' 数字/区间。
+    单位换算: 万→1e4, 亿→1e8。抽不出返回 []。"""
+    if isinstance(v, bool):
+        return []
+    if isinstance(v, (int, float)):
+        return [float(v)]
+    if not isinstance(v, str):
+        return []
+    import re
+    out = []
+    # 区间只在"数字/单位后 + 数字前"处切分, 开头的显式负号 ('-1万') 不被吃掉
+    for part in re.split(r'(?<=[\d万亿%])\s*[-~—~]\s*(?=\d)',
+                         v.replace(',', '').replace('，', '')):
+        m = re.search(r'([\d.]+)\s*(万|亿)?', part)
+        if not m:
+            continue
+        try:
+            num = float(m.group(1))
+        except ValueError:
+            continue
+        if '-' in part[:m.start(1)] or '−' in part[:m.start(1)]:
+            num = -num    # 显式负号 ('-3' / '-1万'): regex 只抓数字, 负号在 match 头部补回
+        unit = m.group(2)
+        if unit == '万':
+            num *= 1e4
+        elif unit == '亿':
+            num *= 1e8
+        out.append(num)
+    return out
+
+
+def _vision_digit_runs(v):
+    """从值里抽出原始 digit-run 串 (grounding 用, 不做单位换算): '50万-100万' → ['50','100']。"""
+    if isinstance(v, bool):
+        return []
+    if isinstance(v, (int, float)):
+        s = ('%f' % float(v)).rstrip('0').rstrip('.')
+        return [s] if s and any(ch.isdigit() for ch in s) else []
+    if not isinstance(v, str):
+        return []
+    import re
+    return re.findall(r'\d+(?:\.\d+)?', v.replace(',', '').replace('，', ''))
+
+
+def _vision_digit_tokens(text):
+    """把 witness 文本切成数字 token 集合 (连续数字+可选小数为一个 token)。
+    grounding 用 token 精确匹配而非子串匹配 — 子串匹配会被相邻数字误命中
+    ('18-2343' 的 '2343' 是 '18-23'+'43.33' 去空白后的子串, token 匹配不会)。"""
+    import re
+    return set(re.findall(r'\d+(?:\.\d+)?', str(text)))
+
+
+def _vision_looks_like_extraction(obj):
+    """判定解析结果是商务提取 JSON (而非通用 describe): 强 schema 标记 ≥2 命中。"""
+    if not isinstance(obj, dict):
+        return False
+    hits = sum(1 for k in _VISION_SCHEMA_MARKERS if k in obj)
+    return hits >= 2
+
+
+def _vision_sanity_check(obj, fix=True):
+    """程序化常识校验 (P0-3)。fix=True 时把不可能值直接置 None (肯定错的值不许入库)。
+    返回 issue dict 列表: {'field','value','why','hard','repairable'}。
+    hard=True 的值一定错 (已置 null); repairable=True 的交给修复 pass 尝试从 witness 恢复。"""
+    issues = []
+    for f, rule in _VISION_NUMERIC_FIELDS.items():
+        if f not in obj:
+            continue
+        v = obj.get(f)
+        if v is None or v == '' or v == 'null':
+            continue
+        mags = _vision_magnitudes(v)
+        if not mags:
+            continue
+        why = None
+        if rule == 'percent':
+            if any(m < 0 or m > 101.5 for m in mags):
+                why = '百分比越界(0-100)'
+        elif rule == 'score5':
+            if any(m < 0 or m > 5.5 for m in mags):
+                why = '评分越界(0-5)'
+        elif rule == 'count':
+            hi = 5e8 if f == 'followers' else 1e12
+            if any(m < 0 or m > hi for m in mags):
+                why = f'计数越界(0-{hi:g})'
+        elif rule == 'money':
+            if any(m < 0 for m in mags):
+                why = '金额为负'
+        if why:
+            issues.append({'field': f, 'value': v, 'why': why,
+                           'hard': True, 'repairable': True})
+            logger.warning(f'  [VisionQA] 常识拦截 {f}={v!r}: {why}' + (' → 已置 null' if fix else ''))
+            if fix:
+                obj[f] = None
+    # extra_fields 通用 key 规则 (自由字段也卡常识)
+    extra = obj.get('extra_fields')
+    if isinstance(extra, dict):
+        for k, v in list(extra.items()):
+            if not isinstance(v, (str, int, float)) or isinstance(v, bool):
+                continue
+            mags = _vision_magnitudes(v)
+            if not mags:
+                continue
+            why = None
+            if any(h in k for h in _VISION_PERCENT_KEY_HINTS) \
+                    and any(m < 0 or m > 101.5 for m in mags):
+                why = '百分比越界(0-100)'
+            elif any(h in k for h in _VISION_SCORE_KEY_HINTS) \
+                    and any(m < 0 or m > 5.5 for m in mags):
+                why = '评分越界(0-5)'
+            if why:
+                issues.append({'field': f'extra_fields.{k}', 'value': v, 'why': why,
+                               'hard': True, 'repairable': True})
+                logger.warning(f'  [VisionQA] 常识拦截 extra_fields.{k}={v!r}: {why}'
+                               + (' → 已置 null' if fix else ''))
+                if fix:
+                    extra[k] = None
+    # 分布占比求和巡检 (warn-only, 定位不到错的具体值, 不触发修复)
+    for f in _VISION_DIST_FIELDS:
+        d = obj.get(f)
+        if not isinstance(d, dict) or not d:
+            continue
+        nums = []
+        for x in d.values():
+            m = _vision_magnitudes(x)
+            if m and 0 <= m[0] <= 100:
+                nums.append(m[0])
+            elif m:
+                nums = []
+                break
+        if not nums:
+            continue
+        s = sum(nums)
+        if f in _VISION_DIST_SUM_STRICT:
+            if abs(s - 100) > _VISION_DIST_SUM_TOL:
+                issues.append({'field': f, 'value': round(s, 2),
+                               'why': f'性别分布占比和={s:.1f}≠100', 'hard': False, 'repairable': False})
+                logger.warning(f'  [VisionQA] 分布告警 {f} 占比和 {s:.1f} (warn-only)')
+        elif s < 50 or s > 160:
+            issues.append({'field': f, 'value': round(s, 2),
+                           'why': f'分布占比和={s:.1f}异常', 'hard': False, 'repairable': False})
+            logger.warning(f'  [VisionQA] 分布告警 {f} 占比和 {s:.1f} (warn-only)')
+    return issues
+
+
+def _vision_grounding_targets(obj):
+    """收集需要对照 witness 原文核对的 (path, value): 数值标量 + 分布 dict 的 key 和 value
+    + top_products/top_categories/top_brands 条目里的数值。
+    分布 key 参与核对是 key 粘连检测的关键: '18-2343' 的 digit-run '2343' 不会出现在
+    witness 原文里 (原文是 '18-23' 和 '43.33' 分开的), 命中不了自然暴露。"""
+    targets = []
+    for f in _VISION_NUMERIC_FIELDS:
+        if obj.get(f) not in (None, '', 'null'):
+            targets.append((f, obj[f]))
+    for f in _VISION_DIST_FIELDS:
+        d = obj.get(f)
+        if isinstance(d, dict):
+            for k, v in d.items():
+                if isinstance(k, str):
+                    targets.append((f'{f}.key:{k}', k))
+                if isinstance(v, (str, int, float)) and not isinstance(v, bool):
+                    targets.append((f'{f}[{k}]', v))
+    for listf, sub in (('top_products', ('price', 'gmv_range', 'video_count')),
+                       ('top_categories', ('avg_price', 'gmv', 'ratio')),
+                       ('top_brands', ('avg_price', 'gmv', 'ratio'))):
+        lst = obj.get(listf)
+        if isinstance(lst, list):
+            for i, item in enumerate(lst):
+                if isinstance(item, dict):
+                    for sf in sub:
+                        if item.get(sf) not in (None, '', 'null'):
+                            targets.append((f'{listf}[{i}].{sf}', item[sf]))
+    return targets
+
+
+def _vision_grounding_check(obj, witness_text):
+    """P0-2 字段级 grounding: 每个数值的 digit-run 必须是 witness OCR 数字 token 之一。
+    token 精确匹配 (非子串): '18-2343' 粘连 key 的 '2343' 在 witness '18-23 43.33'
+    的 token 集合 {'18','23','43.33',...} 里不存在 → 自然暴露, 不需要专门粘连规则。
+    容错两级: 尾零差异 (43.30 vs 43.3) 通过; 仅整数部分命中通过 (小数 OCR 差异常见,
+    整数部分不同才算真 miss)。返回 miss issue 列表 (全部 repairable)。"""
+    tokens = _vision_digit_tokens(witness_text)
+    if not tokens:
+        return []
+    misses = []
+    for path, v in _vision_grounding_targets(obj):
+        for run in _vision_digit_runs(v):
+            digits = run.replace('.', '')
+            if len(digits) < 2:
+                continue    # 个位数不做 grounding (太容易被 witness 漏 OCR 误伤)
+            if run in tokens:
+                continue
+            alt = run.rstrip('0').rstrip('.')
+            if alt and alt in tokens:
+                continue
+            intpart = run.split('.')[0]
+            if len(intpart) >= 2 and intpart in tokens:
+                continue
+            misses.append({'field': path, 'value': v,
+                           'why': f'数值{run}不在OCR原文', 'hard': False, 'repairable': True})
+            break           # 一个字段报一个 miss 就够, 别刷重复 issue
+    return misses
+
+
+def _vision_qa_glm_cfg():
+    """解析 witness/修复用的 glm 配置 (zhipu only): settings.llm 里 name 含 zhipu 且有 key
+    的 provider 优先, 退 SOLOBRAVE_AI_* env。返回 {'base','key'} 或 None (调用方降级常识规则)。"""
+    try:
+        settings = _read_json(SETTINGS_FILE, {}) or {}
+        providers = ((settings.get('llm') or {}).get('providers')) or []
+        for p in sorted((x for x in providers if isinstance(x, dict)),
+                        key=lambda x: x.get('priority', 99)):
+            if (p.get('apiKey') or '').strip() and 'zhipu' in (p.get('name') or '').lower():
+                base = (p.get('baseUrl') or '').strip() or _resolve_ai_base_url('zhipu', '')
+                return {'base': (base or '').rstrip('/'), 'key': p['apiKey'].strip()}
+    except Exception as e:
+        logger.warning(f'  [VisionQA] settings.llm 读取失败: {e}')
+    ai_key = os.environ.get('SOLOBRAVE_AI_API_KEY', '').strip()
+    if ai_key:
+        base = _resolve_ai_base_url(os.environ.get('SOLOBRAVE_AI_PROVIDER', 'zhipu') or 'zhipu',
+                                    os.environ.get('SOLOBRAVE_AI_CUSTOM_ENDPOINT', ''))
+        if base:
+            return {'base': base.rstrip('/'), 'key': ai_key}
+    return None
+
+
+def _vision_witness_ocr(image_base64, cfg):
+    """witness OCR: glm-4v-flash 独立转录截图全部可见文字 (权威依据, 与 kimi 提取不同源)。
+    失败/超时返回 None (调用方降级)。temperature=0 追求逐字忠实。"""
+    if not image_base64 or not cfg:
+        return None
+    data, media_type = image_base64, 'image/jpeg'
+    if image_base64.startswith('data:'):
+        try:
+            header, data = image_base64.split(',', 1)
+            media_type = header.split(';')[0].split(':')[1] or media_type
+        except Exception:
+            return None
+    model = os.environ.get('SOLOBRAVE_VISION_WITNESS_MODEL', 'glm-4v-flash').strip() or 'glm-4v-flash'
+    prompt = ('把这张截图里所有可见文字按阅读顺序逐行原样转录，包括: 所有数字、百分数、金额、'
+              '区间(保留万/亿/%单位)、标签、表格的列名和每个单元格数值、图例、角标小字。'
+              '不要概括、不要解释、不要翻译、不要单位换算, 原样照抄。能看清多少转录多少。')
+    try:
+        text = _call_chat_completion(
+            'zhipu', cfg['key'], model, cfg['base'],
+            [{'role': 'user', 'content': [
+                {'type': 'text', 'text': prompt},
+                {'type': 'image_url', 'image_url': {'url': f'data:{media_type};base64,{data}'}}]}],
+            timeout=60, max_tokens=2500)
+        if text and text.strip():
+            logger.info(f'  [VisionQA] witness OCR 成功 len={len(text)}')
+            return text
+        logger.warning('  [VisionQA] witness OCR 空返回, 降级常识规则')
+    except Exception as e:
+        logger.warning(f'  [VisionQA] witness OCR 异常, 降级常识规则: {e}')
+    return None
+
+
+def _vision_repair_with_witness(obj, issues, witness_text, cfg):
+    """修复 pass (P0-1): glm-4-flash 拿 witness OCR 原文当依据, 只改被标记字段。
+    修不好的字段保持原值 (不置 null 不编造) — null 权威只属于常识规则。
+    返回修复后的 obj (校验通过后由调用方采纳), 修复不可用返回 None。"""
+    flagged = [i for i in issues if i.get('repairable')][:40]
+    if not flagged or not cfg:
+        return None
+    model = os.environ.get('SOLOBRAVE_VISION_QA_MODEL', 'glm-4-flash').strip() or 'glm-4-flash'
+    issue_lines = '\n'.join(
+        f"- {i['field']}: {i['why']} (当前值 {str(i['value'])[:60]})" for i in flagged)
+    prompt = (
+        '你是数据校验员。第一遍视觉提取的 JSON 有错值, 下面是同一张截图的另一个模型逐字 OCR 原文'
+        '(权威依据)。\n\n'
+        f'【第一遍提取 JSON】\n{json.dumps(obj, ensure_ascii=False, indent=1)[:6000]}\n\n'
+        f'【被标记的问题字段】\n{issue_lines}\n\n'
+        f'【截图 OCR 原文】\n{str(witness_text)[:6000]}\n\n'
+        '任务: 输出修正后的完整 JSON (字段名和结构严格保持不变):\n'
+        '1. 被标记字段: 在 OCR 原文中找到对应原文数值就修正; 找不到就保留原值, 不要置 null, '
+        '不要编造, 不要凭印象猜。\n'
+        '2. 未标记字段: 原样保留, 一个都不许动。\n'
+        '3. 只输出 JSON 本体, 不要任何解释、不要 markdown 围栏。')
+    try:
+        text = _call_chat_completion('zhipu', cfg['key'], model, cfg['base'],
+                                     [{'role': 'user', 'content': prompt}],
+                                     timeout=60, max_tokens=3500)
+    except Exception as e:
+        logger.warning(f'  [VisionQA] 修复 pass 异常: {e}')
+        return None
+    fixed = _parse_vision_json(text) if text else None
+    if isinstance(fixed, dict) and fixed:
+        return fixed
+    logger.warning('  [VisionQA] 修复 pass 未产出可用 JSON, 保留校验后原值')
+    return None
+
+
+def _vision_qa_pipeline(desc_text, image_base64, role=None):
+    """截图提取 P0 校验修复主入口: 接在 _call_kimi_vision 之后、下游解析之前。
+    返回最终 desc 文本 (修过 = 重 dump 的 JSON; 无问题 = 原文直出, 零回归)。
+    任何环节失败都不 raise, 主链路永远拿到可用文本。"""
+    if not desc_text or not _vision_qa_enabled():
+        return desc_text
+    try:
+        obj = _parse_vision_json(desc_text)
+        if not obj or not _vision_looks_like_extraction(obj):
+            return desc_text    # 非商务提取输出 (通用 describe/散文) 不干预
+
+        # P0-4 分辨率守卫: 过低分辨率只告警不拒收 (拒收会断发送链路, 告警供追查)
+        size = _vision_image_size(image_base64)
+        if size and (size[0] < _VISION_QA_MIN_WIDTH or size[1] < _VISION_QA_MIN_HEIGHT):
+            logger.warning(f'  [VisionQA] 低分辨率截图 {size[0]}x{size[1]} '
+                           f'(<{_VISION_QA_MIN_WIDTH}x{_VISION_QA_MIN_HEIGHT}), 小字可能识别不准')
+
+        sanity_issues = _vision_sanity_check(obj, fix=True)
+
+        cfg = _vision_qa_glm_cfg()
+        if not cfg:
+            if sanity_issues:
+                logger.warning(f'  [VisionQA] 无 glm 配置, 常识修复后直出 ({len(sanity_issues)} 处)')
+                return json.dumps(obj, ensure_ascii=False)
+            return desc_text
+        witness = _vision_witness_ocr(image_base64, cfg)
+        if not witness:
+            if sanity_issues:
+                return json.dumps(obj, ensure_ascii=False)
+            return desc_text
+
+        grounding_misses = _vision_grounding_check(obj, witness)
+        hard_n = sum(1 for i in sanity_issues if i.get('hard'))
+        if not grounding_misses and hard_n == 0:
+            return desc_text    # 零问题: 原文直出, 一字不动
+
+        logger.info(f'  [VisionQA] 待修复: 常识{hard_n}处 + grounding {len(grounding_misses)}处, '
+                    f'进入修复 pass')
+        fixed = _vision_repair_with_witness(obj, sanity_issues + grounding_misses, witness, cfg)
+        if fixed is not None:
+            # 采纳门槛: 修复结果不许引入新的常识硬错误, grounding miss 不许比修复前更多
+            fixed_sanity = _vision_sanity_check(fixed, fix=False)
+            if not any(i.get('hard') for i in fixed_sanity):
+                fixed_ground = _vision_grounding_check(fixed, witness)
+                if len(fixed_ground) <= len(grounding_misses):
+                    fixed_hard = sum(1 for i in fixed_sanity if i.get('hard'))
+                    logger.info(f'  [VisionQA] 修复采纳: 常识硬错 {hard_n}→{fixed_hard}, '
+                                f'grounding {len(grounding_misses)}→{len(fixed_ground)}')
+                    return json.dumps(fixed, ensure_ascii=False)
+            logger.warning('  [VisionQA] 修复结果未过采纳门槛, 回退校验后原值')
+
+        # 修复不可用/未采纳: 出常识修复版 (不可能值已置 null, 其余原样保留)
+        return json.dumps(obj, ensure_ascii=False)
+    except Exception as e:
+        logger.warning(f'  [VisionQA] 管线异常 (退回原文): {type(e).__name__}: {e}')
+        return desc_text
+
+
 # ★ fix/helen-vision-final-integration: _vision_coverage_gate + 2 个常量删除 (任务 20 已取消硬拦截,
 #   但 gate 函数 + warn 拼接是假警告 — OCR 数据本身可靠 (BUSINESS_VISION_PROMPT 已专门优化),
 #   覆盖率低不等于"截图数据不足", 删掉假警告让 LLM 自由分析)
@@ -26385,6 +26839,8 @@ def _heavy_pipe_worker(job_id, agent, user_content, images, user_id):
             b64 = img.get('base64', '') if isinstance(img, dict) else str(img)
             desc = _call_kimi_vision(b64, agent_id=agent_id, role=agent.get('role'))
             if desc:
+                # ★ feat/vision-p0-validation: 提取结果过 witness 校验修复闭环 (非提取输出零干预)
+                desc = _vision_qa_pipeline(desc, b64, agent.get('role'))
                 logger.info(f'  [HeavyPipe] {job_id} 图片{idx}识别结果（{len(desc)}字）: {desc}')
                 vision_texts.append(f'【图片{idx}识别结果】\n{desc}')
             else:
@@ -32828,6 +33284,9 @@ def _handle_vision_describe(self):
         else:
             b64 = str(img)
         desc = _call_kimi_vision(b64, agent_id=agent_id, role=agent_role)
+        if desc:
+            # ★ feat/vision-p0-validation: 提取结果过 witness 校验修复闭环 (非提取输出零干预)
+            desc = _vision_qa_pipeline(desc, b64, agent_role)
         desc = _parse_vision_description(desc)  # 新增：清理格式
         if not desc:
             failed += 1
