@@ -24392,9 +24392,11 @@ _VISION_NUMERIC_FIELDS = {
     'average_price': 'money', 'video_avg_price': 'money',
 }
 
-# extra_fields 自由 key 的通用规则: key 含这些词且值是数字 → 按 percent / score5 卡
-_VISION_PERCENT_KEY_HINTS = ('占比', '比例', '佣金率', '费率', '转化率', '退货率', '复购率', '通过率')
-_VISION_SCORE_KEY_HINTS = ('评分', '履约分', '服务分', '分数')
+# extra_fields 通用 key 的通用规则: key 含这些词且值是数字 → 按 percent / score5 卡
+# ★ fix/vision-p0-realworld4: '履约分' 从 score5 移到 percent — 真机 2026-10-15 实证
+#   百应后台履约分是百分制 (真实截图履约分=12 被 score5 规则误杀置 null), 按 0-100 卡
+_VISION_PERCENT_KEY_HINTS = ('占比', '比例', '佣金率', '费率', '转化率', '退货率', '复购率', '通过率', '履约分')
+_VISION_SCORE_KEY_HINTS = ('评分', '服务分', '分数')
 
 # 完整分布类 dict: 做占比求和巡检 (warn-only, 求和错定位不到具体哪个值错, 不给修复 pass)
 _VISION_DIST_FIELDS = {
@@ -24746,8 +24748,12 @@ def _vision_witness_ocr(image_base64, cfg):
 
 def _vision_repair_with_witness(obj, issues, witness_text, cfg):
     """修复 pass (P0-1): glm-4-flash 拿 witness OCR 原文当依据, 只改被标记字段。
-    修不好的字段保持原值 (不置 null 不编造) — null 权威只属于常识规则。
-    返回修复后的 obj (校验通过后由调用方采纳), 修复不可用返回 None。"""
+    ★ fix/vision-p0-realworld4 (真机 2026-10-15 实证改造): 只输出【被标记字段的修正值】
+    小 JSON ({路径: 新值}), 不再输出完整 JSON — 完整输出对 glm-4v-flash 是双重不可能:
+    3541 字提取 ≈ 3500+ tokens 超 1024 输出上限必截断, 生成耗时还超 60s 超时
+    (真机修复 pass 100% 失败的原因)。小 JSON 由调用方程序合并, 未标记字段由程序
+    保证不动 (比模型自觉可靠)。修不好的字段不输出 → 保持原值。
+    返回 fixes dict {路径: 新值}, 修复不可用返回 None。"""
     flagged = [i for i in issues if i.get('repairable')][:40]
     if not flagged or not cfg:
         return None
@@ -24760,23 +24766,26 @@ def _vision_repair_with_witness(obj, issues, witness_text, cfg):
         f'【第一遍提取 JSON】\n{json.dumps(obj, ensure_ascii=False, indent=1)[:6000]}\n\n'
         f'【被标记的问题字段】\n{issue_lines}\n\n'
         f'【截图 OCR 原文】\n{str(witness_text)[:6000]}\n\n'
-        '任务: 输出修正后的完整 JSON (字段名和结构严格保持不变):\n'
-        '1. 被标记字段: 在 OCR 原文中找到对应原文数值就修正; 找不到就保留原值, 不要置 null, '
-        '不要编造, 不要凭印象猜。\n'
-        '2. 未标记字段: 原样保留, 一个都不许动。\n'
+        '任务: 只输出一个 JSON 对象, key = 被标记字段的路径, value = 修正后的完整新值。\n'
+        '路径规则: 顶层字段用字段名 ("video_ratio"); extra_fields 里的用 "extra_fields.字段名"; '
+        '数组里的单条用 "top_products[0]" 并给整条新值; 分布 dict 整个替换 ("fan_age")。\n'
+        '要求:\n'
+        '1. 只修被标记字段: 在 OCR 原文中找到对应原文数值就给出修正值; 找不到依据就'
+        '不要输出该字段 (保持原值), 不要置 null, 不要编造, 不要凭印象猜。\n'
+        '2. 未被标记的字段一个都不许出现在输出里。\n'
         '3. 只输出 JSON 本体, 不要任何解释、不要 markdown 围栏。')
     try:
-        # max_tokens 同样卡 glm-4-flash 的 1024 上限 (见 witness 处 fix 注释);
-        # 截断的修复 JSON 由 _parse_vision_json 的 _repair_vision_json 兜底, 采纳校验再挡一层
+        # max_tokens 卡 glm-4v-flash 的 1024 上限; 小 JSON 输出 (<500字) 远离截断区,
+        # 生成耗时也从 >60s 降到几秒 (完整输出真机实测超时 100% 失败)
         text = _call_chat_completion('zhipu', cfg['key'], model, cfg['base'],
                                      [{'role': 'user', 'content': prompt}],
                                      timeout=60, max_tokens=1024)
     except Exception as e:
         logger.warning(f'  [VisionQA] 修复 pass 异常: {e}')
         return None
-    fixed = _parse_vision_json(text) if text else None
-    if isinstance(fixed, dict) and fixed:
-        return fixed
+    fixes = _parse_vision_json(text) if text else None
+    if isinstance(fixes, dict) and fixes:
+        return fixes
     logger.warning('  [VisionQA] 修复 pass 未产出可用 JSON, 保留校验后原值')
     return None
 
@@ -24806,6 +24815,58 @@ def _vision_flagged_roots(issues):
         f = i['field']
         roots.add(f.split('.key:')[0].split('[')[0].split('.')[0])
     return roots
+
+
+def _vision_apply_field_fixes(obj, fixes, flagged_roots):
+    """把修复 pass 的小 JSON ({路径: 新值}) 程序合并进 obj。
+    程序保证只动被标记字段根 (未标记字段不可能被碰, 比模型自觉可靠);
+    解析失败/越界/野路径一律忽略并记日志。返回成功应用的路径列表。"""
+    import re
+    applied = []
+    for path, v in (fixes or {}).items():
+        if not isinstance(path, str) or not path.strip():
+            continue
+        root = re.split(r'[\.\[]', path, 1)[0]
+        if root not in flagged_roots:
+            logger.warning(f'  [VisionQA] 修复路径 "{path}" 不在被标记字段内, 忽略 (防越权改值)')
+            continue
+        parts = [m.group(1) or m.group(2)
+                 for m in re.finditer(r'([^\.\[\]]+)|\[([^\]]+)\]', path)]
+        if not parts:
+            continue
+        cur = obj
+        ok = True
+        for part in parts[:-1]:
+            if isinstance(cur, list):
+                if not str(part).isdigit() or int(part) >= len(cur):
+                    ok = False
+                    break
+                cur = cur[int(part)]
+            elif isinstance(cur, dict):
+                if part not in cur:
+                    ok = False
+                    break
+                cur = cur[part]
+            else:
+                ok = False
+                break
+        if not ok or not isinstance(cur, (dict, list)):
+            logger.warning(f'  [VisionQA] 修复路径 "{path}" 解析失败, 忽略')
+            continue
+        last = parts[-1]
+        try:
+            if isinstance(cur, list):
+                if str(last).isdigit() and int(last) < len(cur):
+                    cur[int(last)] = v
+                    applied.append(path)
+                else:
+                    logger.warning(f'  [VisionQA] 修复路径 "{path}" 数组下标越界, 忽略')
+            else:
+                cur[last] = v
+                applied.append(path)
+        except Exception as e:
+            logger.warning(f'  [VisionQA] 修复路径 "{path}" 写入失败: {e}')
+    return applied
 
 
 def _vision_unflagged_changes(orig, fixed, flagged_roots):
@@ -24879,25 +24940,31 @@ def _vision_qa_pipeline(desc_text, image_base64, role=None):
         all_issues = sanity_issues + grounding_misses
         # 采纳门槛前置算好: 被标记字段根集合 (这些路径允许变, 其他一律不许动)
         flagged_roots = _vision_flagged_roots(all_issues)
-        fixed = _vision_repair_with_witness(obj, all_issues, witness, cfg)
-        if fixed is not None:
-            # 采纳门槛三层: ① 修复结果不许引入新的常识硬错误
-            #   ② grounding miss 不许比修复前更多 ③ 未标记字段一个都不许变
-            #   (真机 2026-10-15 实证: 无此条时 glm-4-flash 顺手把未被标记的 followers
-            #   '450万' 改成 '4500' 还判 grounding 持平通过采纳 — 对改错+新增错可凑平 miss 数)
-            fixed_sanity = _vision_sanity_check(fixed, fix=False)
-            if not any(i.get('hard') for i in fixed_sanity):
-                fixed_ground = _vision_grounding_check(fixed, witness)
-                unflagged = _vision_unflagged_changes(obj, fixed, flagged_roots)
-                if unflagged:
-                    logger.warning(f'  [VisionQA] 修复版动了未标记字段 {len(unflagged)} 处, '
-                                   f'拒绝采纳: {unflagged[:5]}')
-                elif len(fixed_ground) <= len(grounding_misses):
-                    fixed_hard = sum(1 for i in fixed_sanity if i.get('hard'))
-                    logger.info(f'  [VisionQA] 修复采纳: 常识硬错 {hard_n}→{fixed_hard}, '
-                                f'grounding {len(grounding_misses)}→{len(fixed_ground)}')
-                    return json.dumps(fixed, ensure_ascii=False)
-            logger.warning('  [VisionQA] 修复结果未过采纳门槛, 回退校验后原值')
+        fixes = _vision_repair_with_witness(obj, all_issues, witness, cfg)
+        if fixes is not None:
+            # 采纳门槛三层 (跑在程序合并的候选版上): ① 不许引入新常识硬错误
+            #   ② grounding miss 不许比修复前更多 ③ 未标记字段零变动
+            #   (真机 2026-10-15 两次实证: 无③时 glm-4-flash 顺手改未标记字段还能
+            #   grounding 持平通过采纳; 无程序合并时完整输出必超 1024 截断+60s 超时)
+            candidate = json.loads(json.dumps(obj))    # deepcopy, 合并不动原 obj
+            applied = _vision_apply_field_fixes(candidate, fixes, flagged_roots)
+            if applied:
+                logger.info(f'  [VisionQA] 修复合并 {len(applied)} 处: {applied[:8]}')
+                fixed_sanity = _vision_sanity_check(candidate, fix=False)
+                if not any(i.get('hard') for i in fixed_sanity):
+                    fixed_ground = _vision_grounding_check(candidate, witness)
+                    unflagged = _vision_unflagged_changes(obj, candidate, flagged_roots)
+                    if unflagged:
+                        logger.warning(f'  [VisionQA] 修复版动了未标记字段 {len(unflagged)} 处, '
+                                       f'拒绝采纳: {unflagged[:5]}')
+                    elif len(fixed_ground) <= len(grounding_misses):
+                        fixed_hard = sum(1 for i in fixed_sanity if i.get('hard'))
+                        logger.info(f'  [VisionQA] 修复采纳: 常识硬错 {hard_n}→{fixed_hard}, '
+                                    f'grounding {len(grounding_misses)}→{len(fixed_ground)}')
+                        return json.dumps(candidate, ensure_ascii=False)
+                logger.warning('  [VisionQA] 修复结果未过采纳门槛, 回退校验后原值')
+            else:
+                logger.warning('  [VisionQA] 修复 pass 无可合并路径 (模型放弃/全被拒), 保留原值')
 
         # 修复不可用/未采纳: 出常识修复版 (不可能值已置 null, 其余原样保留)
         return json.dumps(obj, ensure_ascii=False)
