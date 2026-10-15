@@ -20,3 +20,4 @@ COST_COLLECT_PRODUCT = 20
 COST_PRODUCT_CACHED = 5
 COST_VISION = 10
 COST_QA = 1
+COST_VIDEO = 30        # 视频拆解：下载+妙记转写+vision+报告，重操作

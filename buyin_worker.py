@@ -1514,6 +1514,93 @@ def _run_teardown_job(row):
         _vdb_update('video_jobs', job_id, status='failed', error=err)
 
 
+def teardown_url_pipeline(job_id, url):
+    """直链视频拆解：打开链接 → 嗅探/提取视频源 → 下载 → 转写 → 看画面 → 拆解报告。
+    给达人机器人用：客户发任意抖音视频链接，无需百应页面有该达人数据。"""
+    with BROWSER.lock:
+        page = BROWSER.ensure()
+        _media_sniffer_on(page.context)
+        _vdb_update('video_jobs', job_id, stage='打开视频链接')
+        page.goto(url, timeout=60000, wait_until='domcontentloaded')
+        _human_sleep(5, 8)
+        final_url = page.url
+        try:
+            title = (page.title() or '').strip()
+        except Exception:
+            title = ''
+        title = re.sub(r'[【\[].*?[\]】]', '', title).split('-')[0].strip()[:60] or '视频'
+
+        vid = f"vid_{int(time.time() * 1000)}_{secrets.token_hex(3)}"
+        item = {'plays': '', 'interact': '', 'gmv': '', 'gpm': '',
+                'likes': '', 'comments': '', 'shares': ''}
+        _vdb_insert('talent_videos', {
+            'id': vid, 'job_id': job_id, 'talent_id': '', 'talent_name': title,
+            'rank': 1, 'title': title, 'cover_url': '',
+            'metrics': json.dumps(item, ensure_ascii=False),
+            'status': 'pending', 'source_url': final_url[:500],
+        })
+        try:
+            with _media_lock:
+                before = len(_MEDIA_URLS)
+            src = ''
+            for _ in range(4):
+                _ensure_alive(page)
+                _human_sleep(4, 6)
+                try:
+                    srcs = page.evaluate("""() => Array.from(document.querySelectorAll('video'))
+                        .map(v => v.src || (v.querySelector('source')||{}).src || '').filter(Boolean)""")
+                except Exception:
+                    srcs = []
+                with _media_lock:
+                    fresh = [u for u in _MEDIA_URLS[before:]
+                             if 'mime_type=video_mp4' in u or '.mp4' in u]
+                src = (srcs[0] if srcs else (fresh[-1] if fresh else ''))
+                if src:
+                    break
+            if not src:
+                raise RuntimeError('未找到视频源地址（页面可能要求登录或链接已失效）')
+            resp = page.context.request.get(
+                src, headers={'Referer': 'https://www.douyin.com/'}, timeout=120000)
+            body = resp.body()
+            if not body or len(body) < 10000:
+                raise RuntimeError(f'下载内容异常 {len(body)}B')
+            path = VIDEOS_DIR / f'{vid}_direct.mp4'
+            path.write_bytes(body)
+            _vdb_update('talent_videos', vid, status='downloading', local_path=str(path))
+
+            transcript, tstatus, terr = _transcribe(path, title)
+            _vdb_update('talent_videos', vid, transcript=transcript,
+                        transcript_status=tstatus, error=terr)
+
+            _vdb_update('talent_videos', vid, status='watching')
+            visual_desc, verr = _vision_watch(path, title, item)
+            if verr:
+                log(f'  [TeardownURL] {vid} 画面分析跳过: {verr}')
+            _vdb_update('talent_videos', vid, visual_desc=visual_desc)
+
+            _vdb_update('talent_videos', vid, status='analyzing')
+            report = _teardown_report(title, item, transcript, visual_desc)
+            _vdb_update('talent_videos', vid, status='done', report=report)
+            _vdb_update('video_jobs', job_id, video_ids=json.dumps([vid]), stage='完成')
+        except Exception as e:
+            err = f'{type(e).__name__}: {e}'[:300]
+            _vdb_update('talent_videos', vid, status='failed', error=err)
+            raise
+
+
+def _run_teardown_url_job(row):
+    job_id = row['job_id']
+    log(f'[TeardownURL] 任务 {job_id} 开始: {row.get("url")}')
+    try:
+        teardown_url_pipeline(job_id, row['url'])
+        _vdb_update('video_jobs', job_id, status='done', stage='完成')
+        log(f'[TeardownURL] 任务 {job_id} 完成')
+    except Exception as e:
+        err = f'{type(e).__name__}: {e}'[:400]
+        log(f'[TeardownURL] 任务 {job_id} 失败: {err}')
+        _vdb_update('video_jobs', job_id, status='failed', error=err)
+
+
 def collect_pipeline(collect_id, name, douyin_id):
     """执行一次完整采集，返回 dict(原始材料+截图清单)。"""
     with BROWSER.lock:
@@ -1866,7 +1953,9 @@ def _browser_loop():
                            daren_browser_up=dup, daren_logged_in=dlogged)
             except Exception:
                 pass
-            if row.get('_teardown'):
+            if row.get('_teardown_url'):
+                _run_teardown_url_job(row)
+            elif row.get('_teardown'):
                 _run_teardown_job(row)
             elif row.get('_product'):
                 _run_product_impl(row)
@@ -2262,6 +2351,27 @@ class ControlHandler(BaseHTTPRequestHandler):
                 conn.close()
             submit_collect({'_teardown': True, 'job_id': jid, 'talent_id': talent_id,
                             'name': name, 'douyin_id': douyin_id, 'top_n': top_n})
+            self._json(200, {'ok': True, 'job_id': jid})
+            return
+        if self.path == '/teardown_url':
+            # 直链视频拆解：{url} → 下载+转写+画面+报告，结果落 talent_videos/video_jobs
+            url = str(body.get('url', '')).strip()
+            if 'douyin.com' not in url:
+                self._json(400, {'error': '只支持抖音视频链接'})
+                return
+            _ensure_video_tables()
+            jid = f"vjob_{int(time.time() * 1000)}_{secrets.token_hex(3)}"
+            now = int(time.time() * 1000)
+            conn = sqlite3.connect(str(DB_PATH), timeout=10)
+            try:
+                conn.execute(
+                    'INSERT INTO video_jobs (id, talent_id, talent_name, top_n, status, stage, created_at, updated_at) '
+                    'VALUES (?,?,?,?,?,?,?,?)',
+                    (jid, '', '(直链)', 1, 'running', '排队中', now, now))
+                conn.commit()
+            finally:
+                conn.close()
+            submit_collect({'_teardown_url': True, 'job_id': jid, 'url': url})
             self._json(200, {'ok': True, 'job_id': jid})
             return
         self._json(404, {'error': 'unknown'})

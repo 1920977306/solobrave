@@ -19,6 +19,7 @@ EXECUTORS = {
     "product": executors.execute_product_collect,
     "image": executors.execute_image_vision,
     "qa": executors.execute_qa,
+    "video": executors.execute_video,
 }
 
 
@@ -69,8 +70,8 @@ class Worker(threading.Thread):
                 executors.notify_qa_card(self.wm.get_sender(tk), task["chat_id"],
                                          task["target"], result_summary, tk)
             else:
-                # qa 是对话型回答，不带「任务完成：」前缀，直接推送答案
-                prefix = "" if task["type"] == "qa" else "任务完成："
+                # qa/video 是对话型/报告型推送，不带「任务完成：」前缀
+                prefix = "" if task["type"] in ("qa", "video") else "任务完成："
                 self._notify(tk, f"{prefix}{result_summary}", task.get("chat_id", ""))
 
     def _fail(self, task: dict, reason: str) -> None:

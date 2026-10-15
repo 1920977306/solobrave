@@ -809,3 +809,64 @@ def execute_qa(task: dict) -> str:
         return ("我是你的带货选品助手，账号分析、选品建议、商品判断都可以找我，"
                 "其他问题帮不上忙哦～")
     return ans[:900]
+
+
+# ---------------- 视频链接拆解（teardown_url：下载→转写→画面→报告） ----------------
+
+TEARDOWN_URL_API = "http://127.0.0.1:8095/teardown_url"
+VIDEO_POLL_TIMEOUT = 15 * 60       # 妙记转写可能要几分钟，最多等 15 分钟
+VIDEO_POLL_INTERVAL = 10
+
+
+def _video_job_result(job_id: str):
+    """读 video_jobs/talent_videos → (status, 推送文本, error)。"""
+    conn = sqlite3.connect(f"file:{SOLOBRAVE_DB}?mode=ro", uri=True, timeout=10)
+    try:
+        r = conn.execute("SELECT status, error FROM video_jobs WHERE id=?",
+                         (job_id,)).fetchone()
+        if not r:
+            return "running", "", ""
+        if r[0] != "done":
+            return r[0], "", r[1] or ""
+        v = conn.execute(
+            "SELECT title, report FROM talent_videos WHERE job_id=? AND status='done' "
+            "ORDER BY rank LIMIT 1", (job_id,)).fetchone()
+        if not v or not v[1]:
+            return "done", "视频处理完成，但报告为空", ""
+        report = v[1]
+        # Markdown 标题转成可读的分节符，飞书纯文本更顺眼
+        lines = [ln.replace("## ", "▎", 1) if ln.startswith("## ") else ln
+                 for ln in report.splitlines()]
+        return "done", f"📹 视频拆解：{v[0]}\n\n" + "\n".join(lines), ""
+    finally:
+        conn.close()
+
+
+def execute_video(task: dict) -> str:
+    """视频链接拆解：调 buyin_worker /teardown_url，轮询到完成后返回报告。"""
+    url = (task.get("target") or "").strip()
+    if not url:
+        return "没收到视频链接，重新发一下～"
+    req = urllib.request.Request(
+        TEARDOWN_URL_API,
+        data=json.dumps({"url": url}).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except Exception as e:
+        raise RuntimeError(f"拆解服务未响应: {e}")
+    job_id = data.get("job_id") or ""
+    if not job_id:
+        raise RuntimeError(f"拆解服务未返回任务号: {data}")
+
+    deadline = time.time() + VIDEO_POLL_TIMEOUT
+    while time.time() < deadline:
+        time.sleep(VIDEO_POLL_INTERVAL)
+        status, text, err = _video_job_result(job_id)
+        if status == "done":
+            return text
+        if status == "failed":
+            raise RuntimeError(err or "视频拆解失败（链接可能要求登录或已失效）")
+    raise RuntimeError("拆解超时（>15分钟），任务还在后台跑，过会儿问运营老师要结果")

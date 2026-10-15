@@ -19,11 +19,16 @@ log = logging.getLogger("daren-bot.handler")
 DOUYIN_RE = re.compile(r"^\s*([A-Za-z0-9_]{5,24})\s*$")
 DOUYIN_IN_TEXT_RE = re.compile(r"抖音号\s*[:：]?\s*([A-Za-z0-9_]{4,24})")
 URL_RE = re.compile(r"https?://[^\s，。]+")
+# 抖音视频链接（直链/短链/分享页），命中走视频拆解；其余链接仍走商品链路
+VIDEO_LINK_RE = re.compile(
+    r"(https?://v\.douyin\.com/[^\s，。]+"
+    r"|https?://(?:www\.)?douyin\.com/video/\d+"
+    r"|https?://(?:www\.)?iesdouyin\.com/share/video/\d+[^\s，。]*)")
 TRACKING_PREFIXES = ("utm_", "spm", "fbclid", "gclid", "tt_")
 
 UNRELATED_REPLY = ("我是你的带货选品助手，账号分析、选品建议、商品判断都可以找我，"
                    "其他问题帮不上忙哦～")
-UNSUPPORTED_REPLY = "这类消息我还处理不了，发我抖音号、商品截图或商品链接都可以～"
+UNSUPPORTED_REPLY = ("这类消息我还处理不了，发我抖音号、商品截图、商品链接或抖音视频链接都可以～")
 GREETING_RE = re.compile(r"^(你好|在吗|在么|您好|hi|hello|嗨|早|早上好|晚上好|下午好|哈喽|在不在)[!！~～\s]*$", re.I)
 GREETING_REPLY = ("你好呀，我是你的带货选品助手。发我你的抖音号可以做账号分析，"
                   "直接问选品、带货、粉丝画像的问题我也都能答～")
@@ -90,6 +95,8 @@ class Router:
             if m:
                 self._route_douyin(tenant, chat_id, m.group(1), sender,
                                    name_hint=_extract_name_hint(text, m.group(1)))
+            elif VIDEO_LINK_RE.search(text):
+                self._route_video(tenant, chat_id, text, sender)
             elif URL_RE.search(text):
                 self._route_link(tenant, chat_id, text, sender)
             elif len(text.strip()) <= 8 and GREETING_RE.search(text):
@@ -242,3 +249,23 @@ class Router:
             return
         db.enqueue_task(tk, "product", product_key, config.COST_COLLECT_PRODUCT,
                         chat_id=chat_id)
+
+    # ---------- 视频链接拆解（直链下载+转写+画面+报告） ----------
+
+    def _route_video(self, tenant, chat_id, text, sender) -> None:
+        tk = tenant["tenant_key"]
+        url = VIDEO_LINK_RE.search(text).group(0)
+        if db.get_balance(tk) < config.COST_VIDEO:
+            sender.send_text(
+                chat_id,
+                f"视频拆解需要 {config.COST_VIDEO} 积分，你的余额不够啦。"
+                "联系运营老师补充额度（内测期免费发放）")
+            return
+        ok, _ = db.deduct(tk, config.COST_VIDEO, "teardown_video")
+        if not ok:
+            sender.send_text(chat_id, "积分余额不足，联系运营老师补充额度")
+            return
+        sender.send_text(chat_id,
+                         "收到视频链接，拆解中：下载→转写口播→看画面→出拆解报告，"
+                         "大约需要 3-8 分钟～")
+        db.enqueue_task(tk, "video", url, config.COST_VIDEO, chat_id=chat_id)
