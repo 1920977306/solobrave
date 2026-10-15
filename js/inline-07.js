@@ -2108,7 +2108,9 @@ function sb2TalentsRenderTable(){
   if (!tbody) return;
   var list = _sb2TalentsList || [];
   if (list.length === 0){
-    tbody.innerHTML = '<tr><td colspan="12" class="sb2-talents-empty"><span class="em"><i class=sb2-ico-users></i></span>暂无达人</td></tr>';
+    tbody.innerHTML = _sb2TalentsShowArchived
+      ? '<tr><td colspan="12" class="sb2-talents-empty"><span class="em">🗑</span>回收站是空的，删除的达人会出现在这里</td></tr>'
+      : '<tr><td colspan="12" class="sb2-talents-empty"><span class="em"><i class=sb2-ico-users></i></span>暂无达人</td></tr>';
     return;
   }
   var pageMaxGpm = 0;
@@ -4589,8 +4591,10 @@ function sb2PdsRender(){
   if (filtered.length === 0) {
     tbody.innerHTML = '<tr><td colspan="8"><div class="sb2-pds-empty">'
       + '<div class="sb2-pds-empty-icon"><i class=sb2-ico-box></i></div>'
-      + '<div class="sb2-pds-empty-text">暂无商品</div>'
-      + '<button class="sb2-pds-empty-btn" onclick="createNewProduct()">录入商品</button>'
+      + (_sb2PdsShowArchived
+        ? '<div class="sb2-pds-empty-text">回收站是空的，删除的商品会出现在这里</div>'
+        : '<div class="sb2-pds-empty-text">暂无商品</div>'
+          + '<button class="sb2-pds-empty-btn" onclick="createNewProduct()">录入商品</button>')
       + '</div></td></tr>';
     if (pager) pager.innerHTML = '';
     return;
