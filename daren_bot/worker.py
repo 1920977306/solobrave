@@ -35,6 +35,9 @@ class Worker(threading.Thread):
         self._stop_event.set()
 
     def run(self):
+        n = db.reclaim_stale_collecting()
+        if n:
+            log.warning("reclaimed %d stale collecting task(s) -> pending", n)
         log.info("worker started")
         while not self._stop_event.is_set():
             task = db.claim_next_task()

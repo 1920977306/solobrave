@@ -332,6 +332,17 @@ def claim_next_task() -> dict:
         return d
 
 
+def reclaim_stale_collecting() -> int:
+    """worker 启动时把残留的 collecting 打回 pending 重跑。
+    进程重启后内存里的 buyin collect_id 已丢、轮询线程已死，这些任务永远不会
+    自己完结；积分在入队时已扣，重跑不重复收费。返回回收条数。"""
+    with db_ctx() as conn:
+        cur = conn.execute(
+            "UPDATE bot_collect_tasks SET status='pending', error='' "
+            "WHERE status='collecting'")
+        return cur.rowcount
+
+
 def mark_task(task_id: str, status: str, error: str = ''):
     with db_ctx() as conn:
         conn.execute(

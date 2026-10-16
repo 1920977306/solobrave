@@ -833,38 +833,47 @@ def _pick_result_row(page, name, douyin_id, cid, id_driven=False):
     信号」（梦慈麻麻 8.95万 会排在精确等名的梦慈妈妈 203粉空号之前；
     老于波子_ 251粉仿名小号会被粉丝门槛拦住）。兜底：第一个精确等名行。
     返回 (row_locator, picked_name)。"""
-    nick_sel = '[class*="list-table-info-right-name"]'
+    # 平台 2026-10 改版：list-table-info-right-name 下线，
+    # 新 DOM 为 auxo-dorami-info-card-title-content > span.index-module__title___<hash>。
+    # 多选择器兼容新旧版，命中即用。
+    nick_sels = ['[class*="list-table-info-right-name"]',
+                 '[class*="info-card-title-content"] > span',
+                 'span[class^="index-module__title"]']
     rows = []
-    try:
-        nicks = page.locator(nick_sel)
-        for i in range(min(nicks.count(), 30)):
-            try:
-                nick = nicks.nth(i)
-                txt = (nick.inner_text() or '').strip()
-                if not txt:
+    for nick_sel in nick_sels:
+        try:
+            nicks = page.locator(nick_sel)
+            for i in range(min(nicks.count(), 30)):
+                try:
+                    nick = nicks.nth(i)
+                    txt = (nick.inner_text() or '').strip()
+                    if not txt:
+                        continue
+                    # 行容器：向上逐层找「含粉丝数据的整张卡片」。注意昵称自身 class 就含
+                    # list-table/info-card，会先把名字块当行；要一直爬到含「粉丝」文本的祖先。
+                    row, row_text = None, ''
+                    for level in range(1, 7):
+                        cand = nick.locator(
+                            'xpath=ancestor::*[contains(@class,"list-table") '
+                            'or contains(@class,"info-card")][' + str(level) + ']')
+                        if cand.count() == 0:
+                            break
+                        t = (cand.inner_text() or '')
+                        if '粉丝' in t and len(t) < 2000:
+                            row, row_text = cand, t
+                            break
+                    if row is None:
+                        row = nick.locator('xpath=ancestor::*[self::div or self::a or self::li][position()<=4][1]')
+                        row_text = (row.inner_text() if row.count() else '') or ''
+                    rows.append({'row': row if row.count() else nick,
+                                 'nick': txt, 'row_text': row_text,
+                                 'fans': _parse_fans(row_text)})
+                except Exception:
                     continue
-                # 行容器：向上逐层找「含粉丝数据的整张卡片」。注意昵称自身 class 就含
-                # list-table，会先把名字块当行；要一直爬到含「粉丝」文本的祖先。
-                row, row_text = None, ''
-                for level in range(1, 7):
-                    cand = nick.locator(
-                        f'xpath=ancestor::*[contains(@class,"list-table")][{level}]')
-                    if cand.count() == 0:
-                        break
-                    t = (cand.inner_text() or '')
-                    if '粉丝' in t and len(t) < 2000:
-                        row, row_text = cand, t
-                        break
-                if row is None:
-                    row = nick.locator('xpath=ancestor::*[self::div or self::a or self::li][position()<=4][1]')
-                    row_text = (row.inner_text() if row.count() else '') or ''
-                rows.append({'row': row if row.count() else nick,
-                             'nick': txt, 'row_text': row_text,
-                             'fans': _parse_fans(row_text)})
-            except Exception:
-                continue
-    except Exception:
-        pass
+            if rows:
+                break  # 新版选择器命中即停，避免旧版空转
+        except Exception:
+            continue
 
     if not rows:
         # 兜底：老的 text= 定位方式

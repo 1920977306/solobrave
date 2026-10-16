@@ -53,6 +53,8 @@ def _extract_name_hint(text: str, dy_id: str) -> str:
     t = text.replace(dy_id, ' ')
     t = re.sub(r'抖音[号IDid]*\s*[:：]?', ' ', t)
     t = re.sub(r'[^\w\u4e00-\u9fff]', '', t)
+    # 客户常写「昵称：萌萌超会买」，剥掉标注词本身
+    t = re.sub(r'^(昵称|名字|姓名|达人名|达人昵称)', '', t)
     return t[:20] if 1 < len(t) <= 20 else ''
 
 
