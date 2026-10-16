@@ -44,6 +44,7 @@ CREATE TABLE IF NOT EXISTS bot_tenants (
   tenant_key      TEXT NOT NULL UNIQUE,         -- 自建命名: daren_xxx，业务标识
   app_secret_enc  TEXT NOT NULL,                -- AES 加密，系统主密钥
   bind_douyin_id  TEXT NOT NULL DEFAULT '',     -- MVP 一租户一号
+  owner_open_id   TEXT DEFAULT '',              -- 达人本人 open_id：多维表格创建后授权用
   bitable_app_token TEXT DEFAULT '',            -- 1 个 Bitable App
   bitable_table_ids TEXT DEFAULT '',            -- JSON: {"profile":"tbl_x","products":"tbl_y","advice":"tbl_z"}
   status          TEXT NOT NULL DEFAULT 'active',
@@ -121,6 +122,11 @@ def init_db():
         if "payload" not in cols:
             conn.execute("ALTER TABLE bot_collect_tasks "
                          "ADD COLUMN payload TEXT DEFAULT ''")
+        # 轻量迁移：tenants 表补 owner_open_id（多维表格创建后授权给达人本人）
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(bot_tenants)")}
+        if "owner_open_id" not in cols:
+            conn.execute("ALTER TABLE bot_tenants "
+                         "ADD COLUMN owner_open_id TEXT DEFAULT ''")
 
 
 def now_ts() -> int:
@@ -176,6 +182,16 @@ def get_tenant_by_douyin(douyin_id: str):
             "SELECT * FROM bot_tenants WHERE bind_douyin_id=? AND status='active'",
             (douyin_id,)).fetchone()
         return dict(r) if r else None
+
+
+def set_owner_open_id(tenant_key: str, open_id: str) -> None:
+    """记住达人本人的 open_id（首次消息时写入；建多维表格后授权可见）。"""
+    if not open_id:
+        return
+    with db_ctx() as conn:
+        conn.execute(
+            "UPDATE bot_tenants SET owner_open_id=? WHERE tenant_key=? AND owner_open_id=''",
+            (open_id, tenant_key))
 
 
 # ---------- 积分 ----------

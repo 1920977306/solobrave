@@ -70,18 +70,35 @@ def _tenant_creds(tenant_key: str):
     return t["app_id"], crypto_util.decrypt_secret(mk, t["app_secret_enc"])
 
 
+def _grant_owner(tok: str, app_token: str, open_id: str) -> None:
+    """把达人本人加为多维表格协作者（应用身份建的表默认只有应用可见）。"""
+    if not open_id:
+        return
+    try:
+        _post(tok, f"/drive/v1/permissions/{app_token}/members?type=bitable",
+              {"member_type": "openid", "perm": "full_access",
+               "member_id": open_id})
+    except Exception as e:
+        # 授权失败不阻塞主链路（记录日志，达人看不到表时运营可手动分享）
+        log.warning("[bitable] grant owner failed: %s", e)
+
+
 def ensure_bitable(tenant_key: str) -> dict:
-    """确保租户的多维表格存在；返回 {"app": token, "profile": tbl, "log": tbl}。"""
+    """确保租户的多维表格存在；返回 {"app": token, "profile": tbl, "log": tbl}。
+    表是应用身份创建的，每次确保存在后同步把达人本人授权为协作者。"""
     t = db.get_tenant(tenant_key)
     if not t:
         raise RuntimeError(f"租户不存在: {tenant_key}")
+    app_id, secret = _tenant_creds(tenant_key)
     saved = (t.get("bitable_app_token") or "").strip()
     if saved and (t.get("bitable_table_ids") or "").strip():
         ids = json.loads(t["bitable_table_ids"])
         if ids.get("profile") and ids.get("log"):
+            # 已存在：补授权（幂等），保证达人可见
+            if t.get("owner_open_id"):
+                _grant_owner(_token(app_id, secret), saved, t["owner_open_id"])
             return {"app": saved, **ids}
 
-    app_id, secret = _tenant_creds(tenant_key)
     tok = _token(app_id, secret)
     body = {"name": APP_NAME}
     if FOLDER_TOKEN:
@@ -97,6 +114,8 @@ def ensure_bitable(tenant_key: str) -> dict:
         table_ids[key] = tbl["table_id"]
     db.save_bitable_refs(tenant_key, app_token, table_ids)
     log.info("[bitable] created app=%s tables=%s tenant=%s", app_token, table_ids, tenant_key)
+    if t.get("owner_open_id"):
+        _grant_owner(tok, app_token, t["owner_open_id"])
     return {"app": app_token, **table_ids}
 
 

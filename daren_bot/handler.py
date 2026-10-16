@@ -86,6 +86,13 @@ class Router:
         log.info("message received: tenant=%s type=%s chat=%s from=%s",
                  tenant["tenant_key"], msg.message_type, chat_id,
                  getattr(data.event.sender.sender_id, "open_id", "?"))
+        # 记住达人本人 open_id：建多维表格后授权其可见（幂等，只写一次）
+        try:
+            db.set_owner_open_id(
+                tenant["tenant_key"],
+                getattr(data.event.sender.sender_id, "open_id", "") or "")
+        except Exception:
+            pass
 
         if msg.message_type == "image":
             self._route_image(tenant, msg, content, sender)
