@@ -5682,9 +5682,7 @@ function sb2PtnRender(){
       if (e) _chromeH += e.offsetHeight;
     });
     var _rows = Math.max(1, Math.floor((_ptnMain.clientHeight - _chromeH) / _cardH));
-    /* fix/ptn-fit-floor 批注 2026-10-16 老大「一页为什么只有三个」: 窄窗(单列)时几何只放 3 条
-       → 100 条切 34 页难翻。加下限 8: 窄窗宁可 slight 滚动, 100 条最多 13 页; 宽屏收敛值本来就 ≥8 不受影响 */
-    var _fit = Math.max(8, _rows * _cols);
+    var _fit = _rows * _cols;
     if (_fit !== ptnLimit){
       _sb2PtnFit = _fit;
       _sb2PtnLimit = _fit; /* 持久化, 翻页/筛选页数计算同源 */
