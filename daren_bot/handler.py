@@ -29,7 +29,8 @@ TRACKING_PREFIXES = ("utm_", "spm", "fbclid", "gclid", "tt_")
 UNRELATED_REPLY = ("我是你的带货选品助手，账号分析、选品建议、商品判断都可以找我，"
                    "其他问题帮不上忙哦～")
 UNSUPPORTED_REPLY = ("这类消息我还处理不了，发我抖音号、商品截图、商品链接或抖音视频链接都可以～")
-GREETING_RE = re.compile(r"^(你好|在吗|在么|您好|hi|hello|嗨|早|早上好|晚上好|下午好|哈喽|在不在)[!！~～\s]*$", re.I)
+GREETING_RE = re.compile(r"^(你好|在吗|在么|您好|hi|hello|嗨|早|早上好|晚上好|下午好|哈喽|在不在)[呀啊呐哦哇~～!！\s]*$", re.I)
+BALANCE_RE = re.compile(r"^(余额|积分|我的积分|积分余额|查积分|还有多少积分)[?？!！~～\s]*$")
 GREETING_REPLY = ("你好呀，我是你的带货选品助手。发我你的抖音号可以做账号分析，"
                   "直接问选品、带货、粉丝画像的问题我也都能答～")
 
@@ -106,6 +107,12 @@ class Router:
                 self._route_video(tenant, chat_id, text, sender)
             elif URL_RE.search(text):
                 self._route_link(tenant, chat_id, text, sender)
+            elif BALANCE_RE.match(text.strip()):
+                sender.send_text(
+                    chat_id,
+                    f"你的积分余额：{db.get_balance(tenant['tenant_key'])} 分"
+                    "（发抖音号查账号 100 分/周，商品链接 20 分，截图 10 分，"
+                    "问答 1 分；内测期找运营免费充值）")
             elif len(text.strip()) <= 8 and GREETING_RE.search(text):
                 sender.send_text(chat_id, GREETING_REPLY)
             else:
@@ -190,11 +197,11 @@ class Router:
                 "联系运营老师补充额度（内测期免费发放）")
             return
 
-        ok, _ = db.deduct(tk, config.COST_VISION, "vision")
+        ok, bal = db.deduct(tk, config.COST_VISION, "vision")
         if not ok:
             sender.send_text(chat_id, "积分余额不足，联系运营老师补充额度")
             return
-        sender.send_text(chat_id, "收到截图，识别中")
+        sender.send_text(chat_id, f"收到截图，识别中～（积分余额 {bal}）")
         # vision 走 worker（3 秒硬约束）；废图（识别不出）在 worker 里返还
         db.enqueue_task(tk, "image", str(path), config.COST_VISION,
                         chat_id=chat_id)
@@ -216,11 +223,11 @@ class Router:
                 f"这个动作需要 {config.COST_QA} 积分，你的余额不够啦。"
                 "联系运营老师补充额度（内测期免费发放）")
             return
-        ok, _ = db.deduct(tk, config.COST_QA, "qa")
+        ok, bal = db.deduct(tk, config.COST_QA, "qa")
         if not ok:
             sender.send_text(chat_id, "积分余额不足，联系运营老师补充额度")
             return
-        sender.send_text(chat_id, "收到，我想一下～")
+        sender.send_text(chat_id, f"收到，我想一下～（积分余额 {bal}）")
         db.enqueue_task(tk, "qa", q[:200], config.COST_QA, chat_id=chat_id)
 
     # ---------- ③ 商品链接（spec 4.3） ----------
@@ -230,15 +237,16 @@ class Router:
         url = URL_RE.search(text).group(0)
         product_key = normalize_product_url(url)
 
-        sender.send_text(chat_id, "收到链接，打开商品页分析中，大约 1-2 分钟～")
-
         cached = db.cache_get(product_key)
         if cached:
-            ok, _ = db.deduct(tk, config.COST_PRODUCT_CACHED,
-                              "collect_product_cached", cache_hit=1)
+            ok, bal = db.deduct(tk, config.COST_PRODUCT_CACHED,
+                                "collect_product_cached", cache_hit=1)
             if not ok:
                 sender.send_text(chat_id, "积分余额不足，联系运营老师补充额度")
                 return
+            sender.send_text(
+                chat_id,
+                f"收到链接（缓存命中，秒出结果）～（积分余额 {bal}）")
             db.enqueue_task(tk, "product", product_key,
                             config.COST_PRODUCT_CACHED, cache_hit=1,
                             chat_id=chat_id)
@@ -250,10 +258,13 @@ class Router:
                 f"这个动作需要 {config.COST_COLLECT_PRODUCT} 积分，你的余额不够啦。"
                 "联系运营老师补充额度（内测期免费发放）")
             return
-        ok, _ = db.deduct(tk, config.COST_COLLECT_PRODUCT, "collect_product")
+        ok, bal = db.deduct(tk, config.COST_COLLECT_PRODUCT, "collect_product")
         if not ok:
             sender.send_text(chat_id, "积分余额不足，联系运营老师补充额度")
             return
+        sender.send_text(
+            chat_id,
+            f"收到链接，打开商品页分析中，大约 1-2 分钟～（积分余额 {bal}）")
         db.enqueue_task(tk, "product", product_key, config.COST_COLLECT_PRODUCT,
                         chat_id=chat_id)
 
@@ -268,11 +279,11 @@ class Router:
                 f"视频拆解需要 {config.COST_VIDEO} 积分，你的余额不够啦。"
                 "联系运营老师补充额度（内测期免费发放）")
             return
-        ok, _ = db.deduct(tk, config.COST_VIDEO, "teardown_video")
+        ok, bal = db.deduct(tk, config.COST_VIDEO, "teardown_video")
         if not ok:
             sender.send_text(chat_id, "积分余额不足，联系运营老师补充额度")
             return
         sender.send_text(chat_id,
                          "收到视频链接，拆解中：下载→转写口播→看画面→出拆解报告，"
-                         "大约需要 3-8 分钟～")
+                         f"大约需要 3-8 分钟～（积分余额 {bal}）")
         db.enqueue_task(tk, "video", url, config.COST_VIDEO, chat_id=chat_id)
