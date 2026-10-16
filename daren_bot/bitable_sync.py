@@ -13,6 +13,7 @@ import datetime
 import json
 import logging
 import os
+import time
 import urllib.request
 import uuid
 
@@ -152,9 +153,112 @@ def _convert_fields_to_spec(tok: str, app_token: str, tbl: str, key: str) -> Non
         log.info("[bitable] upgraded: %s %s text->type %s", key, name, want_type)
 
 
+def _v3_conf_get(tok: str, app_token: str, tbl: str, view_id: str, sub: str):
+    """base/v3 视图配置读取；无权限/不支持返回 None。"""
+    try:
+        r = _get(tok, f"/base/v3/bases/{app_token}/tables/{tbl}/views/{view_id}/{sub}")
+        return r.get("data") if r.get("code") == 0 else None
+    except Exception:
+        return None
+
+
+def _v3_conf_set(tok: str, app_token: str, tbl: str, view_id: str,
+                 sub: str, want, name_of: dict = None) -> None:
+    """读-改-写视图配置（幂等）。GET 返回裸数据（列表/dict），PUT 带包装键；
+    服务端把字段 id 回显成名字，比较前统一归一成 (字段名, desc) 再比。"""
+    cur = _v3_conf_get(tok, app_token, tbl, view_id, sub)
+    if cur is None:
+        return  # 权限未开通或视图不支持该配置，静默跳过
+    norm = lambda x: (name_of or {}).get(x, x)
+    key = next((k for k in ("sort_config", "group_config", "visible_fields", "cover_field")
+                if isinstance(want, dict) and k in want), None)
+    if key in ("sort_config", "group_config"):
+        cur_n = sorted((norm(i.get("field")), bool(i.get("desc"))) for i in (cur or []))
+        want_n = sorted((norm(i.get("field")), bool(i.get("desc"))) for i in want[key])
+        if cur_n == want_n:
+            return
+    elif key == "visible_fields":
+        if (cur or []) == want["visible_fields"]:
+            return
+    elif key == "cover_field":
+        if norm((cur or {}).get("cover_field")) == norm(want["cover_field"]):
+            return
+    elif cur == want:
+        return
+    try:
+        _put(tok, f"/base/v3/bases/{app_token}/tables/{tbl}/views/{view_id}/{sub}", want)
+        time.sleep(0.3)  # 同表写接口要求串行
+        log.info("[bitable] view conf: %s %s -> %s", view_id, sub, want)
+    except Exception:
+        log.info("[bitable] view conf failed (非致命): %s %s", view_id, sub)
+
+
+def _view_conf_by_type(views, vtype):
+    return next((v for v in views if v.get("view_type") == vtype), None)
+
+
+def _configure_views(tok: str, app_token: str, ids: dict) -> None:
+    """视图外观统一配置（需 base:view 权限；未开通整体跳过）：
+    - 全部视图按日期/时间倒序（最新在前）
+    - 账号画册封面=报告图、商品画册封面=商品图
+    - 结论看板按「结论」单选分泳道
+    - grid/gallery 隐藏长文本字段，打开即一目了然
+    """
+    for key, date_name, extra in (
+            ("profile", "日期", _profile_view_conf),
+            ("products", "日期", _products_view_conf),
+            ("log", "时间", None)):
+        tbl = ids.get(key)
+        if not tbl:
+            continue
+        try:
+            items = (_get(tok, f"/bitable/v1/apps/{app_token}/tables/{tbl}/fields")
+                     .get("data") or {}).get("items") or []
+            fmap = {f["field_name"]: f["field_id"] for f in items}
+            rev = {v: k for k, v in fmap.items()}
+            views = (_get(tok, f"/bitable/v1/apps/{app_token}/tables/{tbl}/views")
+                     .get("data") or {}).get("items") or []
+        except Exception:
+            continue
+        date_fid = fmap.get(date_name)
+        for v in views:
+            if date_fid and v.get("view_type") in ("grid", "gallery", "kanban"):
+                _v3_conf_set(tok, app_token, tbl, v["view_id"], "sort",
+                             {"sort_config": [{"field": date_fid, "desc": True}]}, rev)
+        if extra:
+            extra(tok, app_token, tbl, views, fmap, rev)
+
+
+def _profile_view_conf(tok, app_token, tbl, views, fmap, rev) -> None:
+    gal = _view_conf_by_type(views, "gallery")
+    if gal and "报告图" in fmap:
+        _v3_conf_set(tok, app_token, tbl, gal["view_id"], "card",
+                     {"cover_field": fmap["报告图"]}, rev)
+        _v3_conf_set(tok, app_token, tbl, gal["view_id"], "visible_fields",
+                     {"visible_fields": ["日期", "昵称", "抖音号", "粉丝", "累计GMV", "评估结论"]})
+    grid = _view_conf_by_type(views, "grid")
+    if grid:
+        _v3_conf_set(tok, app_token, tbl, grid["view_id"], "visible_fields",
+                     {"visible_fields": ["日期", "抖音号", "昵称", "粉丝", "累计GMV",
+                                         "视频占比", "评估结论", "报告图"]})
+
+
+def _products_view_conf(tok, app_token, tbl, views, fmap, rev) -> None:
+    kanban = _view_conf_by_type(views, "kanban")
+    if kanban and "结论" in fmap:
+        _v3_conf_set(tok, app_token, tbl, kanban["view_id"], "group",
+                     {"group_config": [{"field": fmap["结论"], "desc": False}]}, rev)
+    gal = _view_conf_by_type(views, "gallery")
+    if gal and "商品图" in fmap:
+        _v3_conf_set(tok, app_token, tbl, gal["view_id"], "card",
+                     {"cover_field": fmap["商品图"]}, rev)
+        _v3_conf_set(tok, app_token, tbl, gal["view_id"], "visible_fields",
+                     {"visible_fields": ["日期", "商品名", "价格", "佣金率", "结论"]})
+
+
 def _upgrade_profile_table(tok: str, app_token: str, profile_tbl: str) -> None:
-    """老账号档案表升级：补「报告图」附件字段 + 字段类型化 + 「账号画册」gallery 视图
-    （封面字段需在飞书里手选一次，API 不支持写 property）。"""
+    """老账号档案表升级：补「报告图」附件字段 + 字段类型化 + 「账号画册」gallery 视图。
+    视图外观（封面/排序/显隐）统一由 _configure_views 处理。"""
     try:
         fields = (_get(tok, f"/bitable/v1/apps/{app_token}/tables/{profile_tbl}/fields")
                   .get("data") or {}).get("items") or []
@@ -269,6 +373,7 @@ def ensure_bitable(tenant_key: str) -> dict:
             _upgrade_profile_table(tok, saved, ids["profile"])
             _upgrade_products_table(tok, saved, ids["products"])
             _upgrade_log_table(tok, saved, ids["log"])
+            _configure_views(tok, saved, ids)
             if t.get("owner_open_id"):
                 _grant_owner(tok, saved, t["owner_open_id"])
             return {"app": saved, **ids}
@@ -292,6 +397,7 @@ def ensure_bitable(tenant_key: str) -> dict:
     _upgrade_profile_table(tok, app_token, table_ids["profile"])
     _upgrade_products_table(tok, app_token, table_ids["products"])
     _upgrade_log_table(tok, app_token, table_ids["log"])
+    _configure_views(tok, app_token, table_ids)
     if t.get("owner_open_id"):
         _grant_owner(tok, app_token, t["owner_open_id"])
     return {"app": app_token, **table_ids}
