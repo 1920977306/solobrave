@@ -1,9 +1,10 @@
 """多维表格联动（spec 第8条）：机器人用租户自己的飞书 app 凭证，
 在其飞书云空间创建多维表格并双写分析结果（卡片 + 表格）。
 
-内测只做两张表（账号档案 / AI 互动记录），表结构尽量简（全文本字段，可靠优先）：
+三张表：
 - 账号档案：日期 / 抖音号 / 昵称 / 粉丝 / 累计GMV / 视频占比 / 评估结论 / 报告摘要
 - AI 互动记录：时间 / 类型(账号分析|问答|视频拆解) / 输入 / 回答或报告摘要
+- 商品推荐记录：日期 / 商品名 / 价格 / 佣金率 / 销量 / 结论(单选带色) / 匹配理由 / 来源
 
 app_token + table_id 存回 bot_tenants，复用不再建。
 任何失败都只 log 不抛——绝不影响消息推送主链路。
@@ -22,18 +23,36 @@ API = "https://open.feishu.cn/open-apis"
 APP_NAME = "我的带货助手"
 FOLDER_TOKEN = ""  # 空 = 建在我的空间根目录
 
-# 两张表定义：字段名 -> 飞书字段类型（1 = 文本）
+# 表定义：fields = [(字段名, 类型, 扩展)]，类型 1=文本 3=单选
 TABLES = {
     "profile": {
         "name": "账号档案",
-        "fields": ["日期", "抖音号", "昵称", "粉丝", "累计GMV",
-                   "视频占比", "评估结论", "报告摘要"],
+        "fields": [("日期", 1), ("抖音号", 1), ("昵称", 1), ("粉丝", 1),
+                   ("累计GMV", 1), ("视频占比", 1), ("评估结论", 1), ("报告摘要", 1)],
     },
     "log": {
         "name": "AI 互动记录",
-        "fields": ["时间", "类型", "输入", "回答或报告摘要"],
+        "fields": [("时间", 1), ("类型", 1), ("输入", 1), ("回答或报告摘要", 1)],
+    },
+    "products": {
+        "name": "商品推荐记录",
+        "fields": [("日期", 1), ("商品名", 1), ("价格", 1), ("佣金率", 1),
+                   ("销量", 1),
+                   ("结论", 3, {"options": [
+                       {"name": "🟢 能带", "color": 4},
+                       {"name": "🟡 慎带", "color": 3},
+                       {"name": "🔴 别带", "color": 0}]}),
+                   ("匹配理由", 1), ("来源", 1)],
     },
 }
+
+
+def _field_body(spec):
+    name, ftype = spec[0], spec[1]
+    body = {"field_name": name, "type": ftype}
+    if ftype == 3 and len(spec) > 2:
+        body["property"] = spec[2]
+    return body
 
 
 def _token(app_id: str, app_secret: str) -> str:
@@ -83,35 +102,47 @@ def _grant_owner(tok: str, app_token: str, open_id: str) -> None:
         log.warning("[bitable] grant owner failed: %s", e)
 
 
+def _create_table(tok: str, app_token: str, key: str) -> str:
+    spec = TABLES[key]
+    tbl = _post(tok, f"/bitable/v1/apps/{app_token}/tables",
+                {"table": {"name": spec["name"],
+                           "fields": [_field_body(f) for f in spec["fields"]],
+                           "default_view_name": spec["name"]}})
+    return tbl["table_id"]
+
+
 def ensure_bitable(tenant_key: str) -> dict:
-    """确保租户的多维表格存在；返回 {"app": token, "profile": tbl, "log": tbl}。
+    """确保租户的多维表格存在（含升级：老表补建缺失的表）；
+    返回 {"app": token, "profile": tbl, "log": tbl, "products": tbl}。
     表是应用身份创建的，每次确保存在后同步把达人本人授权为协作者。"""
     t = db.get_tenant(tenant_key)
     if not t:
         raise RuntimeError(f"租户不存在: {tenant_key}")
     app_id, secret = _tenant_creds(tenant_key)
+    tok = _token(app_id, secret)
     saved = (t.get("bitable_app_token") or "").strip()
     if saved and (t.get("bitable_table_ids") or "").strip():
         ids = json.loads(t["bitable_table_ids"])
-        if ids.get("profile") and ids.get("log"):
-            # 已存在：补授权（幂等），保证达人可见
+        missing = [k for k in TABLES if not ids.get(k)]
+        if not missing:
             if t.get("owner_open_id"):
-                _grant_owner(_token(app_id, secret), saved, t["owner_open_id"])
+                _grant_owner(tok, saved, t["owner_open_id"])
             return {"app": saved, **ids}
+        # 老 app 升级：补建缺失的表（如商品推荐记录）
+        for k in missing:
+            ids[k] = _create_table(tok, saved, k)
+            log.info("[bitable] upgraded: created table %s(%s) tenant=%s", TABLES[k]["name"], k, tenant_key)
+        db.save_bitable_refs(tenant_key, saved, ids)
+        if t.get("owner_open_id"):
+            _grant_owner(tok, saved, t["owner_open_id"])
+        return {"app": saved, **ids}
 
-    tok = _token(app_id, secret)
     body = {"name": APP_NAME}
     if FOLDER_TOKEN:
         body["folder_token"] = FOLDER_TOKEN
     app_data = _post(tok, "/bitable/v1/apps", body)
     app_token = app_data["app"]["app_token"]
-    table_ids = {}
-    for key, spec in TABLES.items():
-        tbl = _post(tok, f"/bitable/v1/apps/{app_token}/tables",
-                    {"table": {"name": spec["name"],
-                               "fields": [{"field_name": f, "type": 1} for f in spec["fields"]],
-                               "default_view_name": spec["name"]}})
-        table_ids[key] = tbl["table_id"]
+    table_ids = {k: _create_table(tok, app_token, k) for k in TABLES}
     db.save_bitable_refs(tenant_key, app_token, table_ids)
     log.info("[bitable] created app=%s tables=%s tenant=%s", app_token, table_ids, tenant_key)
     if t.get("owner_open_id"):
@@ -156,4 +187,31 @@ def sync_log(tenant_key: str, kind: str, inp: str, answer: str) -> None:
         "类型": kind,
         "输入": (inp or "")[:2000],
         "回答或报告摘要": (answer or "")[:40000],
+    })
+
+
+def _verdict_option(verdict_md: str) -> str:
+    """从结论 Markdown 里解析单选值：🟢→🟢 能带，🟡→🟡 慎带，🔴→🔴 别带。"""
+    md = verdict_md or ""
+    if "🔴" in md:
+        return "🔴 别带"
+    if "🟡" in md:
+        return "🟡 慎带"
+    if "🟢" in md:
+        return "🟢 能带"
+    return "🟡 慎带"   # 兜底（AI 没按格式输出时）
+
+
+def sync_product(tenant_key: str, stats: dict, verdict_md: str,
+                 source: str = "") -> None:
+    """商品分析 -> 商品推荐记录表（结论列单选带色，打开表一眼看清）。"""
+    add_record(tenant_key, "products", {
+        "日期": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
+        "商品名": (stats.get("name") or "")[:200],
+        "价格": _s(stats.get("price")),
+        "佣金率": _s(stats.get("commission_rate") or stats.get("commission")),
+        "销量": _s(stats.get("sales")),
+        "结论": _verdict_option(verdict_md),
+        "匹配理由": (verdict_md or "")[:40000],
+        "来源": (source or stats.get("resolved_url") or "")[:500],
     })

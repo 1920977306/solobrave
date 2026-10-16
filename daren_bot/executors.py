@@ -695,7 +695,9 @@ def execute_product_collect(task: dict) -> str:
 
     verdict = _product_verdict(task.get("tenant_key", ""), stats)
     title = stats.get("name") or "商品分析"
-    return f"{title}\n{verdict}"
+    # 结构化信封：worker 拆包后通知（卡片/文字版用 md+title，表格用 stats）
+    return json.dumps({"title": title, "stats": stats, "md": verdict},
+                      ensure_ascii=False)
 
 
 PRODUCT_VERDICT_PROMPT = '''你是抖音电商达人的AI选品顾问。根据【商品信息】和【该达人的账号数据】判断这个商品适不适合这个达人带货，输出 Markdown（不要输出其他内容）：
@@ -887,7 +889,10 @@ def execute_image_vision(task: dict) -> str:
     b64 = base64.b64encode(path.read_bytes()).decode()
     stats = _vision_extract_product(b64)
     verdict = _product_verdict(task.get("tenant_key", ""), stats)
-    return f"{stats.get('name') or '商品分析'}\n{verdict}"
+    # 结构化信封：worker 拆包后通知（截图来源标记为「截图」）
+    return json.dumps({"title": stats.get("name") or "商品分析",
+                       "stats": stats, "md": verdict,
+                       "source": "截图"}, ensure_ascii=False)
 
 
 def _send_text_quiet(sender, chat_id: str, text: str) -> None:
@@ -1158,12 +1163,15 @@ def execute_video(task: dict) -> str:
     raise RuntimeError("拆解超时（>15分钟），任务还在后台跑，过会儿问运营老师要结果")
 
 
-def notify_product_card(sender, chat_id: str, result_text: str, tenant_key: str) -> None:
-    """商品分析推送：分节卡片长图（复用拆解渲染器）+ 标题 + 文字版 + 多维表格。"""
+def notify_product_card(sender, chat_id: str, title: str, report: str,
+                        tenant_key: str, stats: dict = None,
+                        source: str = "") -> None:
+    """商品分析推送：分节卡片长图（复用拆解渲染器）+ 标题 + 文字版
+    + 多维表格「商品推荐记录」（结论列单选带色）。"""
     if sender is None:
         log.info("[notify-no-sender] product tenant=%s", tenant_key)
         return
-    title, _, report = (result_text or "").partition("\n")
+    title = title or "商品分析"
     try:
         from .report_card import render_teardown_card
         import tempfile
@@ -1177,12 +1185,10 @@ def notify_product_card(sender, chat_id: str, result_text: str, tenant_key: str)
                          f"🛒 {title}\n{_md_to_text(report)}")
         try:
             from . import bitable_sync
-            bitable_sync.sync_log(
-                tenant_key, "商品分析",
-                (result_text or "").split("\n", 1)[0][:500],
-                _md_to_text(report))
+            bitable_sync.sync_product(
+                tenant_key, stats or {"name": title}, report, source)
         except Exception:
-            log.exception("bitable sync log failed: tenant=%s", tenant_key)
+            log.exception("bitable sync product failed: tenant=%s", tenant_key)
         return
     except Exception:
         log.exception("render product card failed, fallback to text: tenant=%s", tenant_key)

@@ -4,6 +4,7 @@
 未接入的类型返回 NotImplementedError，由 Worker 统一走
 「任务失败 → 自动返还积分 → 卡片告知」路径（spec 4.1 失败分支）。
 """
+import json
 import logging
 import threading
 import time
@@ -70,9 +71,19 @@ class Worker(threading.Thread):
                 executors.notify_qa_card(self.wm.get_sender(tk), task["chat_id"],
                                          task["target"], result_summary, tk)
             elif task["type"] in ("product", "image") and task.get("chat_id"):
-                # 商品分析推送（链接抓取/截图识别共用）：分节卡片 + 文字版 + 多维表格
+                # 商品分析推送（链接抓取/截图识别共用）：分节卡片 + 文字版 + 商品推荐记录表
+                # executor 返回结构化信封 {"title","stats","md","source"?}
+                title, stats, source, md = result_summary, {}, "", ""
+                try:
+                    env = json.loads(result_summary)
+                    title = env.get("title") or "商品分析"
+                    stats = env.get("stats") or {}
+                    source = env.get("source") or ""
+                    md = env.get("md") or ""
+                except Exception:
+                    title, _, md = (result_summary or "").partition("\n")
                 executors.notify_product_card(self.wm.get_sender(tk), task["chat_id"],
-                                              result_summary, tk)
+                                              title, md, tk, stats, source)
             elif task["type"] == "video" and task.get("chat_id"):
                 # 视频拆解推送：优先分节卡片长图，渲染失败回退纯文本
                 executors.notify_video_card(self.wm.get_sender(tk), task["chat_id"],
