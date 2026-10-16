@@ -42,7 +42,9 @@ start_one() {
     echo "先 scripts/dev_server.sh stop $name 或手动 kill $pid" >&2
     exit 1
   fi
-  (cd "$dir" && nohup env ${ENV_VARS[@]+"${ENV_VARS[@]}"} python3 solobrave-server.py "$@" > "/tmp/sb${port}.log" 2>&1 &)
+  # ★ fix/slow-request-log: 日志改追加 + 启动时间戳分隔线 — 之前 > 截断, restart 即丢全部历史,
+  #   2026-10-16 排查 DELETE 假成功时昨晚时间线被覆盖丢失, 无法回溯持锁方
+  (cd "$dir" && nohup env ${ENV_VARS[@]+"${ENV_VARS[@]}"} sh -c "echo '===== server start $(date) =====' >> /tmp/sb${port}.log; exec python3 solobrave-server.py \"\$@\"" _ "$@" >> "/tmp/sb${port}.log" 2>&1 &)
   sleep 3
   pid=$(pid_on_port "$port")
   [ -n "$pid" ] || { echo "FATAL: $name 启动失败, 看 /tmp/sb${port}.log" >&2; exit 1; }

@@ -8112,6 +8112,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         self._send_cors_preflight()
 
     def do_GET(self):
+        _t0 = time.time()
         try:
             self._do_GET()
         except Exception as e:
@@ -8120,6 +8121,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 self._send_json(500, {'error': '服务器内部错误'})
             except:
                 pass
+        finally:
+            _dt = time.time() - _t0
+            if _dt > 1.0:
+                logger.warning(f'  [SLOW] GET {self.path} took {_dt:.2f}s')
 
     def _do_GET(self):
         if self.path.startswith('/api/') and not self.path.startswith('/api/auth/'):
@@ -8708,6 +8713,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
     def do_POST(self):
         if not self._check_upload_size():
             return
+        _t0 = time.time()
         try:
             self._do_POST()
         except Exception as e:
@@ -8717,6 +8723,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 self._send_json(500, {'error': '服务器内部错误'})
             except:
                 pass
+        finally:
+            _dt = time.time() - _t0
+            if _dt > 1.0:
+                logger.warning(f'  [SLOW] POST {self.path} took {_dt:.2f}s')
 
     def _do_POST(self):
         if self.path.startswith('/api/') and not self.path.startswith('/api/auth/'):
@@ -9210,6 +9220,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
     def do_PUT(self):
         if not self._check_upload_size():
             return
+        _t0 = time.time()
         try:
             self._do_PUT()
         except Exception as e:
@@ -9219,6 +9230,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 self._send_json(500, {'error': '服务器内部错误'})
             except:
                 pass
+        finally:
+            _dt = time.time() - _t0
+            if _dt > 1.0:
+                logger.warning(f'  [SLOW] PUT {self.path} took {_dt:.2f}s')
 
     def _do_PUT(self):
         if self.path.startswith('/api/') and not self.path.startswith('/api/auth/'):
@@ -9399,6 +9414,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
     def do_DELETE(self):
         if not self._check_upload_size():
             return
+        _t0 = time.time()
         try:
             self._do_DELETE()
         except Exception as e:
@@ -9407,6 +9423,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 self._send_json(500, {'error': '服务器内部错误'})
             except:
                 pass
+        finally:
+            _dt = time.time() - _t0
+            if _dt > 1.0:
+                logger.warning(f'  [SLOW] DELETE {self.path} took {_dt:.2f}s')
 
     def _do_DELETE(self):
         if self.path.startswith('/api/') and not self.path.startswith('/api/auth/'):
