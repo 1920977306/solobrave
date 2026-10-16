@@ -40,7 +40,7 @@ TABLES = {
                    ("抖音号", 1), ("昵称", 1),
                    ("粉丝", 2, {"formatter": "0"}),
                    ("累计GMV", 2, {"formatter": "0.0"}),
-                   ("视频占比", 1),
+                   ("视频占比", 2, {"formatter": "0.00%"}),
                    ("评估结论", 3, {"options": VERDICT_OPTIONS}),
                    ("报告摘要", 1),
                    ("报告图", 17)],   # 附件：报告卡片图，画册视图封面
@@ -331,6 +331,12 @@ def _to_float(v):
         return None
 
 
+def _to_ratio(v):
+    """百分比(0-100) → 小数(0-1)，配 formatter '0.00%' 显示为百分比。"""
+    f = _to_float(v)
+    return round(f / 100, 4) if f is not None else None
+
+
 def _s(v) -> str:
     """数值转字符串，保留 0，只把 None/空串归一为 ''。"""
     return "" if v is None or v == "" else str(v)
@@ -346,7 +352,7 @@ def sync_profile(tenant_key: str, talent: dict, verdict: str, summary: str,
         "粉丝": _to_int(talent.get("followers")),
         "累计GMV": _to_float(talent.get("total_gmv") if talent.get("total_gmv") is not None
                              else talent.get("gmv")),
-        "视频占比": _s(talent.get("video_gmv_ratio") or talent.get("video_ratio")),
+        "视频占比": _to_ratio(talent.get("video_gmv_ratio") or talent.get("video_ratio")),
         "评估结论": verdict or "",
         "报告摘要": summary or "",
     }
