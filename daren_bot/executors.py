@@ -1187,7 +1187,8 @@ def notify_product_card(sender, chat_id: str, title: str, report: str,
         try:
             from . import bitable_sync
             bitable_sync.sync_product(
-                tenant_key, stats or {"name": title}, report, source)
+                tenant_key, stats or {"name": title}, report, source,
+                img_path=str(tmp))
         except Exception:
             log.exception("bitable sync product failed: tenant=%s", tenant_key)
         return

@@ -58,7 +58,7 @@ TABLES = {
                        {"name": "🟢 能带", "color": 4},
                        {"name": "🟡 慎带", "color": 3},
                        {"name": "🔴 别带", "color": 0}]}),
-                   ("匹配理由", 1), ("来源", 1)],
+                   ("匹配理由", 1), ("来源", 1), ("商品图", 17)],  # 附件：分析卡片图
     },
 }
 
@@ -178,15 +178,27 @@ def _upgrade_profile_table(tok: str, app_token: str, profile_tbl: str) -> None:
 
 
 def _upgrade_products_table(tok: str, app_token: str, products_tbl: str) -> None:
-    """商品推荐记录升级：字段类型化 + 「结论看板」kanban 视图（按结论分组）。"""
+    """商品推荐记录升级：补「商品图」附件字段 + 字段类型化 +
+    「结论看板」kanban 视图 + 「商品画册」gallery 视图。"""
     try:
+        fields = (_get(tok, f"/bitable/v1/apps/{app_token}/tables/{products_tbl}/fields")
+                  .get("data") or {}).get("items") or []
+        if not any(f.get("field_name") == "商品图" for f in fields):
+            _post(tok, f"/bitable/v1/apps/{app_token}/tables/{products_tbl}/fields",
+                  {"field_name": "商品图", "type": 17})
+            log.info("[bitable] upgraded: products +商品图 attachment field")
         _convert_fields_to_spec(tok, app_token, products_tbl, "products")
         views = (_get(tok, f"/bitable/v1/apps/{app_token}/tables/{products_tbl}/views")
                  .get("data") or {}).get("items") or []
-        if not any(v.get("view_type") == "kanban" for v in views):
+        vtypes = {v.get("view_type") for v in views}
+        if "kanban" not in vtypes:
             _post(tok, f"/bitable/v1/apps/{app_token}/tables/{products_tbl}/views",
                   {"view_name": "结论看板", "view_type": "kanban"})
             log.info("[bitable] upgraded: products +结论看板 kanban view")
+        if "gallery" not in vtypes:
+            _post(tok, f"/bitable/v1/apps/{app_token}/tables/{products_tbl}/views",
+                  {"view_name": "商品画册", "view_type": "gallery"})
+            log.info("[bitable] upgraded: products +商品画册 gallery view")
     except Exception:
         log.exception("[bitable] products table upgrade failed (非致命)")
 
@@ -371,9 +383,10 @@ def _verdict_option(verdict_md: str) -> str:
 
 
 def sync_product(tenant_key: str, stats: dict, verdict_md: str,
-                 source: str = "") -> None:
-    """商品分析 -> 商品推荐记录表（结论列单选带色，打开表一眼看清）。"""
-    add_record(tenant_key, "products", {
+                 source: str = "", img_path: str = "") -> None:
+    """商品分析 -> 商品推荐记录表（结论列单选带色，打开表一眼看清）。
+    img_path: 商品分析卡片图，上传后挂到「商品图」附件字段（画册封面）。"""
+    record = {
         "日期": _now_ms(),
         "商品名": (stats.get("name") or "")[:200],
         "价格": _s(stats.get("price")),
@@ -382,4 +395,12 @@ def sync_product(tenant_key: str, stats: dict, verdict_md: str,
         "结论": _verdict_option(verdict_md),
         "匹配理由": (verdict_md or "")[:40000],
         "来源": (source or stats.get("resolved_url") or "")[:500],
-    })
+    }
+    if img_path and os.path.isfile(img_path):
+        try:
+            refs = ensure_bitable(tenant_key)
+            ft = _upload_bitable_image(tenant_key, refs["app"], img_path)
+            record["商品图"] = [{"file_token": ft}]
+        except Exception:
+            log.exception("[bitable] 商品图上传失败（记录仍写入，仅无图）")
+    add_record(tenant_key, "products", record)
