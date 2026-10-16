@@ -701,7 +701,7 @@ def execute_product_collect(task: dict) -> str:
 PRODUCT_VERDICT_PROMPT = '''你是抖音电商达人的AI选品顾问。根据【商品信息】和【该达人的账号数据】判断这个商品适不适合这个达人带货，输出 Markdown（不要输出其他内容）：
 
 ## 结论
-🟢 能带 / 🟡 慎带 / 🔴 别带（三选一，标题后接一句不超过30字的理由）
+第一行只写「🟢 能带」「🟡 慎带」「🔴 别带」其中一个（不要写其他的），第二行用一句话说明理由（不超过30字）
 ## 匹配分析
 - 价格匹配：商品价格 vs 该达人粉丝消费力
 - 人群匹配：商品目标人群 vs 该达人粉丝画像（性别/年龄/地域）
@@ -824,7 +824,7 @@ def _vision_try(base: str, key: str, model: str, b64: str,
 
 def _vision_extract_product(b64: str) -> dict:
     """商品截图 → vision 结构化字段。智谱 glm-4v-plus/4v 优先（429 退避重试），
-    余额不足时退 minimax abab6.5s-chat（openclaw.json 已配置）。"""
+    依次退 kimi / minimax M3（openclaw.json 均已配置）。"""
     last_err = ""
     # 第一梯队：智谱（视觉质量好；余额不足会返回 429 code 1113）
     try:
@@ -845,7 +845,7 @@ def _vision_extract_product(b64: str) -> dict:
     except Exception as e:
         last_err = str(e)
         log.warning("zhipu cfg failed: %s", e)
-    # 第二梯队：kimi 视觉（智谱余额不足时的可用兜底）
+    # 第二梯队：kimi 视觉
     try:
         base, key = _kimi_cfg()
         d = _vision_try(base, key, 'moonshot-v1-8k-vision-preview', b64,
@@ -857,6 +857,23 @@ def _vision_extract_product(b64: str) -> dict:
     except Exception as e:
         last_err = str(e)
         log.warning("vision kimi failed: %s", e)
+    # 第三梯队：minimax M3 系列（新套餐原生多模态）
+    try:
+        base, key = _minimax_cfg()
+        for model in ('MiniMax-M3.1-Flash-Preview', 'MiniMax-M3'):
+            try:
+                d = _vision_try(base, key, model, b64, temperature=1.0)
+            except Exception as e:
+                last_err = str(e)
+                log.warning("vision minimax(%s) failed: %s", model, e)
+                continue
+            if d.get('name'):
+                log.info("vision via minimax(%s) fallback", model)
+                return d
+            last_err = f"{model} no-name output"
+    except Exception as e:
+        last_err = str(e)
+        log.warning("minimax cfg failed: %s", e)
     raise RuntimeError('AI 视觉暂时不可用或没识别出商品（%s），可以换一张清晰截图，或直接发商品链接'
                        % last_err[:120])
 
