@@ -3,15 +3,44 @@
 - 每个 TenantConnection 独立 EventDispatcher（闭包绑定 tenant_key，
   因为飞书事件体本身不带 app_id，路由租户靠连接归属）。
 - SDK 自带断线重连；重连不丢消息的验收口径见 spec 第 8 章 P0 用例。
+
+多租户注意：lark-oapi SDK 的 ws.Client 使用【模块级全局 EventLoop】（client.py
+顶部 `loop = asyncio.get_event_loop()`），两条长连接各跑一个线程时，
+第二个 client.start() 会在已在运行的 loop 上 run_until_complete 直接炸
+（"This event loop is already running"）。补丁：把模块全局 loop 换成
+线程本地代理，每个 ws 线程拿到自己的真实 EventLoop。
 """
+import asyncio
 import logging
 import threading
 
 import lark_oapi as lark
+import lark_oapi.ws.client as _ws_client_mod
 
 from . import db
 
 log = logging.getLogger("daren-bot.ws")
+
+
+class _ThreadLocalLoop:
+    """把 SDK 模块级 loop 换成线程本地：每个 ws 线程独立 EventLoop。"""
+
+    def __init__(self):
+        self._local = threading.local()
+
+    def _real(self):
+        lo = getattr(self._local, "loop", None)
+        if lo is None:
+            lo = asyncio.new_event_loop()
+            asyncio.set_event_loop(lo)
+            self._local.loop = lo
+        return lo
+
+    def __getattr__(self, item):
+        return getattr(self._real(), item)
+
+
+_ws_client_mod.loop = _ThreadLocalLoop()
 
 
 class Sender:
