@@ -53,7 +53,7 @@ DAREN_HOME = 'https://www.douyinec.com/'
 OPENCLAW_CFG = Path.home() / '.openclaw' / 'openclaw.json'
 
 TABS = ['概览', '直播详情', '视频详情', '粉丝分析', '带货分析', '历史带货评价']
-JOB_TIMEOUT = 15 * 60           # 单任务硬超时
+JOB_TIMEOUT = 25 * 60           # 单任务硬超时（覆盖视觉 429 降级链耗时）
 POLL_INTERVAL = 5               # 队列轮询秒数
 XHR_MAX_PER_TAB = 60            # 每 tab 最多抓取的 XHR 数
 DOM_SNAP_LIMIT = 9000           # 每 tab DOM 快照字数上限
@@ -475,7 +475,10 @@ def _vision_extract_fields(shots):
                 except Exception as e:
                     log(f'  [LLM] 视觉提取批次{bidx}第{attempt}次失败: {e}')
                     if '429' in str(e):
-                        time.sleep(20 * attempt)    # 429 限速：退避 20/40/60s 再试
+                        # 429 多为余额/限额问题，重试无意义，稍等即走降级模型
+                        time.sleep(10)
+                        break
+                    time.sleep(5)
             if not ok:
                 log(f'  [LLM] 视觉提取批次{bidx}智谱放弃，尝试降级模型')
         except LLMError as e:
