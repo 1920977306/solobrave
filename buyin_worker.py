@@ -388,66 +388,109 @@ def _vision_extract_fields(shots):
             batches.append((tprompt, paths[start:start + 3]))
 
     merged = {}
+
+    def _try_vision(base, key, model, prompt, batch, temperature=0.0):
+        """单次 vision 调用并把通过校验的字段并入 merged，成功返回 True。"""
+        imgs = []
+        for p in batch:
+            imgs.append({'type': 'image_url',
+                         'image_url': {'url': f'data:image/jpeg;base64,{_b64_img(p)}'}})
+        req = urllib.request.Request(
+            base + '/chat/completions',
+            data=json.dumps({
+                'model': model,
+                'messages': [{'role': 'user', 'content':
+                              [{'type': 'text', 'text': prompt}] + imgs}],
+                'temperature': temperature,
+            }).encode('utf-8'),
+            headers={'Content-Type': 'application/json',
+                     'Authorization': f'Bearer {key}'},
+            method='POST')
+        with urllib.request.urlopen(req, timeout=300) as resp:
+            data = json.loads(resp.read().decode())
+        content = (data.get('choices') or [{}])[0].get('message', {}).get('content') or ''
+        candidate = _balanced_json(content)
+        if not candidate:
+            raise LLMError(f'视觉提取输出中无 JSON: {content[:200]}')
+        try:
+            vf = json.loads(candidate)
+        except json.JSONDecodeError:
+            vf = json.loads(_repair_json_text(candidate))
+        if not isinstance(vf, dict):
+            return False
+        for k, v in vf.items():
+            if k in ('name', 'douyin_id'):
+                continue  # 身份字段以 DOM 提取+回填为准，视觉不覆盖
+            if k in _VISION_NUMERIC_KEYS and not isinstance(v, (int, float)):
+                continue  # 数字字段收到脏字符串直接丢弃，保留 DOM 值
+            if k in ('total_products', 'total_shops', 'followers',
+                     'average_price', 'total_history_days', 'video_count',
+                     'rating_effect', 'rating_fulfill', 'rating_communication') and v == 0:
+                continue  # 这些字段为 0 必是读图失败，不能覆盖 DOM 值
+            if isinstance(v, dict) and any('全部' in str(kk) for kk in v):
+                continue  # {"全部品牌":"全部品牌"} 这类占位垃圾
+            if k == 'video_avg_price' and str(v) in ('¥0', '0', '0.0', ''):
+                continue
+            if k == 'video_plays_range' and ('最低0' in str(v) or '最高0' in str(v)):
+                continue
+            if k == 'fan_growth_rate' and str(v) in ('0%', '0.0%', ''):
+                continue
+            if not _vision_text_ok(k, v):
+                continue  # 常识校验不过，保留 DOM 值
+            if v not in (None, '', [], {}):
+                merged[k] = v
+        return True
+
+    def _fallback_cfgs():
+        """智谱 429/挂之后的降级链：kimi 视觉 → minimax M3 系列。
+        配置读 openclaw.json（与 daren_bot 视觉兜底同源）。"""
+        out = []
+        try:
+            cfg = json.load(open(OPENCLAW_CFG, encoding='utf-8'))
+            km = cfg.get('models', {}).get('providers', {}).get('kimi') or {}
+            kbase = (km.get('baseUrl') or 'https://api.kimi.com/coding').rstrip('/')
+            if not kbase.endswith('/v1'):
+                kbase += '/v1'
+            if km.get('apiKey'):
+                out.append((kbase, km['apiKey'], 'moonshot-v1-8k-vision-preview', 1.0))
+            mm = cfg.get('models', {}).get('providers', {}).get('minimax') or {}
+            if mm.get('apiKey'):
+                for m in ('MiniMax-M3.1-Flash-Preview', 'MiniMax-M3'):
+                    out.append(('https://api.minimaxi.com/v1', mm['apiKey'], m, 1.0))
+        except Exception as e:
+            log(f'  [LLM] 视觉降级配置读取失败: {e}')
+        return out
+
     for bidx, (prompt, batch) in enumerate(batches, 1):
         if bidx > 1:
             time.sleep(6)               # 批间限速，防 glm-4v RPM 触发 429
-        for attempt in (1, 2, 3):
-            try:
-                imgs = []
-                for p in batch:
-                    imgs.append({'type': 'image_url',
-                                 'image_url': {'url': f'data:image/jpeg;base64,{_b64_img(p)}'}})
-                base, key = _zhipu_cfg()
-                req = urllib.request.Request(
-                    base + '/chat/completions',
-                    data=json.dumps({
-                        'model': 'glm-4v-plus',
-                        'messages': [{'role': 'user', 'content':
-                                      [{'type': 'text', 'text': prompt}] + imgs}],
-                        'temperature': 0.0,
-                    }).encode('utf-8'),
-                    headers={'Content-Type': 'application/json',
-                             'Authorization': f'Bearer {key}'},
-                    method='POST')
-                with urllib.request.urlopen(req, timeout=300) as resp:
-                    data = json.loads(resp.read().decode())
-                content = (data.get('choices') or [{}])[0].get('message', {}).get('content') or ''
-                candidate = _balanced_json(content)
-                if not candidate:
-                    raise LLMError(f'视觉提取输出中无 JSON: {content[:200]}')
+        ok = False
+        try:
+            zbase, zkey = _zhipu_cfg()
+            for attempt in (1, 2, 3):
                 try:
-                    vf = json.loads(candidate)
-                except json.JSONDecodeError:
-                    vf = json.loads(_repair_json_text(candidate))
-                if isinstance(vf, dict):
-                    for k, v in vf.items():
-                        if k in ('name', 'douyin_id'):
-                            continue  # 身份字段以 DOM 提取+回填为准，视觉不覆盖
-                        if k in _VISION_NUMERIC_KEYS and not isinstance(v, (int, float)):
-                            continue  # 数字字段收到脏字符串直接丢弃，保留 DOM 值
-                        if k in ('total_products', 'total_shops', 'followers',
-                                 'average_price', 'total_history_days', 'video_count',
-                                 'rating_effect', 'rating_fulfill', 'rating_communication') and v == 0:
-                            continue  # 这些字段为 0 必是读图失败，不能覆盖 DOM 值
-                        if isinstance(v, dict) and any('全部' in str(kk) for kk in v):
-                            continue  # {"全部品牌":"全部品牌"} 这类占位垃圾
-                        if k == 'video_avg_price' and str(v) in ('¥0', '0', '0.0', ''):
-                            continue
-                        if k == 'video_plays_range' and ('最低0' in str(v) or '最高0' in str(v)):
-                            continue
-                        if k == 'fan_growth_rate' and str(v) in ('0%', '0.0%', ''):
-                            continue
-                        if not _vision_text_ok(k, v):
-                            continue  # 常识校验不过，保留 DOM 值
-                        if v not in (None, '', [], {}):
-                            merged[k] = v
-                break
-            except Exception as e:
-                log(f'  [LLM] 视觉提取批次{bidx}第{attempt}次失败: {e}')
-                if '429' in str(e):
-                    time.sleep(20 * attempt)    # 429 限速：退避 20/40/60s 再试
-                if attempt == 3:
-                    log(f'  [LLM] 视觉提取批次{bidx}放弃（非致命）')
+                    ok = _try_vision(zbase, zkey, 'glm-4v-plus', prompt, batch)
+                    if ok:
+                        break
+                except Exception as e:
+                    log(f'  [LLM] 视觉提取批次{bidx}第{attempt}次失败: {e}')
+                    if '429' in str(e):
+                        time.sleep(20 * attempt)    # 429 限速：退避 20/40/60s 再试
+            if not ok:
+                log(f'  [LLM] 视觉提取批次{bidx}智谱放弃，尝试降级模型')
+        except LLMError as e:
+            log(f'  [LLM] 智谱配置不可用: {e}')
+        if not ok:
+            for fbase, fkey, fmodel, ftemp in _fallback_cfgs():
+                try:
+                    if _try_vision(fbase, fkey, fmodel, prompt, batch, ftemp):
+                        log(f'  [LLM] 视觉提取批次{bidx}经 {fmodel} 降级成功')
+                        ok = True
+                        break
+                except Exception as e:
+                    log(f'  [LLM] 视觉降级 {fmodel} 失败: {str(e)[:120]}')
+            if not ok:
+                log(f'  [LLM] 视觉提取批次{bidx}放弃（非致命）')
     return merged
 
 
