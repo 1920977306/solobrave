@@ -6,6 +6,7 @@
 
 商品/vision: 暂未接入，保持 NotImplementedError 走诚实失败返还路径（spec）。
 """
+import base64
 import json
 import logging
 import sqlite3
@@ -736,8 +737,140 @@ def _product_verdict(tenant_key: str, stats: dict) -> str:
     return ans[:4000]
 
 
+VISION_PRODUCT_PROMPT = '''你是电商商品信息提取器。从用户发的商品截图里提取以下字段，只输出 JSON（不要输出任何其他文字）：
+{"name":"商品名","price":"到手价(字符串,带¥)","commission":"佣金(字符串)","commission_rate":"佣金率(字符串,百分数)","sales":"销量(字符串)","shop":"店铺名","category":"类目","shop_score":"店铺体验分(字符串,没有则空)","highlights":"核心卖点(一句话,60字内)","target_crowd":"目标人群(一句话)","coupon":"优惠信息(字符串,没有则空)"}
+规则：
+1. 只提取截图里明确可见的字段，没有的填空字符串，绝对不要编造数字（尤其价格/佣金/销量）。
+2. 截图里可能有多个商品，取画面主体那个。
+3. 金额保持截图原文格式（如 ¥29.9）。截图里没有的字段一律填空。'''
+
+
+def _extract_json_obj(text: str) -> dict:
+    """从模型输出里截取第一个配平的 JSON 对象。"""
+    start = text.find('{')
+    if start < 0:
+        return {}
+    depth, in_str, esc = 0, False, False
+    for i in range(start, len(text)):
+        ch = text[i]
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == '\\':
+                esc = True
+            elif ch == '"':
+                in_str = False
+            continue
+        if ch == '"':
+            in_str = True
+        elif ch == '{':
+            depth += 1
+        elif ch == '}':
+            depth -= 1
+            if depth == 0:
+                try:
+                    d = json.loads(text[start:i + 1])
+                    return d if isinstance(d, dict) else {}
+                except Exception:
+                    return {}
+    return {}
+
+
+def _minimax_cfg():
+    cfg = json.load(open(Path.home() / '.openclaw' / 'openclaw.json', encoding='utf-8'))
+    mm = cfg.get('models', {}).get('providers', {}).get('minimax') or {}
+    key = mm.get('apiKey') or ''
+    if not key:
+        raise RuntimeError('openclaw.json 缺少 minimax apiKey')
+    return 'https://api.minimaxi.com/v1', key
+
+
+def _kimi_cfg():
+    cfg = json.load(open(Path.home() / '.openclaw' / 'openclaw.json', encoding='utf-8'))
+    km = cfg.get('models', {}).get('providers', {}).get('kimi') or {}
+    base = (km.get('baseUrl') or 'https://api.kimi.com/coding').rstrip('/')
+    if not base.endswith('/v1'):
+        base += '/v1'
+    key = km.get('apiKey') or ''
+    if not key:
+        raise RuntimeError('openclaw.json 缺少 kimi apiKey')
+    return base, key
+
+
+def _vision_try(base: str, key: str, model: str, b64: str,
+                temperature: float = 0.1) -> dict:
+    """OpenAI 协议的 vision 调用，返回提取字段（无 name 返回 {}）。
+    kimi coding 端点限 temperature=1。"""
+    req = urllib.request.Request(
+        base + '/chat/completions',
+        data=json.dumps({
+            'model': model,
+            'messages': [{'role': 'user', 'content': [
+                {'type': 'text', 'text': VISION_PRODUCT_PROMPT},
+                {'type': 'image_url',
+                 'image_url': {'url': f'data:image/jpeg;base64,{b64}'}},
+            ]}],
+            'temperature': temperature,
+            'max_tokens': 1500,
+        }).encode('utf-8'),
+        headers={'Content-Type': 'application/json',
+                 'Authorization': f'Bearer {key}'},
+        method='POST')
+    with urllib.request.urlopen(req, timeout=120) as resp:
+        data = json.loads(resp.read().decode())
+    content = (data.get('choices') or [{}])[0].get('message', {}).get('content') or ''
+    return _extract_json_obj(content)
+
+
+def _vision_extract_product(b64: str) -> dict:
+    """商品截图 → vision 结构化字段。智谱 glm-4v-plus/4v 优先（429 退避重试），
+    余额不足时退 minimax abab6.5s-chat（openclaw.json 已配置）。"""
+    last_err = ""
+    # 第一梯队：智谱（视觉质量好；余额不足会返回 429 code 1113）
+    try:
+        base, key = _zhipu_cfg_daren()
+        for rnd in range(2):
+            for model in ('glm-4v-plus', 'glm-4v'):
+                try:
+                    d = _vision_try(base, key, model, b64)
+                except Exception as e:
+                    last_err = str(e)
+                    log.warning("vision zhipu(%s) failed: %s", model, e)
+                    continue
+                if d.get('name'):
+                    return d
+                last_err = f"{model} no-name output"
+            if rnd == 0:
+                time.sleep(15)
+    except Exception as e:
+        last_err = str(e)
+        log.warning("zhipu cfg failed: %s", e)
+    # 第二梯队：kimi 视觉（智谱余额不足时的可用兜底）
+    try:
+        base, key = _kimi_cfg()
+        d = _vision_try(base, key, 'moonshot-v1-8k-vision-preview', b64,
+                        temperature=1.0)
+        if d.get('name'):
+            log.info("vision via kimi fallback")
+            return d
+        last_err = "kimi no-name output"
+    except Exception as e:
+        last_err = str(e)
+        log.warning("vision kimi failed: %s", e)
+    raise RuntimeError('AI 视觉暂时不可用或没识别出商品（%s），可以换一张清晰截图，或直接发商品链接'
+                       % last_err[:120])
+
+
 def execute_image_vision(task: dict) -> str:
-    raise NotImplementedError("vision 识别链路开发中")
+    """商品截图识别：vision 提取商品字段 → 结合该达人画像出「能带/慎带/别带」。
+    废图（识别不出商品）抛异常 → worker 自动返还积分（spec：废图不扣分）。"""
+    path = Path(task.get("target") or "")
+    if not path.is_file():
+        raise RuntimeError("截图文件没找到，重新发一下")
+    b64 = base64.b64encode(path.read_bytes()).decode()
+    stats = _vision_extract_product(b64)
+    verdict = _product_verdict(task.get("tenant_key", ""), stats)
+    return f"{stats.get('name') or '商品分析'}\n{verdict}"
 
 
 def _send_text_quiet(sender, chat_id: str, text: str) -> None:

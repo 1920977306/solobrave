@@ -69,8 +69,8 @@ class Worker(threading.Thread):
                 # 问答推送：优先可视化卡片，渲染失败回退纯文字
                 executors.notify_qa_card(self.wm.get_sender(tk), task["chat_id"],
                                          task["target"], result_summary, tk)
-            elif task["type"] == "product" and task.get("chat_id"):
-                # 商品分析推送：分节卡片长图 + 文字版 + 多维表格
+            elif task["type"] in ("product", "image") and task.get("chat_id"):
+                # 商品分析推送（链接抓取/截图识别共用）：分节卡片 + 文字版 + 多维表格
                 executors.notify_product_card(self.wm.get_sender(tk), task["chat_id"],
                                               result_summary, tk)
             elif task["type"] == "video" and task.get("chat_id"):
