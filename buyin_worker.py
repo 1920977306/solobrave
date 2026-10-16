@@ -311,6 +311,48 @@ _VISION_TAB_PROMPTS = {
 _VISION_TAB_KEYS = tuple(_VISION_TAB_PROMPTS.keys()) + ('视频详情', '直播详情')
 
 
+def _fallback_cfgs():
+    """智谱 429/挂之后的降级链：kimi 视觉 → minimax M3 系列。
+    配置读 openclaw.json（与 daren_bot 视觉兜底同源）。
+    返回 [(base, key, model, temperature), ...]。"""
+    out = []
+    try:
+        cfg = json.load(open(OPENCLAW_CFG, encoding='utf-8'))
+        km = cfg.get('models', {}).get('providers', {}).get('kimi') or {}
+        kbase = (km.get('baseUrl') or 'https://api.kimi.com/coding').rstrip('/')
+        if not kbase.endswith('/v1'):
+            kbase += '/v1'
+        if km.get('apiKey'):
+            out.append((kbase, km['apiKey'], 'moonshot-v1-8k-vision-preview', 1.0))
+        mm = cfg.get('models', {}).get('providers', {}).get('minimax') or {}
+        if mm.get('apiKey'):
+            for m in ('MiniMax-M3.1-Flash-Preview', 'MiniMax-M3'):
+                out.append(('https://api.minimaxi.com/v1', mm['apiKey'], m, 1.0))
+    except Exception as e:
+        log(f'  [LLM] 视觉降级配置读取失败: {e}')
+    return out
+
+
+def _vision_chat(base, key, model, prompt, content_parts, temperature=0.0,
+                 timeout=300):
+    """通用多模态 chat：content_parts 为 [{'type':'text'|'image_url'|'video_url',...}]。
+    返回 content 字符串。"""
+    req = urllib.request.Request(
+        base + '/chat/completions',
+        data=json.dumps({
+            'model': model,
+            'messages': [{'role': 'user', 'content':
+                          [{'type': 'text', 'text': prompt}] + content_parts}],
+            'temperature': temperature,
+        }).encode('utf-8'),
+        headers={'Content-Type': 'application/json',
+                 'Authorization': f'Bearer {key}'},
+        method='POST')
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        data = json.loads(resp.read().decode('utf-8'))
+    return (data.get('choices') or [{}])[0].get('message', {}).get('content') or ''
+
+
 def _vision_extract_fields(shots):
     """glm-4v-plus 直接看 tab 截图做视觉提取，补齐 DOM 提取缺失/不准的字段。
     截图压缩后每 3 张一批（单次 6 张会 400），多批结果合并。
@@ -440,26 +482,6 @@ def _vision_extract_fields(shots):
             if v not in (None, '', [], {}):
                 merged[k] = v
         return True
-
-    def _fallback_cfgs():
-        """智谱 429/挂之后的降级链：kimi 视觉 → minimax M3 系列。
-        配置读 openclaw.json（与 daren_bot 视觉兜底同源）。"""
-        out = []
-        try:
-            cfg = json.load(open(OPENCLAW_CFG, encoding='utf-8'))
-            km = cfg.get('models', {}).get('providers', {}).get('kimi') or {}
-            kbase = (km.get('baseUrl') or 'https://api.kimi.com/coding').rstrip('/')
-            if not kbase.endswith('/v1'):
-                kbase += '/v1'
-            if km.get('apiKey'):
-                out.append((kbase, km['apiKey'], 'moonshot-v1-8k-vision-preview', 1.0))
-            mm = cfg.get('models', {}).get('providers', {}).get('minimax') or {}
-            if mm.get('apiKey'):
-                for m in ('MiniMax-M3.1-Flash-Preview', 'MiniMax-M3'):
-                    out.append(('https://api.minimaxi.com/v1', mm['apiKey'], m, 1.0))
-        except Exception as e:
-            log(f'  [LLM] 视觉降级配置读取失败: {e}')
-        return out
 
     for bidx, (prompt, batch) in enumerate(batches, 1):
         if bidx > 1:
@@ -1343,7 +1365,8 @@ def _transcribe(video_path, title):
 
 
 def _vision_watch(video_path, talent_name, item):
-    """glm-4v-plus 直接看整条视频，返回画面描述。返回 (desc, err)。"""
+    """glm-4v-plus 直接看整条视频，返回画面描述。返回 (desc, err)。
+    主模型 429/失败时降级 kimi → minimax M3（套餐含视频输入，video_url 直传）。"""
     try:
         size = os.path.getsize(str(video_path))
         if size > 50 * 1024 * 1024:
@@ -1357,27 +1380,29 @@ def _vision_watch(video_path, talent_name, item):
             '1) 前 3 秒画面是什么（钩子形式）；2) 全程拍了什么（场景/人物/产品/动作）；\n'
             '3) 卖点用什么方式呈现的（口播/字幕/演示/顾客反应）；4) 有没有字幕/花字/价格贴片，什么样式；\n'
             '5) 结尾怎么收的、有没有引导动作。只描述你真实看到的，不要编造。')
-        base, key = _zhipu_cfg()
-        req = urllib.request.Request(
-            base + '/chat/completions',
-            data=json.dumps({
-                'model': 'glm-4v-plus',
-                'messages': [{'role': 'user', 'content': [
-                    {'type': 'text', 'text': prompt},
-                    {'type': 'video_url', 'video_url': {'url': f'data:video/mp4;base64,{b64}'}},
-                ]}],
-                'temperature': 0.0,
-            }).encode('utf-8'),
-            headers={'Content-Type': 'application/json', 'Authorization': f'Bearer {key}'},
-            method='POST')
-        with urllib.request.urlopen(req, timeout=300) as resp:
-            data = json.loads(resp.read().decode('utf-8'))
-        desc = (data.get('choices') or [{}])[0].get('message', {}).get('content') or ''
-        if not desc.strip():
-            return '', 'glm-4v-plus 空返回'
-        return desc.strip()[:3000], ''
-    except urllib.error.HTTPError as e:
-        return '', f'glm-4v-plus http {e.code}: {e.read()[:200]}'
+        parts = [{'type': 'video_url',
+                  'video_url': {'url': f'data:video/mp4;base64,{b64}'}}]
+        err = ''
+        try:
+            base, key = _zhipu_cfg()
+            desc = _vision_chat(base, key, 'glm-4v-plus', prompt, parts)
+            if desc.strip():
+                return desc.strip()[:3000], ''
+            err = 'glm-4v-plus 空返回'
+        except urllib.error.HTTPError as e:
+            err = f'glm-4v-plus http {e.code}: {e.read()[:200]}'
+        except Exception as e:
+            err = f'{type(e).__name__}: {e}'[:300]
+        log(f'  [LLM] 视频画面主模型失败，尝试降级: {err}')
+        for fbase, fkey, fmodel, ftemp in _fallback_cfgs():
+            try:
+                desc = _vision_chat(fbase, fkey, fmodel, prompt, parts, ftemp)
+                if desc.strip():
+                    log(f'  [LLM] 视频画面经 {fmodel} 降级成功')
+                    return desc.strip()[:3000], ''
+            except Exception as e:
+                log(f'  [LLM] 视频画面降级 {fmodel} 失败: {str(e)[:150]}')
+        return '', err
     except Exception as e:
         return '', f'{type(e).__name__}: {e}'[:300]
 
