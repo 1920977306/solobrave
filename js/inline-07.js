@@ -5399,6 +5399,21 @@ async function sb2PatternsInit(){
     catList.sort(function(a, b){ return b.count - a.count; });
     window.patternCategories = catList;
     sb2PtnRender();
+    /* ★ fix/ptn-fit-settle 批注 2026-10-16「点击第二页又恢复以前的」根因之一:
+       首次渲染时字体/图标未 settle, 几何测量偏小 → fit 错收敛成 3 (34 页);
+       之后任意一次渲染(翻页)重测得真值 8, 按 first-item 索引重映射页码,
+       第 2 页首条 idx=3 → floor(3/8)+1=1 → 用户被弹回第 1 页 ("恢复以前的")。
+       修法: init 后 400ms 布局稳定再重置回 12 重收敛一次 (此时必在第 1 页,
+       无翻页打扰; 用户在 400ms 内已翻页则 fit 守卫 _sb2PtnPage===1 挡掉)。 */
+    setTimeout(function(){
+      try {
+        if (_sb2PtnPage === 1 && _sb2PtnLimit < 12
+            && !(_sb2PtnLevel || _sb2PtnCat || _sb2PtnStatus || _sb2PtnSearchQ)) {
+          _sb2PtnLimit = 12;
+          sb2PtnRender();
+        }
+      } catch (e) { /* noop */ }
+    }, 400);
     if (typeof window.renderSideFor === 'function') window.renderSideFor('patterns');
     console.log('[sb2-patterns] init OK, count:', _sb2PtnPatterns.length, ', categories:', catList.length);
   } catch (e) {
@@ -5651,7 +5666,12 @@ function sb2PtnRender(){
      列数从 computed grid-template-columns 实测 (宽屏 2 列 / <900px 单列), 行高用已渲染卡片实测 */
   var _ptnMain = document.getElementById('sb2PatternsMain');
   var _card = listEl.querySelector('.sb2-ptn-card');
-  if (_ptnMain && _card && !_sb2PtnFit){
+  /* ★ fix/ptn-pager-fit 批注 2026-10-16「点击第二页又恢复以前的」根治:
+     fit 收敛只允许在第 1 页发生 — 翻页/详情返回时几何没变, 重收敛只会按
+     first-item 索引把页码重映射弹回 (limit 3→8 时第 2 页 idx3 → 重映射成第 1 页)。
+     用户在第 N>1 页时冻结 fit, 限值保持稳定; 真窗口变化走 resize 监听
+     (它先重置回第 1 页再收敛, 语义自洽)。 */
+  if (_ptnMain && _card && !_sb2PtnFit && _sb2PtnPage === 1){
     var _cs = getComputedStyle(listEl);
     var _cols = (_cs.gridTemplateColumns || '').split(' ').filter(function(s){ return s && s !== 'none'; }).length || 2;
     var _cardH = _card.offsetHeight + 12; /* +grid gap */
