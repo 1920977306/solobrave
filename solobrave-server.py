@@ -4449,7 +4449,10 @@ _PRODUCT_COLUMNS = [
     'influencers', 'audience', 'ai_analysis', 'videos', 'tags', 'selling_points',
     'created_by', 'original_price', 'shipping_from', 'no_shipping_areas', 'sku_code', 'created_at', 'updated_at'
 ]
-
+# ★ fix/products-status-resurrection: 同 talents 表修法 (fix/talents-status-resurrection a67680e) —
+# 全行回写列清单排除 status/created_by/created_at, 这 3 列只允许显式 handler 写
+# (DELETE 置 archived :19283 / restore 置 active :19317), 防读-改-写竞态复活归档行
+_PRODUCT_SYNC_COLUMNS = [c for c in _PRODUCT_COLUMNS if c not in ('status', 'created_by', 'created_at')]
 
 def _product_row_to_dict(row):
     """将 products 表的 sqlite3.Row 转为前端兼容 dict（容忍旧库表缺列，缺列用默认值）"""
@@ -18824,8 +18827,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                         existing_dict['id'] = existing['id']
                         row = _dict_to_product_row(existing_dict)
                         conn.execute(
-                            f"UPDATE products SET {', '.join(f'{c} = ?' for c in _PRODUCT_COLUMNS)} WHERE id = ?",
-                            tuple(row[c] for c in _PRODUCT_COLUMNS) + (existing['id'],)
+                            f"UPDATE products SET {', '.join(f'{c} = ?' for c in _PRODUCT_SYNC_COLUMNS)} WHERE id = ?",
+                            tuple(row[c] for c in _PRODUCT_SYNC_COLUMNS) + (existing['id'],)
                         )
                         updated += 1
                     else:
@@ -19231,8 +19234,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             _sync_product_brand(conn, row)
             if exists_in_sql:
                 conn.execute(
-                    f"UPDATE products SET {', '.join(f'{c} = ?' for c in _PRODUCT_COLUMNS)} WHERE id = ?",
-                    tuple(row[c] for c in _PRODUCT_COLUMNS) + (product_id,)
+                    f"UPDATE products SET {', '.join(f'{c} = ?' for c in _PRODUCT_SYNC_COLUMNS)} WHERE id = ?",
+                    tuple(row[c] for c in _PRODUCT_SYNC_COLUMNS) + (product_id,)
                 )
             else:
                 conn.execute(
