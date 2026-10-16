@@ -25,22 +25,35 @@ API = "https://open.feishu.cn/open-apis"
 APP_NAME = "我的带货助手"
 FOLDER_TOKEN = ""  # 空 = 建在我的空间根目录
 
-# 表定义：fields = [(字段名, 类型, 扩展)]，类型 1=文本 3=单选
+# 表定义：fields = [(字段名, 类型, 扩展property)]
+# 类型: 1=文本 2=数字 3=单选 5=日期 17=附件
+# 单选色: 0=红 3=黄 4=绿（飞书色板编号）
+VERDICT_OPTIONS = [
+    {"name": "潜力型", "color": 4}, {"name": "成长型", "color": 3},
+    {"name": "稳健型", "color": 3}, {"name": "成熟型", "color": 4},
+    {"name": "风险型", "color": 0},
+]
 TABLES = {
     "profile": {
         "name": "账号档案",
-        "fields": [("日期", 1), ("抖音号", 1), ("昵称", 1), ("粉丝", 1),
-                   ("累计GMV", 1), ("视频占比", 1), ("评估结论", 1), ("报告摘要", 1),
-                   ("报告图", 17)],   # 17=附件：报告卡片图，画册视图封面
+        "fields": [("日期", 5, {"date_formatter": "yyyy-MM-dd HH:mm"}),
+                   ("抖音号", 1), ("昵称", 1),
+                   ("粉丝", 2, {"formatter": "0"}),
+                   ("累计GMV", 2, {"formatter": "0.0"}),
+                   ("视频占比", 1),
+                   ("评估结论", 3, {"options": VERDICT_OPTIONS}),
+                   ("报告摘要", 1),
+                   ("报告图", 17)],   # 附件：报告卡片图，画册视图封面
     },
     "log": {
         "name": "AI 互动记录",
-        "fields": [("时间", 1), ("类型", 1), ("输入", 1), ("回答或报告摘要", 1)],
+        "fields": [("时间", 5, {"date_formatter": "yyyy-MM-dd HH:mm"}),
+                   ("类型", 1), ("输入", 1), ("回答或报告摘要", 1)],
     },
     "products": {
         "name": "商品推荐记录",
-        "fields": [("日期", 1), ("商品名", 1), ("价格", 1), ("佣金率", 1),
-                   ("销量", 1),
+        "fields": [("日期", 5, {"date_formatter": "yyyy-MM-dd HH:mm"}),
+                   ("商品名", 1), ("价格", 1), ("佣金率", 1), ("销量", 1),
                    ("结论", 3, {"options": [
                        {"name": "🟢 能带", "color": 4},
                        {"name": "🟡 慎带", "color": 3},
@@ -53,7 +66,7 @@ TABLES = {
 def _field_body(spec):
     name, ftype = spec[0], spec[1]
     body = {"field_name": name, "type": ftype}
-    if ftype == 3 and len(spec) > 2:
+    if len(spec) > 2 and spec[2]:
         body["property"] = spec[2]
     return body
 
@@ -121,16 +134,39 @@ def _get(tok: str, path: str) -> dict:
         return json.loads(resp.read().decode())
 
 
+def _convert_fields_to_spec(tok: str, app_token: str, tbl: str, key: str) -> None:
+    """老表字段类型化：按 TABLES spec 把文本字段转 日期/数字/单选。"""
+    fields = (_get(tok, f"/bitable/v1/apps/{app_token}/tables/{tbl}/fields")
+              .get("data") or {}).get("items") or []
+    by_name = {f.get("field_name"): f for f in fields}
+    for spec in TABLES[key]["fields"]:
+        name, want_type = spec[0], spec[1]
+        f = by_name.get(name)
+        if not f or f.get("type") == want_type:
+            continue
+        body = {"field_name": name, "type": want_type}
+        if len(spec) > 2 and spec[2]:
+            body["property"] = spec[2]
+        _put(tok, f"/bitable/v1/apps/{app_token}/tables/{tbl}"
+                  f"/fields/{f['field_id']}", body)
+        log.info("[bitable] upgraded: %s %s text->type %s", key, name, want_type)
+
+
 def _upgrade_profile_table(tok: str, app_token: str, profile_tbl: str) -> None:
-    """老账号档案表升级：补「报告图」附件字段 + 建「账号画册」gallery 视图
+    """老账号档案表升级：补「报告图」附件字段 + 字段类型化 + 「账号画册」gallery 视图
     （封面字段需在飞书里手选一次，API 不支持写 property）。"""
     try:
         fields = (_get(tok, f"/bitable/v1/apps/{app_token}/tables/{profile_tbl}/fields")
                   .get("data") or {}).get("items") or []
-        if not any(f.get("field_name") == "报告图" for f in fields):
+        by_name = {f.get("field_name"): f for f in fields}
+        # 1) 补缺失字段
+        if "报告图" not in by_name:
             _post(tok, f"/bitable/v1/apps/{app_token}/tables/{profile_tbl}/fields",
                   {"field_name": "报告图", "type": 17})
             log.info("[bitable] upgraded: profile +报告图 attachment field")
+        # 2) 字段类型化：老文本字段 → 日期/数字/单选（按 TABLES spec）
+        _convert_fields_to_spec(tok, app_token, profile_tbl, "profile")
+        # 3) gallery 视图
         views = (_get(tok, f"/bitable/v1/apps/{app_token}/tables/{profile_tbl}/views")
                  .get("data") or {}).get("items") or []
         if not any(v.get("view_type") == "gallery" for v in views):
@@ -139,6 +175,37 @@ def _upgrade_profile_table(tok: str, app_token: str, profile_tbl: str) -> None:
             log.info("[bitable] upgraded: profile +账号画册 gallery view")
     except Exception:
         log.exception("[bitable] profile table upgrade failed (非致命)")
+
+
+def _upgrade_products_table(tok: str, app_token: str, products_tbl: str) -> None:
+    """商品推荐记录升级：字段类型化 + 「结论看板」kanban 视图（按结论分组）。"""
+    try:
+        _convert_fields_to_spec(tok, app_token, products_tbl, "products")
+        views = (_get(tok, f"/bitable/v1/apps/{app_token}/tables/{products_tbl}/views")
+                 .get("data") or {}).get("items") or []
+        if not any(v.get("view_type") == "kanban" for v in views):
+            _post(tok, f"/bitable/v1/apps/{app_token}/tables/{products_tbl}/views",
+                  {"view_name": "结论看板", "view_type": "kanban"})
+            log.info("[bitable] upgraded: products +结论看板 kanban view")
+    except Exception:
+        log.exception("[bitable] products table upgrade failed (非致命)")
+
+
+def _upgrade_log_table(tok: str, app_token: str, log_tbl: str) -> None:
+    """AI 互动记录升级：字段类型化（时间→日期）。"""
+    try:
+        _convert_fields_to_spec(tok, app_token, log_tbl, "log")
+    except Exception:
+        log.exception("[bitable] log table upgrade failed (非致命)")
+
+
+def _put(tok: str, path: str, body: dict) -> dict:
+    req = urllib.request.Request(
+        API + path, data=json.dumps(body).encode(), method="PUT",
+        headers={"Content-Type": "application/json",
+                 "Authorization": f"Bearer {tok}"})
+    with urllib.request.urlopen(req, timeout=20) as resp:
+        return json.loads(resp.read().decode())
 
 
 def _upload_bitable_image(tenant_key: str, app_token: str, png_path: str) -> str:
@@ -188,6 +255,8 @@ def ensure_bitable(tenant_key: str) -> dict:
         missing = [k for k in TABLES if not ids.get(k)]
         if not missing:
             _upgrade_profile_table(tok, saved, ids["profile"])
+            _upgrade_products_table(tok, saved, ids["products"])
+            _upgrade_log_table(tok, saved, ids["log"])
             if t.get("owner_open_id"):
                 _grant_owner(tok, saved, t["owner_open_id"])
             return {"app": saved, **ids}
@@ -209,22 +278,45 @@ def ensure_bitable(tenant_key: str) -> dict:
     db.save_bitable_refs(tenant_key, app_token, table_ids)
     log.info("[bitable] created app=%s tables=%s tenant=%s", app_token, table_ids, tenant_key)
     _upgrade_profile_table(tok, app_token, table_ids["profile"])
+    _upgrade_products_table(tok, app_token, table_ids["products"])
+    _upgrade_log_table(tok, app_token, table_ids["log"])
     if t.get("owner_open_id"):
         _grant_owner(tok, app_token, t["owner_open_id"])
     return {"app": app_token, **table_ids}
 
 
 def add_record(tenant_key: str, table: str, values: dict) -> None:
-    """往租户多维表格的某张表追加一条记录。values: 字段名 -> 文本；
-    值为 list 时原样透传（附件字段 [{'file_token': ...}]）。"""
+    """往租户多维表格的某张表追加一条记录。values: 字段名 -> 值；
+    list 原样透传（附件字段），None 置空，其余转字符串截断。"""
     refs = ensure_bitable(tenant_key)
     app_id, secret = _tenant_creds(tenant_key)
     tok = _token(app_id, secret)
-    fields = {k: (v if isinstance(v, list)
-                  else ("" if v is None else str(v))[:40000])
+    fields = {k: (v if isinstance(v, list) or v is None
+                  else (v if isinstance(v, (int, float))
+                        else str(v)[:40000]))
               for k, v in values.items()}
     _post(tok, f"/bitable/v1/apps/{refs['app']}/tables/{refs[table]}/records",
           {"fields": fields})
+
+
+def _now_ms() -> int:
+    """当前时间的毫秒时间戳（日期/时间字段写入用）。"""
+    return int(datetime.datetime.now().timestamp() * 1000)
+
+
+def _to_int(v):
+    try:
+        return int(float(str(v).replace(",", "").strip()))
+    except Exception:
+        return None
+
+
+def _to_float(v):
+    try:
+        return float(str(v).replace(",", "").replace("万", "")
+                     .replace("¥", "").strip())
+    except Exception:
+        return None
 
 
 def _s(v) -> str:
@@ -236,12 +328,12 @@ def sync_profile(tenant_key: str, talent: dict, verdict: str, summary: str,
                  img_path: str = "") -> None:
     """账号报告 -> 账号档案表。img_path: 报告卡片图，上传后挂到「报告图」附件字段。"""
     record = {
-        "日期": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
+        "日期": _now_ms(),
         "抖音号": talent.get("douyin_id") or talent.get("dyid") or "",
         "昵称": talent.get("name") or "",
-        "粉丝": _s(talent.get("followers")),
-        "累计GMV": _s(talent.get("total_gmv") if talent.get("total_gmv") is not None
-                      else talent.get("gmv")),
+        "粉丝": _to_int(talent.get("followers")),
+        "累计GMV": _to_float(talent.get("total_gmv") if talent.get("total_gmv") is not None
+                             else talent.get("gmv")),
         "视频占比": _s(talent.get("video_gmv_ratio") or talent.get("video_ratio")),
         "评估结论": verdict or "",
         "报告摘要": summary or "",
@@ -259,7 +351,7 @@ def sync_profile(tenant_key: str, talent: dict, verdict: str, summary: str,
 def sync_log(tenant_key: str, kind: str, inp: str, answer: str) -> None:
     """问答/视频拆解 -> AI 互动记录表。"""
     add_record(tenant_key, "log", {
-        "时间": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
+        "时间": _now_ms(),
         "类型": kind,
         "输入": (inp or "")[:2000],
         "回答或报告摘要": (answer or "")[:40000],
@@ -282,7 +374,7 @@ def sync_product(tenant_key: str, stats: dict, verdict_md: str,
                  source: str = "") -> None:
     """商品分析 -> 商品推荐记录表（结论列单选带色，打开表一眼看清）。"""
     add_record(tenant_key, "products", {
-        "日期": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
+        "日期": _now_ms(),
         "商品名": (stats.get("name") or "")[:200],
         "价格": _s(stats.get("price")),
         "佣金率": _s(stats.get("commission_rate") or stats.get("commission")),
