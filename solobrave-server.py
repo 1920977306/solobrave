@@ -4293,8 +4293,8 @@ def _create_talent_internal(body, owner_auth):
             merged['updated_at'] = int(time.time() * 1000)
             upd_row = _dict_to_talent_row(merged)
             conn.execute(
-                f"UPDATE talents SET {', '.join(f'{c} = ?' for c in _TALENT_COLUMNS)} WHERE id = ?",
-                tuple(upd_row[c] for c in _TALENT_COLUMNS) + (same_name['id'],)
+                f"UPDATE talents SET {', '.join(f'{c} = ?' for c in _TALENT_SYNC_COLUMNS)} WHERE id = ?",
+                tuple(upd_row[c] for c in _TALENT_SYNC_COLUMNS) + (same_name['id'],)
             )
             conn.commit()
             if upd_row.get('group_id'):
@@ -4663,6 +4663,12 @@ _TALENT_COLUMNS = [
     'ocr_raw_fields',
     'created_at', 'updated_at'
 ]
+# ★ fix/talents-status-resurrection (bug-delete-fake-success): 全行回写列清单排除
+# status/created_by/created_at — 这 3 列只允许显式 handler 写 (DELETE 置 archived /
+# restore 置 active / 归属初始化), 任何「SELECT 快照 → merge → UPDATE 全部列」的
+# 读-改-写路径带着快照值回写, 会在并发下把刚归档的行复活成 active (2026-10-16 实锤:
+# DELETE 200 后 status 仍 active, 第二次删才成功)。updated_at 保留在清单内。
+_TALENT_SYNC_COLUMNS = [c for c in _TALENT_COLUMNS if c not in ('status', 'created_by', 'created_at')]
 
 _FOLLOW_UP_COLUMNS = [
     'id', 'talent_id', 'follow_up_by', 'follow_up_at', 'next_follow_up_at',
@@ -18727,8 +18733,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                         existing_dict['id'] = existing['id']
                         row = _dict_to_talent_row(existing_dict)
                         conn.execute(
-                            f"UPDATE talents SET {', '.join(f'{c} = ?' for c in _TALENT_COLUMNS)} WHERE id = ?",
-                            tuple(row[c] for c in _TALENT_COLUMNS) + (existing['id'],)
+                            f"UPDATE talents SET {', '.join(f'{c} = ?' for c in _TALENT_SYNC_COLUMNS)} WHERE id = ?",
+                            tuple(row[c] for c in _TALENT_SYNC_COLUMNS) + (existing['id'],)
                         )
                         updated += 1
                     else:
@@ -19961,8 +19967,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 merged['updated_at'] = int(time.time() * 1000)
                 upd_row = _dict_to_talent_row(merged)
                 conn.execute(
-                    f"UPDATE talents SET {', '.join(f'{c} = ?' for c in _TALENT_COLUMNS)} WHERE id = ?",
-                    tuple(upd_row[c] for c in _TALENT_COLUMNS) + (same_name['id'],)
+                    f"UPDATE talents SET {', '.join(f'{c} = ?' for c in _TALENT_SYNC_COLUMNS)} WHERE id = ?",
+                    tuple(upd_row[c] for c in _TALENT_SYNC_COLUMNS) + (same_name['id'],)
                 )
                 conn.commit()
                 if upd_row.get('group_id'):
@@ -20335,8 +20341,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             existing['updated_at'] = int(time.time() * 1000)
             row = _dict_to_talent_row(existing)
             conn.execute(
-                f"UPDATE talents SET {', '.join(f'{c} = ?' for c in _TALENT_COLUMNS)} WHERE id = ?",
-                tuple(row[c] for c in _TALENT_COLUMNS) + (talent_id,)
+                f"UPDATE talents SET {', '.join(f'{c} = ?' for c in _TALENT_SYNC_COLUMNS)} WHERE id = ?",
+                tuple(row[c] for c in _TALENT_SYNC_COLUMNS) + (talent_id,)
             )
             conn.commit()
             if row.get('group_id'):
@@ -21111,8 +21117,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             existing['updated_at'] = int(time.time() * 1000)
             new_row = _dict_to_talent_row(existing)
             conn.execute(
-                f"UPDATE talents SET {', '.join(f'{c} = ?' for c in _TALENT_COLUMNS)} WHERE id = ?",
-                tuple(new_row[c] for c in _TALENT_COLUMNS) + (inf_id,))
+                f"UPDATE talents SET {', '.join(f'{c} = ?' for c in _TALENT_SYNC_COLUMNS)} WHERE id = ?",
+                tuple(new_row[c] for c in _TALENT_SYNC_COLUMNS) + (inf_id,))
             conn.commit()
             row_out = conn.execute('SELECT * FROM talents WHERE id = ?', (inf_id,)).fetchone()
         finally:
