@@ -247,6 +247,24 @@ def refund(tenant_key: str, cost: int, action: str = 'refund',
         return new_balance
 
 
+def grant(tenant_key: str, amount: int, action: str = 'grant') -> int:
+    """运营发放积分（内测期手动充值）。返回发放后余额。"""
+    if amount <= 0:
+        raise ValueError("发放积分必须为正数")
+    with db_ctx() as conn:
+        r = conn.execute("SELECT balance FROM bot_credits_accounts WHERE tenant_key=?",
+                         (tenant_key,)).fetchone()
+        balance = int(r["balance"]) if r else 0
+        new_balance = balance + amount
+        conn.execute(
+            "INSERT INTO bot_credits_accounts (tenant_key, balance, updated_at) VALUES (?,?,?) "
+            "ON CONFLICT(tenant_key) DO UPDATE SET balance=excluded.balance, "
+            "updated_at=excluded.updated_at",
+            (tenant_key, new_balance, now_ts()))
+        _ledger(conn, tenant_key, action, -amount, new_balance, 0, '')
+        return new_balance
+
+
 # ---------- 周抓计数 ----------
 
 def get_week_count(tenant_key: str, douyin_id: str, week_no: int = None) -> int:

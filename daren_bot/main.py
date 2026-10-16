@@ -10,13 +10,12 @@ P0 门禁（spec 第 1/8 章）: add-tenant + serve 起来后，飞书后台把�
 im.message.receive_v1 即通过；kill 进程重启 → 消息不丢即重连通过。
 """
 import argparse
-import json
 import logging
 import sys
 import threading
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import ThreadingHTTPServer
 
-from . import config, crypto_util, db
+from . import admin, config, crypto_util, db
 from .handler import Router
 from .worker import Worker
 from .ws_manager import WsManager
@@ -34,27 +33,6 @@ for _h in list(_lark.handlers):
 _lark.addHandler(logging.StreamHandler(sys.stderr))
 log = logging.getLogger("daren-bot.main")
 _STATE = {"ws": None}
-
-
-class _HealthHandler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        if self.path.rstrip("/") in ("", "/healthz"):
-            body = json.dumps({
-                "ok": True,
-                "service": "daren-bot",
-                "db": str(config.DB_PATH),
-                "ws": _STATE["ws"].stats() if _STATE["ws"] else {},
-            }, ensure_ascii=False).encode()
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.end_headers()
-            self.wfile.write(body)
-        else:
-            self.send_response(404)
-            self.end_headers()
-
-    def log_message(self, *args):  # 静默访问日志
-        pass
 
 
 def cmd_init_db(_args):
@@ -90,10 +68,13 @@ def cmd_serve(_args):
     worker = Worker(ws)
     worker.start()
 
-    httpd = ThreadingHTTPServer(("127.0.0.1", config.HTTP_PORT), _HealthHandler)
+    # 绑 0.0.0.0：运营后台要局域网访问（/admin?token=…），healthz 同端口保留
+    handler = admin.make_handler(_STATE)
+    httpd = ThreadingHTTPServer(("0.0.0.0", config.HTTP_PORT), handler)
     threading.Thread(target=httpd.serve_forever, daemon=True,
-                     name="health-http").start()
-    log.info("daren-bot serving: health=http://127.0.0.1:%d/healthz", config.HTTP_PORT)
+                     name="admin-http").start()
+    log.info("daren-bot serving: health+admin=http://0.0.0.0:%d/ (admin /admin?token=…)",
+             config.HTTP_PORT)
 
     try:
         import time
