@@ -929,7 +929,8 @@ def notify_report(sender, chat_id: str, douyin_id: str, report_text: str) -> Non
                     summary = (t.get("ai_summary") or t.get("notes") or "")[:2000]
                     bitable_sync.sync_profile(
                         tenant["tenant_key"], t,
-                        t.get("risk_rating") or "", summary)
+                        t.get("risk_rating") or "", summary,
+                        img_path=str(tmp))
             except Exception:
                 log.exception("bitable sync profile failed: douyin_id=%s", douyin_id)
             return

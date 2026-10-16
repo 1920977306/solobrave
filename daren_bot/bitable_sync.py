@@ -12,7 +12,9 @@ app_token + table_id 存回 bot_tenants，复用不再建。
 import datetime
 import json
 import logging
+import os
 import urllib.request
+import uuid
 
 from . import db, crypto_util
 
@@ -28,7 +30,8 @@ TABLES = {
     "profile": {
         "name": "账号档案",
         "fields": [("日期", 1), ("抖音号", 1), ("昵称", 1), ("粉丝", 1),
-                   ("累计GMV", 1), ("视频占比", 1), ("评估结论", 1), ("报告摘要", 1)],
+                   ("累计GMV", 1), ("视频占比", 1), ("评估结论", 1), ("报告摘要", 1),
+                   ("报告图", 17)],   # 17=附件：报告卡片图，画册视图封面
     },
     "log": {
         "name": "AI 互动记录",
@@ -111,6 +114,65 @@ def _create_table(tok: str, app_token: str, key: str) -> str:
     return tbl["table_id"]
 
 
+def _get(tok: str, path: str) -> dict:
+    req = urllib.request.Request(
+        API + path, headers={"Authorization": f"Bearer {tok}"})
+    with urllib.request.urlopen(req, timeout=20) as resp:
+        return json.loads(resp.read().decode())
+
+
+def _upgrade_profile_table(tok: str, app_token: str, profile_tbl: str) -> None:
+    """老账号档案表升级：补「报告图」附件字段 + 建「账号画册」gallery 视图
+    （封面字段需在飞书里手选一次，API 不支持写 property）。"""
+    try:
+        fields = (_get(tok, f"/bitable/v1/apps/{app_token}/tables/{profile_tbl}/fields")
+                  .get("data") or {}).get("items") or []
+        if not any(f.get("field_name") == "报告图" for f in fields):
+            _post(tok, f"/bitable/v1/apps/{app_token}/tables/{profile_tbl}/fields",
+                  {"field_name": "报告图", "type": 17})
+            log.info("[bitable] upgraded: profile +报告图 attachment field")
+        views = (_get(tok, f"/bitable/v1/apps/{app_token}/tables/{profile_tbl}/views")
+                 .get("data") or {}).get("items") or []
+        if not any(v.get("view_type") == "gallery" for v in views):
+            _post(tok, f"/bitable/v1/apps/{app_token}/tables/{profile_tbl}/views",
+                  {"view_name": "账号画册", "view_type": "gallery"})
+            log.info("[bitable] upgraded: profile +账号画册 gallery view")
+    except Exception:
+        log.exception("[bitable] profile table upgrade failed (非致命)")
+
+
+def _upload_bitable_image(tenant_key: str, app_token: str, png_path: str) -> str:
+    """上传图片到租户多维表格，返回 file_token（供附件字段引用）。"""
+    app_id, secret = _tenant_creds(tenant_key)
+    tok = _token(app_id, secret)
+    boundary = uuid.uuid4().hex
+    size = os.path.getsize(png_path)
+    fields = {"file_name": os.path.basename(png_path),
+              "parent_type": "bitable_image",
+              "parent_node": app_token,
+              "size": str(size)}
+    body = b""
+    for k, v in fields.items():
+        body += (f'--{boundary}\r\nContent-Disposition: form-data; name="{k}"'
+                 f"\r\n\r\n{v}\r\n").encode()
+    with open(png_path, "rb") as f:
+        data = f.read()
+    body += (f'--{boundary}\r\nContent-Disposition: form-data; name="file"; '
+             f'filename="{os.path.basename(png_path)}"\r\n'
+             f"Content-Type: image/png\r\n\r\n").encode() + data + \
+        f"\r\n--{boundary}--\r\n".encode()
+    req = urllib.request.Request(
+        API + "/drive/v1/medias/upload_all", data=body, method="POST",
+        headers={"Content-Type": f"multipart/form-data; boundary={boundary}",
+                 "Authorization": f"Bearer {tok}"})
+    with urllib.request.urlopen(req, timeout=60) as resp:
+        r = json.loads(resp.read().decode())
+    ft = (r.get("data") or {}).get("file_token")
+    if not ft:
+        raise RuntimeError(f"图片上传无 file_token: {str(r)[:200]}")
+    return ft
+
+
 def ensure_bitable(tenant_key: str) -> dict:
     """确保租户的多维表格存在（含升级：老表补建缺失的表）；
     返回 {"app": token, "profile": tbl, "log": tbl, "products": tbl}。
@@ -125,6 +187,7 @@ def ensure_bitable(tenant_key: str) -> dict:
         ids = json.loads(t["bitable_table_ids"])
         missing = [k for k in TABLES if not ids.get(k)]
         if not missing:
+            _upgrade_profile_table(tok, saved, ids["profile"])
             if t.get("owner_open_id"):
                 _grant_owner(tok, saved, t["owner_open_id"])
             return {"app": saved, **ids}
@@ -145,17 +208,21 @@ def ensure_bitable(tenant_key: str) -> dict:
     table_ids = {k: _create_table(tok, app_token, k) for k in TABLES}
     db.save_bitable_refs(tenant_key, app_token, table_ids)
     log.info("[bitable] created app=%s tables=%s tenant=%s", app_token, table_ids, tenant_key)
+    _upgrade_profile_table(tok, app_token, table_ids["profile"])
     if t.get("owner_open_id"):
         _grant_owner(tok, app_token, t["owner_open_id"])
     return {"app": app_token, **table_ids}
 
 
 def add_record(tenant_key: str, table: str, values: dict) -> None:
-    """往租户多维表格的某张表追加一条记录。values: 字段名 -> 文本。"""
+    """往租户多维表格的某张表追加一条记录。values: 字段名 -> 文本；
+    值为 list 时原样透传（附件字段 [{'file_token': ...}]）。"""
     refs = ensure_bitable(tenant_key)
     app_id, secret = _tenant_creds(tenant_key)
     tok = _token(app_id, secret)
-    fields = {k: ("" if v is None else str(v))[:40000] for k, v in values.items()}
+    fields = {k: (v if isinstance(v, list)
+                  else ("" if v is None else str(v))[:40000])
+              for k, v in values.items()}
     _post(tok, f"/bitable/v1/apps/{refs['app']}/tables/{refs[table]}/records",
           {"fields": fields})
 
@@ -165,9 +232,10 @@ def _s(v) -> str:
     return "" if v is None or v == "" else str(v)
 
 
-def sync_profile(tenant_key: str, talent: dict, verdict: str, summary: str) -> None:
-    """账号报告 -> 账号档案表。"""
-    add_record(tenant_key, "profile", {
+def sync_profile(tenant_key: str, talent: dict, verdict: str, summary: str,
+                 img_path: str = "") -> None:
+    """账号报告 -> 账号档案表。img_path: 报告卡片图，上传后挂到「报告图」附件字段。"""
+    record = {
         "日期": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
         "抖音号": talent.get("douyin_id") or talent.get("dyid") or "",
         "昵称": talent.get("name") or "",
@@ -177,7 +245,15 @@ def sync_profile(tenant_key: str, talent: dict, verdict: str, summary: str) -> N
         "视频占比": _s(talent.get("video_gmv_ratio") or talent.get("video_ratio")),
         "评估结论": verdict or "",
         "报告摘要": summary or "",
-    })
+    }
+    if img_path and os.path.isfile(img_path):
+        try:
+            refs = ensure_bitable(tenant_key)
+            ft = _upload_bitable_image(tenant_key, refs["app"], img_path)
+            record["报告图"] = [{"file_token": ft}]
+        except Exception:
+            log.exception("[bitable] 报告图上传失败（记录仍写入，仅无图）")
+    add_record(tenant_key, "profile", record)
 
 
 def sync_log(tenant_key: str, kind: str, inp: str, answer: str) -> None:
