@@ -283,6 +283,12 @@ def _build_report(talent_id: str, douyin_id: str) -> str:
         basics.append(f"城市 {t['city']}")
     if t.get("level"):
         basics.append(f"等级 {t['level']}")
+    _agency = pick("agency")
+    if _agency:
+        basics.append(f"签约 {_agency}")
+    _rc = pick("related_company")
+    if _rc:
+        basics.append(f"关联 {_rc}")
     if basics:
         lines.append("｜".join(basics))
 
@@ -427,6 +433,12 @@ def _build_report(talent_id: str, douyin_id: str) -> str:
         except (json.JSONDecodeError, TypeError):
             pass
         fans.append(f"价格偏好 {fpr}")
+    fcat = pick("fan_category")
+    if fcat:
+        fans.append(f"类目偏好 {fcat}")
+    fct = pick("fan_city_tier")
+    if fct:
+        fans.append(f"城市线级 {fct}")
     fcl = _fmt_dist(_loads_dist(pick("fan_consume_level")))
     if fcl:
         fans.append(f"消费水平 {fcl}")

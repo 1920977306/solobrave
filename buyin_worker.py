@@ -275,7 +275,12 @@ _VISION_TAB_PROMPTS = {
         'fan_gender/fan_age/fan_region/fan_crowd(粉丝画像分布,对象,百分比数字) '
         'fan_purchase_pref(粉丝购买偏好,如"服装22.68%") fan_consume_level(粉丝消费水平,对象) '
         'category_distribution(带货最多品类TOP5,对象,百分比数字) '
-        'cooperating_brands_distribution(品牌集中度TOP5,对象,百分比数字)。' + _VISION_IRON
+        'cooperating_brands_distribution(品牌集中度TOP5,对象,百分比数字) '
+        'city(主页左侧达人地区,如"浙江·温州") level(主页达人等级,如"LV2") '
+        'tags(主页标签pill数组,如["潜力合作","回复率高"]) '
+        'bio(主页左侧达人简介全文) agency(主页左侧签约机构,显示"暂无"则null) '
+        'related_company(主页左侧关联企业) '
+        'fulfillment_score(履约分数字) rating_score(左侧带货评价总分数字)。' + _VISION_IRON
     ),
     '带货分析': (
         '读巨量百应达人详情页【带货分析】tab截图。提取：'
@@ -291,8 +296,11 @@ _VISION_TAB_PROMPTS = {
         'fan_gender/fan_age/fan_region/fan_crowd(分布对象,百分比数字。'
         '性别以页面文字摘要为准如"男性居多 54.74%"，不要凭饼图颜色猜) '
         'fan_feature_gender/fan_feature_age/fan_feature_region/fan_feature_crowd(粉丝特征pill,原样字符串) '
+        'fan_price_range(消费偏好-客单价pill,原样照抄如"客单价100到200元(33%)") '
+        'fan_category(消费偏好-偏好类目pill,原样照抄如"偏好服装(29%)") '
+        'fan_city_tier(粉丝特征-城市线级pill,原样照抄如"三线城市(25%)") '
         'consume_pref_price/consume_pref_category(消费偏好pill,原样字符串) '
-        'fan_growth(近2月粉丝变化数,带符号整数) fan_growth_rate(粉丝变化率,字符串) '
+        'fan_growth(粉丝趋势-粉丝变化数,带符号整数,如122) fan_growth_rate(粉丝变化率,字符串,如"+2.38%") '
         'fan_consume_level(消费水平分布,对象)。' + _VISION_IRON
     ),
     '评价详情': (

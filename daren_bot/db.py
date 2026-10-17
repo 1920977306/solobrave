@@ -291,6 +291,17 @@ def incr_week_count(tenant_key: str, douyin_id: str, week_no: int = None) -> int
         return int(r["count"])
 
 
+def peer_douyin_count(tenant_key: str, bound_id: str) -> int:
+    """该租户已跟踪过的对标号数量（非绑定号的去重计数，含进行中）。"""
+    with db_ctx() as conn:
+        r = conn.execute(
+            """SELECT COUNT(DISTINCT target) FROM bot_collect_tasks
+               WHERE tenant_key=? AND type='douyin' AND target<>?
+                 AND status IN ('done','pending','collecting')""",
+            (tenant_key, bound_id)).fetchone()
+        return int(r[0]) if r else 0
+
+
 # ---------- 任务队列 ----------
 
 def enqueue_task(tenant_key: str, task_type: str, target: str,

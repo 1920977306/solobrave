@@ -21,3 +21,6 @@ COST_PRODUCT_CACHED = 5
 COST_VISION = 10
 COST_QA = 1
 COST_VIDEO = 30        # 视频拆解：下载+妙记转写+vision+报告，重操作
+
+# 对标分析：内测期每个达人最多同时跟踪的对标号数量
+MAX_PEER_IDS = int(os.environ.get("DAREN_MAX_PEER_IDS", "5"))

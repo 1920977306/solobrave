@@ -139,15 +139,24 @@ class Router:
             tenant["bind_douyin_id"] = dy_id
             bound = dy_id
             first_bind = True
-        elif bound != dy_id:
+        is_self = (dy_id == bound)
+
+        # 对标号（查同行/竞争对手）：不占用自己号的周更新额度，
+        # 但每个号每周同样限 1 次，且总数有上限（内测期防刷）
+        if not is_self:
+            peers = db.peer_douyin_count(tk, bound)
+            if peers >= config.MAX_PEER_IDS:
+                sender.send_text(
+                    chat_id,
+                    f"内测期最多同时跟踪 {config.MAX_PEER_IDS} 个对标号，"
+                    "需要调整联系运营")
+                return
+
+        if db.get_week_count(tk, dy_id) >= 1:
             sender.send_text(
                 chat_id,
-                f"本助手已绑定你的抖音号 {bound}，查别人的号内测期请联系运营")
-            return
-
-        if db.get_week_count(tk, bound) >= 1:
-            sender.send_text(
-                chat_id, "本周已分析过你的账号，下周更新；加急联系运营")
+                "本周已分析过你的账号，下周更新；加急联系运营" if is_self
+                else "这个号本周已分析过，每个号每周更新 1 次；下周再查")
             return
 
         if db.get_balance(tk) < config.COST_COLLECT_DOUYIN:
@@ -158,17 +167,24 @@ class Router:
             return
 
         # v1.1 收紧：先回确认卡片，再扣分
-        sender.send_text(chat_id, "已开始采集，正常5-8分钟出报告")
+        sender.send_text(
+            chat_id,
+            "已开始采集，正常5-8分钟出报告" if is_self
+            else f"已开始采集对标账号 {dy_id}，正常5-8分钟出报告；"
+                 "你的号和对标号数据可以对比着看")
         ok, _ = db.deduct(tk, config.COST_COLLECT_DOUYIN, "collect_douyin")
         if not ok:  # 并发下余额竞争失败
             sender.send_text(chat_id, "积分余额不足，联系运营老师补充额度")
             return
-        db.enqueue_task(tk, "douyin", bound, config.COST_COLLECT_DOUYIN,
+        db.enqueue_task(tk, "douyin", dy_id, config.COST_COLLECT_DOUYIN,
                         chat_id=chat_id,
                         payload=json.dumps({"name_hint": name_hint},
                                            ensure_ascii=False) if name_hint else '')
         if first_bind:
             log.info("tenant=%s first-bind douyin_id=%s", tk, bound)
+        elif not is_self:
+            log.info("tenant=%s peer-collect dy_id=%s (peers=%s)", tk, dy_id,
+                     db.peer_douyin_count(tk, bound))
 
     # ---------- ② 商品截图（spec 4.2） ----------
 
