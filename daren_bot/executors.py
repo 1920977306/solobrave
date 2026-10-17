@@ -446,6 +446,15 @@ def _build_report(talent_id: str, douyin_id: str) -> str:
         fans.append(f"类目偏好 {fcat}")
     fct = pick("fan_city_tier")
     if fct:
+        # ★ fix/json-str-unwrap: 该列存的是 JSON 编码字符串 '"三线城市(22%)"'，剥掉引号再展示
+        if isinstance(fct, str):
+            try:
+                import json as _json
+                _p = _json.loads(fct)
+                if isinstance(_p, str):
+                    fct = _p
+            except Exception:
+                pass
         fans.append(f"城市线级 {fct}")
     fcl = _fmt_dist(_loads_dist(pick("fan_consume_level")))
     if fcl:

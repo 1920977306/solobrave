@@ -4664,6 +4664,13 @@ _TALENT_COLUMNS = [
     'matched_products', 'matched_products_updated_at',
     # ★ fix/ocr-full: OCR 全字段入库 (vision_field_maps 完整 merge JSON)
     'ocr_raw_fields',
+    # ★ fix/talent-sync-missing-cols (2026-10-17 实锤): buyin_worker 采集回写被静默丢弃的 10 列.
+    #   DB 里真实存在 (PRAGMA 139 列)、_talent_row_to_dict 大多已返回, 但这三处清单没同步 →
+    #   UPDATE talents 只写 _TALENT_SYNC_COLUMNS, 这些列永远拿不到采集数据 (fan_growth/video_gpm_text/...).
+    #   注意: embedding(BLOB) 绝不加入 —— 全行回写会把向量清成 0.
+    'fan_growth', 'fan_growth_rate', 'live_avg_price', 'video_settlement_ratio',
+    'main_category', 'total_gmv_text', 'video_gpm_text', 'data_period',
+    'price_distribution', 'category_distribution',
     'created_at', 'updated_at'
 ]
 # ★ fix/talents-status-resurrection (bug-delete-fake-success): 全行回写列清单排除
@@ -4746,6 +4753,22 @@ def _talent_row_to_dict(row):
             return json.loads(val)
         except Exception:
             return default
+
+    def _json_or_str_col(col, default=''):
+        """JSON 列容错读: 内容真是 JSON → 解析返回; 是纯文本(如 '客单价100到200元(39%)') → 原样返回.
+        ★ fix/merge-empty-container 配套: fan_price_range 这类列存纯文本, _json_col 读到会吞成 {}."""
+        try:
+            val = row[col]
+        except (IndexError, KeyError):
+            return default
+        if val is None or val == '':
+            return default
+        try:
+            parsed = json.loads(val)
+            # ★ amend: 存库值经 _dump 修复后必为合法单层 JSON, 解析结果就是真值 (dict/list/str 都返回)
+            return parsed
+        except Exception:
+            return val
     return {
         # ★ fix/ocr-canonical-sync-v4 Patch 2 (老大 2026-09-27 01:30 拍板):
         #   把每个 row['xxx'] 改成 _safe_row_get('xxx') 容错 (嵌套闭包 1 参数, row 在 enclosing scope).
@@ -4793,8 +4816,8 @@ def _talent_row_to_dict(row):
         'fan_age': _json_col('fan_age', {}),
         'fan_region': _json_col('fan_region', {}),
         'fan_crowd': _safe_row_get('fan_crowd') or '',
-        'fan_price_range': _json_col('fan_price_range', {}),
-        'fan_category': _json_col('fan_category', {}),
+        'fan_price_range': _json_or_str_col('fan_price_range'),
+        'fan_category': _json_or_str_col('fan_category'),
         'category': _safe_row_get('category') or '',
         'content_style': _safe_row_get('content_style') or '',
         'contentStyle': _safe_row_get('content_style') or '',
@@ -4818,7 +4841,7 @@ def _talent_row_to_dict(row):
         'top_products': _json_col('top_products', []),
         'top_categories': _json_col('top_categories', []),
         'top_brands': _json_col('top_brands', []),
-        'fan_city_tier': _json_col('fan_city_tier', {}),
+        'fan_city_tier': _json_or_str_col('fan_city_tier'),
         'fan_group_gender': _json_col('fan_group_gender', {}),
         'fan_group_age': _json_col('fan_group_age', {}),
         'fan_group_crowd': _json_col('fan_group_crowd', {}),
@@ -4871,6 +4894,12 @@ def _talent_row_to_dict(row):
         'main_category': _safe_row_get('main_category') or _safe_row_get('category') or '',
         # 任务 7: video_count 兜底 (v2 schema 有 INTEGER DEFAULT 0, 旧 DB 缺列返 0)
         'video_count': int(_safe_row_get('video_count') or 0),
+        # ★ fix/talent-sync-missing-cols (2026-10-17): 补 5 列读取 (写入端同 commit 修)
+        'fan_growth': int(_safe_row_get('fan_growth') or 0),
+        'fan_growth_rate': _safe_row_get('fan_growth_rate') or '',
+        'live_avg_price': _safe_row_get('live_avg_price') or '',
+        'video_settlement_ratio': float(_safe_row_get('video_settlement_ratio') or 0),
+        'data_period': _safe_row_get('data_period') or '',
 
         # ★ v4 amend: 返 _distribution_incomplete 标记 (从 ocr_raw_fields._distribution_incomplete JSON 子 dict 读)
         #   让前端识别 4 个 city_tier 的 incomplete 状态, 显示原始比例 + "分布不完整"提示
@@ -5002,6 +5031,16 @@ def _dict_to_talent_row(t):
     def _dump(val):
         if val is None:
             return '{}'
+        # ★ fix/json-double-encode (2026-10-17 实锤): worker/前端对 JSON 列传的是 JSON 字符串,
+        #   原实现无脑 json.dumps → '"(\\"女性\\":57)"' 双层转义, 库里历史数据全是双重编码,
+        #   且 merge 补空后 _dump(字符串) 会继续二次编码. 字符串先验 JSON: 合法原样存,
+        #   不合法(纯文本)也 json.dumps 包一层保证 _json_col 能读回字符串.
+        if isinstance(val, str):
+            try:
+                json.loads(val)
+                return val
+            except Exception:
+                return json.dumps(val, ensure_ascii=False)
         return json.dumps(val, ensure_ascii=False)
     now = int(time.time() * 1000)
     # category 强制优先级：main_category > top_categories[0].name > category > ''
@@ -5134,6 +5173,17 @@ def _dict_to_talent_row(t):
         'matched_products_updated_at': int(t.get('matched_products_updated_at', t.get('matchedProductsUpdatedAt', 0)) or 0),
         # ★ fix/ocr-full: OCR 全字段入库 (vision_field_maps merge 后 JSON, 不限 schema)
         'ocr_raw_fields': _dump(t.get('ocr_raw_fields', t.get('ocrRawFields', {}))),
+        # ★ fix/talent-sync-missing-cols (2026-10-17): 补 10 列映射 (清单/读取端同 commit 修)
+        'fan_growth': int(t.get('fan_growth', t.get('fanGrowth', 0)) or 0),
+        'fan_growth_rate': t.get('fan_growth_rate') or t.get('fanGrowthRate') or '',
+        'live_avg_price': t.get('live_avg_price') or t.get('liveAvgPrice') or '',
+        'video_settlement_ratio': float(t.get('video_settlement_ratio', t.get('videoSettlementRatio', 0)) or 0),
+        'main_category': t.get('main_category') or t.get('mainCategory') or '',
+        'total_gmv_text': t.get('total_gmv_text') or t.get('totalGmvText') or '',
+        'video_gpm_text': t.get('video_gpm_text') or t.get('videoGpmText') or '',
+        'data_period': t.get('data_period') or t.get('dataPeriod') or '',
+        'price_distribution': _dump(t.get('price_distribution', t.get('priceDistribution', {}))),
+        'category_distribution': _dump(t.get('category_distribution', t.get('categoryDistribution', {}))),
         'created_at': t.get('created_at') or t.get('createdAt') or now,
         'updated_at': now,
     }
@@ -25350,11 +25400,27 @@ def _merge_talent_only_empty(existing, body):
     老大硬约束: 已有非空值绝不被 PUT 覆盖, 防止 PUT 把已有核心数据冲掉.
 
     合并规则:
-      - 新值空 (None / '' / 0) → 不覆盖 (无论老值空不空)
-      - 老值空 (None / '' / 0) → 用新值补
+      - 新值空 (None / '' / 0 / {} / [] / '{}' / '[]') → 不覆盖 (无论老值空不空)
+      - 老值空 (同上) → 用新值补
       - 老值非空 + 新值非空 → 保留老值 (不覆盖)
       - id / updated_at 由调用方设置, 这里不动
+
+    ★ fix/merge-empty-container (2026-10-17 实锤): 空容器必须视为"空".
+      _talent_row_to_dict 对 JSON 列的读取默认值是 {} / [] (如 fan_price_range 读不到返回 {}),
+      老 merge 把 {} 当"已有数据" → 该字段一旦为空就永远补不进去 (buyin_worker 补采集的
+      粉丝画像/场景分析/ocr_raw_fields 全部撞这堵墙, 54 个提取字段只落地十几个).
+      {} / [] / '{}' / '[]' 是空值哨兵不是数据, 视为空不违反"严禁覆盖真实数据"的硬约束.
     """
+
+    def _is_empty(v):
+        if v is None:
+            return True
+        if isinstance(v, (dict, list)) and len(v) == 0:
+            return True
+        if v == '' or v == 0 or v == '{}' or v == '[]':
+            return True
+        return False
+
     if not existing:
         existing = {}
     if not body:
@@ -25363,10 +25429,10 @@ def _merge_talent_only_empty(existing, body):
     for k, v in body.items():
         if k in ('id', 'updated_at'):
             continue
-        if v is None or v == '' or v == 0:
+        if _is_empty(v):
             continue  # 新值空, 不覆盖
         existing_val = merged.get(k)
-        if existing_val is None or existing_val == '' or existing_val == 0:
+        if _is_empty(existing_val):
             merged[k] = v  # 老值空, 用新值补
         # else: 老值非空, 保留老值 (不覆盖) — 老大硬约束
     return merged
