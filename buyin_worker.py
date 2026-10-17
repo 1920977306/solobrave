@@ -301,7 +301,10 @@ _VISION_TAB_PROMPTS = {
         'fan_city_tier(粉丝特征-城市线级pill,原样照抄如"三线城市(25%)") '
         'consume_pref_price/consume_pref_category(消费偏好pill,原样字符串) '
         'fan_growth(粉丝趋势-粉丝变化数,带符号整数,如122) fan_growth_rate(粉丝变化率,字符串,如"+2.38%") '
-        'fan_consume_level(消费水平分布,对象)。' + _VISION_IRON
+        'fan_consume_level(消费水平分布,对象)。'
+        '若截图是"短视频观众"或"直播间观众"子tab：提取 video_audience_gender/video_audience_age/'
+        'video_audience_crowd/video_audience_region(该场景观众画像分布,对象,百分比数字)。'
+        + _VISION_IRON
     ),
     '评价详情': (
         '读巨量百应达人详情页【评价详情】tab截图。提取：'
@@ -326,6 +329,12 @@ _VISION_TAB_PROMPTS = {
     ),
 }
 _VISION_TAB_KEYS = tuple(_VISION_TAB_PROMPTS.keys()) + ('视频详情', '直播详情')
+
+# 各 tab 下需要点开才能看到的子 tab：默认子 tab 不代表全部，逐个点击补拍
+_SUB_TABS = {
+    '场景分析': ['视频', '图文', '橱窗'],          # 默认停"直播"
+    '粉丝分析': ['粉丝团分析', '直播间观众', '短视频观众'],  # 默认停"粉丝分析"
+}
 
 
 def _fallback_cfgs():
@@ -1760,22 +1769,23 @@ def collect_pipeline(collect_id, name, douyin_id):
                 _human_sleep(0.5, 1.0)
             except Exception:
                 pass
-            # 场景分析默认停在"直播"子tab（纯视频达人这里是"暂无数据"）；
-            # 切到"视频"子tab补拍，视频结算总额/单视频结算额/GPM/完播率都在那里
-            if tab == '场景分析':
+            # 需点开才能看到的子 tab 全部点开补拍（默认子 tab 的数据不代表全部）
+            for sub in _SUB_TABS.get(tab, []):
                 try:
-                    profile.get_by_text('视频', exact=True).first.click(timeout=4000)
+                    profile.get_by_text(sub, exact=True).first.click(timeout=4000)
                     _human_sleep(2.2, 3.2)
-                    shot3 = SHOTS_DIR / f'{collect_id}_{safe}_{tab}_视频.png'
+                    shot3 = SHOTS_DIR / f'{collect_id}_{safe}_{tab}_{sub}.png'
                     profile.screenshot(path=str(shot3))
                     job_shots.append(str(shot3))
                     profile.mouse.wheel(0, 850)
                     _human_sleep(1.0, 1.6)
-                    shot4 = SHOTS_DIR / f'{collect_id}_{safe}_{tab}_视频_下.png'
+                    shot4 = SHOTS_DIR / f'{collect_id}_{safe}_{tab}_{sub}_下.png'
                     profile.screenshot(path=str(shot4))
                     job_shots.append(str(shot4))
+                    profile.mouse.wheel(0, -850)
+                    _human_sleep(0.5, 1.0)
                 except Exception as e:
-                    log(f'  [Collect] 场景分析视频子tab补拍失败（非致命）: {str(e)[:100]}')
+                    log(f'  [Collect] {tab}/{sub} 子tab补拍失败（非致命）: {str(e)[:80]}')
             all_xhr.append({'tab': tab, 'xhr': bucket[-XHR_MAX_PER_TAB:]})
 
         # ── 带货分析：点开 TOP 商品明细（可点的行）──
