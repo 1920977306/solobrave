@@ -337,6 +337,12 @@ def _build_report(talent_id: str, douyin_id: str) -> str:
     vsr = pick("video_settlement_ratio")
     if vsr:
         gmv.append(f"视频结算占比 {vsr}")
+    vst = pick("video_scene_total")
+    if vst:
+        gmv.append(f"视频结算(近30天) {vst}")
+    vss = pick("video_scene_single")
+    if vss:
+        gmv.append(f"单视频结算(近30天) {vss}")
     if t.get("single_video_settlement"):
         gmv.append(f"单视频结算 {t['single_video_settlement']}")
     ms = pick("monthly_settlement")
@@ -374,10 +380,12 @@ def _build_report(talent_id: str, douyin_id: str) -> str:
     vpr = pick("video_plays_range")
     if vpr:
         content.append(f"30天播放 {vpr}")
-    if t.get("video_completion_rate"):
-        content.append(f"完播 {_fmt_pct(t['video_completion_rate'])}")
-    if t.get("video_interaction_rate"):
-        content.append(f"互动 {_fmt_pct(t['video_interaction_rate'])}")
+    vcr = t.get("video_completion_rate") or pick("video_completion_rate_scene")
+    if vcr:
+        content.append(f"完播 {_fmt_pct(vcr)}")
+    vir = t.get("video_interaction_rate") or pick("video_interaction_rate_scene")
+    if vir:
+        content.append(f"互动 {_fmt_pct(vir)}")
     vl = pick("video_likes")
     if vl:
         content.append(f"赞{vl}/评{pick('video_comments','0')}/转{pick('video_shares','0')}")

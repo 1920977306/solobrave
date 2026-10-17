@@ -312,8 +312,17 @@ _VISION_TAB_PROMPTS = {
     ),
     '场景分析': (
         '读巨量百应达人详情页【场景分析】tab截图。提取：'
+        'video_scene_total(视频结算总额区间原文,如"100万-250万") '
+        'video_scene_single(单视频结算额区间原文,如"2,500-5,000") '
+        'video_scene_gpm(视频GPM区间原文,如"100-500") '
+        'video_count_scene(视频数量,整数) video_plays_scene(播放量,整数) '
+        'video_completion_rate_scene(完播率百分数) video_interaction_rate_scene(互动率百分数) '
+        'video_likes_scene(点赞数) video_comments_scene(评论数) video_shares_scene(转发数) '
+        'promotion_ratio(全域推广时段占比百分数,如98.41) '
         'live_scene/video_scene/tuwen_scene/chuchuang_scene(各场景数据对象,有则提取;'
-        '页面显示"暂无数据"就填 null)。' + _VISION_IRON
+        '页面显示"暂无数据"就填 null)。'
+        '注意：该 tab 数据是"近30天只看带货视频"口径，与概览结算总额口径不同，原样照抄即可。'
+        + _VISION_IRON
     ),
 }
 _VISION_TAB_KEYS = tuple(_VISION_TAB_PROMPTS.keys()) + ('视频详情', '直播详情')
@@ -1751,6 +1760,22 @@ def collect_pipeline(collect_id, name, douyin_id):
                 _human_sleep(0.5, 1.0)
             except Exception:
                 pass
+            # 场景分析默认停在"直播"子tab（纯视频达人这里是"暂无数据"）；
+            # 切到"视频"子tab补拍，视频结算总额/单视频结算额/GPM/完播率都在那里
+            if tab == '场景分析':
+                try:
+                    profile.get_by_text('视频', exact=True).first.click(timeout=4000)
+                    _human_sleep(2.2, 3.2)
+                    shot3 = SHOTS_DIR / f'{collect_id}_{safe}_{tab}_视频.png'
+                    profile.screenshot(path=str(shot3))
+                    job_shots.append(str(shot3))
+                    profile.mouse.wheel(0, 850)
+                    _human_sleep(1.0, 1.6)
+                    shot4 = SHOTS_DIR / f'{collect_id}_{safe}_{tab}_视频_下.png'
+                    profile.screenshot(path=str(shot4))
+                    job_shots.append(str(shot4))
+                except Exception as e:
+                    log(f'  [Collect] 场景分析视频子tab补拍失败（非致命）: {str(e)[:100]}')
             all_xhr.append({'tab': tab, 'xhr': bucket[-XHR_MAX_PER_TAB:]})
 
         # ── 带货分析：点开 TOP 商品明细（可点的行）──
