@@ -85,15 +85,17 @@ def _dist_items(v, name_key="category", pct_key="percentage"):
 
 
 def _wrap(text, font, max_w, draw):
-    """中文按字换行。"""
-    lines, cur = [], ""
-    for ch in str(text):
-        if _text_w(draw, cur + ch, font) > max_w:
-            lines.append(cur)
-            cur = ch
-        else:
-            cur += ch
-    if cur:
+    """中文按字换行；\n 是硬换行（PIL 的 draw.text 不会处理 \n，
+    留在字符串里会把多段文字画在同一行重叠）。"""
+    lines = []
+    for para in str(text).split("\n"):
+        cur = ""
+        for ch in para:
+            if _text_w(draw, cur + ch, font) > max_w:
+                lines.append(cur)
+                cur = ch
+            else:
+                cur += ch
         lines.append(cur)
     return lines
 
