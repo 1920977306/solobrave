@@ -6266,6 +6266,112 @@ def _is_low_quality_knowledge(content, title=''):
     return False
 
 
+# ==================== feat/daren-reflow (2026-10-18, 老大已批 daren-reflow-design.md) ====================
+# daren_bot 数据回流三管道的服务端: /internal/talents/upsert (达人库) + /internal/kb/ingest (知识库)。
+# 铁律: 只许 localhost + X-Internal-Secret (共享密钥文件 0o600 不进 git), 绝不暴露内网之外。
+
+_INTERNAL_SECRET_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data', 'internal_secret.txt')
+
+def _internal_secret():
+    """读 (不存在则创建) 共享密钥。不缓存 —— 换密钥后下一轮请求即生效。"""
+    try:
+        if not os.path.exists(_INTERNAL_SECRET_PATH):
+            import secrets as _secrets
+            with open(_INTERNAL_SECRET_PATH, 'w') as _f:
+                _f.write(_secrets.token_hex(32))
+            os.chmod(_INTERNAL_SECRET_PATH, 0o600)
+        with open(_INTERNAL_SECRET_PATH) as _f:
+            return _f.read().strip()
+    except OSError as e:
+        logger.warning(f'  [internal] secret 文件不可用: {e}')
+        return None
+
+def _internal_auth_ok(handler):
+    """localhost-only + 共享密钥双校验。非本机或密钥不符一律 False。"""
+    if handler.client_address[0] not in ('127.0.0.1', '::1', 'localhost'):
+        return False
+    secret = _internal_secret()
+    if not secret:
+        return False
+    return handler.headers.get('X-Internal-Secret', '') == secret
+
+# 管道 1 upsert 白名单 —— 只许写这 10 列 (仿 _TALENT_SYNC_COLUMNS 模式, 绝不全行回写防 status 复活);
+# embedding 列绝不触碰。跟 daren_bot/reflow.py 的 _SNAPSHOT_COLUMNS 对齐。
+_DAREN_UPSERT_COLUMNS = [
+    'name', 'avatar', 'followers', 'total_gmv', 'total_gmv_text',
+    'video_gpm_text', 'video_settlement_ratio', 'main_category',
+    'ai_rating', 'ai_summary', 'ocr_raw_fields',
+]
+
+def _daren_upsert_talent(snap):
+    """按 douyin_id 查重 upsert。存在 → UPDATE 白名单列 + updated_at;
+    不存在 → INSERT 新行 (status=active / created_by=daren_bot / platform=抖音)。
+    返回 (talent_id, created: bool)。"""
+    douyin_id = (snap.get('douyin_id') or '').strip()
+    if not douyin_id:
+        raise ValueError('snapshot 缺 douyin_id')
+    now = int(time.time() * 1000)
+    conn = _db_conn()
+    try:
+        row = conn.execute(
+            "SELECT id FROM talents WHERE douyin_id = ? AND douyin_id != '' "
+            "ORDER BY updated_at DESC LIMIT 1", (douyin_id,)).fetchone()
+        if row:
+            sets, vals = [], []
+            for col in _DAREN_UPSERT_COLUMNS:
+                if col in snap and snap[col] is not None:
+                    sets.append(f'{col} = ?')
+                    vals.append(snap[col])
+            if not sets:
+                return row['id'], False
+            sets.append('updated_at = ?')
+            vals.extend([now, row['id']])
+            conn.execute(f"UPDATE talents SET {', '.join(sets)} WHERE id = ?", vals)
+            conn.commit()
+            return row['id'], False
+        t = {col: snap.get(col) for col in _DAREN_UPSERT_COLUMNS}
+        t['douyin_id'] = douyin_id
+        t['status'] = 'active'
+        t['created_by'] = 'daren_bot'
+        t['platform'] = '抖音'
+        t['created_at'] = now
+        t['updated_at'] = now
+        new_id = 'talent_' + str(now) + '_' + uuid.uuid4().hex[:6]
+        t['id'] = new_id
+        row_data = _dict_to_talent_row(t)
+        conn.execute(
+            f"INSERT INTO talents ({', '.join(_TALENT_COLUMNS)}) VALUES ({', '.join('?' * len(_TALENT_COLUMNS))})",
+            tuple(row_data[c] for c in _TALENT_COLUMNS))
+        conn.commit()
+        return new_id, True
+    finally:
+        conn.close()
+
+# 管道 2 ingest 三类白名单 (宁缺毋滥): 画像洞察 / 匹配规律 / 达人显式反馈。
+# 采集流水/寒暄/积分变动不进 —— 且再过一道 _is_low_quality_knowledge 价值闸, 双保险。
+_DAREN_KB_KINDS = {'talent_insight': '达人画像洞察', 'match_pattern': '商品匹配规律', 'talent_feedback': '达人显式反馈'}
+
+def _daren_kb_ingest(kind, text, title=''):
+    """过闸 + 落 kb_entries。review_required=True → status=pending, 管理员审过才进 RAG。
+    返回 (kb_id, rejected: bool, reason)。"""
+    if kind not in _DAREN_KB_KINDS:
+        return None, True, f'kind 不在白名单: {kind}'
+    text = (text or '').strip()
+    if len(text) < 10:
+        return None, True, '内容过短(<10字), 无信息量'
+    if len(text) > 2000:
+        text = text[:2000]
+    if _is_low_quality_knowledge(text, title):
+        return None, True, '低质量/操作反馈/寒暄, 被价值闸拒绝'
+    kb_id = _upsert_knowledge_base({
+        'title': (title or f"[daren_bot] {_DAREN_KB_KINDS[kind]}").strip()[:200],
+        'content': text,
+        'status': 'pending',
+        'review_required': True,   # 强制 pending, 人工审过才进 RAG
+    }, user_id='daren_bot')
+    return kb_id, False, ''
+
+
 def _auto_check_knowledge(emp_id, mem_id, value, tags=None):
     """保存记忆时自动检查是否应沉淀到知识库（决策直接 active；重复>=阈值）"""
     if not value:
@@ -8846,6 +8952,14 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         # CSP 违规报告端点（任何 origin 都可 POST，不需 auth — 浏览器自动上报）
         if path == '/api/csp-report' and self.command == 'POST':
             self._handle_csp_report()
+            return
+
+        # feat/daren-reflow: daren_bot 数据回流 internal 端点 (localhost+共享密钥, 不走 JWT)
+        if path == '/internal/talents/upsert' and self.command == 'POST':
+            self._handle_internal_talent_upsert()
+            return
+        if path == '/internal/kb/ingest' and self.command == 'POST':
+            self._handle_internal_kb_ingest()
             return
 
         # Tool calls log
@@ -17911,6 +18025,53 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             'groupBy': group_by,
             'items': items,
         })
+
+    def _handle_internal_talent_upsert(self):
+        """POST /internal/talents/upsert — feat/daren-reflow 管道 1: daren_bot 采集结果回写达人库。
+        localhost + X-Internal-Secret 双校验; 按 douyin_id 去重, 只写 11 列白名单。"""
+        if not _internal_auth_ok(self):
+            self._send_json_error(403, 'forbidden')
+            return
+        body = self._read_body() or {}
+        snap = body.get('snapshot') or {}
+        if not isinstance(snap, dict):
+            self._send_json_error(400, 'snapshot 必须是对象')
+            return
+        try:
+            talent_id, created = _daren_upsert_talent(snap)
+        except ValueError as e:
+            self._send_json_error(400, str(e))
+            return
+        except Exception as e:
+            logger.exception('  [internal] talent upsert failed')
+            self._send_json_error(500, f'upsert 失败: {e}')
+            return
+        logger.info(f'  [internal] talent upsert: {talent_id} (created={created}) douyin_id={snap.get("douyin_id")}')
+        self._send_json(200, {'id': talent_id, 'created': created})
+
+    def _handle_internal_kb_ingest(self):
+        """POST /internal/kb/ingest — feat/daren-reflow 管道 2: daren_bot 提炼结论进知识库。
+        localhost + X-Internal-Secret 双校验; 过 kind 白名单 + _is_low_quality_knowledge 价值闸;
+        review_required 强制 pending, 人工审过才进 RAG。"""
+        if not _internal_auth_ok(self):
+            self._send_json_error(403, 'forbidden')
+            return
+        body = self._read_body() or {}
+        kind = (body.get('kind') or '').strip()
+        text = body.get('text') or ''
+        title = (body.get('title') or '').strip()
+        try:
+            kb_id, rejected, reason = _daren_kb_ingest(kind, text, title)
+        except Exception as e:
+            logger.exception('  [internal] kb ingest failed')
+            self._send_json_error(500, f'ingest 失败: {e}')
+            return
+        if rejected:
+            logger.info(f'  [internal] kb ingest rejected: kind={kind} reason={reason}')
+            self._send_json(422, {'rejected': True, 'reason': reason})
+            return
+        logger.info(f'  [internal] kb ingest: {kb_id} (kind={kind}, pending review)')
+        self._send_json(200, {'id': kb_id, 'status': 'pending'})
 
     # ═══════════════════════════════════════════════════
     # RAG API

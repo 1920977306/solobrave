@@ -393,6 +393,25 @@ def mark_task(task_id: str, status: str, error: str = ''):
             (status, error[:500], now_ts() if status in ('done', 'failed') else None, task_id))
 
 
+def save_task_payload(task_id: str, payload: str):
+    """feat/daren-reflow 管道 3: 采集成功后回写完整快照 JSON (断链重放原料)。"""
+    with db_ctx() as conn:
+        conn.execute("UPDATE bot_collect_tasks SET payload=? WHERE id=?",
+                     (payload[:200000], task_id))
+
+
+def purge_old_payloads(days: int = 30) -> int:
+    """feat/daren-reflow 管道 3: 30 天滚动清理 — 行保留 (审计/周计数要查), 只清 payload。
+    now_ts 是秒级, 故 cutoff 用 days*86400 秒。"""
+    cutoff = now_ts() - days * 86400
+    with db_ctx() as conn:
+        cur = conn.execute(
+            "UPDATE bot_collect_tasks SET payload='' "
+            "WHERE status IN ('done','failed') AND done_at IS NOT NULL AND done_at > 0 "
+            "AND done_at < ? AND payload NOT IN ('', '{}')", (cutoff,))
+        return cur.rowcount
+
+
 def get_task(task_id: str):
     with db_ctx() as conn:
         r = conn.execute("SELECT * FROM bot_collect_tasks WHERE id=?",

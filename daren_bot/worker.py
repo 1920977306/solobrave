@@ -47,7 +47,17 @@ class Worker(threading.Thread):
         if n:
             log.warning("reclaimed %d stale collecting task(s) -> pending", n)
         log.info("worker started")
+        last_purge = 0.0
         while not self._stop_event.is_set():
+            # feat/daren-reflow 管道 3: 每小时滚动清一次 30 天前老 payload (行保留只清内容)
+            if time.time() - last_purge > 3600:
+                last_purge = time.time()
+                try:
+                    purged = db.purge_old_payloads()
+                    if purged:
+                        log.info("purged %d stale task payloads (30d)", purged)
+                except Exception:
+                    log.exception("purge_old_payloads failed")
             task = db.claim_next_task()
             if not task:
                 self._stop_event.wait(self.poll_interval)
@@ -78,6 +88,13 @@ class Worker(threading.Thread):
                     weekly.post_collect(tk, task["target"].strip(), task)
                 except Exception:
                     log.exception("weekly post_collect failed: %s", task["target"])
+                # feat/daren-reflow: 数据回流三管道 (落 payload + 达人库 upsert + 知识库洞察)
+                # 失败只记日志, 不影响主流程
+                try:
+                    from . import reflow
+                    reflow.after_douyin_collect(task)
+                except Exception:
+                    log.exception("reflow failed: %s", task["id"])
             if task["type"] == "douyin" and task.get("chat_id"):
                 # 报告推送：优先可视化长图卡片，渲染失败回退纯文字
                 from .executors import notify_report
