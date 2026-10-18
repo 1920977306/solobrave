@@ -549,6 +549,16 @@ def analyze_talent(fields):
     """达人视角的账号深度诊断。报告读者是达人本人（客户），不是团长。
     返回 (verdict, analysis_text, reason)，失败返回 ('','','')。
     analysis_text 为分区文本：亮点/风险/建议/粉丝解读/选品方向/内容策略。"""
+    # ★ fix/no-fabrication-guard (2026-10-18 实锤): 采集没抓到有效数据时绝不编造评估.
+    #   小晴姑姑案例: 页面未加载成功, 字段只剩名字, 模型仍编出"粉丝量稳定增长、互动率较高".
+    _ocr_len = len(str(fields.get('ocr_raw_fields') or ''))
+    if (not fields.get('followers') and not fields.get('category')
+            and not fields.get('total_products') and not fields.get('total_shops')
+            and _ocr_len < 100):
+        return ('数据不足',
+                '【说明】这次采集没有获取到该账号的有效数据（主页数据为空或页面未正确加载），'
+                '无法给出真实评估。重新采集后再看，以新报告为准。',
+                'empty-collect')
     prompt = (
         '你是抖音电商达人的 AI 运营顾问。达人本人发来自己的账号数据，想知道自己账号做得怎么样、'
         '下一步该怎么提升带货。基于以下结构化数据产出深度账号诊断，用第二人称"你"对达人说话。\n'

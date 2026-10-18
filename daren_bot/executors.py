@@ -1135,53 +1135,102 @@ def _fmt_compare_brief(t: dict) -> str:
     return "｜".join(parts)
 
 
+def _name_candidates(q: str) -> list:
+    """从问题里剥出名字候选：去掉常见功能词后按分隔符切，供对比/找人复用。"""
+    t = _re.sub(r'[【】\[\]（）()~～!！?？\s]+', ' ', q)
+    t = _re.sub(r'我的(账号|的号|号)?', ' ', t)
+    t = _re.sub(r'(账号|对比|比较|分析一下?|发一下|看看|怎么样|帮我|一下|和|与|跟|还有|以及)', ' ', t)
+    return [c for c in _re.split(r'[、,，;；\s]+', t) if len(c) >= 2]
+
+
+def _find_mentioned_peers(tk: str, q: str) -> list:
+    """问题里点名的第三方达人。匹配方式: 库里名字(≥3字)是否出现在问题原文里
+    （比名字模糊查询健壮——'小晴姑姑的粉丝数量...都没有' 这种带修饰的长句也能命中）。
+    重名取数据最全的最新一行。返回 [{'name','dyid','row'}]，不含本人绑定号。"""
+    try:
+        from . import db
+        tenant = db.get_tenant(tk)
+        own_dyid = (tenant or {}).get("bind_douyin_id") or ""
+        flat = _re.sub(r'\s+', '', q)          # 去空白后做子串匹配
+        conn = sqlite3.connect(f"file:{SOLOBRAVE_DB}?mode=ro", uri=True, timeout=10)
+        try:
+            conn.row_factory = sqlite3.Row
+            names = conn.execute(
+                "SELECT id, name FROM talents WHERE status != 'archived' "
+                "AND length(name) >= 3").fetchall()
+            # 命中: 名字在问题原文里; ≥4 字的名字再去掉首字试一次
+            # (采集名常带前缀, 如 '名小晴姑姑' —— 问题里写的是 '小晴姑姑')
+            matched_ids = []
+            for r in names:
+                n = r['name']
+                if not n:
+                    continue
+                if n in flat or (len(n) >= 4 and n[1:] in flat):
+                    matched_ids.append(r['id'])
+            # 包含关系去重: '大丸子【囍事来】' 和 '大丸子' 同时命中时, 保留更完整的全称
+            matched_names = [r['name'] for r in names if r['id'] in set(matched_ids)]
+            matched_ids = [r['id'] for r in names
+                           if r['id'] in set(matched_ids)
+                           and not any(r['name'] != m and r['name'] in m
+                                       for m in matched_names)]
+            if not matched_ids:
+                return []
+            # 同名字多行时按 数据完整度+新鲜度 打分取最优
+            peers, seen_names = [], set()
+            for mid in matched_ids[:10]:
+                rows = conn.execute(
+                    "SELECT * FROM talents WHERE (id = ? OR name = "
+                    "(SELECT name FROM talents WHERE id = ?)) AND status != 'archived' "
+                    "ORDER BY updated_at DESC LIMIT 5", (mid, mid)).fetchall()
+                best, best_score = None, -1
+                for r in rows:
+                    r = dict(r)
+                    ocr_len = len(str(r.get('ocr_raw_fields') or ''))
+                    score = (2 if r.get('douyin_id') else 0) \
+                          + (2 if r.get('followers') else 0) \
+                          + (1 if r.get('category') else 0) \
+                          + (3 if ocr_len > 100 else 0) \
+                          + int((r.get('updated_at') or 0) / 1e10)
+                    if score > best_score:
+                        best, best_score = r, score
+                if not best or best.get('name') in seen_names:
+                    continue
+                if not best.get('douyin_id') or best.get('douyin_id') == own_dyid:
+                    continue
+                seen_names.add(best.get('name'))
+                peers.append({'name': best.get('name'), 'dyid': best.get('douyin_id'),
+                              'row': best})
+            return peers
+        finally:
+            conn.close()
+    except Exception:
+        log.exception("find mentioned peers failed")
+        return []
+
+
+def _peer_data_empty(row: dict) -> bool:
+    """判断该达人行是否是'空采集'（防编造守卫同款判定）。"""
+    return (not row.get('followers') and not row.get('category')
+            and not row.get('total_products') and not row.get('total_shops')
+            and len(str(row.get('ocr_raw_fields') or '')) < 100)
+
+
 def _build_compare_block(tk: str, q: str) -> str:
-    """对比问题取数：本人绑定账号 + 问题里点名的对标号（达人库按名字模糊匹配，取数据最全的最新一行）。"""
+    """对比问题取数：本人绑定账号 + 问题里点名的对标号。"""
     try:
         from . import db
         tenant = db.get_tenant(tk)
         own_dyid = (tenant or {}).get("bind_douyin_id") or ""
         if not own_dyid:
             return ""
-        # 从问题里剥出名字候选：去掉常见功能词后按分隔符切
-        t = _re.sub(r'[【】\[\]（）()~～!！?？\s]+', ' ', q)
-        t = _re.sub(r'我的(账号|的号|号)?', ' ', t)
-        t = _re.sub(r'(账号|对比|比较|分析一下?|发一下|看看|怎么样|帮我|一下|和|与|跟|还有|以及)', ' ', t)
-        cands = [c for c in _re.split(r'[、,，;；\s]+', t) if len(c) >= 2]
-        peers = []
-        if cands:
-            conn = sqlite3.connect(f"file:{SOLOBRAVE_DB}?mode=ro", uri=True, timeout=10)
-            try:
-                conn.row_factory = sqlite3.Row
-                seen = set()
-                for c in cands[:4]:
-                    rows = conn.execute(
-                        "SELECT * FROM talents WHERE name LIKE ? AND status != 'archived' "
-                        "ORDER BY updated_at DESC LIMIT 5", (f"%{c}%",)).fetchall()
-                    best, best_score = None, -1
-                    for r in rows:
-                        r = dict(r)
-                        ocr_len = len(str(r.get('ocr_raw_fields') or ''))
-                        score = (2 if r.get('douyin_id') else 0) \
-                              + (2 if r.get('followers') else 0) \
-                              + (1 if r.get('category') else 0) \
-                              + (3 if ocr_len > 100 else 0) \
-                              + int((r.get('updated_at') or 0) / 1e10)  # 越新越优先(秒级权重)
-                        if score > best_score:
-                            best, best_score = r, score
-                    if best and best.get('id') not in seen \
-                            and best.get('douyin_id') != own_dyid:
-                        seen.add(best.get('id'))
-                        peers.append(best)
-            finally:
-                conn.close()
+        peers = _find_mentioned_peers(tk, q)
         own = _read_talent("", own_dyid)
         if not own:
             return ""
         lines = ["【你的账号】" + _fmt_compare_brief(own)]
         if peers:
             for p in peers[:3]:
-                lines.append("【对标账号】" + _fmt_compare_brief(p))
+                lines.append("【对标账号】" + _fmt_compare_brief(p['row']))
         else:
             lines.append("【对标账号】问题里点名的达人未在库里找到数据，"
                          "回答时明说'对方数据还没采集，发我对方抖音号，我采完再给你完整对比'")
@@ -1200,6 +1249,21 @@ def execute_qa(task: dict) -> str:
     if not q:
         return "没收到问题内容，重新发一下～"
     ctx = _talent_context(task.get("tenant_key", ""))
+    # ★ fix/third-party-recollect (2026-10-18): "小晴姑姑的...都没有"/"她的账号没有数据,发给我"
+    #   → 不绕模型, 直接免费重采并推送. 判定: 抱怨词 + 点名的对标号是空采集行.
+    if _re.search(r"没有|暂无|缺|重新采|再采|采集|发给我|补充|都没有", q):
+        _empties = [p for p in _find_mentioned_peers(task.get("tenant_key", ""), q)
+                    if _peer_data_empty(p['row'])]
+        if _empties and task.get("chat_id"):
+            _p = _empties[0]
+            try:
+                from . import db as _db
+                _db.enqueue_task(task["tenant_key"], "douyin", _p['dyid'], 0,
+                                 chat_id=task["chat_id"])
+                return (f"你说得对，{_p['name']}（{_p['dyid']}）这次没有采集到有效数据，"
+                        "是我这边采集失误。已免费安排重新采集，报告出来直接发你～")
+            except Exception:
+                log.exception("enqueue recollect failed")
     # ★ fix/compare-qa (2026-10-18 实锤): "我的账号和XX、YY对比发一下" 被弱模型判无关拒答.
     #   对比/比较是核心业务问题: 强制回答 + 注入库里的真实对比数据, 杜绝编造.
     compare_block = ""
@@ -1244,6 +1308,26 @@ def execute_qa(task: dict) -> str:
     if not ans:
         return "AI 刚才没反应过来，你稍等几秒再问一次～"
     if ans.startswith("拒") and len(ans) <= 3:
+        # ★ fix/third-party-recollect (2026-10-18 实锤): "小晴姑姑的...都没有"/"她的账号没有数据,
+        #   发给我" 被当成质疑本人报告, 乱发道歉话术. 先识别第三方数据诉求: 点名了对标号 +
+        #   抱怨没数据 → 免费重采并推送, 而不是答非所问.
+        if _re.search(r"没有|暂无|缺|重新采|再采|采集|发给我|补充|都没有", q):
+            empty_peers = [p for p in _find_mentioned_peers(task.get("tenant_key", ""), q)
+                           if _peer_data_empty(p['row'])]
+            if empty_peers:
+                p = empty_peers[0]
+                chat_id = task.get("chat_id") or ""
+                if chat_id:
+                    try:
+                        from . import db as _db
+                        _db.enqueue_task(task["tenant_key"], "douyin", p['dyid'], 0,
+                                         chat_id=chat_id)
+                        return (f"你说得对，{p['name']}（{p['dyid']}）这次没有采集到有效数据，"
+                                "是我这边采集失误。已免费安排重新采集，报告出来直接发你～")
+                    except Exception:
+                        log.exception("enqueue recollect failed")
+                return (f"{p['name']}（{p['dyid']}）这次确实没采集到有效数据，"
+                        "重新发一次 TA 的抖音号，我免费重采～")
         if compare_block:
             # 对比类问题仍被误拒：直接输出库里真实数据的确定性对比，绝不让达人吃闭门羹
             back = "给你整理了三方账号的真实数据对比：\n\n" + compare_block
@@ -1251,7 +1335,12 @@ def execute_qa(task: dict) -> str:
                      "想看哪一项的深挖对比，或者要我把某个对标号的最新数据重新采一遍，直接说～")
             return back
         if challenge:
-            # 质疑类问题被误拒：用账号数据给兜底回应，绝不让达人吃闭门羹
+            # 质疑类问题被误拒：先确认问的是本人账号（第三方诉求上面已拦截），
+            # 再用账号数据给兜底回应，绝不让达人吃闭门羹
+            if _find_mentioned_peers(task.get("tenant_key", ""), q):
+                # 问题里点名了第三方账号，不属于"质疑本人报告"，不能发道歉话术
+                return ("这个问题涉及到你提到的另一位达人。我目前只有TA的已采集数据，"
+                        "需要我深挖 TA 的账号，把 TA 的抖音号发我即可～")
             cat = ""
             m = (_re.search(r"主营类目[\s：:]*([\u4e00-\u9fff/]+)", ctx)
                  or _re.search(r"专注([\u4e00-\u9fff/]{2,10})领域", ctx))
