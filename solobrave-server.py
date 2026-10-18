@@ -3621,6 +3621,21 @@ def init_db():
             #   (如 '退货率' / '客服电话' / '售后评分') 全部丢失.
             #   现在 ocr_raw_fields 存所有 OCR 看到的字段 (不限 schema), 前端可单独渲染.
             ('ocr_raw_fields', "TEXT DEFAULT '{}'"),
+            # ★ fix/talent-sync-missing-cols 的 schema 漂移补齐 (2026-10-18 pytest 378 errors 实锤):
+            #   那边 commit 只更新了 _TALENT_SYNC_COLUMNS / _talent_row_to_dict / 采集回写三处清单,
+            #   但 init_db 的幂等迁移块没加这 10 列 → 线上 prod 库靠手工 ALTER 有 139 列能跑,
+            #   而 conftest 每次 init_db 建的全新测试库缺列 → _seed_coolchap_data INSERT 全炸。
+            #   类型逐一对齐 prod PRAGMA table_info(talents) 真值。
+            ('fan_growth', 'INTEGER DEFAULT 0'),
+            ('fan_growth_rate', "TEXT DEFAULT ''"),
+            ('live_avg_price', 'REAL DEFAULT 0'),
+            ('video_settlement_ratio', "TEXT DEFAULT ''"),
+            ('main_category', "TEXT DEFAULT ''"),
+            ('total_gmv_text', "TEXT DEFAULT ''"),
+            ('video_gpm_text', "TEXT DEFAULT ''"),
+            ('data_period', "TEXT DEFAULT ''"),
+            ('price_distribution', "TEXT DEFAULT '{}'"),
+            ('category_distribution', "TEXT DEFAULT '{}'"),
         ]:
             _add_column_if_not_exists(conn, 'talents', _talent_col, _talent_dtype)
         conn.execute('CREATE INDEX IF NOT EXISTS idx_talents_status ON talents(status)')
