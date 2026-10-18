@@ -4769,6 +4769,14 @@ def _talent_row_to_dict(row):
             return parsed
         except Exception:
             return val
+
+    def _safe_num(val, is_int=False):
+        """数值列容错读: 库里可能残留 '98.33%' 这类文本, 解析失败归 0."""
+        try:
+            ok, n = _parse_number_tolerant(val, is_int=is_int)
+            return n if ok else 0
+        except Exception:
+            return 0
     return {
         # ★ fix/ocr-canonical-sync-v4 Patch 2 (老大 2026-09-27 01:30 拍板):
         #   把每个 row['xxx'] 改成 _safe_row_get('xxx') 容错 (嵌套闭包 1 参数, row 在 enclosing scope).
@@ -4895,10 +4903,10 @@ def _talent_row_to_dict(row):
         # 任务 7: video_count 兜底 (v2 schema 有 INTEGER DEFAULT 0, 旧 DB 缺列返 0)
         'video_count': int(_safe_row_get('video_count') or 0),
         # ★ fix/talent-sync-missing-cols (2026-10-17): 补 5 列读取 (写入端同 commit 修)
-        'fan_growth': int(_safe_row_get('fan_growth') or 0),
+        'fan_growth': _safe_num(_safe_row_get('fan_growth'), is_int=True),
         'fan_growth_rate': _safe_row_get('fan_growth_rate') or '',
         'live_avg_price': _safe_row_get('live_avg_price') or '',
-        'video_settlement_ratio': float(_safe_row_get('video_settlement_ratio') or 0),
+        'video_settlement_ratio': _safe_num(_safe_row_get('video_settlement_ratio')),
         'data_period': _safe_row_get('data_period') or '',
 
         # ★ v4 amend: 返 _distribution_incomplete 标记 (从 ocr_raw_fields._distribution_incomplete JSON 子 dict 读)
@@ -5062,6 +5070,10 @@ def _dict_to_talent_row(t):
                 _category = _first
     if not _category:
         _category = t.get('category') or ''
+    # ★ amend 2026-10-18: 新增数值列容错解析 —— worker 会发 '98.33%' 这种百分数字符串,
+    #   裸 float() 直接 ValueError → POST /api/talents 500 (实锤). 在字典构建前算好.
+    _fg_ok, _fg_n = _parse_number_tolerant(t.get('fan_growth', t.get('fanGrowth', 0)), is_int=True)
+    _vsr_ok, _vsr_n = _parse_number_tolerant(t.get('video_settlement_ratio', t.get('videoSettlementRatio', 0)))
     _row = {
         'id': t.get('id') or _generate_talent_id(now),
         'name': t.get('name') or '',
@@ -5174,10 +5186,11 @@ def _dict_to_talent_row(t):
         # ★ fix/ocr-full: OCR 全字段入库 (vision_field_maps merge 后 JSON, 不限 schema)
         'ocr_raw_fields': _dump(t.get('ocr_raw_fields', t.get('ocrRawFields', {}))),
         # ★ fix/talent-sync-missing-cols (2026-10-17): 补 10 列映射 (清单/读取端同 commit 修)
-        'fan_growth': int(t.get('fan_growth', t.get('fanGrowth', 0)) or 0),
+        #   数值解析用上方 _parse_number_tolerant 结果 ('98.33%' → 98.33)
+        'fan_growth': _fg_n if _fg_ok else 0,
         'fan_growth_rate': t.get('fan_growth_rate') or t.get('fanGrowthRate') or '',
         'live_avg_price': t.get('live_avg_price') or t.get('liveAvgPrice') or '',
-        'video_settlement_ratio': float(t.get('video_settlement_ratio', t.get('videoSettlementRatio', 0)) or 0),
+        'video_settlement_ratio': _vsr_n if _vsr_ok else 0,
         'main_category': t.get('main_category') or t.get('mainCategory') or '',
         'total_gmv_text': t.get('total_gmv_text') or t.get('totalGmvText') or '',
         'video_gpm_text': t.get('video_gpm_text') or t.get('videoGpmText') or '',
