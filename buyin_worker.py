@@ -125,29 +125,46 @@ def llm_chat(messages, max_tokens=8000, temperature=0.0, timeout=180, model='glm
 
 def llm_chat_fb(messages, max_tokens=8000, temperature=0.0, timeout=180,
                 truncate_chars=None):
-    """跨厂家降级链: glm-4.7 → glm-4-flash → kimi(moonshot) → minimax(M3.1/M3)。
-    ★ fix/zhipu-dry-fallback (2026-10-18 实锤): 智谱余额耗尽(429/1113 余额不足)时,
-    采集管道的结构化提取/评估/notes 全部死于此 —— 视觉批次早有降级, 文字链路没有。
-    truncate_chars: 降级厂家上下文小(8k), 传入后对用户消息截断到该长度再发。"""
+    """跨厂家降级链（★ 2026-10-18 老大拍板: 智谱已去掉）:
+    kimi moonshot-v1-32k（主, 32k 上下文, reasoning 模型）→ minimax M3.1/M3。
+    注意: kimi coding 端点这些模型是 reasoning 模型 —— 会先烧推理 token 再出内容,
+    max_tokens 必须给足(≥4000), 且 temperature 只能 1.0(用配置里的温度, 忽略入参)。
+    truncate_chars: 对 user 消息截断（主模型 32k 上下文也经不起 12 万字原材料）。"""
     errs = []
-    for model in ('glm-4.7', 'glm-4-flash'):
-        try:
-            return llm_chat(messages, max_tokens=max_tokens, temperature=temperature,
-                            timeout=timeout, model=model)
-        except LLMError as e:
-            errs.append(f'{model}: {str(e)[:120]}')
     fb_messages = messages
     if truncate_chars:
         fb_messages = [dict(m, content=(m.get('content') or '')[:truncate_chars])
                        if m.get('role') == 'user' else m
                        for m in messages]
-    for base, key, model, temp in _fallback_cfgs():
+    for base, key, model, temp in _text_fallback_cfgs():
         try:
             return _openai_chat(base, key, model, fb_messages, max_tokens=max_tokens,
-                                temperature=temperature, timeout=timeout)
+                                temperature=temp, timeout=timeout)
         except LLMError as e:
             errs.append(f'{model}: {str(e)[:120]}')
     raise LLMError('降级链全灭: ' + ' | '.join(errs))
+
+
+def _text_fallback_cfgs():
+    """文字链路配置（vision 链路用 _fallback_cfgs，模型不同别混）。
+    kimi moonshot-v1-32k: coding 端点实测 2 万 token 输入正常返回（reasoning 模型）。
+    返回 [(base, key, model, temperature), ...]。"""
+    out = []
+    try:
+        cfg = json.load(open(OPENCLAW_CFG, encoding='utf-8'))
+        km = cfg.get('models', {}).get('providers', {}).get('kimi') or {}
+        kbase = (km.get('baseUrl') or 'https://api.kimi.com/coding').rstrip('/')
+        if not kbase.endswith('/v1'):
+            kbase += '/v1'
+        if km.get('apiKey'):
+            out.append((kbase, km['apiKey'], 'moonshot-v1-32k', 1.0))
+        mm = cfg.get('models', {}).get('providers', {}).get('minimax') or {}
+        if mm.get('apiKey'):
+            for m in ('MiniMax-M3.1-Flash-Preview', 'MiniMax-M3'):
+                out.append(('https://api.minimaxi.com/v1', mm['apiKey'], m, 1.0))
+    except Exception as e:
+        log(f'  [LLM] 文字降级配置读取失败: {e}')
+    return out
 
 
 def _balanced_json(text):
@@ -545,37 +562,24 @@ def _vision_extract_fields(shots):
 
     for bidx, (prompt, batch) in enumerate(batches, 1):
         if bidx > 1:
-            time.sleep(6)               # 批间限速，防 glm-4v RPM 触发 429
+            time.sleep(6)               # 批间限速
         ok = False
-        try:
-            zbase, zkey = _zhipu_cfg()
-            for attempt in (1, 2, 3):
-                try:
-                    ok = _try_vision(zbase, zkey, 'glm-4v-plus', prompt, batch)
-                    if ok:
-                        break
-                except Exception as e:
-                    log(f'  [LLM] 视觉提取批次{bidx}第{attempt}次失败: {e}')
-                    if '429' in str(e):
-                        # 429 多为余额/限额问题，重试无意义，稍等即走降级模型
-                        time.sleep(10)
-                        break
-                    time.sleep(5)
-            if not ok:
-                log(f'  [LLM] 视觉提取批次{bidx}智谱放弃，尝试降级模型')
-        except LLMError as e:
-            log(f'  [LLM] 智谱配置不可用: {e}')
-        if not ok:
-            for fbase, fkey, fmodel, ftemp in _fallback_cfgs():
+        # ★ 2026-10-18 老大拍板: 智谱已去掉, 视觉直接走 kimi → minimax
+        for fbase, fkey, fmodel, ftemp in _fallback_cfgs():
+            for attempt in (1, 2):
                 try:
                     if _try_vision(fbase, fkey, fmodel, prompt, batch, ftemp):
-                        log(f'  [LLM] 视觉提取批次{bidx}经 {fmodel} 降级成功')
+                        if fmodel != 'moonshot-v1-8k-vision-preview':
+                            log(f'  [LLM] 视觉提取批次{bidx}经 {fmodel} 完成')
                         ok = True
                         break
                 except Exception as e:
-                    log(f'  [LLM] 视觉降级 {fmodel} 失败: {str(e)[:120]}')
-            if not ok:
-                log(f'  [LLM] 视觉提取批次{bidx}放弃（非致命）')
+                    log(f'  [LLM] 视觉提取批次{bidx}({fmodel})第{attempt}次失败: {str(e)[:120]}')
+                    time.sleep(5)
+            if ok:
+                break
+        if not ok:
+            log(f'  [LLM] 视觉提取批次{bidx}放弃（非致命）')
     return merged
 
 
@@ -1441,26 +1445,17 @@ def _vision_watch(video_path, talent_name, item):
         parts = [{'type': 'video_url',
                   'video_url': {'url': f'data:video/mp4;base64,{b64}'}}]
         err = ''
-        try:
-            base, key = _zhipu_cfg()
-            desc = _vision_chat(base, key, 'glm-4v-plus', prompt, parts)
-            if desc.strip():
-                return desc.strip()[:3000], ''
-            err = 'glm-4v-plus 空返回'
-        except urllib.error.HTTPError as e:
-            err = f'glm-4v-plus http {e.code}: {e.read()[:200]}'
-        except Exception as e:
-            err = f'{type(e).__name__}: {e}'[:300]
-        log(f'  [LLM] 视频画面主模型失败，尝试降级: {err}')
+        # ★ 2026-10-18 老大拍板: 智谱已去掉, 直接 kimi → minimax（M3 套餐含视频输入）
         for fbase, fkey, fmodel, ftemp in _fallback_cfgs():
             try:
                 desc = _vision_chat(fbase, fkey, fmodel, prompt, parts, ftemp)
                 if desc.strip():
-                    log(f'  [LLM] 视频画面经 {fmodel} 降级成功')
+                    log(f'  [LLM] 视频画面经 {fmodel} 完成')
                     return desc.strip()[:3000], ''
             except Exception as e:
-                log(f'  [LLM] 视频画面降级 {fmodel} 失败: {str(e)[:150]}')
-        return '', err
+                err = f'{fmodel}: {str(e)[:150]}'
+                log(f'  [LLM] 视频画面 {fmodel} 失败: {err}')
+        return '', err or '全部降级模型失败'
     except Exception as e:
         return '', f'{type(e).__name__}: {e}'[:300]
 
@@ -1486,7 +1481,8 @@ def _teardown_report(talent_name, item, transcript, visual_desc):
 
 要求: 只基于给定材料推理，标注不确定处；数据弱就直说弱；总长度 600 字内，清单具体可执行。"""
     try:
-        return llm_chat([{'role': 'user', 'content': prompt}], max_tokens=2500, timeout=180)
+        return llm_chat_fb([{'role': 'user', 'content': prompt}], max_tokens=2500,
+                           timeout=180, truncate_chars=25000)
     except Exception as e:
         return f'(拆解报告生成失败: {e})'
 
@@ -2147,23 +2143,21 @@ PRODUCT_URL_PROMPT = '''你是电商商品信息提取器。从抖音电商商�
 
 
 def _llm_extract_product(title: str, text: str) -> dict:
-    """商品页正文 → 结构化字段。glm-4-flash 优先，失败退 glm-4.7。"""
+    """商品页正文 → 结构化字段。智谱已去掉, 走 kimi → minimax 文字链。"""
     messages = [{'role': 'user', 'content':
                  PRODUCT_URL_PROMPT + f'\n【页面标题】{title}\n【页面正文】\n{text}'}]
-    for model in ('glm-4-flash', 'glm-4.7'):
+    try:
+        content = llm_chat_fb(messages, max_tokens=2500, truncate_chars=25000)
+    except Exception as e:
+        raise RuntimeError(f'AI 提取商品字段失败: {e}')
+    raw = _balanced_json(content)
+    if raw:
         try:
-            content = llm_chat(messages, max_tokens=1500, model=model)
-        except Exception as e:
-            log(f'[ProductURL] llm({model}) 失败: {e}')
-            continue
-        raw = _balanced_json(content)
-        if raw:
-            try:
-                d = json.loads(raw)
-                if isinstance(d, dict) and d.get('name'):
-                    return d
-            except Exception:
-                pass
+            d = json.loads(raw)
+            if isinstance(d, dict) and d.get('name'):
+                return d
+        except Exception:
+            pass
     raise RuntimeError('AI 提取商品字段失败')
 
 
@@ -2628,10 +2622,13 @@ class ControlHandler(BaseHTTPRequestHandler):
 def main():
     log('=' * 50)
     log('buyin_worker 启动')
-    # 探测 LLM 配置
+    # 探测 LLM 配置（★ 智谱已去掉: 探文字链 kimi/minimax）
     try:
-        _zhipu_cfg()
-        log('LLM(glm-4.7) 配置 OK')
+        cfgs = _text_fallback_cfgs()
+        if not cfgs:
+            raise RuntimeError('openclaw.json 缺 kimi/minimax apiKey')
+        log(f'LLM 文字链配置 OK ({len(cfgs)} 家: ' +
+            ', '.join(m for _, _, m, _ in cfgs) + ')')
     except Exception as e:
         log(f'!! LLM 配置异常: {e}')
     server = ThreadingHTTPServer((CONTROL_HOST, CONTROL_PORT), ControlHandler)

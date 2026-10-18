@@ -855,41 +855,22 @@ def _vision_try(base: str, key: str, model: str, b64: str,
 
 
 def _vision_extract_product(b64: str) -> dict:
-    """商品截图 → vision 结构化字段。智谱 glm-4v-plus/4v 优先（429 退避重试），
-    依次退 kimi / minimax M3（openclaw.json 均已配置）。"""
+    """商品截图 → vision 结构化字段。kimi 视觉优先，退 minimax M3 系列。
+    ★ 2026-10-18 老大拍板摘除智谱（余额耗尽 429/1113）。"""
     last_err = ""
-    # 第一梯队：智谱（视觉质量好；余额不足会返回 429 code 1113）
-    try:
-        base, key = _zhipu_cfg_daren()
-        for rnd in range(2):
-            for model in ('glm-4v-plus', 'glm-4v'):
-                try:
-                    d = _vision_try(base, key, model, b64)
-                except Exception as e:
-                    last_err = str(e)
-                    log.warning("vision zhipu(%s) failed: %s", model, e)
-                    continue
-                if d.get('name'):
-                    return d
-                last_err = f"{model} no-name output"
-            if rnd == 0:
-                time.sleep(15)
-    except Exception as e:
-        last_err = str(e)
-        log.warning("zhipu cfg failed: %s", e)
-    # 第二梯队：kimi 视觉
+    # 第一梯队：kimi 视觉
     try:
         base, key = _kimi_cfg()
         d = _vision_try(base, key, 'moonshot-v1-8k-vision-preview', b64,
                         temperature=1.0)
         if d.get('name'):
-            log.info("vision via kimi fallback")
+            log.info("vision via kimi")
             return d
         last_err = "kimi no-name output"
     except Exception as e:
         last_err = str(e)
         log.warning("vision kimi failed: %s", e)
-    # 第三梯队：minimax M3 系列（新套餐原生多模态）
+    # 第二梯队：minimax M3 系列（新套餐原生多模态）
     try:
         base, key = _minimax_cfg()
         for model in ('MiniMax-M3.1-Flash-Preview', 'MiniMax-M3'):
@@ -1020,40 +1001,19 @@ def _zhipu_cfg_daren():
     return base, key
 
 
-def _qa_llm(prompt: str, model: str = 'glm-4-flash') -> str:
-    """问答用便宜模型，OpenAI chat 协议直连。
-    ★ fix/zhipu-dry-fallback (2026-10-18): 智谱余额耗尽时降级 kimi/moonshot → minimax，
-    问答不能跟着死。"""
+def _qa_llm(prompt: str, model: str = '') -> str:
+    """问答直连文字模型链：kimi moonshot-v1-32k → minimax ×2。
+    ★ 2026-10-18 老大拍板摘除智谱（余额耗尽 429/1113）。kimi coding 端点
+    temperature 必须 1.0（reasoning 模型），max_tokens 给足防推理 token 吞空。"""
     errors = []
-    try:
-        base, key = _zhipu_cfg_daren()
-        req = urllib.request.Request(
-            base + '/chat/completions',
-            data=json.dumps({
-                'model': model,
-                'messages': [{'role': 'user', 'content': prompt}],
-                'temperature': 0.3,
-                'max_tokens': 1200,
-            }).encode('utf-8'),
-            headers={'Content-Type': 'application/json',
-                     'Authorization': f'Bearer {key}'},
-            method='POST')
-        with urllib.request.urlopen(req, timeout=120) as resp:
-            data = json.loads(resp.read().decode())
-        out = (data.get('choices') or [{}])[0].get('message', {}).get('content') or ''
-        if out.strip():
-            return out
-        errors.append('zhipu empty content')
-    except Exception as e:
-        errors.append(f'zhipu: {str(e)[:100]}')
-    for base, key, model, _temp in _fallback_cfgs_daren():
+    for base, key, model, temp in _fallback_cfgs_daren():
         try:
             req = urllib.request.Request(
                 base + '/chat/completions',
                 data=json.dumps({
                     'model': model,
                     'messages': [{'role': 'user', 'content': prompt[:15000]}],
-                    'temperature': 0.3,
+                    'temperature': temp,
                     'max_tokens': 1200,
                 }).encode('utf-8'),
                 headers={'Content-Type': 'application/json',
@@ -1063,7 +1023,6 @@ def _qa_llm(prompt: str, model: str = 'glm-4-flash') -> str:
                 data = json.loads(resp.read().decode())
             out = (data.get('choices') or [{}])[0].get('message', {}).get('content') or ''
             if out.strip():
-                log.info("qa degraded to %s", model)
                 return out
             errors.append(f'{model} empty content')
         except Exception as e:
@@ -1081,7 +1040,7 @@ def _fallback_cfgs_daren():
         if not kbase.endswith('/v1'):
             kbase += '/v1'
         if km.get('apiKey'):
-            out.append((kbase, km['apiKey'], 'moonshot-v1-8k-vision-preview', 1.0))
+            out.append((kbase, km['apiKey'], 'moonshot-v1-32k', 1.0))
         mm = cfg.get('models', {}).get('providers', {}).get('minimax') or {}
         if mm.get('apiKey'):
             for m in ('MiniMax-M3.1-Flash-Preview', 'MiniMax-M3'):
