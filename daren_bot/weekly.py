@@ -559,9 +559,25 @@ def execute_weekly_report(task: dict) -> str:
     img = ""
     try:
         import tempfile
-        tmp = Path(tempfile.gettempdir()) / f"daren_weekly_{week_no}_{dyid}.png"
-        render_weekly_card(name, dyid, md, str(tmp))
-        img = str(tmp)
+        if not missing and prev:
+            # 第 2 周起（有基线）：推「达人个人看板」长图（P2：首周只推基线版周报）
+            from . import dashboard_card as dc
+            data_cur = (cur or {}).get("data") or {}
+            data_prev = (prev or {}).get("data") or {}
+            anomalies = detect_anomalies(data_cur, data_prev)
+            iso_y, iso_w = week_no // 100, week_no % 100
+            tmp = Path(tempfile.gettempdir()) / \
+                f"daren_dash_{week_no}_{dyid}.png"
+            dc.render_dashboard(
+                data_cur, data_cur, data_prev, anomalies,
+                dc.recent_picks(tk), str(tmp),
+                collected_at=(cur or {}).get("collected_at", ""),
+                week_label=f"{iso_y} 第 {iso_w} 周")
+            img = str(tmp)
+        else:
+            tmp = Path(tempfile.gettempdir()) / f"daren_weekly_{week_no}_{dyid}.png"
+            render_weekly_card(name, dyid, md, str(tmp))
+            img = str(tmp)
     except Exception:
         log.exception("weekly card render failed, text only: %s", dyid)
     return json.dumps({"md": md, "img": img, "name": name},

@@ -122,6 +122,18 @@ CREATE TABLE IF NOT EXISTS bot_credits_ledger (
   created_at        INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_ledger_tenant ON bot_credits_ledger(tenant_key, created_at);
+
+-- 3.7 选品结论记录：每次商品分析把 AI 给的绿黄红结论落库，供达人看板「本周精选」区展示
+CREATE TABLE IF NOT EXISTS bot_product_verdicts (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  tenant_key  TEXT NOT NULL,
+  name        TEXT DEFAULT '',
+  verdict     TEXT DEFAULT '',                  -- 能带/慎带/别带
+  why         TEXT DEFAULT '',
+  analyzed_at TEXT DEFAULT '',                  -- 分析日期（YYYY-MM-DD），看板上标注
+  created_at  INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_pverdict_tenant ON bot_product_verdicts(tenant_key, created_at);
 """
 
 

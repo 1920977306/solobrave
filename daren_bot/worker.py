@@ -101,6 +101,9 @@ class Worker(threading.Thread):
                     title, _, md = (result_summary or "").partition("\n")
                 executors.notify_product_card(self.wm.get_sender(tk), task["chat_id"],
                                               title, md, tk, stats, source)
+                # 看板「本周精选 TOP3」数据源：绿黄红结论落库（失败不阻塞主流程）
+                from . import dashboard_card as _dc
+                _dc.save_product_verdict(tk, title, md)
             elif task["type"] == "video" and task.get("chat_id"):
                 # 视频拆解推送：优先分节卡片长图，渲染失败回退纯文本
                 executors.notify_video_card(self.wm.get_sender(tk), task["chat_id"],
