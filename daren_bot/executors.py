@@ -9,6 +9,7 @@
 import base64
 import json
 import logging
+import re as _re
 import sqlite3
 import time
 import urllib.error
@@ -1086,6 +1087,110 @@ def _talent_context(tk: str) -> str:
         return ""
 
 
+def _fmt_compare_brief(t: dict) -> str:
+    """单个达人的对比摘要（全部来自库里真实字段，没有就跳过，绝不编）。"""
+    parts = []
+    name = t.get('name') or '?'
+    dyid = t.get('douyin_id') or ''
+    parts.append(f"昵称{name}" + (f"（抖音号{dyid}）" if dyid else ""))
+    if t.get('followers'):
+        parts.append(f"粉丝{int(t['followers'])}")
+    if t.get('category'):
+        parts.append(f"主营类目{t['category']}")
+    if t.get('level'):
+        parts.append(f"等级{t['level']}")
+    if t.get('city'):
+        parts.append(f"城市{t['city']}")
+    if t.get('total_gmv'):
+        parts.append(f"累计GMV{_fmt_wan(t['total_gmv'])}")
+    if t.get('video_gpm'):
+        parts.append(f"视频GPM{float(t['video_gpm']):.0f}")
+    raw = t.get('ocr_raw_fields') or ''
+    try:
+        raw = json.loads(raw)
+        if isinstance(raw, str):
+            raw = json.loads(raw)
+    except Exception:
+        raw = {}
+    if isinstance(raw, dict):
+        for label, key in (('性别', 'fan_gender'), ('年龄', 'fan_age'),
+                           ('人群', 'fan_crowd'), ('消费水平', 'fan_consume_level')):
+            v = raw.get(key)
+            if v:
+                parts.append(f"{label}{json.dumps(v, ensure_ascii=False)}")
+        vg = raw.get('video_gpm') or raw.get('video_gpm_text')
+        if vg and not t.get('video_gpm'):
+            parts.append(f"视频GPM{vg}")
+        cd = raw.get('category_distribution')
+        if isinstance(cd, dict) and cd:
+            top = sorted(cd.items(), key=lambda kv: -float(kv[1] or 0))[:2]
+            parts.append("类目分布" + "、".join(f"{k}{v}%" for k, v in top))
+        cb = raw.get('cooperating_brands') or raw.get('cooperating_brands_distribution')
+        if isinstance(cb, dict) and cb:
+            top = sorted(cb.items(), key=lambda kv: -float(kv[1] or 0))[:2]
+            parts.append("主要品牌" + "、".join(f"{k}{round(float(v))}%" for k, v in top))
+        fg = raw.get('fan_growth')
+        if fg:
+            parts.append(f"近2月涨粉{fg}")
+    return "｜".join(parts)
+
+
+def _build_compare_block(tk: str, q: str) -> str:
+    """对比问题取数：本人绑定账号 + 问题里点名的对标号（达人库按名字模糊匹配，取数据最全的最新一行）。"""
+    try:
+        from . import db
+        tenant = db.get_tenant(tk)
+        own_dyid = (tenant or {}).get("bind_douyin_id") or ""
+        if not own_dyid:
+            return ""
+        # 从问题里剥出名字候选：去掉常见功能词后按分隔符切
+        t = _re.sub(r'[【】\[\]（）()~～!！?？\s]+', ' ', q)
+        t = _re.sub(r'我的(账号|的号|号)?', ' ', t)
+        t = _re.sub(r'(账号|对比|比较|分析一下?|发一下|看看|怎么样|帮我|一下|和|与|跟|还有|以及)', ' ', t)
+        cands = [c for c in _re.split(r'[、,，;；\s]+', t) if len(c) >= 2]
+        peers = []
+        if cands:
+            conn = sqlite3.connect(f"file:{SOLOBRAVE_DB}?mode=ro", uri=True, timeout=10)
+            try:
+                conn.row_factory = sqlite3.Row
+                seen = set()
+                for c in cands[:4]:
+                    rows = conn.execute(
+                        "SELECT * FROM talents WHERE name LIKE ? AND status != 'archived' "
+                        "ORDER BY updated_at DESC LIMIT 5", (f"%{c}%",)).fetchall()
+                    best, best_score = None, -1
+                    for r in rows:
+                        r = dict(r)
+                        ocr_len = len(str(r.get('ocr_raw_fields') or ''))
+                        score = (2 if r.get('douyin_id') else 0) \
+                              + (2 if r.get('followers') else 0) \
+                              + (1 if r.get('category') else 0) \
+                              + (3 if ocr_len > 100 else 0) \
+                              + int((r.get('updated_at') or 0) / 1e10)  # 越新越优先(秒级权重)
+                        if score > best_score:
+                            best, best_score = r, score
+                    if best and best.get('id') not in seen \
+                            and best.get('douyin_id') != own_dyid:
+                        seen.add(best.get('id'))
+                        peers.append(best)
+            finally:
+                conn.close()
+        own = _read_talent("", own_dyid)
+        if not own:
+            return ""
+        lines = ["【你的账号】" + _fmt_compare_brief(own)]
+        if peers:
+            for p in peers[:3]:
+                lines.append("【对标账号】" + _fmt_compare_brief(p))
+        else:
+            lines.append("【对标账号】问题里点名的达人未在库里找到数据，"
+                         "回答时明说'对方数据还没采集，发我对方抖音号，我采完再给你完整对比'")
+        return "\n".join(lines)
+    except Exception:
+        log.exception("build compare block failed")
+        return ""
+
+
 def execute_qa(task: dict) -> str:
     """业务问答：结合该达人绑定的账号画像回答；超出带货范围由模型拒答。
     对报告/分析的质疑类问题强制走回答路径（弱模型爱把质疑当无关问题拒答）。"""
@@ -1095,10 +1200,21 @@ def execute_qa(task: dict) -> str:
     if not q:
         return "没收到问题内容，重新发一下～"
     ctx = _talent_context(task.get("tenant_key", ""))
-    challenge = bool(_re.search(r"有误|不对|错|分析|报告|数据|画像|建议", q))
+    # ★ fix/compare-qa (2026-10-18 实锤): "我的账号和XX、YY对比发一下" 被弱模型判无关拒答.
+    #   对比/比较是核心业务问题: 强制回答 + 注入库里的真实对比数据, 杜绝编造.
+    compare_block = ""
+    if _re.search(r"对比|比较|差距|哪家强|谁厉害", q):
+        compare_block = _build_compare_block(task.get("tenant_key", ""), q)
+    challenge = bool(_re.search(r"有误|不对|错|分析|报告|数据|画像|建议|对比|比较|差距", q))
     force_line = (
         '【系统指令】达人这条消息是在质疑或询问已生成的报告/分析内容，'
         '属于账号分析业务，必须正常回答，绝对禁止输出"拒"。\n' if challenge else '')
+    compare_line = (
+        '【系统指令】达人在要求做账号对比，这是核心业务问题，必须基于下面的对比数据回答，'
+        '绝对禁止输出"拒"。回答结构：先并排列出各方核心数据（粉丝/类目/GMV/GPM/等级/城市/粉丝画像），'
+        '再指出达人自己账号的优势和差距，最后给可执行建议。'
+        '对比数据里没有的维度，明说"对方该维度暂无数据"，严禁编造数字。\n'
+        + compare_block + '\n' if compare_block else '')
     prompt = (
         '你是抖音电商达人的AI选品顾问，用第二人称"你"回答问题。\n'
         '只回答抖音带货、选品、商品判断、账号运营、粉丝画像、直播相关的问题，'
@@ -1111,6 +1227,7 @@ def execute_qa(task: dict) -> str:
         '结构为「结论 + 数据依据 + 行动建议」；有数据必须引用数据，'
         '没有的维度不要编造数字，不要喊口号。\n'
         + force_line
+        + compare_line
         + (f'【该达人的账号数据】{ctx}\n' if ctx else '')
         + f'【达人问】{q}'
     )
@@ -1127,6 +1244,12 @@ def execute_qa(task: dict) -> str:
     if not ans:
         return "AI 刚才没反应过来，你稍等几秒再问一次～"
     if ans.startswith("拒") and len(ans) <= 3:
+        if compare_block:
+            # 对比类问题仍被误拒：直接输出库里真实数据的确定性对比，绝不让达人吃闭门羹
+            back = "给你整理了三方账号的真实数据对比：\n\n" + compare_block
+            back += ("\n\n以上为库里已采集的真实数据，缺失维度就是还没采集到。"
+                     "想看哪一项的深挖对比，或者要我把某个对标号的最新数据重新采一遍，直接说～")
+            return back
         if challenge:
             # 质疑类问题被误拒：用账号数据给兜底回应，绝不让达人吃闭门羹
             cat = ""
