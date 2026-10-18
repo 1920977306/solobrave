@@ -69,7 +69,7 @@ def cmd_serve(_args):
     worker.start()
 
     from .weekly import WeeklyScheduler
-    weekly_scheduler = WeeklyScheduler()
+    weekly_scheduler = WeeklyScheduler(ws)
     weekly_scheduler.start()
 
     # 绑 0.0.0.0：运营后台要局域网访问（/admin?token=…），healthz 同端口保留

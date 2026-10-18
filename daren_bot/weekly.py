@@ -26,6 +26,11 @@ log = logging.getLogger("daren-bot.weekly")
 COLLECT_WINDOW_HOURS = 12          # 周日20:00 → 周一08:00
 RETRY_GAP = 2 * 3600               # 自动采失败重试间隔
 MAX_AUTO_FAILS = 2                 # 初始1次+重试1次，再败走数据缺失版
+RETRY_MARGIN_MIN = 45              # 重试最晚时点 = 推送时点前 45 分钟（采集约10-20分钟）
+OPS_ALERT_GRACE_MIN = 120          # 推送时点过后 2h 仍"该跑没跑" → 运营告警
+# 主动推送灰度名单（老大规矩：主动 push 新功能先只推管理员/测试，跑满一个周期再放真达人）
+WEEKLY_GRAY_TENANTS = {"daren_boss", "daren_test2"}
+OPS_ALERT_TENANT = "daren_boss"    # 调度静默死亡告警接收方
 SNAPSHOT_FIELDS = (
     "name", "douyin_id", "followers", "total_products", "total_shops",
     "total_gmv_text", "rating_score", "fulfillment_score", "level",
@@ -113,12 +118,20 @@ def _enqueue_report(tenant_key: str, douyin_id: str, missing: int) -> None:
                     payload=json.dumps({"missing": missing}))
 
 
-class WeeklyScheduler(threading.Thread):
-    """每分钟扫一遍：采集窗做主动采集编排，推送窗做周报入队。"""
+def _push_at(w_start: datetime.datetime, slot_min: int = 577):
+    """窗口结束(周一08:00)折算到周一 slot 时刻（默认 09:37，避开整点半点）。"""
+    return w_start + datetime.timedelta(
+        hours=COLLECT_WINDOW_HOURS - 8 + slot_min // 60, minutes=slot_min % 60)
 
-    def __init__(self):
+
+class WeeklyScheduler(threading.Thread):
+    """每分钟扫一遍：采集窗做主动采集编排，推送窗做周报入队，
+    推送后 grace 期做「该跑没跑」运营告警（防调度静默死亡）。"""
+
+    def __init__(self, wm=None):
         super().__init__(daemon=True, name="weekly-scheduler")
         self._stop = threading.Event()
+        self.wm = wm
 
     def stop(self):
         self._stop.set()
@@ -136,6 +149,7 @@ class WeeklyScheduler(threading.Thread):
         now = datetime.datetime.now()
         w_start, w_end = _window(now)
         week_ts = int(w_start.timestamp())
+        week_no = report_week_no()
         tenants = db.get_active_tenants()
         for t in tenants:
             tk = t["tenant_key"]
@@ -146,8 +160,9 @@ class WeeklyScheduler(threading.Thread):
                 continue
             in_collect_phase = w_start <= now < w_end
             if in_collect_phase and not self._collected(tk, dyid, week_ts):
-                self._maybe_enqueue_collect(tk, dyid, week_ts, now, w_start, w_end)
+                self._maybe_enqueue_collect(t, dyid, week_ts, now, w_start)
             self._maybe_enqueue_report(t, dyid, week_ts, now, w_start)
+        self._maybe_ops_alert(tenants, week_no, now, w_start)
 
     # ---- 采集编排 ----
     def _collected(self, tk, dyid, week_ts) -> bool:
@@ -159,20 +174,22 @@ class WeeklyScheduler(threading.Thread):
                 (tk, dyid, week_ts)).fetchone()
             return r is not None
 
-    def _maybe_enqueue_collect(self, tk, dyid, week_ts, now, w_start, w_end):
+    def _maybe_enqueue_collect(self, tenant, dyid, week_ts, now, w_start):
+        tk = tenant["tenant_key"]
         fails = db.count_auto_fails_this_week(tk, dyid, week_ts)
         chat_id = db.get_latest_chat_id(tk)
         if not chat_id:
             return
         slot = datetime.timedelta(minutes=_md5_slot(tk, 720))  # 打散在12h窗内
+        retry_cutoff = _push_at(w_start) - datetime.timedelta(minutes=RETRY_MARGIN_MIN)
         if fails == 0:
             if now >= w_start + slot:
                 retry = 0
             else:
                 return
         elif fails == 1:
-            # 重试 1 次：距上次失败 2h 后、采集窗关闭前
-            if now + datetime.timedelta(hours=1) >= w_end:
+            # 重试 1 次：距上次失败 2h 后，且必须赶得上推送时点（迟到快照不拖垮周报）
+            if now >= retry_cutoff:
                 return
             with db.db_ctx() as conn:
                 r = conn.execute(
@@ -195,11 +212,10 @@ class WeeklyScheduler(threading.Thread):
     # ---- 推送编排：窗口结束(周一08:00) + 租户slot → 09:37 前后入队周报 ----
     def _maybe_enqueue_report(self, tenant: dict, dyid, week_ts, now, w_start):
         tk = tenant["tenant_key"]
+        if tk not in WEEKLY_GRAY_TENANTS:
+            return  # 灰度期：非名单租户不自动推，走管理员「立即试跑周报」
         slot_min = int(tenant.get("weekly_push_slot") or 577)  # 周一00:00起的分钟数
-        push_at = w_start + datetime.timedelta(
-            hours=COLLECT_WINDOW_HOURS - 8 + slot_min // 60,
-            minutes=slot_min % 60)  # 窗口结束是周一08:00，折算到周一 slot 时刻
-        if now < push_at:
+        if now < _push_at(w_start, slot_min):
             return
         if _week_report_enqueued(week_ts, tk, dyid):
             return
@@ -215,6 +231,45 @@ class WeeklyScheduler(threading.Thread):
         _enqueue_report(tk, dyid, missing=missing)
         log.info("weekly report enqueued: tenant=%s dyid=%s missing=%s",
                  tk, dyid, missing)
+
+    # ---- 运营告警：推送时点+grace 后，「该跑没跑」的租户清单推管理员 ----
+    def _maybe_ops_alert(self, tenants, week_no, now, w_start):
+        if now < _push_at(w_start) + datetime.timedelta(minutes=OPS_ALERT_GRACE_MIN):
+            return
+        marker = Path(__file__).parent.parent / "data" / "daren-bot" / \
+            f".weekly_ops_alert_{week_no}"
+        if marker.exists():
+            return
+        gaps = []
+        for t in tenants:
+            tk = t["tenant_key"]
+            if not int(t.get("weekly_sub") or 1):
+                continue
+            dyid = (t.get("bind_douyin_id") or "").strip()
+            if not dyid:
+                continue
+            if db.get_snapshot(dyid, week_no):
+                continue
+            if db.count_auto_fails_this_week(tk, dyid,
+                                             int(w_start.timestamp())) >= 1:
+                continue  # 有失败记录：达人已收到缺失版，不算静默
+            gaps.append((tk, dyid))
+        if not gaps:
+            marker.touch()
+            return
+        sender = self.wm.get_sender(OPS_ALERT_TENANT) if self.wm else None
+        text = ("⚠️ 周报调度告警：以下租户本周该跑没跑（无快照无失败记录，"
+                "达人不会收到周报）：\n" +
+                "\n".join(f"- {tk}（{dyid}）" for tk, dyid in gaps) +
+                "\n请检查调度器/worker 状态。")
+        if sender is None:
+            log.warning("[ops-alert-no-sender] %s", text)
+        else:
+            chat_id = db.get_latest_chat_id(OPS_ALERT_TENANT)
+            if chat_id:
+                sender.send_text(chat_id, text)
+        marker.touch()
+        log.warning("weekly ops alert sent: %d tenant(s) gap", len(gaps))
 
 
 # ---------------- 规则引擎（宁漏勿滥，带活跃上下文） ----------------
@@ -275,16 +330,20 @@ def detect_anomalies(cur: dict, prev: dict) -> list:
             out.append(("🟢", f"粉丝暴涨 {chg*100:.0f}%（{pf:.0f} → {cf:.0f}），"
                              f"疑似起量，抓紧更新选品接住流量"))
 
-    # R1 GMV 异常下滑：必须「本周开播≥2场」才报；未开播是正常说明不是异常
+    # R1 GMV 活跃下滑（★差分口径）：百应是近60天滚动累计、无分场/分天粒度，
+    # 周增量 ≈ 本期窗中值 − 上期窗中值；累计不增反降 = 本周新增跑不赢窗口滑出。
+    # 稳态达人增量≈0 属正常，只有 delta<0 才是真下滑信号（区间档粗，宁漏勿滥）。
+    # 门槛：本周开播≥2场；未开播是正常说明不是异常。
     cg, pg = gmv_mid_wan(cur.get("total_gmv_text")), gmv_mid_wan(prev.get("total_gmv_text"))
     live = _num(co, "live_count") or 0
     if live == 0:
         if cg is not None and pg is not None and cg != pg:
             out.append(("ℹ️", "本周未开播，GMV 区间变化属正常波动"))
-    elif cg is not None and pg and (cg - pg) / pg <= -0.30:
-        out.append(("🔴", f"开播 {live:.0f} 场但 GMV 区间下滑 "
-                         f"{abs(cg-pg)/pg*100:.0f}%（{cur.get('total_gmv_text')} ← "
-                         f"{prev.get('total_gmv_text')}），建议复盘流量承接"))
+    elif cg is not None and pg is not None and cg < pg:
+        out.append(("🔴", f"开播 {live:.0f} 场，但滚动窗 GMV 累计环比下降 "
+                         f"{pg - cg:.0f}万（{prev.get('total_gmv_text')} → "
+                         f"{cur.get('total_gmv_text')}），本周新增跑不赢窗口滑出，"
+                         f"建议复盘选品和流量承接"))
 
     # R3 口碑分下滑（门槛：本周有成交）
     cr, pr = _num(cur, "rating_score"), _num(prev, "rating_score")
@@ -378,8 +437,10 @@ def build_weekly_md(tenant_key: str, douyin_id: str,
     cf, pf = _num(cur, "followers"), _num(prev, "followers")
     L.append(f"· 粉丝 {_fmt_chg(cf, pf)}")
     cg, pg = gmv_mid_wan(cur.get("total_gmv_text")), gmv_mid_wan(prev.get("total_gmv_text"))
-    if cg is not None and pg is not None and cur.get("total_gmv_text") != prev.get("total_gmv_text"):
-        L.append(f"· GMV区间 {cur.get('total_gmv_text')}（上周 {prev.get('total_gmv_text')}）")
+    if cg is not None and pg is not None:
+        delta = cg - pg
+        L.append(f"· GMV 周增量 ≈ {'+' if delta >= 0 else ''}{delta:.0f}万"
+                 f"（滚动窗差分近似，非自然周精确值）")
     cp, pp = _num(cur, "total_products"), _num(prev, "total_products")
     L.append(f"· 带过商品 {_fmt_chg(cp, pp, ' 品')}")
 

@@ -34,6 +34,9 @@ BALANCE_RE = re.compile(r"^(余额|积分|我的积分|积分余额|查积分|�
 WEEKLY_UNSUB_RE = re.compile(r"^(取消订阅|退订|关闭)(每周)?(经营)?周报[呀啊哦~～!！\s]*$")
 WEEKLY_SUB_RE = re.compile(r"^(订阅|开通|恢复)(每周)?(经营)?周报[呀啊哦~～!！\s]*$")
 WEEKLY_STATUS_RE = re.compile(r"^周报(状态|订阅)?[?？!！~～\s]*$")
+# 管理员后门：主动推送类功能的验收/排查通道（灰度规矩：不等周日、不推达人只回管理员）
+TRIAL_WEEKLY_RE = re.compile(
+    r"^立即试跑周报(?:\s*[@＠]?(?P<tk>[A-Za-z0-9_]+))?[?？!！~～\s]*$")
 GREETING_REPLY = ("你好呀，我是你的带货选品助手。发我你的抖音号可以做账号分析，"
                   "直接问选品、带货、粉丝画像的问题我也都能答～")
 
@@ -136,6 +139,8 @@ class Router:
                     chat_id,
                     ("周报订阅：已开启 ✅ 每周一上午自动推送"
                      if sub else "周报订阅：已关闭。发「订阅周报」可恢复"))
+            elif TRIAL_WEEKLY_RE.match(text.strip()):
+                self._route_trial_weekly(tenant, chat_id, text, sender)
             elif len(text.strip()) <= 8 and GREETING_RE.search(text):
                 sender.send_text(chat_id, GREETING_REPLY)
             else:
@@ -148,6 +153,29 @@ class Router:
         if elapsed > 3:
             log.warning("HANDLER OVER 3s: tenant=%s elapsed=%.2fs",
                         tenant["tenant_key"], elapsed)
+
+    # ---------- 管理员后门：立即试跑周报（只回管理员，不推达人） ----------
+
+    def _route_trial_weekly(self, tenant, chat_id, text, sender):
+        tk = tenant["tenant_key"]
+        if tk != "daren_boss":
+            sender.send_text(chat_id, "这个指令只有管理员可用～")
+            return
+        m = TRIAL_WEEKLY_RE.match(text.strip())
+        target_tk = (m.group("tk") if m else None) or tk
+        t = db.get_tenant(target_tk)
+        if not t:
+            sender.send_text(chat_id, f"租户 {target_tk} 不存在")
+            return
+        dyid = (t.get("bind_douyin_id") or "").strip()
+        if not dyid:
+            sender.send_text(chat_id, f"租户 {target_tk} 未绑定抖音号")
+            return
+        task_id = db.enqueue_task(target_tk, "weekly_report", dyid, 0,
+                                  chat_id=chat_id, payload="{}")
+        sender.send_text(chat_id,
+                         f"已为 {target_tk}（{dyid}）触发周报试跑，"
+                         f"结果直接回本会话（任务 {task_id[:8]}）")
 
     # ---------- ① 抖音号（spec 4.1） ----------
 
