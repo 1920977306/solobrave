@@ -203,11 +203,18 @@ class WeeklyScheduler(threading.Thread):
             return
         if _week_report_enqueued(week_ts, tk, dyid):
             return
-        # 有本周快照 → 正常版；没有（采集失败）→ 数据缺失版
+        # 有本周快照 → 正常版；本周尝试过自动采集但失败 → 数据缺失版；
+        # 本周既没采也没试过（功能新上线/未绑定）→ 不打扰达人
         snap = db.get_snapshot(dyid, report_week_no())
-        _enqueue_report(tk, dyid, missing=0 if snap else 1)
+        if snap:
+            missing = 0
+        elif db.count_auto_fails_this_week(tk, dyid, week_ts) >= 1:
+            missing = 1
+        else:
+            return
+        _enqueue_report(tk, dyid, missing=missing)
         log.info("weekly report enqueued: tenant=%s dyid=%s missing=%s",
-                 tk, dyid, 0 if snap else 1)
+                 tk, dyid, missing)
 
 
 # ---------------- 规则引擎（宁漏勿滥，带活跃上下文） ----------------
