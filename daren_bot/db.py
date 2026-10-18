@@ -89,6 +89,19 @@ CREATE TABLE IF NOT EXISTS bot_week_counters (
   PRIMARY KEY (tenant_key, douyin_id, week_no)
 );
 
+-- 3.4b 周报快照：每次采集成功存一份选定字段，周报环比 = 本周快照 vs 上周快照
+-- 注意：百应数据是「近60天滚动窗」而非自然周，周报口径写「滚动窗口对比」，不编造"本周"
+CREATE TABLE IF NOT EXISTS bot_weekly_snapshots (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  tenant_key   TEXT NOT NULL,
+  douyin_id    TEXT NOT NULL,
+  week_no      INTEGER NOT NULL,                -- ISO 8601 周数
+  snapshot     TEXT NOT NULL,                   -- JSON: 选定字段+ocr_raw_fields
+  collected_at TEXT DEFAULT '',                 -- 采集完成时间（百应口径）
+  created_at   INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_ws_douyin ON bot_weekly_snapshots(douyin_id, week_no);
+
 -- 3.5 积分账户
 CREATE TABLE IF NOT EXISTS bot_credits_accounts (
   tenant_key TEXT PRIMARY KEY,
@@ -127,6 +140,13 @@ def init_db():
         if "owner_open_id" not in cols:
             conn.execute("ALTER TABLE bot_tenants "
                          "ADD COLUMN owner_open_id TEXT DEFAULT ''")
+        # 轻量迁移：周报订阅（默认订阅；weekly_push_slot=周一09:37，错峰整点半点）
+        if "weekly_sub" not in cols:
+            conn.execute("ALTER TABLE bot_tenants "
+                         "ADD COLUMN weekly_sub INTEGER NOT NULL DEFAULT 1")
+        if "weekly_push_slot" not in cols:
+            conn.execute("ALTER TABLE bot_tenants "
+                         "ADD COLUMN weekly_push_slot INTEGER NOT NULL DEFAULT 577")
 
 
 def now_ts() -> int:
@@ -418,3 +438,105 @@ def cache_put(product_key: str, name: str = '', price: str = '',
                  fetched_at=excluded.fetched_at""",
             (product_key, name, price, commission,
              json.dumps(stats or {}, ensure_ascii=False), source_url, now_ts()))
+
+
+# ---------- 周报（weekly.py 配套：快照/订阅/系统账） ----------
+
+def log_system_cost(tenant_key: str, action: str, cost: int,
+                    ref_task_id: str = '') -> None:
+    """系统账：真实成本入账但不扣达人余额（balance_after 取当前值原样记录）。
+    weekly_auto_collect / weekly_report 走此路径——余额 0 的达人照常收周报。"""
+    with db_ctx() as conn:
+        r = conn.execute("SELECT balance FROM bot_credits_accounts WHERE tenant_key=?",
+                         (tenant_key,)).fetchone()
+        balance = int(r["balance"]) if r else 0
+        _ledger(conn, tenant_key, action, cost, balance, 0, ref_task_id)
+
+
+def set_weekly_sub(tenant_key: str, sub: int) -> None:
+    with db_ctx() as conn:
+        conn.execute("UPDATE bot_tenants SET weekly_sub=?, updated_at=? "
+                     "WHERE tenant_key=?", (sub, now_ts(), tenant_key))
+
+
+def get_weekly_sub(tenant_key: str) -> int:
+    with db_ctx() as conn:
+        r = conn.execute("SELECT weekly_sub FROM bot_tenants WHERE tenant_key=?",
+                         (tenant_key,)).fetchone()
+        return int(r["weekly_sub"]) if r else 1
+
+
+def save_snapshot(tenant_key: str, douyin_id: str, week_no: int,
+                  snapshot: dict, collected_at: str = '') -> None:
+    with db_ctx() as conn:
+        conn.execute(
+            "INSERT INTO bot_weekly_snapshots "
+            "(tenant_key, douyin_id, week_no, snapshot, collected_at, created_at) "
+            "VALUES (?,?,?,?,?,?)",
+            (tenant_key, douyin_id, week_no,
+             json.dumps(snapshot, ensure_ascii=False), collected_at, now_ts()))
+
+
+def get_snapshot(douyin_id: str, week_no: int):
+    """取指定周快照（该周最后一份）。"""
+    with db_ctx() as conn:
+        r = conn.execute(
+            "SELECT * FROM bot_weekly_snapshots WHERE douyin_id=? AND week_no=? "
+            "ORDER BY created_at DESC LIMIT 1", (douyin_id, week_no)).fetchone()
+        if not r:
+            return None
+        d = dict(r)
+        try:
+            d["data"] = json.loads(d["snapshot"])
+        except Exception:
+            d["data"] = {}
+        return d
+
+
+def get_prev_snapshot(douyin_id: str, before_week_no: int):
+    """取 before_week_no 之前最近一份快照（环比基线）。"""
+    with db_ctx() as conn:
+        r = conn.execute(
+            "SELECT * FROM bot_weekly_snapshots WHERE douyin_id=? AND week_no<? "
+            "ORDER BY week_no DESC, created_at DESC LIMIT 1",
+            (douyin_id, before_week_no)).fetchone()
+        if not r:
+            return None
+        d = dict(r)
+        try:
+            d["data"] = json.loads(d["snapshot"])
+        except Exception:
+            d["data"] = {}
+        return d
+
+
+def has_done_collect_this_week(tenant_key: str, douyin_id: str,
+                               week_start_ts: int) -> bool:
+    """本周窗口内是否已有成功采集（任何途径：手动/自动）——有就不重复采。"""
+    with db_ctx() as conn:
+        r = conn.execute(
+            "SELECT 1 FROM bot_collect_tasks WHERE tenant_key=? AND target=? "
+            "AND type='douyin' AND status='done' AND done_at>=? LIMIT 1",
+            (tenant_key, douyin_id, week_start_ts)).fetchone()
+        return r is not None
+
+
+def count_auto_fails_this_week(tenant_key: str, douyin_id: str,
+                               week_start_ts: int) -> int:
+    """本周自动采集(payload 含 \"auto\":1)失败次数——重试上限用。"""
+    with db_ctx() as conn:
+        n = conn.execute(
+            "SELECT COUNT(*) c FROM bot_collect_tasks WHERE tenant_key=? AND target=? "
+            "AND type='douyin' AND status='failed' AND created_at>=? "
+            "AND payload LIKE '%\"auto\":1%'",
+            (tenant_key, douyin_id, week_start_ts)).fetchone()
+        return int(n["c"])
+
+
+def get_latest_chat_id(tenant_key: str) -> str:
+    """该租户最近一次任务的 chat_id——主动推送目标（达人跟 bot 有过会话）。"""
+    with db_ctx() as conn:
+        r = conn.execute(
+            "SELECT chat_id FROM bot_collect_tasks WHERE tenant_key=? AND chat_id!='' "
+            "ORDER BY created_at DESC LIMIT 1", (tenant_key,)).fetchone()
+        return r["chat_id"] if r else ""

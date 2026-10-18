@@ -68,6 +68,10 @@ def cmd_serve(_args):
     worker = Worker(ws)
     worker.start()
 
+    from .weekly import WeeklyScheduler
+    weekly_scheduler = WeeklyScheduler()
+    weekly_scheduler.start()
+
     # 绑 0.0.0.0：运营后台要局域网访问（/admin?token=…），healthz 同端口保留
     handler = admin.make_handler(_STATE)
     httpd = ThreadingHTTPServer(("0.0.0.0", config.HTTP_PORT), handler)
@@ -86,6 +90,7 @@ def cmd_serve(_args):
         log.info("shutting down")
     finally:
         worker.stop()
+        weekly_scheduler.stop()
         httpd.shutdown()
 
 

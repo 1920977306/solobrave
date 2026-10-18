@@ -31,6 +31,9 @@ UNRELATED_REPLY = ("我是你的带货选品助手，账号分析、选品建议
 UNSUPPORTED_REPLY = ("这类消息我还处理不了，发我抖音号、商品截图、商品链接或抖音视频链接都可以～")
 GREETING_RE = re.compile(r"^(你好|在吗|在么|您好|hi|hello|嗨|早|早上好|晚上好|下午好|哈喽|在不在)[呀啊呐哦哇~～!！\s]*$", re.I)
 BALANCE_RE = re.compile(r"^(余额|积分|我的积分|积分余额|查积分|还有多少积分)[?？!！~～\s]*$")
+WEEKLY_UNSUB_RE = re.compile(r"^(取消订阅|退订|关闭)(每周)?(经营)?周报[呀啊哦~～!！\s]*$")
+WEEKLY_SUB_RE = re.compile(r"^(订阅|开通|恢复)(每周)?(经营)?周报[呀啊哦~～!！\s]*$")
+WEEKLY_STATUS_RE = re.compile(r"^周报(状态|订阅)?[?？!！~～\s]*$")
 GREETING_REPLY = ("你好呀，我是你的带货选品助手。发我你的抖音号可以做账号分析，"
                   "直接问选品、带货、粉丝画像的问题我也都能答～")
 
@@ -115,6 +118,24 @@ class Router:
                     f"你的积分余额：{db.get_balance(tenant['tenant_key'])} 分"
                     "（发抖音号查账号 100 分/周，商品链接 20 分，截图 10 分，"
                     "问答 1 分；内测期找运营免费充值）")
+            elif WEEKLY_UNSUB_RE.match(text.strip()):
+                db.set_weekly_sub(tenant["tenant_key"], 0)
+                sender.send_text(
+                    chat_id,
+                    "好的，已取消每周经营周报订阅，不会再主动推送。"
+                    "想恢复随时发「订阅周报」～")
+            elif WEEKLY_SUB_RE.match(text.strip()):
+                db.set_weekly_sub(tenant["tenant_key"], 1)
+                sender.send_text(
+                    chat_id,
+                    "已订阅每周经营周报 ✅ 每周一上午我会自动推送你的账号数据变化、"
+                    "异常提醒和下周建议，不用你手动查。想取消随时发「取消订阅周报」")
+            elif WEEKLY_STATUS_RE.match(text.strip()):
+                sub = db.get_weekly_sub(tenant["tenant_key"])
+                sender.send_text(
+                    chat_id,
+                    ("周报订阅：已开启 ✅ 每周一上午自动推送"
+                     if sub else "周报订阅：已关闭。发「订阅周报」可恢复"))
             elif len(text.strip()) <= 8 and GREETING_RE.search(text):
                 sender.send_text(chat_id, GREETING_REPLY)
             else:

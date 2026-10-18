@@ -24,6 +24,14 @@ EXECUTORS = {
 }
 
 
+def _weekly_executor(task: dict) -> str:
+    from . import weekly
+    return weekly.execute_weekly_report(task)
+
+
+EXECUTORS["weekly_report"] = _weekly_executor
+
+
 class Worker(threading.Thread):
     def __init__(self, ws_manager, poll_interval: float = 2.0):
         super().__init__(daemon=True, name="daren-worker")
@@ -64,6 +72,12 @@ class Worker(threading.Thread):
             db.mark_task(task["id"], "done")
             if task["type"] == "douyin":
                 db.incr_week_count(tk, task["target"])
+                # 周报快照 + 自动采集系统账（weekly.py，失败不阻塞主流程）
+                try:
+                    from . import weekly
+                    weekly.post_collect(tk, task["target"].strip(), task)
+                except Exception:
+                    log.exception("weekly post_collect failed: %s", task["target"])
             if task["type"] == "douyin" and task.get("chat_id"):
                 # 报告推送：优先可视化长图卡片，渲染失败回退纯文字
                 from .executors import notify_report
@@ -91,6 +105,11 @@ class Worker(threading.Thread):
                 # 视频拆解推送：优先分节卡片长图，渲染失败回退纯文本
                 executors.notify_video_card(self.wm.get_sender(tk), task["chat_id"],
                                             result_summary, tk)
+            elif task["type"] == "weekly_report" and task.get("chat_id"):
+                # 周报推送：长图卡片 + 摘要 + 文字版（OpenAPI，不走 ws）
+                from . import weekly
+                weekly.notify_weekly(self.wm.get_sender(tk), task["chat_id"],
+                                     result_summary)
             else:
                 # qa/video 是对话型/报告型推送，不带「任务完成：」前缀
                 prefix = "" if task["type"] in ("qa", "video") else "任务完成："
