@@ -2269,6 +2269,9 @@ def _run_collect_impl(row):
         api('POST', f'/api/talent-collects/{cid}', {'status': 'collecting'})
     except Exception as e:
         log(f'[Job] {cid} 认领失败: {e}')
+        # 认领失败必须显式置 failed——早期 return 会把任务永远留在 collecting
+        # （僵尸任务：2026-10-18 同行重复认领 409，内存表卡 collecting 40+ 分钟）
+        _job_set(cid, status='failed', error=f'认领失败: {e}')
         return
 
     try:
