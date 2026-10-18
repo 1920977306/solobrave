@@ -71,6 +71,7 @@ def execute_douyin_collect(task: dict) -> str:
 
     deadline = time.time() + JOB_WAIT_TIMEOUT
     not_found_streak = 0
+    seen_once = False
     while time.time() < deadline:
         time.sleep(JOB_POLL_INTERVAL)
         try:
@@ -79,12 +80,16 @@ def execute_douyin_collect(task: dict) -> str:
             log.warning("job poll failed: %s", e)
             continue
         if job.get("error") == "not found":
-            # 采集器重启会导致内存任务表丢失, 快速失败让用户重发, 不傻等超时
-            not_found_streak += 1
-            if not_found_streak >= 3:
-                raise RuntimeError("采集器重启导致任务丢失，积分已返还，请重新发送抖音号")
+            # 采集器重启会导致内存任务表丢失, 快速失败让用户重发, 不傻等超时。
+            # 但「从未见过任务」≠ 重启丢失：采集器忙时任务在排队，/jobs 尚不可见，
+            # 只有见过后又消失才判定丢失（2026-10-18 排队 10 分钟被误判的教训）。
+            if seen_once:
+                not_found_streak += 1
+                if not_found_streak >= 3:
+                    raise RuntimeError("采集器重启导致任务丢失，积分已返还，请重新发送抖音号")
             continue
         not_found_streak = 0
+        seen_once = True
         status = job.get("status", "")
         if status == "done":
             return _build_report(job.get("talent_id", ""), douyin_id)
