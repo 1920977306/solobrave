@@ -90,9 +90,9 @@ def _zhipu_cfg():
     return base, key
 
 
-def llm_chat(messages, max_tokens=8000, temperature=0.0, timeout=180, model='glm-4.7'):
-    """调 GLM（OpenAI chat completions 协议），返回 content 字符串。"""
-    base, key = _zhipu_cfg()
+def _openai_chat(base, key, model, messages, max_tokens=8000, temperature=0.0,
+                 timeout=180):
+    """通用 OpenAI chat completions 调用（智谱/Kimi/MiniMax 同协议）。"""
     req = urllib.request.Request(
         base + '/chat/completions',
         data=json.dumps({
@@ -107,13 +107,47 @@ def llm_chat(messages, max_tokens=8000, temperature=0.0, timeout=180, model='glm
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             data = json.loads(resp.read().decode('utf-8'))
     except urllib.error.HTTPError as e:
-        raise LLMError(f'glm http {e.code}: {e.read()[:300]}')
+        raise LLMError(f'{model} http {e.code}: {e.read()[:300]}')
     except Exception as e:
-        raise LLMError(f'glm request failed: {e}')
+        raise LLMError(f'{model} request failed: {e}')
     content = (data.get('choices') or [{}])[0].get('message', {}).get('content') or ''
     if not content.strip():
-        raise LLMError('glm empty content')
+        raise LLMError(f'{model} empty content')
     return content
+
+
+def llm_chat(messages, max_tokens=8000, temperature=0.0, timeout=180, model='glm-4.7'):
+    """调 GLM（OpenAI chat completions 协议），返回 content 字符串。"""
+    base, key = _zhipu_cfg()
+    return _openai_chat(base, key, model, messages, max_tokens=max_tokens,
+                        temperature=temperature, timeout=timeout)
+
+
+def llm_chat_fb(messages, max_tokens=8000, temperature=0.0, timeout=180,
+                truncate_chars=None):
+    """跨厂家降级链: glm-4.7 → glm-4-flash → kimi(moonshot) → minimax(M3.1/M3)。
+    ★ fix/zhipu-dry-fallback (2026-10-18 实锤): 智谱余额耗尽(429/1113 余额不足)时,
+    采集管道的结构化提取/评估/notes 全部死于此 —— 视觉批次早有降级, 文字链路没有。
+    truncate_chars: 降级厂家上下文小(8k), 传入后对用户消息截断到该长度再发。"""
+    errs = []
+    for model in ('glm-4.7', 'glm-4-flash'):
+        try:
+            return llm_chat(messages, max_tokens=max_tokens, temperature=temperature,
+                            timeout=timeout, model=model)
+        except LLMError as e:
+            errs.append(f'{model}: {str(e)[:120]}')
+    fb_messages = messages
+    if truncate_chars:
+        fb_messages = [dict(m, content=(m.get('content') or '')[:truncate_chars])
+                       if m.get('role') == 'user' else m
+                       for m in messages]
+    for base, key, model, temp in _fallback_cfgs():
+        try:
+            return _openai_chat(base, key, model, fb_messages, max_tokens=max_tokens,
+                                temperature=temperature, timeout=timeout)
+        except LLMError as e:
+            errs.append(f'{model}: {str(e)[:120]}')
+    raise LLMError('降级链全灭: ' + ' | '.join(errs))
 
 
 def _balanced_json(text):
@@ -185,10 +219,10 @@ def extract_fields(collect_name, collect_douyin_id, tabs_dom, xhr_dump):
     last_err = ''
     for attempt in (1, 2):
         try:
-            content = llm_chat([
+            content = llm_chat_fb([
                 {'role': 'system', 'content': system},
                 {'role': 'user', 'content': json.dumps(material, ensure_ascii=False)[:120000]},
-            ], max_tokens=8000)
+            ], max_tokens=8000, truncate_chars=15000)
             candidate = _balanced_json(content)
             if candidate is None:
                 raise LLMError(f'输出中找不到完整 JSON（第{attempt}次）: {content[:200]}')
@@ -588,20 +622,14 @@ def analyze_talent(fields):
     )
     safe = {k: v for k, v in fields.items() if not isinstance(v, (bytes, bytearray))}
     content = ''
-    for model in ('glm-4.7', 'glm-4-flash'):   # 主模型挂了就降级便宜模型，评估不能空
-        try:
-            content = llm_chat([
-                {'role': 'user',
-                 'content': prompt + '\n【达人数据】' + json.dumps(safe, ensure_ascii=False)[:20000]},
-            ], max_tokens=2200, temperature=0.0,
-                **({'model': model} if model != 'glm-4.7' else {}))
-            if content.strip():
-                break
-        except Exception as e:
-            log(f'  [LLM] 达人评估({model})失败，降级: {e}')
-            content = ''
-    if not content.strip():
-        log('  [LLM] 达人评估全部失败（非致命）')
+    try:
+        # 跨厂家降级: 智谱余额耗尽时走 kimi/moonshot → minimax, 评估不能空
+        content = llm_chat_fb([
+            {'role': 'user',
+             'content': prompt + '\n【达人数据】' + json.dumps(safe, ensure_ascii=False)[:20000]},
+        ], max_tokens=2200, temperature=0.0, truncate_chars=15000)
+    except Exception as e:
+        log(f'  [LLM] 达人评估降级链全灭（非致命）: {str(e)[:200]}')
         return '', '', ''
     try:
         candidate = _balanced_json(content)
@@ -628,27 +656,16 @@ def analyze_talent(fields):
 
 
 def summarize_for_notes(fields):
-    """把提取结果压成 notes 摘要（达人档案速览）。"""
+    """把提取结果压成 notes 摘要（达人档案速览）。跨厂家降级，智谱断供也能跑。"""
     try:
-        content = llm_chat([
+        content = llm_chat_fb([
             {'role': 'system', 'content':
              '把达人结构化数据写成 200 字以内的中文档案速览，纯文本无 markdown，'
              '格式：昵称/粉丝/地区/主营类目 | 核心数据（结算额、直播视频占比）| 粉丝画像要点 | 合作要点。'
              '所有数字必须来自输入，没有的写"未提供"。'},
             {'role': 'user', 'content': json.dumps(fields, ensure_ascii=False)[:20000]},
-        ], max_tokens=600, temperature=0.0)
-        if not content.strip():
-            raise LLMError('empty content')
+        ], max_tokens=600, temperature=0.0, truncate_chars=15000)
         return content.strip()
-    except Exception as e:
-        log(f'  [LLM] notes 摘要主模型失败，降级 glm-4-flash: {e}')
-    try:
-        content = llm_chat([
-            {'role': 'system', 'content':
-             '把达人结构化数据写成 200 字以内的中文档案速览，纯文本，数字必须来自输入。'},
-            {'role': 'user', 'content': json.dumps(fields, ensure_ascii=False)[:20000]},
-        ], max_tokens=600, temperature=0.0, model='glm-4-flash')
-        return (content or '').strip()
     except Exception as e:
         log(f'  [LLM] notes 摘要失败（不影响主流程）: {e}')
         return ''

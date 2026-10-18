@@ -1021,22 +1021,74 @@ def _zhipu_cfg_daren():
 
 
 def _qa_llm(prompt: str, model: str = 'glm-4-flash') -> str:
-    """问答用便宜模型（glm-4-flash），OpenAI chat 协议直连。"""
-    base, key = _zhipu_cfg_daren()
-    req = urllib.request.Request(
-        base + '/chat/completions',
-        data=json.dumps({
-            'model': model,
-            'messages': [{'role': 'user', 'content': prompt}],
-            'temperature': 0.3,
-            'max_tokens': 1200,
-        }).encode('utf-8'),
-        headers={'Content-Type': 'application/json',
-                 'Authorization': f'Bearer {key}'},
-        method='POST')
-    with urllib.request.urlopen(req, timeout=120) as resp:
-        data = json.loads(resp.read().decode())
-    return (data.get('choices') or [{}])[0].get('message', {}).get('content') or ''
+    """问答用便宜模型，OpenAI chat 协议直连。
+    ★ fix/zhipu-dry-fallback (2026-10-18): 智谱余额耗尽时降级 kimi/moonshot → minimax，
+    问答不能跟着死。"""
+    errors = []
+    try:
+        base, key = _zhipu_cfg_daren()
+        req = urllib.request.Request(
+            base + '/chat/completions',
+            data=json.dumps({
+                'model': model,
+                'messages': [{'role': 'user', 'content': prompt}],
+                'temperature': 0.3,
+                'max_tokens': 1200,
+            }).encode('utf-8'),
+            headers={'Content-Type': 'application/json',
+                     'Authorization': f'Bearer {key}'},
+            method='POST')
+        with urllib.request.urlopen(req, timeout=120) as resp:
+            data = json.loads(resp.read().decode())
+        out = (data.get('choices') or [{}])[0].get('message', {}).get('content') or ''
+        if out.strip():
+            return out
+        errors.append('zhipu empty content')
+    except Exception as e:
+        errors.append(f'zhipu: {str(e)[:100]}')
+    for base, key, model, _temp in _fallback_cfgs_daren():
+        try:
+            req = urllib.request.Request(
+                base + '/chat/completions',
+                data=json.dumps({
+                    'model': model,
+                    'messages': [{'role': 'user', 'content': prompt[:15000]}],
+                    'temperature': 0.3,
+                    'max_tokens': 1200,
+                }).encode('utf-8'),
+                headers={'Content-Type': 'application/json',
+                         'Authorization': f'Bearer {key}'},
+                method='POST')
+            with urllib.request.urlopen(req, timeout=120) as resp:
+                data = json.loads(resp.read().decode())
+            out = (data.get('choices') or [{}])[0].get('message', {}).get('content') or ''
+            if out.strip():
+                log.info("qa degraded to %s", model)
+                return out
+            errors.append(f'{model} empty content')
+        except Exception as e:
+            errors.append(f'{model}: {str(e)[:100]}')
+    raise RuntimeError('问答降级链全灭: ' + ' | '.join(errors))
+
+
+def _fallback_cfgs_daren():
+    """kimi/moonshot → minimax 降级配置（与 buyin_worker._fallback_cfgs 同源）。"""
+    out = []
+    try:
+        cfg = json.load(open(Path.home() / '.openclaw' / 'openclaw.json', encoding='utf-8'))
+        km = cfg.get('models', {}).get('providers', {}).get('kimi') or {}
+        kbase = (km.get('baseUrl') or 'https://api.kimi.com/coding').rstrip('/')
+        if not kbase.endswith('/v1'):
+            kbase += '/v1'
+        if km.get('apiKey'):
+            out.append((kbase, km['apiKey'], 'moonshot-v1-8k-vision-preview', 1.0))
+        mm = cfg.get('models', {}).get('providers', {}).get('minimax') or {}
+        if mm.get('apiKey'):
+            for m in ('MiniMax-M3.1-Flash-Preview', 'MiniMax-M3'):
+                out.append(('https://api.minimaxi.com/v1', mm['apiKey'], m, 1.0))
+    except Exception as e:
+        log.warning("fallback cfgs read failed: %s", e)
+    return out
 
 
 def _talent_context(tk: str) -> str:
