@@ -44,6 +44,9 @@ TABLES = {
                    ("累计GMV", 2, {"formatter": "0.0"}),
                    ("视频占比", 2, {"formatter": "0.00%"}),
                    ("评估结论", 3, {"options": VERDICT_OPTIONS}),
+                   ("最新快照", 3, {"options": [
+                       {"name": "是", "color": 4},
+                       {"name": "否", "color": 0}]}),
                    ("报告摘要", 1),
                    ("报告图", 17)],   # 附件：报告卡片图，画册视图封面
     },
@@ -269,6 +272,12 @@ def _upgrade_profile_table(tok: str, app_token: str, profile_tbl: str) -> None:
             _post(tok, f"/bitable/v1/apps/{app_token}/tables/{profile_tbl}/fields",
                   {"field_name": "报告图", "type": 17})
             log.info("[bitable] upgraded: profile +报告图 attachment field")
+        if "最新快照" not in by_name:
+            _post(tok, f"/bitable/v1/apps/{app_token}/tables/{profile_tbl}/fields",
+                  {"field_name": "最新快照", "type": 3,
+                   "property": {"options": [{"name": "是", "color": 4},
+                                            {"name": "否", "color": 0}]}})
+            log.info("[bitable] upgraded: profile +最新快照 select field")
         # 2) 字段类型化：老文本字段 → 日期/数字/单选（按 TABLES spec）
         _convert_fields_to_spec(tok, app_token, profile_tbl, "profile")
         # 3) gallery 视图
@@ -404,9 +413,10 @@ def ensure_bitable(tenant_key: str) -> dict:
     return {"app": app_token, **table_ids}
 
 
-def add_record(tenant_key: str, table: str, values: dict) -> None:
+def add_record(tenant_key: str, table: str, values: dict) -> str:
     """往租户多维表格的某张表追加一条记录。values: 字段名 -> 值；
-    list 原样透传（附件字段），None 置空，其余转字符串截断。"""
+    list 原样透传（附件字段），None 置空，其余转字符串截断。
+    返回新记录 record_id（拿不到返回空串）。"""
     refs = ensure_bitable(tenant_key)
     app_id, secret = _tenant_creds(tenant_key)
     tok = _token(app_id, secret)
@@ -414,8 +424,43 @@ def add_record(tenant_key: str, table: str, values: dict) -> None:
                   else (v if isinstance(v, (int, float))
                         else str(v)[:40000]))
               for k, v in values.items()}
-    _post(tok, f"/bitable/v1/apps/{refs['app']}/tables/{refs[table]}/records",
-          {"fields": fields})
+    data = _post(tok, f"/bitable/v1/apps/{refs['app']}/tables/{refs[table]}/records",
+                 {"fields": fields})
+    return ((data.get("record") or {}).get("record_id")) or ""
+
+
+def _unset_old_snapshots(tenant_key: str, dyid: str, keep_id: str) -> None:
+    """账号档案表：把同抖音号其他「最新快照=是」的旧行置否（看板指标卡按此筛选）。
+    任何失败只 log 不抛——绝不影响主链路。"""
+    if not dyid or not keep_id:
+        return
+    try:
+        refs = ensure_bitable(tenant_key)
+        app_id, secret = _tenant_creds(tenant_key)
+        tok = _token(app_id, secret)
+        path = f"/bitable/v1/apps/{refs['app']}/tables/{refs['profile']}/records/search"
+        body = {"filter": {"conjunction": "and", "conditions": [
+                    {"field_name": "抖音号", "operator": "is", "value": [dyid]},
+                    {"field_name": "最新快照", "operator": "is", "value": ["是"]}]},
+                "field_names": ["最新快照"], "page_size": 200}
+        stale = []
+        while True:
+            data = _post(tok, path, body)
+            items = (data.get("items") or [])
+            stale += [r["record_id"] for r in items
+                      if r.get("record_id") and r["record_id"] != keep_id]
+            if not data.get("has_more"):
+                break
+            body["page_token"] = data.get("page_token")
+        if not stale:
+            return
+        _post(tok, f"/bitable/v1/apps/{refs['app']}/tables/{refs['profile']}/records/batch_update",
+              {"records": [{"record_id": rid, "fields": {"最新快照": "否"}}
+                           for rid in stale]})
+        log.info("[bitable] snapshots unset: tenant=%s dyid=%s count=%s",
+                 tenant_key, dyid, len(stale))
+    except Exception:
+        log.exception("[bitable] unset old snapshots failed (非致命) tenant=%s", tenant_key)
 
 
 def _now_ms() -> int:
@@ -489,6 +534,7 @@ def sync_profile(tenant_key: str, talent: dict, verdict: str, summary: str,
         "累计GMV": _gmv_value(talent),
         "视频占比": _to_ratio(talent.get("video_gmv_ratio") or talent.get("video_ratio")),
         "评估结论": verdict or "",
+        "最新快照": "是",
         "报告摘要": summary or "",
     }
     if img_path and os.path.isfile(img_path):
@@ -498,7 +544,8 @@ def sync_profile(tenant_key: str, talent: dict, verdict: str, summary: str,
             record["报告图"] = [{"file_token": ft}]
         except Exception:
             log.exception("[bitable] 报告图上传失败（记录仍写入，仅无图）")
-    add_record(tenant_key, "profile", record)
+    rid = add_record(tenant_key, "profile", record)
+    _unset_old_snapshots(tenant_key, record["抖音号"], rid)
 
 
 def sync_log(tenant_key: str, kind: str, inp: str, answer: str) -> None:
