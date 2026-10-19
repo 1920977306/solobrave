@@ -13,6 +13,7 @@ import datetime
 import json
 import logging
 import os
+import re
 import time
 import urllib.request
 import uuid
@@ -437,6 +438,35 @@ def _to_float(v):
         return None
 
 
+_GMVTEXT_RE = re.compile(r"(\d+(?:\.\d+)?)\s*[万kK]?\s*[-~—～]\s*[¥￥]?\s*(\d+(?:\.\d+)?)\s*([万kK]?)")
+
+def _gmv_from_text(text: str):
+    """档位文本（如 '¥25万-50万'、'100-250万'）→ 中值（元）。
+
+    百应只给 GMV 档位区间，数值字段为空/0 时按档位中值兜底，
+    与 dashboard_card 的「档位中值」口径一致。解析失败返回 None。
+    """
+    if not text:
+        return None
+    m = _GMVTEXT_RE.search(str(text))
+    if not m:
+        return _to_float(text)
+    lo = float(m.group(1))
+    hi = float(m.group(2))
+    unit = m.group(3) or ("万" if "万" in str(text) else "")
+    mult = 10000 if unit in ("万",) else (1000 if unit in ("k", "K") else 1)
+    return (lo + hi) / 2 * mult
+
+
+def _gmv_value(talent: dict):
+    """优先精确 total_gmv；为空/0 时用档位文本中值兜底。"""
+    v = _to_float(talent.get("total_gmv") if talent.get("total_gmv") is not None
+                  else talent.get("gmv"))
+    if v:
+        return v
+    return _gmv_from_text(talent.get("total_gmv_text") or talent.get("gmv_text"))
+
+
 def _to_ratio(v):
     """百分比(0-100) → 小数(0-1)，配 formatter '0.00%' 显示为百分比。"""
     f = _to_float(v)
@@ -456,8 +486,7 @@ def sync_profile(tenant_key: str, talent: dict, verdict: str, summary: str,
         "抖音号": talent.get("douyin_id") or talent.get("dyid") or "",
         "昵称": talent.get("name") or "",
         "粉丝": _to_int(talent.get("followers")),
-        "累计GMV": _to_float(talent.get("total_gmv") if talent.get("total_gmv") is not None
-                             else talent.get("gmv")),
+        "累计GMV": _gmv_value(talent),
         "视频占比": _to_ratio(talent.get("video_gmv_ratio") or talent.get("video_ratio")),
         "评估结论": verdict or "",
         "报告摘要": summary or "",
