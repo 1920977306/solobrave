@@ -1,0 +1,85 @@
+{
+  "title": "新合作意向提醒",
+  "client_token": "<每次复制必换-唯一值>",
+  "steps": [
+    {
+      "id": "trigger_1",
+      "type": "AddRecordTrigger",
+      "title": "收到新合作意向",
+      "next": "send_1",
+      "data": {
+        "table_name": "合作机会",
+        "watched_field_name": "品牌/商家"
+      }
+    },
+    {
+      "id": "send_1",
+      "type": "LarkMessageAction",
+      "title": "飞书通知达人",
+      "next": null,
+      "data": {
+        "receiver": [
+          {
+            "value_type": "user",
+            "value": {
+              "id": "<达人_open_id>"
+            }
+          }
+        ],
+        "send_to_everyone": false,
+        "title": [
+          {
+            "value_type": "text",
+            "value": "🤝 收到新的合作意向"
+          }
+        ],
+        "content": [
+          {
+            "value_type": "text",
+            "value": "品牌："
+          },
+          {
+            "value_type": "ref",
+            "value": "$.trigger_1.fldXkKs8Jt"
+          },
+          {
+            "value_type": "text",
+            "value": "\n类目："
+          },
+          {
+            "value_type": "ref",
+            "value": "$.trigger_1.fldcbO2oPy"
+          },
+          {
+            "value_type": "text",
+            "value": "\n预算/佣金："
+          },
+          {
+            "value_type": "ref",
+            "value": "$.trigger_1.fldpb78d3B"
+          },
+          {
+            "value_type": "text",
+            "value": "\n说明："
+          },
+          {
+            "value_type": "ref",
+            "value": "$.trigger_1.fldwoDgkxr"
+          }
+        ],
+        "btn_list": [
+          {
+            "text": "打开看板查看",
+            "btn_action": "openLink",
+            "link": [
+              {
+                "value_type": "text",
+                "value": "<app链接>"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}
