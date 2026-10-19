@@ -31,6 +31,8 @@
   .st-已合作{background:var(--green-bg);color:var(--green-dk)}
   .st-不合适{background:#f2f2f2;color:#999}
   .empty{border:1px dashed #ddd;border-radius:12px;padding:18px;text-align:center}
+  .spinner{width:26px;height:26px;border:3px solid #e6e6e6;border-top-color:#07c160;border-radius:50%;margin:6px auto;animation:kc-spin .8s linear infinite}
+  @keyframes kc-spin{to{transform:rotate(360deg)}}
   /* 图表行布局不依赖 Tailwind CDN（避免与 echarts 初始化竞态），写死自带样式 */
   .charts2{display:grid;grid-template-columns:1fr;gap:12px}
   @media(min-width:640px){.charts2{grid-template-columns:1fr 1fr}}
@@ -38,7 +40,7 @@
 </head>
 <body>
 <div class="max-w-[760px] mx-auto p-3 space-y-3 pb-8" id="app">
-  <div class="card p-6 text-center sub">加载中…</div>
+  <div class="card p-6 text-center"><div class="spinner"></div><div class="sub mt-2">数据加载中…</div></div>
 </div>
 
 <script>

@@ -47,6 +47,9 @@ _CACHE: dict = {}
 _CACHE_LOCK = threading.Lock()
 CACHE_TTL = 120
 
+from concurrent.futures import ThreadPoolExecutor  # noqa: E402
+_EXEC = ThreadPoolExecutor(max_workers=4)
+
 
 # ---------- 工具 ----------
 
@@ -213,9 +216,18 @@ def load_cockpit(tenant_key: str):
     except Exception:
         pass
 
+    # 飞书四路查询并行（串行时冷启动 ~5s，并行后 ~1.3s）
+    futs = {}
+    if tb_app:
+        futs["profile"] = _EXEC.submit(lark_records, tb_app, table_ids.get("profile", ""))
+        futs["log"] = _EXEC.submit(lark_records, tb_app, table_ids.get("log", ""))
+        futs["products"] = _EXEC.submit(lark_records, tb_app, table_ids.get("products", ""))
+    futs["coop"] = _EXEC.submit(lark_records, DEMO_BASE, COOP_TABLE)
+    bundle = {k: f.result() for k, f in futs.items()}
+
     # 飞书：profile（趋势+结论+摘要）
     trend, verdict, summary, kpi = [], "", "", {}
-    rows = lark_records(tb_app, table_ids.get("profile", "")) if tb_app else None
+    rows = bundle.get("profile")
     if rows:
         mine = [r for r in rows if str(r.get("抖音号") or "") == dyid]
         mine.sort(key=lambda r: str(r.get("日期") or ""))
@@ -233,7 +245,7 @@ def load_cockpit(tenant_key: str):
 
     # 飞书：log（AI 互动分布）
     interact = {}
-    rows = lark_records(tb_app, table_ids.get("log", "")) if tb_app else None
+    rows = bundle.get("log")
     if rows:
         for r in rows:
             t = str(r.get("类型") or "其他")
@@ -241,7 +253,7 @@ def load_cockpit(tenant_key: str):
 
     # 飞书：tenant products（带结论的选品，优先于本地匹配）
     cards = []
-    rows = lark_records(tb_app, table_ids.get("products", "")) if tb_app else None
+    rows = bundle.get("products")
     if rows:
         for r in sorted(rows, key=lambda x: str(x.get("日期") or ""), reverse=True)[:3]:
             v = r.get("结论") or ""
@@ -259,7 +271,7 @@ def load_cockpit(tenant_key: str):
 
     # 飞书：样板库合作机会
     coop = []
-    rows = lark_records(DEMO_BASE, COOP_TABLE)
+    rows = bundle.get("coop")
     if rows:
         for r in sorted(rows, key=lambda x: str(x.get("提交时间") or ""), reverse=True):
             st = r.get("状态") or ""
@@ -355,8 +367,19 @@ def main():
     ap.add_argument("--port", type=int, default=7100)
     args, _ = ap.parse_known_args()
     srv = ThreadingHTTPServer((args.host, args.port), Handler)
+    # 启动即后台预热默认租户缓存——第一个访问者也不吃冷启动
+    threading.Thread(target=_warm_cache, daemon=True).start()
     print(f"daren-cockpit @ http://{args.host}:{args.port}/")
     srv.serve_forever()
+
+
+def _warm_cache():
+    for tk in ("daren_boss",):
+        try:
+            load_cockpit(tk)
+            print(f"[warm] cache warmed for {tk}")
+        except Exception as e:
+            print(f"[warm] failed for {tk}: {e}")
 
 
 if __name__ == "__main__":
