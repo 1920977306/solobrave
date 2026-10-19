@@ -30,6 +30,19 @@ TEMPLATE = (ROOT / "index.html").read_text(encoding="utf-8")
 DEMO_BASE = "MZEdbVJMeah4x9sYYzncuhnbnnb"   # 样板库（合作机会）
 COOP_TABLE = "tblolFFeJTNfyInn"
 
+
+def _lark_cli() -> str:
+    """lark-cli 绝对路径：launchd 等极简 PATH 环境下 shutil.which 找不到，
+    兜底常装目录；都找不到返回 'lark-cli'（让 subprocess 报错进 except）。"""
+    import shutil
+    p = shutil.which("lark-cli")
+    if p:
+        return p
+    for cand in ("/opt/homebrew/bin/lark-cli", "/usr/local/bin/lark-cli"):
+        if Path(cand).exists():
+            return cand
+    return "lark-cli"
+
 _CACHE: dict = {}
 _CACHE_LOCK = threading.Lock()
 CACHE_TTL = 120
@@ -57,11 +70,15 @@ def lark_records(base_token: str, table_id: str):
     if hit is not None:
         return hit
     try:
+        import os
+        env = dict(os.environ)
+        env["PATH"] = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin" \
+            + os.pathsep + env.get("PATH", "")
         out = subprocess.run(
-            ["lark-cli", "base", "+record-list",
+            [_lark_cli(), "base", "+record-list",
              "--base-token", base_token, "--table-id", table_id,
              "--as", "user", "--format", "json"],
-            capture_output=True, text=True, timeout=30)
+            capture_output=True, text=True, timeout=30, env=env)
         d = json.loads(out.stdout)
         if not d.get("ok"):
             return None
@@ -164,7 +181,9 @@ def load_cockpit(tenant_key: str):
     talent = None
     products_local = []
     try:
-        con = sqlite3.connect(f"file:{SOLOBRAVE_DB}?mode=ro", uri=True)
+        con = sqlite3.connect(str(SOLOBRAVE_DB))
+        # query_only 引擎级禁写，比 mode=ro URI 更强；且不受 sqlite 版本×WAL 只读打开限制
+        con.execute("PRAGMA query_only=ON")
         con.row_factory = sqlite3.Row
         talent = con.execute(
             "SELECT * FROM talents WHERE douyin_id=? ORDER BY updated_at DESC LIMIT 1",
