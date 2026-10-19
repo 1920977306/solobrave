@@ -1,0 +1,9 @@
+{
+  "name": "daren-cockpit",
+  "version": "0.1.0",
+  "private": true,
+  "description": "达人经营驾驶舱（网页版，微信风）",
+  "scripts": {
+    "dev": "python3 server.py"
+  }
+}

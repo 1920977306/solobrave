@@ -1,0 +1,344 @@
+#!/usr/bin/env python3
+"""达人经营驾驶舱（网页版）——微信风白色简约。
+
+数据源：
+- daren_bot.db：租户 -> 绑定抖音号 / 租户多维表格 ID
+- solobrave.db（只读）：talents / products / product_talent_match
+- 飞书多维表格（lark-cli，120s 内存缓存）：租户 profile/log/products 表 + 样板库合作机会
+
+用法：python3 server.py --host 127.0.0.1 --port 7100
+"""
+import argparse
+import json
+import re
+import sqlite3
+import subprocess
+import sys
+import threading
+import time
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from urllib.parse import urlparse, parse_qs
+
+ROOT = Path(__file__).resolve().parent
+sys.path.insert(0, str(ROOT.parent))  # 引入 daren_bot
+from daren_bot import config, db as botdb  # noqa: E402
+
+SOLOBRAVE_DB = config.ROOT / "data" / "solobrave.db"
+TEMPLATE = (ROOT / "index.html").read_text(encoding="utf-8")
+
+DEMO_BASE = "MZEdbVJMeah4x9sYYzncuhnbnnb"   # 样板库（合作机会）
+COOP_TABLE = "tblolFFeJTNfyInn"
+
+_CACHE: dict = {}
+_CACHE_LOCK = threading.Lock()
+CACHE_TTL = 120
+
+
+# ---------- 工具 ----------
+
+def _cache_get(key):
+    with _CACHE_LOCK:
+        hit = _CACHE.get(key)
+        if hit and time.time() - hit[0] < CACHE_TTL:
+            return hit[1]
+    return None
+
+
+def _cache_set(key, val):
+    with _CACHE_LOCK:
+        _CACHE[key] = (time.time(), val)
+
+
+def lark_records(base_token: str, table_id: str):
+    """lark-cli record-list，返回 [ {字段名: 值}, ... ]。失败返回 None。"""
+    key = f"rec:{base_token}:{table_id}"
+    hit = _cache_get(key)
+    if hit is not None:
+        return hit
+    try:
+        out = subprocess.run(
+            ["lark-cli", "base", "+record-list",
+             "--base-token", base_token, "--table-id", table_id,
+             "--as", "user", "--format", "json"],
+            capture_output=True, text=True, timeout=30)
+        d = json.loads(out.stdout)
+        if not d.get("ok"):
+            return None
+        payload = d["data"]
+        names = payload.get("fields") or []
+        rows = [dict(zip(names, r)) for r in payload.get("data", [])]
+        _cache_set(key, rows)
+        return rows
+    except Exception:
+        return None
+
+
+_GMVTEXT_RE = re.compile(r"(\d+(?:\.\d+)?)\s*[万kK]?\s*[-~—～]\s*[¥￥]?\s*(\d+(?:\.\d+)?)\s*([万kK]?)")
+
+def gmv_mid_yuan(total_gmv, total_gmv_text):
+    """精确 GMV 优先；否则档位文本中值（元）。返回 (display_text, mid_yuan|None)。"""
+    try:
+        v = float(total_gmv or 0)
+    except Exception:
+        v = 0.0
+    if v > 0:
+        return f"¥{v/10000:.1f}万", v
+    text = (total_gmv_text or "").strip()
+    if text:
+        m = _GMVTEXT_RE.search(text)
+        if m:
+            lo, hi = float(m.group(1)), float(m.group(2))
+            unit = m.group(3) or ("万" if "万" in text else "")
+            mult = 10000 if unit == "万" else (1000 if unit in ("k", "K") else 1)
+            mid = (lo + hi) / 2 * mult
+            return f"{text.replace('¥','')}（档位中值 ¥{mid/10000:.1f}万）", mid
+        return text, None
+    return "暂无数据", None
+
+
+def _num(v, default=0.0):
+    try:
+        return float(v)
+    except Exception:
+        return default
+
+
+def _pct(v):
+    """0.9906 / 93.5 / '93.5%' 统一 → '99.1%' / '93.5%'。无法解析返回 None。"""
+    if v in (None, ""):
+        return None
+    s = str(v).replace("%", "").strip()
+    try:
+        f = float(s)
+    except Exception:
+        return None
+    if f <= 1:
+        f *= 100
+    return f"{f:.1f}%"
+
+
+def _fmt_date(v):
+    if v is None:
+        return ""
+    if isinstance(v, (int, float)):
+        return time.strftime("%Y-%m-%d", time.localtime(v / 1000))
+    s = str(v)
+    return s[:10] if len(s) >= 10 else s
+
+
+def _clean_reason(v, limit=110):
+    """匹配理由多为 AI 生成的 markdown：去掉「## 结论」段（结论已有标签），
+    抹掉 ## 标题和 - 列表符号，压成一行可读文本。"""
+    if not v:
+        return ""
+    lines, skip = [], False
+    for ln in str(v).splitlines():
+        ln = ln.strip()
+        if not ln:
+            continue
+        if ln.startswith("##"):
+            skip = ln.lstrip("#").strip() == "结论"
+            continue
+        if skip:
+            continue
+        lines.append(ln.lstrip("- ").strip())
+    return "；".join(lines)[:limit]
+
+
+# ---------- 数据组装 ----------
+
+def load_cockpit(tenant_key: str):
+    tenant = botdb.get_tenant(tenant_key)
+    if not tenant:
+        return None
+    dyid = tenant.get("bind_douyin_id") or ""
+    table_ids = {}
+    try:
+        table_ids = json.loads(tenant.get("bitable_table_ids") or "{}")
+    except Exception:
+        pass
+    tb_app = tenant.get("bitable_app_token") or ""
+
+    # 本地 talent
+    talent = None
+    products_local = []
+    try:
+        con = sqlite3.connect(f"file:{SOLOBRAVE_DB}?mode=ro", uri=True)
+        con.row_factory = sqlite3.Row
+        talent = con.execute(
+            "SELECT * FROM talents WHERE douyin_id=? ORDER BY updated_at DESC LIMIT 1",
+            (dyid,)).fetchone()
+        if talent:
+            tid = talent["id"]
+            for m in con.execute(
+                    "SELECT m.match_score, m.match_reason, p.name, p.price, "
+                    "p.commission_rates, p.monthly_sales, p.id AS pid "
+                    "FROM product_talent_match m JOIN products p ON p.id=m.product_id "
+                    "WHERE m.talent_id=? ORDER BY m.match_score DESC LIMIT 3", (tid,)):
+                rd = dict(m)
+                comm = ""
+                try:
+                    cr = json.loads(rd.get("commission_rates") or "{}")
+                    comm = f"{max(cr.values()):.0f}%" if cr else ""
+                except Exception:
+                    pass
+                products_local.append({
+                    "name": rd["name"], "price": rd["price"], "comm": comm,
+                    "sales": rd["monthly_sales"] or 0,
+                    "score": round(_num(rd["match_score"]), 1),
+                    "reason": _clean_reason(rd["match_reason"]),
+                    "verdict": "", "date": "",
+                })
+        con.close()
+    except Exception:
+        pass
+
+    # 飞书：profile（趋势+结论+摘要）
+    trend, verdict, summary, kpi = [], "", "", {}
+    rows = lark_records(tb_app, table_ids.get("profile", "")) if tb_app else None
+    if rows:
+        mine = [r for r in rows if str(r.get("抖音号") or "") == dyid]
+        mine.sort(key=lambda r: str(r.get("日期") or ""))
+        for r in mine:
+            trend.append({"date": _fmt_date(r.get("日期")),
+                          "fans": int(_num(r.get("粉丝")))})
+        if mine:
+            last = mine[-1]
+            verdict = (last.get("评估结论") or [""])
+            verdict = verdict[0] if isinstance(verdict, list) else str(verdict)
+            summary = str(last.get("报告摘要") or "")[:60]
+            kpi = {"fans": int(_num(last.get("粉丝"))),
+                   "gmv_raw": last.get("累计GMV"),
+                   "video_ratio": last.get("视频占比")}
+
+    # 飞书：log（AI 互动分布）
+    interact = {}
+    rows = lark_records(tb_app, table_ids.get("log", "")) if tb_app else None
+    if rows:
+        for r in rows:
+            t = str(r.get("类型") or "其他")
+            interact[t] = interact.get(t, 0) + 1
+
+    # 飞书：tenant products（带结论的选品，优先于本地匹配）
+    cards = []
+    rows = lark_records(tb_app, table_ids.get("products", "")) if tb_app else None
+    if rows:
+        for r in sorted(rows, key=lambda x: str(x.get("日期") or ""), reverse=True)[:3]:
+            v = r.get("结论") or ""
+            v = v[0] if isinstance(v, list) else str(v)
+            cards.append({
+                "name": str(r.get("商品名") or ""), "verdict": v,
+                "price": str(r.get("价格") or ""),
+                "comm": str(r.get("佣金率") or ""),
+                "sales": str(r.get("销量") or ""),
+                "reason": _clean_reason(r.get("匹配理由")),
+                "date": _fmt_date(r.get("日期")),
+            })
+    if not cards:
+        cards = products_local
+
+    # 飞书：样板库合作机会
+    coop = []
+    rows = lark_records(DEMO_BASE, COOP_TABLE)
+    if rows:
+        for r in sorted(rows, key=lambda x: str(x.get("提交时间") or ""), reverse=True):
+            st = r.get("状态") or ""
+            st = st[0] if isinstance(st, list) else str(st)
+            coop.append({
+                "brand": str(r.get("品牌/商家") or ""),
+                "contact": str(r.get("联系人") or ""),
+                "phone": str(r.get("联系方式") or ""),
+                "category": str(r.get("合作类目") or ""),
+                "budget": str(r.get("预算/佣金") or ""),
+                "note": str(r.get("合作说明") or ""),
+                "status": st, "date": _fmt_date(r.get("提交时间")),
+            })
+
+    # KPI 计算
+    fans = kpi.get("fans") or int(_num(talent and talent["followers"]))
+    gmv_text, _mid = gmv_mid_yuan(kpi.get("gmv_raw"),
+                                  talent and talent["total_gmv_text"])
+    vr = _pct(kpi.get("video_ratio")) or _pct(talent and talent["video_ratio"]) \
+        or _pct(talent and talent["video_gmv_ratio"])
+    delta = None
+    if len(trend) >= 2 and trend[0]["fans"]:
+        delta = trend[-1]["fans"] - trend[0]["fans"]
+    verdict_line = {
+        "潜力型": "涨粉健康、带货稳，优先接高佣标品",
+        "能带": "账号状态好，适合加大带货频率",
+        "慎带": "近期数据波动，选品从严、先测品",
+        "别带": "账号数据异常，先养内容再带货",
+    }.get(verdict, "数据积累中，每周一更新结论")
+
+    return {
+        "tenant": tenant_key, "dyid": dyid,
+        "name": (talent and talent["name"]) or tenant_key,
+        "verdict": verdict or "评估中",
+        "verdict_line": verdict_line,
+        "summary": summary,
+        "fans": fans, "fans_delta": delta,
+        "gmv_text": gmv_text,
+        "video_ratio": vr or "暂无",
+        "video_note": "纯视频达人" if vr and float(vr.replace('%','')) > 80 else "直播/视频混合",
+        "trend": trend[-8:],
+        "trend_note": f"近 {len(trend)} 次采集" if trend else "暂无采集记录",
+        "cards": cards,
+        "interact": interact,
+        "coop": coop,
+        "updated": time.strftime("%Y-%m-%d %H:%M"),
+    }
+
+
+# ---------- HTTP ----------
+
+class Handler(BaseHTTPRequestHandler):
+    def log_message(self, *a):
+        pass
+
+    def _send(self, code, body, ctype="text/html; charset=utf-8"):
+        data = body.encode("utf-8") if isinstance(body, str) else body
+        self.send_response(code)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def do_GET(self):
+        u = urlparse(self.path)
+        if u.path in ("/", "/index.html"):
+            self._send(200, TEMPLATE)
+        elif u.path == "/api/cockpit":
+            t = parse_qs(u.query).get("t", ["daren_boss"])[0]
+            if not re.fullmatch(r"[A-Za-z0-9_]+", t):
+                self._send(400, json.dumps({"error": "bad tenant"}),
+                           "application/json")
+                return
+            try:
+                data = load_cockpit(t)
+            except Exception as e:
+                self._send(500, json.dumps({"error": str(e)}),
+                           "application/json")
+                return
+            if not data:
+                self._send(404, json.dumps({"error": f"tenant {t} not found"}),
+                           "application/json")
+                return
+            self._send(200, json.dumps(data, ensure_ascii=False),
+                       "application/json; charset=utf-8")
+        else:
+            self._send(404, "not found", "text/plain")
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--host", default="127.0.0.1")
+    ap.add_argument("--port", type=int, default=7100)
+    args, _ = ap.parse_known_args()
+    srv = ThreadingHTTPServer((args.host, args.port), Handler)
+    print(f"daren-cockpit @ http://{args.host}:{args.port}/")
+    srv.serve_forever()
+
+
+if __name__ == "__main__":
+    main()

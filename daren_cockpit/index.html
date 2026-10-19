@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>达人经营驾驶舱</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/echarts@5.5.0/dist/echarts.min.js"></script>
+<script>if(typeof echarts==='undefined'){document.write('<script src="https://cdn.bootcdn.net/ajax/libs/echarts/5.5.0/echarts.min.js"><\/script>')}</script>
+<style>
+  :root{
+    --bg:#ededed; --card:#ffffff; --line:#f0f0f0;
+    --txt:#191919; --sub:#888888;
+    --green:#07c160; --green-dk:#05914d; --green-bg:#e8f8ef;
+    --amber:#fa9d3b; --red:#fa5151;
+  }
+  *{box-sizing:border-box}
+  body{background:var(--bg);color:var(--txt);font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;margin:0}
+  .card{background:var(--card);border-radius:16px}
+  .kpi-num{font-size:30px;font-weight:700;letter-spacing:.3px;font-variant-numeric:tabular-nums}
+  .tag{font-size:12px;padding:3px 10px;border-radius:8px;font-weight:500;white-space:nowrap}
+  .sec-title{font-size:16px;font-weight:600}
+  .sub{color:var(--sub);font-size:12px}
+  .btn-green{display:inline-flex;align-items:center;gap:6px;background:var(--green);color:#fff;font-size:13px;font-weight:600;padding:9px 18px;border-radius:999px;box-shadow:0 2px 8px rgba(7,193,96,.3);text-decoration:none}
+  .hairline{height:1px;background:var(--line)}
+  .v-能带{background:var(--green-bg);color:var(--green-dk)}
+  .v-慎带{background:#fdf3e7;color:var(--amber)}
+  .v-别带{background:#feecec;color:var(--red)}
+  .st-待评估{background:#fdf3e7;color:var(--amber)}
+  .st-有意向{background:#e8f0fe;color:#2f6fed}
+  .st-已合作{background:var(--green-bg);color:var(--green-dk)}
+  .st-不合适{background:#f2f2f2;color:#999}
+  .empty{border:1px dashed #ddd;border-radius:12px;padding:18px;text-align:center}
+  /* 图表行布局不依赖 Tailwind CDN（避免与 echarts 初始化竞态），写死自带样式 */
+  .charts2{display:grid;grid-template-columns:1fr;gap:12px}
+  @media(min-width:640px){.charts2{grid-template-columns:1fr 1fr}}
+</style>
+</head>
+<body>
+<div class="max-w-[760px] mx-auto p-3 space-y-3 pb-8" id="app">
+  <div class="card p-6 text-center sub">加载中…</div>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const COOP_FORM = 'https://my.feishu.cn/share/base/shrcntWrz2k7Vx4REmvGW0yLttf';
+
+async function boot(){
+  const t = new URLSearchParams(location.search).get('t') || 'daren_boss';
+  let d;
+  try{
+    const r = await fetch('/api/cockpit?t=' + encodeURIComponent(t));
+    d = await r.json();
+    if(!r.ok) throw new Error(d.error || r.status);
+  }catch(e){
+    $('#app').innerHTML = `<div class="card p-6 text-center"><div class="font-bold mb-1">出错了</div><div class="sub">${esc(e.message)}</div></div>`;
+    return;
+  }
+  render(d);
+  // 等 Tailwind CDN 把动态注入的类名样式生成完再量尺寸，避免 canvas 定格在错误宽度
+  setTimeout(() => drawCharts(d), 350);
+}
+
+let _rsz;
+window.addEventListener('resize', () => {
+  clearTimeout(_rsz);
+  _rsz = setTimeout(() => _charts.forEach(c => c.resize()), 150);
+});
+
+function render(d){
+  const delta = d.fans_delta === null || d.fans_delta === undefined ? '<span class="sub">攒数据中 · 采满 2 次算环比</span>'
+    : (d.fans_delta > 0 ? `<span style="color:var(--green-dk)">▲ +${d.fans_delta}</span>`
+    : (d.fans_delta < 0 ? `<span style="color:var(--red)">▼ ${d.fans_delta}</span>` : '<span class="sub">本周持平</span>'));
+
+  const cards = (d.cards || []).map(c => {
+    const vTag = c.verdict ? `<span class="tag v-${esc(c.verdict)}">${esc(c.verdict)}</span>`
+      : (c.score !== undefined ? `<span class="tag" style="background:#f2f2f2;color:#666">匹配度 ${c.score}</span>` : '');
+    const meta = [c.price && '价格 ' + esc(c.price), c.comm && '佣金 ' + esc(c.comm),
+      (c.sales !== '' && c.sales !== 0) && '销量 ' + esc(c.sales)].filter(Boolean).join(' · ');
+    return `<div class="rounded-xl p-4 mb-3" style="background:#fafafa;border:1px solid var(--line)">
+      <div class="flex items-center justify-between mb-2 gap-2">
+        <span class="font-semibold">${esc(c.name)}</span>${vTag}
+      </div>
+      ${meta ? `<div class="sub mb-2">${meta}</div>` : ''}
+      ${c.reason ? `<div class="sub leading-relaxed">${esc(c.reason)}</div>` : ''}
+      ${c.date ? `<div class="sub mt-2">推荐日期 ${esc(c.date)} · 来源：百应联盟</div>` : ''}
+    </div>`;
+  }).join('') || `<div class="empty sub">暂无推荐，采集后自动生成</div>`;
+
+  const interact = d.interact || {};
+  const interTotal = Object.values(interact).reduce((a,b)=>a+b,0);
+
+  const coop = (d.coop || []).map(c => `
+    <div class="rounded-xl p-4 mb-3" style="background:#fafafa;border:1px solid var(--line)">
+      <div class="flex items-center justify-between flex-wrap gap-2">
+        <div><span class="font-semibold">${esc(c.brand)}</span>
+        <span class="sub ml-2">${esc(c.contact)}${c.phone ? ' · ' + esc(c.phone) : ''}</span></div>
+        <span class="tag st-${esc(c.status)}">${esc(c.status || '待评估')}</span>
+      </div>
+      <div class="sub mt-2">${[esc(c.category), esc(c.budget), esc(c.note)].filter(Boolean).join(' · ')}</div>
+    </div>`).join('') || `<div class="empty sub">暂无合作意向 · 把下方按钮发给招商</div>`;
+
+  $('#app').innerHTML = `
+  <!-- 账号卡 -->
+  <div class="card p-5">
+    <div class="flex items-center gap-4">
+      <div class="w-14 h-14 rounded-2xl flex items-center justify-center text-xl font-bold text-white shrink-0" style="background:linear-gradient(135deg,#07c160,#3dd68c)">${esc((d.name||'达')[0])}</div>
+      <div class="flex-1 min-w-0">
+        <div class="flex items-center gap-2 flex-wrap">
+          <span class="text-xl font-bold">${esc(d.name)}</span>
+          <span class="tag" style="background:var(--green-bg);color:var(--green-dk)">🟢 ${esc(d.verdict)}</span>
+        </div>
+        <div class="sub mt-1">抖音号 ${esc(d.dyid)} · 数据来自巨量百应 · ${esc(d.updated)} 更新</div>
+      </div>
+    </div>
+    <div class="hairline my-4"></div>
+    <div class="flex items-center justify-between gap-3 flex-wrap">
+      <div><div class="sub mb-1">本周一句话</div>
+        <div class="font-semibold" style="color:var(--green-dk)">${esc(d.verdict_line)}</div></div>
+      <a class="btn-green" href="${COOP_FORM}" target="_blank">📮 招商合作填表</a>
+    </div>
+  </div>
+
+  <!-- KPI -->
+  <div class="grid grid-cols-2 gap-3">
+    <div class="card p-4"><div class="sub mb-1">粉丝总量</div>
+      <div class="kpi-num">${Number(d.fans).toLocaleString()}</div>
+      <div class="sub mt-1">${delta}</div></div>
+    <div class="card p-4"><div class="sub mb-1">累计带货 GMV</div>
+      <div class="kpi-num" style="color:var(--green-dk)">${esc(d.gmv_text)}</div>
+      <div class="sub mt-1">百应 60 天窗口 · 档位口径</div></div>
+    <div class="card p-4"><div class="sub mb-1">本周推荐商品</div>
+      <div class="kpi-num">${d.cards.length}<span class="text-base" style="color:var(--sub)"> 件</span></div>
+      <div class="sub mt-1" id="verdict-mini"></div></div>
+    <div class="card p-4"><div class="sub mb-1">视频带货占比</div>
+      <div class="kpi-num">${esc(d.video_ratio)}</div>
+      <div class="sub mt-1">${esc(d.video_note)}</div></div>
+  </div>
+
+  <!-- 趋势 -->
+  <div class="card p-5">
+    <div class="flex items-baseline justify-between mb-1 flex-wrap gap-1">
+      <div class="sec-title">粉丝趋势</div>
+      <div class="sub">${esc(d.trend_note)} · 攒满 4 周出完整趋势</div>
+    </div>
+    <div id="trend" style="height:190px"></div>
+  </div>
+
+  <!-- 结论+互动 -->
+  <div class="charts2">
+    <div class="card p-5"><div class="sec-title mb-1">评估结论</div>
+      <div class="sub mb-1">按采集记录</div><div id="verdict" style="height:170px"></div></div>
+    <div class="card p-5"><div class="sec-title mb-1">AI 互动</div>
+      <div class="sub mb-1">共 ${interTotal} 次</div><div id="interact" style="height:170px"></div></div>
+  </div>
+
+  <!-- 选品 -->
+  <div class="card p-5">
+    <div class="flex items-baseline justify-between mb-4 flex-wrap gap-1">
+      <div class="sec-title">本周选品推荐</div>
+      <div class="sub">结论会随时间变化，以最新日期为准</div>
+    </div>
+    ${cards}
+  </div>
+
+  <!-- 合作 -->
+  <div class="card p-5">
+    <div class="sec-title mb-3">合作机会</div>
+    ${coop}
+  </div>
+
+  <div class="sub text-center pt-1">口径声明：GMV 为百应档位中值，粉丝为采集时点值；结论仅供参考，选品以最新周报为准。</div>`;
+
+  // 绿黄红 mini 统计
+  const vc = {};
+  (d.cards||[]).forEach(c => { if(c.verdict) vc[c.verdict] = (vc[c.verdict]||0)+1; });
+  const el = $('#verdict-mini');
+  if(el) el.innerHTML = ['能带','慎带','别带'].map(v =>
+    `<span style="color:${v==='能带'?'var(--green-dk)':v==='慎带'?'var(--amber)':'var(--red)'}">${v} ${vc[v]||0}</span>`).join(' · ');
+}
+
+let _charts = [];
+function drawCharts(d){
+  if(typeof echarts === 'undefined') return;
+  _charts.forEach(c => c.dispose());
+  _charts = [];
+  const axis={axisLine:{lineStyle:{color:'#eee'}},axisLabel:{color:'#999',fontSize:11},splitLine:{lineStyle:{color:'#f5f5f5'}}};
+  const base={textStyle:{color:'#191919'},tooltip:{trigger:'item',backgroundColor:'#fff',borderColor:'#eee',textStyle:{color:'#191919'},extraCssText:'box-shadow:0 4px 16px rgba(0,0,0,.08)'}};
+
+  const t = d.trend || [];
+  _charts.push(echarts.init($('#trend'))); _charts[0].setOption({...base,
+    grid:{left:56,right:16,top:24,bottom:26},
+    xAxis:{type:'category',data:t.map(x=>x.date.slice(5)),...axis},
+    yAxis:{type:'value',scale:true,...axis},
+    series:[{type:'line',data:t.map(x=>x.fans),smooth:true,symbolSize:8,
+      lineStyle:{width:3,color:'#07c160'},itemStyle:{color:'#07c160'},
+      areaStyle:{color:{type:'linear',x:0,y:0,x2:0,y2:1,colorStops:[{offset:0,color:'rgba(7,193,96,.18)'},{offset:1,color:'rgba(7,193,96,0)'}]}},
+      label:{show:t.length<=4,color:'#05914d',fontSize:11}}]});
+
+  _charts.push(echarts.init($('#verdict'))); _charts[1].setOption({...base,
+    tooltip:{...base.tooltip,formatter:'{b}: {c} 次 ({d}%)'},
+    series:[{type:'pie',radius:['62%','85%'],center:['50%','52%'],
+      itemStyle:{borderColor:'#fff',borderWidth:3},
+      label:{color:'#888',fontSize:11,formatter:'{b}\n{c} 次'},
+      data:[{value:1,name:'🟢 '+(d.verdict||'评估中'),itemStyle:{color:'#07c160'}}]}]});
+
+  const it = d.interact || {};
+  const keys = Object.keys(it);
+  _charts.push(echarts.init($('#interact'))); _charts[2].setOption({...base,
+    grid:{left:64,right:36,top:8,bottom:24},
+    xAxis:{type:'value',...axis},
+    yAxis:{type:'category',data:keys,...axis},
+    series:[{type:'bar',barWidth:18,
+      data:keys.map((k,i)=>({value:it[k],itemStyle:{color:i===0?'#07c160':'#b2b2b2'}})),
+      itemStyle:{borderRadius:[0,9,9,0]},
+      label:{show:true,position:'right',color:'#191919',fontSize:12}}]});
+}
+
+boot();
+</script>
+</body>
+</html>
