@@ -17,7 +17,7 @@
 - [ ] `cockpit_keys.json` 未被 git 跟踪（`git status` 里不应出现）
 
 ### 关联系统回归（改动接口/鉴权后必查，2026-10-20 误报事故教训）
-- [ ] **每周体检 automation**（`automation_30e3c477`，脚本在 blueprint assets）手动试跑一次 dryRun，确认 checks 全绿
+- [ ] **每周体检 automation**（`automation_30e3c477`，脚本在 blueprint assets）手动试跑一次 dryRun，确认 checks 全绿（含 form_anon_ok：招商表单匿名可填）
 - [ ] **daren_bot 读取方**：改了接口格式/鉴权/k 的存放方式时，检查 `weekly.py` / `report_card.py` 拼链接的逻辑是否还兼容（格式以 `cockpit_keys.json` 为准）
 - [ ] **周报 R1/看板渲染**：改了 `/api/cockpit` 返回字段时，确认 daren_bot 侧周报和看板长图的取数字段没断
 
