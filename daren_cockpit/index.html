@@ -62,6 +62,10 @@ const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const COOP_FORM = 'https://my.feishu.cn/share/base/shrcntWrz2k7Vx4REmvGW0yLttf';
 
+/* 运营 key：admin 页首次访问输入，存 sessionStorage，所有请求带头 */
+const getOpsKey = () => sessionStorage.getItem('opskey') || '';
+function opsHeaders(){ const h = {}; if(getOpsKey()) h['x-ops-key'] = getOpsKey(); return h; }
+
 async function boot(){
   const p = new URLSearchParams(location.search);
   const view = p.get('view');
@@ -70,11 +74,17 @@ async function boot(){
   if(!t) return renderLanding();
   let d;
   try{
-    const r = await fetch('/api/cockpit?t=' + encodeURIComponent(t));
+    const k = p.get('k') || '';
+    const r = await fetch('/api/cockpit?t=' + encodeURIComponent(t)
+                          + (k ? '&k=' + encodeURIComponent(k) : ''),
+                          {headers: opsHeaders()});
     d = await r.json();
     if(!r.ok) throw new Error(d.error || r.status);
   }catch(e){
-    $('#app').innerHTML = `<div class="card p-6 text-center"><div class="font-bold mb-1">出错了</div><div class="sub">${esc(e.message)}</div></div>`;
+    const msg = e.message === 'unauthorized'
+      ? '无权访问：请从飞书机器人推送的专属链接进入'
+      : e.message;
+    $('#app').innerHTML = `<div class="card p-6 text-center"><div class="font-bold mb-1">出错了</div><div class="sub">${esc(msg)}</div></div>`;
     return;
   }
   render(d);
@@ -88,8 +98,9 @@ function renderLanding(){
   const roles = [
     {href:'?view=admin', icon:'📊', title:'运营工作台', who:'管理员 · 品牌方视角',
      perms:['全部达人名单与评分分布','合作机会管道跟进','每位达人点进去看详细驾驶舱']},
-    {href:'?t=daren_boss', icon:'🧑‍🎤', title:'达人驾驶舱', who:'达人本人视角',
-     perms:['自己的粉丝 / GMV / 选品结论','每周采集自动更新','招商合作机会直达']},
+    {href:'', icon:'🧑‍🎤', title:'达人驾驶舱', who:'达人本人视角',
+     perms:['自己的粉丝 / GMV / 选品结论','每周采集自动更新','招商合作机会直达'],
+     note:'入口在飞书机器人推送的专属链接里，一人一链'},
     {href:COOP_FORM, icon:'🤝', title:'招商合作', who:'品牌 / 供应商视角',
      perms:['提交合作意向（佣金预算、类目）','运营评估后匹配给合适达人','达人侧实时可见']},
   ];
@@ -99,29 +110,59 @@ function renderLanding(){
     <div class="sub mt-2">选一个身份进入 · 不同身份看到的数据不一样</div>
   </div>
   <div class="grid gap-3" style="grid-template-columns:1fr">
-    ${roles.map(r => `
+    ${roles.map(r => r.href ? `
     <a class="card role-card p-5" href="${r.href}"${r.href.startsWith('http')?' target="_blank"':''}>
+      ${roleCardInner(r)}
+      <div class="mt-3 text-sm font-semibold" style="color:var(--green-dk)">以此身份进入 →</div>
+    </a>` : `
+    <div class="card role-card p-5">
+      ${roleCardInner(r)}
+      <div class="mt-3 text-sm font-semibold sub">${esc(r.note)}</div>
+    </div>`).join('')}
+  </div>
+  <div class="sub text-center pt-1">内测版 · 数据来自巨量百应采集，每周一更新</div>`;
+}
+
+function roleCardInner(r){
+  return `
       <div class="flex items-center gap-3 mb-3">
         <div class="w-11 h-11 rounded-xl flex items-center justify-center text-xl" style="background:var(--green-bg)">${r.icon}</div>
         <div><div class="font-bold">${r.title}</div>
         <div class="sub">${r.who}</div></div>
       </div>
-      ${r.perms.map(p => `<div class="text-sm mb-1" style="color:#555">✓ ${p}</div>`).join('')}
-      <div class="mt-3 text-sm font-semibold" style="color:var(--green-dk)">以此身份进入 →</div>
-    </a>`).join('')}
-  </div>
-  <div class="sub text-center pt-1">内测版 · 数据来自巨量百应采集，每周一更新</div>`;
+      ${r.perms.map(p => `<div class="text-sm mb-1" style="color:#555">✓ ${p}</div>`).join('')}`;
 }
 
 /* ---------- 运营工作台 ---------- */
+function renderOpsGate(msg){
+  document.title = '运营工作台 · 达人经营驾驶舱';
+  $('#app').innerHTML = `
+  <div class="card p-6 mt-4">
+    <div class="font-bold mb-1">🔐 运营工作台需要访问口令</div>
+    <div class="sub mb-3">${esc(msg || '输入 ops key 进入。首次启动时服务端日志里打印过。')}</div>
+    <input id="opskey-in" type="password" class="w-full p-2 mb-3" style="border:1px solid #ddd;border-radius:8px"
+           placeholder="ops key" onkeydown="if(event.key==='Enter')saveOpsKey()">
+    <button class="btn-green" onclick="saveOpsKey()">进入</button>
+  </div>`;
+}
+function saveOpsKey(){
+  sessionStorage.setItem('opskey', $('#opskey-in').value.trim());
+  bootAdmin();
+}
+
 async function bootAdmin(){
   document.title = '运营工作台 · 达人经营驾驶舱';
+  if(!getOpsKey()) return renderOpsGate();
   let d;
   try{
-    const r = await fetch('/api/roster');
+    const r = await fetch('/api/roster', {headers: opsHeaders()});
     d = await r.json();
     if(!r.ok) throw new Error(d.error || r.status);
   }catch(e){
+    if(e.message === 'unauthorized'){
+      sessionStorage.removeItem('opskey');
+      return renderOpsGate('口令不对，请重试');
+    }
     $('#app').innerHTML = `<div class="card p-6 text-center"><div class="font-bold mb-1">出错了</div><div class="sub">${esc(e.message)}</div></div>`;
     return;
   }
@@ -235,7 +276,7 @@ document.addEventListener('change', async e => {
   msg.textContent = '保存中…'; msg.style.color = 'var(--sub)';
   try{
     const r = await fetch('/api/coop/status', {method:'POST',
-      headers:{'Content-Type':'application/json'},
+      headers:{'Content-Type':'application/json', ...opsHeaders()},
       body: JSON.stringify({record_id: sel.dataset.rid, status: sel.value})});
     const d = await r.json();
     if(!r.ok || !d.ok) throw new Error(d.error || ('HTTP ' + r.status));

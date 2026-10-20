@@ -47,6 +47,55 @@ _CACHE: dict = {}
 _CACHE_LOCK = threading.Lock()
 CACHE_TTL = 120
 
+# ---------- 访问控制 ----------
+# cockpit_keys.json: {"_ops": "<运营key>", "<tenant_key>": "<达人随机k>"}
+# 达人专属链接 ?t=<tenant>&k=<随机k> 只看自己；运营侧带 x-ops-key 头。
+# 首次启动自动生成并落盘，ops key 打日志提醒抄走。daren_bot 读本文件拼达人链接。
+KEYS_PATH = ROOT / "cockpit_keys.json"
+_KEYS_LOCK = threading.Lock()
+
+
+def _load_keys() -> dict:
+    try:
+        return json.loads(KEYS_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def _save_keys(keys: dict):
+    KEYS_PATH.write_text(json.dumps(keys, ensure_ascii=False, indent=1),
+                         encoding="utf-8")
+
+
+def ops_key() -> str:
+    with _KEYS_LOCK:
+        keys = _load_keys()
+        k = keys.get("_ops")
+        if not k:
+            import secrets
+            k = secrets.token_urlsafe(16)
+            keys["_ops"] = k
+            _save_keys(keys)
+            print(f"[auth] 新的运营 ops key 已生成，请抄走：{k}", flush=True)
+        return k
+
+
+def tenant_link_key(tenant_key: str) -> str:
+    with _KEYS_LOCK:
+        keys = _load_keys()
+        k = keys.get(tenant_key)
+        if not k:
+            import secrets
+            k = secrets.token_urlsafe(12)
+            keys[tenant_key] = k
+            _save_keys(keys)
+            print(f"[auth] 新租户 key：{tenant_key} -> {k}", flush=True)
+        return k
+
+
+def _is_ops(handler) -> bool:
+    return handler.headers.get("x-ops-key") == ops_key()
+
 from concurrent.futures import ThreadPoolExecutor  # noqa: E402
 _EXEC = ThreadPoolExecutor(max_workers=4)
 
@@ -475,9 +524,15 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, TEMPLATE)
         elif u.path == "/api/cockpit":
             t = parse_qs(u.query).get("t", ["daren_boss"])[0]
+            k = parse_qs(u.query).get("k", [""])[0]
             if not re.fullmatch(r"[A-Za-z0-9_]+", t):
                 self._send(400, json.dumps({"error": "bad tenant"}),
                            "application/json")
+                return
+            # 鉴权：运营 x-ops-key 头 或 达人专属 k；裸 ?t= 一律拒绝
+            if not _is_ops(self) and k != tenant_link_key(t):
+                self._send(403, json.dumps({"error": "unauthorized"}),
+                           "application/json; charset=utf-8")
                 return
             try:
                 data = load_cockpit(t)
@@ -492,6 +547,10 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, json.dumps(data, ensure_ascii=False),
                        "application/json; charset=utf-8")
         elif u.path == "/api/roster":
+            if not _is_ops(self):
+                self._send(403, json.dumps({"error": "unauthorized"}),
+                           "application/json; charset=utf-8")
+                return
             try:
                 data = load_roster()
             except Exception as e:
@@ -506,6 +565,10 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         u = urlparse(self.path)
         if u.path == "/api/coop/status":
+            if not _is_ops(self):
+                self._send(403, json.dumps({"ok": False, "error": "unauthorized"}),
+                           "application/json; charset=utf-8")
+                return
             try:
                 n = int(self.headers.get("Content-Length") or 0)
                 body = json.loads(self.rfile.read(n).decode("utf-8") or "{}")

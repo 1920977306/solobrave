@@ -48,3 +48,6 @@ tmp_verify/
 logs/
 minutes/
 .DS_Store
+
+# 驾驶舱访问密钥（ops key + 达人专属k），绝不能入库
+daren_cockpit/cockpit_keys.json
