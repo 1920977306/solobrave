@@ -4,6 +4,15 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>达人经营驾驶舱</title>
+<!-- PWA：达人"添加到主屏幕"即得类小程序入口（iOS 用 apple-* 系，Android 走 manifest）。
+     故意不做 service worker——避免缓存壳把旧版 index.html 钉在用户手机上 -->
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#07c160">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="达人工作台">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://unpkg.com/echarts@5.5.0/dist/echarts.min.js"></script>
 <script>if(typeof echarts==='undefined'){document.write('<script src="https://cdn.bootcdn.net/ajax/libs/echarts/5.5.0/echarts.min.js"><\/script>')}</script>

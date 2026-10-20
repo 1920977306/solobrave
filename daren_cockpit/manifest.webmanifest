@@ -1,0 +1,13 @@
+{
+  "name": "达人经营工作台",
+  "short_name": "达人工作台",
+  "description": "抖音达人选品与经营数据工作台——飞书是门，网页是工作台",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ededed",
+  "theme_color": "#07c160",
+  "icons": [
+    {"src": "/icon-192.png", "sizes": "192x192", "type": "image/png"},
+    {"src": "/icon-512.png", "sizes": "512x512", "type": "image/png"}
+  ]
+}

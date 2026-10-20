@@ -525,6 +525,13 @@ class Handler(BaseHTTPRequestHandler):
         u = urlparse(self.path)
         if u.path in ("/", "/index.html"):
             self._send(200, TEMPLATE)
+        elif u.path == "/manifest.webmanifest":
+            self._send(200, (ROOT / "manifest.webmanifest").read_bytes(),
+                       "application/manifest+json")
+        elif u.path in ("/icon-192.png", "/icon-512.png",
+                        "/apple-touch-icon.png"):
+            self._send(200, (ROOT / u.path.lstrip("/")).read_bytes(),
+                       "image/png")
         elif u.path == "/api/cockpit":
             t = parse_qs(u.query).get("t", ["daren_boss"])[0]
             k = parse_qs(u.query).get("k", [""])[0]
