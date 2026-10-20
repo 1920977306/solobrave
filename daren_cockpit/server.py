@@ -321,6 +321,98 @@ def load_cockpit(tenant_key: str):
     }
 
 
+def _rating_band(score):
+    """评分分桶（运营看板阶段分布用）：优质/良好/待观察/未评估。"""
+    s = _num(score, -1)
+    if s < 0:
+        return "未评估"
+    if s >= 4.5:
+        return "优质"
+    if s >= 3:
+        return "良好"
+    return "待观察"
+
+
+def load_roster():
+    """运营总览：全部达人名单 + 评分分布 + 合作管道。对应 /api/roster。"""
+    tenants = []
+    try:
+        con = sqlite3.connect(str(config.DB_PATH))
+        con.execute("PRAGMA query_only=ON")
+        trows = con.execute(
+            "SELECT t.tenant_key, t.bind_douyin_id, t.created_at, "
+            "       COALESCE(c.balance, 0) AS credits "
+            "FROM bot_tenants t LEFT JOIN bot_credits_accounts c "
+            "ON c.tenant_key = t.tenant_key ORDER BY t.created_at").fetchall()
+        con.close()
+    except Exception:
+        trows = []
+
+    talent_by_dyid = {}
+    try:
+        con = sqlite3.connect(str(SOLOBRAVE_DB))
+        con.execute("PRAGMA query_only=ON")
+        con.row_factory = sqlite3.Row
+        for r in con.execute(
+                "SELECT douyin_id, name, followers, total_gmv_text, rating_score, "
+                "       video_ratio, updated_at FROM talents"):
+            dy = str(r["douyin_id"] or "")
+            # 同号多行取最新
+            if dy and (dy not in talent_by_dyid
+                       or (r["updated_at"] or 0) > (talent_by_dyid[dy].get("updated_at") or 0)):
+                talent_by_dyid[dy] = dict(r)
+        con.close()
+    except Exception:
+        pass
+
+    for tk, dyid, created, credits in trows:
+        t = talent_by_dyid.get(str(dyid or "")) or {}
+        gmv_text, _ = gmv_mid_yuan(t.get("total_gmv"), t.get("total_gmv_text"))
+        band = _rating_band(t.get("rating_score"))
+        tenants.append({
+            "tenant": tk, "dyid": dyid or "",
+            "name": t.get("name") or tk,
+            "fans": int(_num(t.get("followers"))),
+            "gmv_text": gmv_text or "暂无",
+            "band": band,
+            "score": (_num(t.get("rating_score"), -1)),
+            "credits": int(_num(credits)),
+            "updated": _fmt_date(t.get("updated_at")) or "未采集",
+            "joined": _fmt_date(created * 1000 if created and created < 1e12 else created),
+        })
+
+    # 合作管道（与驾驶舱同一缓存数据源）
+    coop_rows = lark_records(DEMO_BASE, COOP_TABLE) or []
+    pipe = {}
+    coop_recent = []
+    for r in coop_rows:
+        st = r.get("状态") or ""
+        st = st[0] if isinstance(st, list) else str(st)
+        st = st or "待评估"
+        pipe[st] = pipe.get(st, 0) + 1
+        coop_recent.append({"brand": str(r.get("品牌/商家") or ""),
+                            "category": str(r.get("合作类目") or ""),
+                            "status": st, "date": _fmt_date(r.get("提交时间"))})
+    coop_recent.sort(key=lambda x: x["date"], reverse=True)
+
+    bands = {}
+    for t in tenants:
+        bands[t["band"]] = bands.get(t["band"], 0) + 1
+    total_fans = sum(t["fans"] for t in tenants)
+    return {
+        "tenants": tenants,
+        "kpi": {"talents": len(tenants),
+                "total_fans": total_fans,
+                "updated_this_week": sum(1 for t in tenants if t["updated"] >= "2026-10-13"),
+                "pending_coop": pipe.get("待评估", 0),
+                "total_coop": len(coop_rows)},
+        "bands": bands,
+        "coop_pipe": pipe,
+        "coop_recent": coop_recent[:5],
+        "updated": time.strftime("%Y-%m-%d %H:%M"),
+    }
+
+
 # ---------- HTTP ----------
 
 class Handler(BaseHTTPRequestHandler):
@@ -357,6 +449,15 @@ class Handler(BaseHTTPRequestHandler):
                 return
             self._send(200, json.dumps(data, ensure_ascii=False),
                        "application/json; charset=utf-8")
+        elif u.path == "/api/roster":
+            try:
+                data = load_roster()
+            except Exception as e:
+                self._send(500, json.dumps({"error": str(e)}),
+                           "application/json")
+                return
+            self._send(200, json.dumps(data, ensure_ascii=False),
+                       "application/json; charset=utf-8")
         else:
             self._send(404, "not found", "text/plain")
 
@@ -377,9 +478,14 @@ def _warm_cache():
     for tk in ("daren_boss",):
         try:
             load_cockpit(tk)
-            print(f"[warm] cache warmed for {tk}")
+            print(f"[warm] cache warmed for {tk}", flush=True)
         except Exception as e:
-            print(f"[warm] failed for {tk}: {e}")
+            print(f"[warm] failed for {tk}: {e}", flush=True)
+    try:
+        load_roster()
+        print("[warm] cache warmed for roster", flush=True)
+    except Exception as e:
+        print(f"[warm] failed for roster: {e}", flush=True)
 
 
 if __name__ == "__main__":

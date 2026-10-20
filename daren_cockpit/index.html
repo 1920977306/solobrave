@@ -36,6 +36,20 @@
   /* 图表行布局不依赖 Tailwind CDN（避免与 echarts 初始化竞态），写死自带样式 */
   .charts2{display:grid;grid-template-columns:1fr;gap:12px}
   @media(min-width:640px){.charts2{grid-template-columns:1fr 1fr}}
+  /* 多角色工作台 */
+  .band-优质{background:var(--green-bg);color:var(--green-dk)}
+  .band-良好{background:#e8f0fe;color:#2f6fed}
+  .band-待观察{background:#fdf3e7;color:var(--amber)}
+  .band-未评估{background:#f2f2f2;color:#999}
+  .band-bar-优质{background:var(--green)}
+  .band-bar-良好{background:#2f6fed}
+  .band-bar-待观察{background:var(--amber)}
+  .band-bar-未评估{background:#b2b2b2}
+  .role-card{transition:transform .15s ease,box-shadow .15s ease;cursor:pointer;display:block;text-decoration:none;color:inherit}
+  .role-card:hover{transform:translateY(-2px);box-shadow:0 8px 24px rgba(0,0,0,.07)}
+  .talent-card{display:block;text-decoration:none;color:inherit;border-top:4px solid transparent}
+  .tc-优质{border-top-color:var(--green)} .tc-良好{border-top-color:#2f6fed}
+  .tc-待观察{border-top-color:var(--amber)} .tc-未评估{border-top-color:#b2b2b2}
 </style>
 </head>
 <body>
@@ -49,7 +63,11 @@ const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;
 const COOP_FORM = 'https://my.feishu.cn/share/base/shrcntWrz2k7Vx4REmvGW0yLttf';
 
 async function boot(){
-  const t = new URLSearchParams(location.search).get('t') || 'daren_boss';
+  const p = new URLSearchParams(location.search);
+  const view = p.get('view');
+  const t = p.get('t');
+  if(view === 'admin') return bootAdmin();
+  if(!t) return renderLanding();
   let d;
   try{
     const r = await fetch('/api/cockpit?t=' + encodeURIComponent(t));
@@ -62,6 +80,145 @@ async function boot(){
   render(d);
   // 等 Tailwind CDN 把动态注入的类名样式生成完再量尺寸，避免 canvas 定格在错误宽度
   setTimeout(() => drawCharts(d), 350);
+}
+
+/* ---------- 多角色入口（学千家工作台：选身份进入，各看各的） ---------- */
+function renderLanding(){
+  document.title = '达人经营工作台';
+  const roles = [
+    {href:'?view=admin', icon:'📊', title:'运营工作台', who:'管理员 · 品牌方视角',
+     perms:['全部达人名单与评分分布','合作机会管道跟进','每位达人点进去看详细驾驶舱']},
+    {href:'?t=daren_boss', icon:'🧑‍🎤', title:'达人驾驶舱', who:'达人本人视角',
+     perms:['自己的粉丝 / GMV / 选品结论','每周采集自动更新','招商合作机会直达']},
+    {href:COOP_FORM, icon:'🤝', title:'招商合作', who:'品牌 / 供应商视角',
+     perms:['提交合作意向（佣金预算、类目）','运营评估后匹配给合适达人','达人侧实时可见']},
+  ];
+  $('#app').innerHTML = `
+  <div class="card p-6 text-center mt-4">
+    <div class="text-2xl font-bold">达人经营工作台</div>
+    <div class="sub mt-2">选一个身份进入 · 不同身份看到的数据不一样</div>
+  </div>
+  <div class="grid gap-3" style="grid-template-columns:1fr">
+    ${roles.map(r => `
+    <a class="card role-card p-5" href="${r.href}"${r.href.startsWith('http')?' target="_blank"':''}>
+      <div class="flex items-center gap-3 mb-3">
+        <div class="w-11 h-11 rounded-xl flex items-center justify-center text-xl" style="background:var(--green-bg)">${r.icon}</div>
+        <div><div class="font-bold">${r.title}</div>
+        <div class="sub">${r.who}</div></div>
+      </div>
+      ${r.perms.map(p => `<div class="text-sm mb-1" style="color:#555">✓ ${p}</div>`).join('')}
+      <div class="mt-3 text-sm font-semibold" style="color:var(--green-dk)">以此身份进入 →</div>
+    </a>`).join('')}
+  </div>
+  <div class="sub text-center pt-1">内测版 · 数据来自巨量百应采集，每周一更新</div>`;
+}
+
+/* ---------- 运营工作台 ---------- */
+async function bootAdmin(){
+  document.title = '运营工作台 · 达人经营驾驶舱';
+  let d;
+  try{
+    const r = await fetch('/api/roster');
+    d = await r.json();
+    if(!r.ok) throw new Error(d.error || r.status);
+  }catch(e){
+    $('#app').innerHTML = `<div class="card p-6 text-center"><div class="font-bold mb-1">出错了</div><div class="sub">${esc(e.message)}</div></div>`;
+    return;
+  }
+  renderAdmin(d);
+  setTimeout(() => drawAdminDonut(d), 350);
+}
+
+function renderAdmin(d){
+  const k = d.kpi || {};
+  const bandOrder = ['优质','良好','待观察','未评估'];
+  const talents = (d.tenants || []).slice().sort((a,b) => b.fans - a.fans);
+  const talentCards = talents.map(t => `
+    <a class="card talent-card tc-${esc(t.band)} p-4 mb-3" href="?t=${encodeURIComponent(t.tenant)}">
+      <div class="flex items-center justify-between gap-2 flex-wrap">
+        <span class="font-bold">${esc(t.name)}</span>
+        <span class="tag band-${esc(t.band)}">${esc(t.band)}${t.score >= 0 ? ' · ' + t.score + '分' : ''}</span>
+      </div>
+      <div class="sub mt-1">抖音号 ${esc(t.dyid)} · 入驻 ${esc(t.joined)}</div>
+      <div class="grid grid-cols-3 gap-2 mt-3 text-center">
+        <div><div class="font-bold">${Number(t.fans).toLocaleString()}</div><div class="sub">粉丝</div></div>
+        <div><div class="font-bold" style="font-size:13px">${esc(t.gmv_text)}</div><div class="sub">60天GMV</div></div>
+        <div><div class="font-bold">${t.credits}</div><div class="sub">积分余额</div></div>
+      </div>
+      <div class="sub mt-2">最近采集 ${esc(t.updated)}</div>
+    </a>`).join('') || `<div class="empty sub">暂无达人，机器人绑定后自动出现</div>`;
+
+  const coopRecent = (d.coop_recent || []).map(c => `
+    <div class="flex items-center justify-between py-2" style="border-bottom:1px solid var(--line)">
+      <div><span class="font-semibold text-sm">${esc(c.brand)}</span>
+        <span class="sub ml-2">${esc(c.category)}</span></div>
+      <div class="flex items-center gap-2"><span class="sub">${esc(c.date)}</span>
+        <span class="tag st-${esc(c.status)}">${esc(c.status)}</span></div>
+    </div>`).join('') || `<div class="empty sub">暂无合作意向</div>`;
+
+  $('#app').innerHTML = `
+  <div class="flex items-center justify-between pt-1">
+    <a href="/" class="sub" style="text-decoration:none">‹ 换身份</a>
+    <span class="sub">运营·管理员 · ${esc(d.updated)} 更新</span>
+  </div>
+  <div class="card p-5">
+    <div class="text-xl font-bold">运营工作台</div>
+    <div class="sub mt-1">全部达人一屏总览 · 点卡片进达人驾驶舱</div>
+  </div>
+
+  <div class="grid grid-cols-2 gap-3">
+    <div class="card p-4"><div class="sub mb-1">在营达人</div>
+      <div class="kpi-num">${k.talents || 0}<span class="text-base" style="color:var(--sub)"> 位</span></div></div>
+    <div class="card p-4"><div class="sub mb-1">粉丝总量</div>
+      <div class="kpi-num">${Number(k.total_fans || 0).toLocaleString()}</div></div>
+    <div class="card p-4"><div class="sub mb-1">本周已采集</div>
+      <div class="kpi-num" style="color:var(--green-dk)">${k.updated_this_week || 0}<span class="text-base" style="color:var(--sub)"> 位</span></div>
+      <div class="sub mt-1">每周一采集窗后更新</div></div>
+    <div class="card p-4"><div class="sub mb-1">待评估合作</div>
+      <div class="kpi-num" style="color:var(--amber)">${k.pending_coop || 0}<span class="text-base" style="color:var(--sub)"> / ${k.total_coop || 0} 条</span></div></div>
+  </div>
+
+  <div class="charts2">
+    <div class="card p-5"><div class="sec-title mb-1">达人评分分布</div>
+      <div class="sub mb-1">按系统评分分桶</div><div id="band" style="height:180px"></div></div>
+    <div class="card p-5"><div class="sec-title mb-1">合作管道</div>
+      <div class="sub mb-1">招商意向状态</div>
+      <div class="pt-4">${bandOrder.map(b => {
+        const n = (d.bands || {})[b] || 0;
+        const total = (d.tenants || []).length || 1;
+        return `<div class="mb-3"><div class="flex justify-between text-sm mb-1"><span>${b}达人</span><span class="sub">${n} 位</span></div>
+          <div style="height:8px;background:#f2f2f2;border-radius:99px"><div class="band-bar-${b}" style="height:8px;border-radius:99px;width:${Math.round(n/total*100)}%"></div></div></div>`;
+      }).join('')}
+      ${Object.entries(d.coop_pipe || {}).map(([st, n]) => `<div class="flex items-center justify-between py-1" style="border-bottom:1px solid var(--line)">
+        <span class="tag st-${esc(st)}">${esc(st)}</span><span class="font-semibold text-sm">${n} 条</span></div>`).join('') || '<div class="sub py-2">暂无合作意向</div>'}
+      </div></div>
+  </div>
+
+  <div class="card p-5">
+    <div class="sec-title mb-3">重点达人（按粉丝排序）</div>
+    ${talentCards}
+  </div>
+
+  <div class="card p-5">
+    <div class="sec-title mb-2">最新合作意向</div>
+    ${coopRecent}
+    <a class="btn-green mt-3" style="display:inline-flex" href="${COOP_FORM}" target="_blank">📮 招商合作填表</a>
+  </div>
+  <div class="sub text-center pt-1">口径声明：评分为系统采集评估，GMV 为百应档位口径，仅供参考。</div>`;
+}
+
+function drawAdminDonut(d){
+  if(typeof echarts === 'undefined' || !$('#band')) return;
+  const colors = {'优质':'#07c160','良好':'#2f6fed','待观察':'#fa9d3b','未评估':'#b2b2b2'};
+  const data = Object.entries(d.bands || {}).map(([b, n]) => ({value: n, name: b, itemStyle: {color: colors[b] || '#ccc'}}));
+  _charts.forEach(c => c.dispose());
+  _charts = [echarts.init($('#band'))];
+  _charts[0].setOption({textStyle:{color:'#191919'},
+    tooltip:{trigger:'item',backgroundColor:'#fff',borderColor:'#eee',textStyle:{color:'#191919'}},
+    series:[{type:'pie',radius:['58%','82%'],center:['50%','52%'],
+      itemStyle:{borderColor:'#fff',borderWidth:3},
+      label:{color:'#888',fontSize:11,formatter:'{b}\n{c} 位'},
+      data}]});
 }
 
 let _rsz;
@@ -104,6 +261,10 @@ function render(d){
     </div>`).join('') || `<div class="empty sub">暂无合作意向 · 把下方按钮发给招商</div>`;
 
   $('#app').innerHTML = `
+  <div class="flex items-center justify-between pt-1">
+    <a href="/" class="sub" style="text-decoration:none">‹ 换身份</a>
+    <span class="sub">达人视图</span>
+  </div>
   <!-- 账号卡 -->
   <div class="card p-5">
     <div class="flex items-center gap-4">
