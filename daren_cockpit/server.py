@@ -87,11 +87,52 @@ def lark_records(base_token: str, table_id: str):
             return None
         payload = d["data"]
         names = payload.get("fields") or []
-        rows = [dict(zip(names, r)) for r in payload.get("data", [])]
+        rids = payload.get("record_id_list") or []
+        rows = []
+        for i, r in enumerate(payload.get("data", [])):
+            row = dict(zip(names, r))
+            if i < len(rids):
+                row["__rid"] = rids[i]
+            rows.append(row)
         _cache_set(key, rows)
         return rows
     except Exception:
         return None
+
+
+COOP_STATUSES = ("待评估", "有意向", "已合作", "不合适")
+
+
+def _lark_invalidate(base_token: str, table_id: str):
+    with _CACHE_LOCK:
+        _CACHE.pop(f"rec:{base_token}:{table_id}", None)
+
+
+def coop_set_status(record_id: str, status: str) -> tuple:
+    """改合作机会状态（运营工作台操作）。返回 (ok, err)。"""
+    if not record_id or not re.fullmatch(r"rec[A-Za-z0-9]+", record_id):
+        return False, "bad record_id"
+    if status not in COOP_STATUSES:
+        return False, f"status 必须是：{'/'.join(COOP_STATUSES)}"
+    try:
+        import os
+        env = dict(os.environ)
+        env["PATH"] = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin" \
+            + os.pathsep + env.get("PATH", "")
+        out = subprocess.run(
+            [_lark_cli(), "base", "+record-upsert",
+             "--base-token", DEMO_BASE, "--table-id", COOP_TABLE,
+             "--record-id", record_id,
+             "--json", json.dumps({"状态": [status]}, ensure_ascii=False),
+             "--as", "user", "--format", "json"],
+            capture_output=True, text=True, timeout=30, env=env)
+        d = json.loads(out.stdout or "{}")
+        if not d.get("ok"):
+            return False, (out.stderr or out.stdout or "lark-cli 失败")[:200]
+        _lark_invalidate(DEMO_BASE, COOP_TABLE)
+        return True, ""
+    except Exception as e:
+        return False, str(e)[:200]
 
 
 _GMVTEXT_RE = re.compile(r"(\d+(?:\.\d+)?)\s*[万kK]?\s*[-~—～]\s*[¥￥]?\s*(\d+(?:\.\d+)?)\s*([万kK]?)")
@@ -392,7 +433,8 @@ def load_roster():
         pipe[st] = pipe.get(st, 0) + 1
         coop_recent.append({"brand": str(r.get("品牌/商家") or ""),
                             "category": str(r.get("合作类目") or ""),
-                            "status": st, "date": _fmt_date(r.get("提交时间"))})
+                            "status": st, "date": _fmt_date(r.get("提交时间")),
+                            "rid": str(r.get("__rid") or "")})
     coop_recent.sort(key=lambda x: x["date"], reverse=True)
 
     bands = {}
@@ -457,6 +499,24 @@ class Handler(BaseHTTPRequestHandler):
                            "application/json")
                 return
             self._send(200, json.dumps(data, ensure_ascii=False),
+                       "application/json; charset=utf-8")
+        else:
+            self._send(404, "not found", "text/plain")
+
+    def do_POST(self):
+        u = urlparse(self.path)
+        if u.path == "/api/coop/status":
+            try:
+                n = int(self.headers.get("Content-Length") or 0)
+                body = json.loads(self.rfile.read(n).decode("utf-8") or "{}")
+            except Exception:
+                self._send(400, json.dumps({"ok": False, "error": "bad json"}),
+                           "application/json; charset=utf-8")
+                return
+            ok, err = coop_set_status(str(body.get("record_id") or ""),
+                                      str(body.get("status") or ""))
+            self._send(200 if ok else 400,
+                       json.dumps({"ok": ok, "error": err}, ensure_ascii=False),
                        "application/json; charset=utf-8")
         else:
             self._send(404, "not found", "text/plain")

@@ -148,12 +148,18 @@ function renderAdmin(d){
       <div class="sub mt-2">最近采集 ${esc(t.updated)}</div>
     </a>`).join('') || `<div class="empty sub">暂无达人，机器人绑定后自动出现</div>`;
 
-  const coopRecent = (d.coop_recent || []).map(c => `
-    <div class="flex items-center justify-between py-2" style="border-bottom:1px solid var(--line)">
-      <div><span class="font-semibold text-sm">${esc(c.brand)}</span>
-        <span class="sub ml-2">${esc(c.category)}</span></div>
-      <div class="flex items-center gap-2"><span class="sub">${esc(c.date)}</span>
-        <span class="tag st-${esc(c.status)}">${esc(c.status)}</span></div>
+  const STATUSES = ['待评估', '有意向', '已合作', '不合适'];
+  const coopRecent = (d.coop_recent || []).map((c, i) => `
+    <div class="flex items-center justify-between py-2 gap-2" style="border-bottom:1px solid var(--line)">
+      <div class="min-w-0"><span class="font-semibold text-sm">${esc(c.brand)}</span>
+        <span class="sub ml-2">${esc(c.category)} · ${esc(c.date)}</span></div>
+      <div class="flex items-center gap-2 shrink-0">
+        <span class="sub coop-msg" id="coop-msg-${i}"></span>
+        <select class="coop-status text-sm" data-rid="${esc(c.rid)}" data-idx="${i}"
+          style="border:1px solid var(--line);border-radius:8px;padding:4px 6px;background:#fff;font-size:12px">
+          ${STATUSES.map(st => `<option${st === c.status ? ' selected' : ''}>${st}</option>`).join('')}
+        </select>
+      </div>
     </div>`).join('') || `<div class="empty sub">暂无合作意向</div>`;
 
   $('#app').innerHTML = `
@@ -220,6 +226,25 @@ function drawAdminDonut(d){
       label:{color:'#888',fontSize:11,formatter:'{b}\n{c} 位'},
       data}]});
 }
+
+/* 合作状态流转：运营页改状态 → 写回飞书表 → 达人页 120s 缓存后同步可见 */
+document.addEventListener('change', async e => {
+  const sel = e.target.closest && e.target.closest('.coop-status');
+  if(!sel) return;
+  const msg = document.getElementById('coop-msg-' + sel.dataset.idx);
+  msg.textContent = '保存中…'; msg.style.color = 'var(--sub)';
+  try{
+    const r = await fetch('/api/coop/status', {method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({record_id: sel.dataset.rid, status: sel.value})});
+    const d = await r.json();
+    if(!r.ok || !d.ok) throw new Error(d.error || ('HTTP ' + r.status));
+    msg.textContent = '✓ 已同步'; msg.style.color = 'var(--green-dk)';
+  }catch(err){
+    msg.textContent = '✗ ' + err.message; msg.style.color = 'var(--red)';
+  }
+  setTimeout(() => { msg.textContent = ''; }, 4000);
+});
 
 let _rsz;
 window.addEventListener('resize', () => {
