@@ -81,6 +81,9 @@ def ops_key() -> str:
 
 
 def tenant_link_key(tenant_key: str) -> str:
+    # 不存在的租户不生成 key：防止扫描/乱猜在 keys 文件里堆积垃圾条目
+    if not botdb.get_tenant(tenant_key):
+        return ""
     with _KEYS_LOCK:
         keys = _load_keys()
         k = keys.get(tenant_key)
