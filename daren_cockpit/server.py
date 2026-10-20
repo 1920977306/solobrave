@@ -533,7 +533,9 @@ class Handler(BaseHTTPRequestHandler):
                            "application/json")
                 return
             # 鉴权：运营 x-ops-key 头 或 达人专属 k；裸 ?t= 一律拒绝
-            if not _is_ops(self) and k != tenant_link_key(t):
+            # 幽灵租户 tenant_link_key 返回 ""——一并 403，不靠 404 兜底
+            lk = tenant_link_key(t)
+            if not _is_ops(self) and (not lk or k != lk):
                 self._send(403, json.dumps({"error": "unauthorized"}),
                            "application/json; charset=utf-8")
                 return
