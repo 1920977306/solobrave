@@ -203,3 +203,6 @@ POST https://buyin.jinritemai.com/pc/selection/common/material_list
    **不重试不回退**,直接指路「发个商品截图我照样能看」(vision 链路与浏览器无关,始终可用)。
 8. **stats 是完整结构,prompt 不是**。`_product_verdict()` 禁止把 `stats` 整包塞进 prompt ——
    30 天日销曲线会烧 token 并带偏结论(已排除并压成一行摘要)。
+9. **等待人工操作(扫码)期间不许动页面**。定时导航会打断老大正在扫的码。
+   登录检测必须**状态驱动**:出现「达人工作台」入口 = 扫码完成 → 才跳;没出现就只 sleep+重试。
+   系统自动化边界: 引导/检测/等待/续跑 全自动,**扫码永远人工**。

@@ -2461,6 +2461,28 @@ def _browser_loop():
             except Exception as e:
                 log(f'[Control] 商品API探测失败: {e}')
             continue
+        if row.get('_daren_shot'):
+            # 达人端当前页截图 + 正文（判断停在哪个页面/是否扫码页用）
+            try:
+                page = _switch_to(DAREN_BROWSER, BROWSER)
+                safe = re.sub(r'[^\w]+', '_', str(row.get('name') or 'daren'))[:40]
+                path = SHOTS_DIR / f'daren_{safe}_{int(time.time())}.png'
+                page.screenshot(path=str(path))
+                txt = ''
+                try:
+                    txt = page.evaluate(
+                        "() => (document.body ? document.body.innerText : '').slice(0, 900)")
+                except Exception:
+                    pass
+                with _job_lock:
+                    STATE['daren_shot'] = {'path': str(path), 'url': page.url,
+                                          'title': page.title()[:80], 'body': txt}
+                log(f'[Control] 达人端截图已存: {path.name}')
+            except Exception as e:
+                with _job_lock:
+                    STATE['daren_shot'] = {'error': str(e)}
+                log(f'[Control] 达人端截图失败: {e}')
+            continue
         if row.get('_daren_fetch'):
             # 在达人端页面上下文里 fetch 任意接口（自带登录 cookie）。
             # 用途：抓到接口路径后直接调用取结构化数据；也用于盲探候选路径。
@@ -2803,32 +2825,28 @@ DAREN_SSO_ENTRY = ('https://buyin.jinritemai.com/mpa/account/login'
 
 
 def _prompt_daren_login(page):
-    """把浏览器停到官网首页，让页面显示扫码登录入口，等老大扫码。
+    """把浏览器停到**扫码页**，等老大扫码。
 
     ★★★ 铁律：绝对不要 goto 带 `log_out=1` 的 URL ★★★
       那是**登出**语义 —— 反复走它会让服务端把已有会话标为失效
       （实测踩过：cookie 还在本地，但 `check_login` 返回
       `subject_has_login:false`，接口全线 `code=-2 用户未登录`）。
       登录是**人工动作**（扫码），系统只负责：引导 → 检测 → 等待 → 继续。
+
+    路径按老大实测走通的来：官网首页 → 「登录」→「达人工作台」→ 停在扫码页。
     """
     try:
         page.goto(DAREN_HOME, timeout=60000)
         page.wait_for_load_state('domcontentloaded')
         time.sleep(2)
-    except Exception as e:
-        log(f'[DarenProduct] 打开登录页失败: {e}')
-
-
-def _enter_daren_workspace(page):
-    """扫码后从官网进「达人工作台」——**去掉 log_out 参数**（那是登出语义）。"""
-    try:
-        page.goto(DAREN_HOME, timeout=60000)
-        page.wait_for_load_state('domcontentloaded')
-        time.sleep(2)
-        hrefs = page.evaluate(
-            "() => Array.from(document.querySelectorAll('a'))"
-            ".map(a => (a.textContent||'').trim() + '|' + (a.getAttribute('href')||''))"
-            ".filter(x => x.includes('|') && x.split('|')[1])")
+        # 已登录（官网首页出现「达人工作台」入口）→ 直接进，别点「登录」
+        try:
+            hrefs = page.evaluate(
+                "() => Array.from(document.querySelectorAll('a'))"
+                ".map(a => (a.textContent||'').trim() + '|' + (a.getAttribute('href')||''))"
+                ".filter(x => x.includes('|') && x.split('|')[1])")
+        except Exception:
+            hrefs = []
         for h in hrefs:
             txt, href = h.split('|', 1)
             if '达人工作台' in txt and '机构' not in txt:
@@ -2836,15 +2854,62 @@ def _enter_daren_workspace(page):
                     href = 'https:' + href
                 elif href.startswith('/'):
                     href = 'https://www.douyinec.com' + href
-                # ★ 去掉 log_out：进工作台不需要登出语义
-                href = href.replace('log_out=1', '')
+                page.goto(href.replace('log_out=1', ''), timeout=60000)
+                page.wait_for_load_state('domcontentloaded')
+                time.sleep(2)
+                log(f'[DarenProduct] 已登录，直接进达人工作台 url={page.url}')
+                return
+        # 未登录 → 点「登录」→「达人工作台」，停在扫码页
+        try:
+            page.locator('text=登录').first.click(timeout=8000)
+            time.sleep(2)
+            page.locator('text=达人工作台').first.click(timeout=8000)
+            time.sleep(3)
+            log(f'[DarenProduct] 已打开扫码页 url={page.url}')
+        except Exception as e:
+            log(f'[DarenProduct] 点登录入口失败（需人工扫码）: {e}')
+    except Exception as e:
+        log(f'[DarenProduct] 打开登录页失败: {e}')
+
+
+def _enter_daren_workspace(page):
+    """扫码后从官网进「达人工作台」—— **状态驱动，不定时导航**。
+
+    ★★★ 为什么必须状态驱动 ★★★
+      等待老大扫码期间，如果定时把页面导航走，就会**打断他正在扫的码**
+      （扫码页被跳走 = 白扫）。所以：
+        - 页面还在官网首页且**没有**「达人工作台」入口 → 说明还没登录 → **什么都别动**
+        - 官网首页出现「达人工作台」入口 → 说明扫码已完成 → 这时才跳进去
+    ★ 跳的时候去掉 `log_out` 参数（那是登出语义，会注销自己的会话）。
+    """
+    if 'buyin.jinritemai.com' in (page.url or ''):
+        return page.url or ''
+    try:
+        hrefs = page.evaluate(
+            "() => Array.from(document.querySelectorAll('a'))"
+            ".map(a => (a.textContent||'').trim() + '|' + (a.getAttribute('href')||''))"
+            ".filter(x => x.includes('|') && x.split('|')[1])")
+    except Exception as e:
+        log(f'[DarenProduct] 读导航链接失败: {e}')
+        return page.url or ''
+    for h in hrefs:
+        txt, href = h.split('|', 1)
+        if '达人工作台' in txt and '机构' not in txt:
+            if href.startswith('//'):
+                href = 'https:' + href
+            elif href.startswith('/'):
+                href = 'https://www.douyinec.com' + href
+            # ★ 去掉 log_out：进工作台不需要登出语义
+            href = href.replace('log_out=1', '')
+            try:
                 page.goto(href, timeout=60000)
                 page.wait_for_load_state('domcontentloaded')
                 time.sleep(3)
                 log(f'[DarenProduct] 已进达人工作台 url={page.url}')
-                return page.url
-    except Exception as e:
-        log(f'[DarenProduct] 进入达人工作台失败: {e}')
+            except Exception as e:
+                log(f'[DarenProduct] 进入达人工作台失败: {e}')
+            return page.url or ''
+    # 还没登录（页面上只有「登录」按钮）→ 保持现状，等老大扫码
     return page.url or ''
 
 
@@ -3250,6 +3315,11 @@ class ControlHandler(BaseHTTPRequestHandler):
             self._json(200, {'ok': True, 'enabled': enabled, 'total': len(net),
                              'log': net[-limit:]})
             return
+        if self.path == '/daren-shot':
+            with _job_lock:
+                out = STATE.get('daren_shot')
+            self._json(200, out or {'error': 'not run yet'})
+            return
         if self.path == '/daren-fetch':
             with _job_lock:
                 out = STATE.get('daren_fetch')
@@ -3303,6 +3373,10 @@ class ControlHandler(BaseHTTPRequestHandler):
             # 只读探测：当前 URL + cookie 名，不导航不点击（登录诊断用）
             JOB_Q.put({'_probe_daren': True})
             self._json(200, {'ok': True, 'msg': 'probe 已入队，结果见 GET /health 的 daren_probe'})
+            return
+        if self.path == '/daren-shot':
+            JOB_Q.put({'_daren_shot': True, 'name': str(body.get('name') or 'daren')})
+            self._json(200, {'ok': True, 'msg': '截图已入队，结果见 GET /daren-shot'})
             return
         if self.path == '/daren-fetch':
             # 在达人端页面上下文里 fetch 任意接口（带登录 cookie）
