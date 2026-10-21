@@ -261,3 +261,73 @@ grep 'cockpit link sent' logs/daren-bot.launchd.log | tail
 - 浏览器采集 / vision / 意图分类 / 卡片消息格式 / Bitable 建表 / KB 回流：**未接**
   （对应 executor 抛 NotImplementedError，走失败返还路径，不产生静默扣费）
 - 无关问题零成本软话术拒答：**已接**（分类器接入前一律软话术，fail-closed）
+
+## 复用层:抓一次存下来,下次直接读(2026-10-21)
+
+老大要求:「第一次抓取数据必须存到我们的系统知识库,下次达人需要数据直接调用存储的
+数据即可(省算力),一周之后再给达人重新抓取。」
+
+### 三层缓存
+
+| 层 | 表 | TTL | 隔离维度 | 命中省什么 | 命中价 |
+|---|---|---|---|---|---|
+| 商品数据 | `bot_product_cache` | 7 天 | 全平台共用 | 开浏览器采集 | 5 分 |
+| 选品结论 | `bot_product_verdicts` | 7 天 | **按租户** | 采集 + LLM 结论 | 5 分 |
+| 问答回复 | `bot_qa_cache` | 1 天 | 按租户 | LLM | **0 分** |
+
+商品数据全平台共用(同一个商品对谁都长一样);选品结论按租户隔离
+(结论依赖该达人画像,串租户 = 把 A 的画像喂给 B)。
+
+### 判定入口(必须在入队处)
+
+```
+handler._route_qa()   → db.qa_cache_get()     命中 → 扣 0 分, cache_hit=1
+handler._route_link()  → db.verdict_cache_get() 命中 → 扣 5 分, cache_hit=1
+                      → db.cache_get()         命中 → 扣 5 分(商品数据层)
+```
+
+命中时把结果放进任务 `payload`(`cached_answer` / `cached_verdict`),
+worker 侧 `executors.execute_qa` / `execute_product_collect` 直接消费,不再调 LLM。
+
+> ⚠️ 判定必须在入队处。放到执行处就晚了 —— LLM 已经烧掉了,省不下算力。
+
+### 不缓存什么
+
+- **含时效词的问题**(最近/今天/最新/现在/本周/近期/几点…)—— 缓存住等于给假的新鲜度。
+- **拒答/兜底话术**(`拒` / 「我是你的带货选品助手」/「AI 刚才没反应过来」…)——
+  那是失败态不是答案。免费重采那条分支提前 `return`,天然不会落缓存。
+
+### 「一周之后重新抓取」落在哪
+
+- 商品数据 / 选品结论:TTL = 7 天,到期自动回源重抓。
+- 达人账号数据:`weekly.py` 采集窗(周日 20:00 → 周一 08:00)主动重采 + `bot_weekly_snapshots` 周快照。
+  采集窗是「每周必采」,不受 7 天新鲜度约束 —— 跳过会缺周快照 → 周报走数据缺失版。
+
+### 排障 / 验证
+
+```bash
+# 线上复用看板：命中率 + 省了多少积分 + 各租户明细
+python3 daren_bot/tools/cache_probe.py --mode report
+python3 daren_bot/tools/cache_probe.py --mode report --tenant daren_boss
+
+# 端到端探针：同一问题连发两次，验证第二次命中缓存、不烧 LLM、不扣积分
+#   自清理（探针租户的行会删掉）、不发任何飞书消息；任何一环对不上 → exit 1
+python3 daren_bot/tools/cache_probe.py --mode probe
+
+# 商品路径探针：第一次真采集+真判（需达人端登录态有效），第二次命中结论缓存
+python3 daren_bot/tools/cache_probe.py --mode probe-product
+
+# 单元回归（21 条：db 语义 / 入队处判定 / executor 短路 / 结论标签解析）
+python3 -m pytest tests/test_daren_cache_layer.py -q
+```
+
+探针怎么证明「真的没调 LLM」:把 `executors._qa_llm` 换成一调用就抛
+`AssertionError` 的替身,再跑命中路径 —— 没炸就说明 LLM 一次都没被调。
+**别靠读代码说它短路了。**
+
+| 现象 | 根因 | 处置 |
+|---|---|---|
+| 同一问题反复扣积分 | 答案没进缓存 | 看 `bot_qa_cache` 是否有行;拒答/时效词问题本来就不缓存 |
+| 命中了但还是烧了 LLM | 判定放在了执行处 | 判定必须挪到 `handler._route_*` |
+| 不同达人的结论串了 | 结论缓存没按租户隔离 | `verdict_cache_get` 必须带 `tenant_key` |
+| 结论标签显示「能带」但实际是「慎带」 | 标签从全文里搜的 | 用 `executors._verdict_lines()`,只认结论行 |

@@ -876,6 +876,24 @@ def execute_product_collect(task: dict) -> str:
     if not product_key:
         return "没收到商品链接，重新发一下～"
 
+    # ★ 2026-10-21 复用层：**结论缓存命中 → 连 LLM 都不调**。
+    #   商品数据缓存只省了「开浏览器采集」，结论照样要 LLM 重算（最贵的一步）。
+    #   结论缓存省的是整条链路。
+    try:
+        _pl = json.loads(task.get("payload") or "{}")
+    except Exception:
+        _pl = {}
+    _vh = _pl.get("cached_verdict")
+    if isinstance(_vh, dict) and (_vh.get("md") or _vh.get("verdict")):
+        _st = {}
+        try:
+            _st = json.loads(_vh.get("stats_json") or "{}")
+        except Exception:
+            _st = {}
+        return json.dumps({"title": _vh.get("name") or "商品分析",
+                           "stats": _st, "md": _vh.get("md") or ""},
+                          ensure_ascii=False)
+
     stats = None
     if task.get("cache_hit"):
         cached = _db.cache_get(product_key)
@@ -900,9 +918,54 @@ def execute_product_collect(task: dict) -> str:
 
     verdict = _product_verdict(task.get("tenant_key", ""), stats)
     title = stats.get("name") or "商品分析"
+    # ★ 写结论缓存（7 天）：同租户同商品直接复用，不重复调 LLM
+    try:
+        _db.verdict_cache_put(task.get("tenant_key", ""), product_key,
+                              name=title,
+                              verdict=_verdict_label(verdict),
+                              why=_verdict_reason(verdict),
+                              md=verdict, stats=stats)
+    except Exception:
+        log.warning("verdict cache put failed: key=%s", product_key, exc_info=True)
     # 结构化信封：worker 拆包后通知（卡片/文字版用 md+title，表格用 stats）
     return json.dumps({"title": title, "stats": stats, "md": verdict},
                       ensure_ascii=False)
+
+
+def _verdict_lines(md: str):
+    """拆出「结论行」和「理由行」。
+
+    ⚠️ 不能拿「前 60 字里搜第一个『能带』」当结论标签 ——
+       理由句里也可能出现「能带」二字（比如「不能带」/「建议能带」），
+       会把「🟡 慎带」误标成「能带」，写进档案后审计就废了。
+       这里只认「## 结论」标题后的第一行（没有标题就用第一行）。
+    """
+    lines = [ln.strip() for ln in (md or "").splitlines() if ln.strip()]
+    if not lines:
+        return "", ""
+    idx = 0
+    for i, ln in enumerate(lines):
+        if ln.startswith("#") and "结论" in ln:
+            idx = i + 1
+            break
+    concl = lines[idx] if idx < len(lines) else ""
+    reason = lines[idx + 1] if idx + 1 < len(lines) else ""
+    return concl, reason
+
+
+def _verdict_label(md: str) -> str:
+    """从结论行里取「能带/慎带/别带」标签。"""
+    concl, _ = _verdict_lines(md)
+    for v in ("能带", "慎带", "别带"):
+        if v in concl:
+            return v
+    return ""
+
+
+def _verdict_reason(md: str) -> str:
+    """取结论的理由句（结论行的下一行）。"""
+    _, reason = _verdict_lines(md)
+    return reason[:120]
 
 
 PRODUCT_VERDICT_PROMPT = '''你是抖音电商达人的AI选品顾问。根据【商品信息】和【该达人的账号数据】判断这个商品适不适合这个达人带货，输出 Markdown（不要输出其他内容）：
@@ -1895,6 +1958,14 @@ def execute_qa(task: dict) -> str:
     q = (task.get("target") or "").strip()
     if not q:
         return "没收到问题内容，重新发一下～"
+    # ★ 2026-10-21 复用层：入队时已判定缓存命中 → 直接回缓存答案，**不调 LLM**。
+    #   （判定必须在入队处做 —— 到这里才判就晚了，LLM 已经烧掉了）
+    try:
+        _pl = json.loads(task.get("payload") or "{}")
+    except Exception:
+        _pl = {}
+    if _pl.get("cached_answer"):
+        return _pl["cached_answer"]
     ctx = _talent_context(task.get("tenant_key", ""))
     # ★ fix/third-party-recollect (2026-10-18): "小晴姑姑的...都没有"/"她的账号没有数据,发给我"
     #   → 不绕模型, 直接免费重采并推送. 判定: 抱怨词 + 点名的对标号是空采集行.
@@ -2007,7 +2078,16 @@ def execute_qa(task: dict) -> str:
         ans += ("\n\n⚠️ 这条消息里没有附视频链接或商品截图，"
                 "以上是按你的账号画像给的通用建议；把链接或截图发我，"
                 "我可以针对具体商品分析～")
-    return ans[:900]
+    ans = ans[:900]
+    # ★ 写回复缓存（1 天内同一问题直接复用，不重复调 LLM）
+    #   不缓存拒答/兜底话术 —— 那是失败态，不是答案
+    try:
+        if ans and not ans.startswith(("拒", "我是你的带货选品助手", "AI 刚才没反应过来",
+                                       "这个动作需要", "积分余额不足")):
+            _db.qa_cache_put(task.get("tenant_key", ""), q, ans)
+    except Exception:
+        log.warning("qa cache put failed", exc_info=True)
+    return ans
 
 
 # ---------------- 视频链接拆解（teardown_url：下载→转写→画面→报告） ----------------

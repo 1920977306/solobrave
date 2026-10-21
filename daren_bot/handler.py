@@ -309,6 +309,17 @@ class Router:
         if len(q) > 300:
             sender.send_text(chat_id, "问题太长了，简短一点问我～")
             return
+        # ★ 2026-10-21 复用层（老大：抓一次存下来，下次直接读，省算力）：
+        #   同一问题在缓存期内 → 不调 LLM、不扣积分（cache_hit=1）
+        #   含时效词的问题（最近/今天/最新…）不缓存 —— 答案会过期
+        cached_qa = db.qa_cache_get(tk, q)
+        if cached_qa:
+            db.deduct(tk, 0, "qa_cached", cache_hit=1)
+            sender.send_text(chat_id, "收到（缓存命中，秒回）～")
+            db.enqueue_task(tk, "qa", q[:200], 0, cache_hit=1, chat_id=chat_id,
+                            payload=json.dumps({"cached_answer": cached_qa},
+                                               ensure_ascii=False))
+            return
         if db.get_balance(tk) < config.COST_QA:
             sender.send_text(
                 chat_id,
@@ -328,6 +339,26 @@ class Router:
         tk = tenant["tenant_key"]
         url = URL_RE.search(text).group(0)
         product_key = normalize_product_url(url)
+
+        # ★ 2026-10-21 复用层：**结论缓存**优先于商品数据缓存。
+        #   结论缓存命中 = 连 LLM 都不用调（最贵的一步），只花 5 分。
+        #   下面的商品数据缓存只省了「开浏览器采集」，LLM 照跑 —— 省钱不够。
+        v_hit = db.verdict_cache_get(tk, product_key)
+        if v_hit:
+            ok, bal = db.deduct(tk, config.COST_PRODUCT_CACHED,
+                                "collect_product_cached", cache_hit=1)
+            if not ok:
+                sender.send_text(chat_id, "积分余额不足，联系运营老师补充额度")
+                return
+            sender.send_text(
+                chat_id,
+                f"收到链接（结论缓存命中，秒出结果）～（积分余额 {bal}）")
+            db.enqueue_task(tk, "product", product_key,
+                            config.COST_PRODUCT_CACHED, cache_hit=1,
+                            chat_id=chat_id,
+                            payload=json.dumps({"cached_verdict": v_hit},
+                                               ensure_ascii=False))
+            return
 
         cached = db.cache_get(product_key)
         if cached:

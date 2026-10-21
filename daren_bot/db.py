@@ -3,13 +3,17 @@
 服务启动自动建表。连接对象线程安全（模块级锁 + WAL）。
 """
 import datetime
+import hashlib
 import json
+import logging
 import sqlite3
 import threading
 import uuid
 from contextlib import contextmanager
 
 from . import config
+
+log = logging.getLogger("daren-bot.db")
 
 _lock = threading.RLock()
 
@@ -135,6 +139,18 @@ CREATE TABLE IF NOT EXISTS bot_product_verdicts (
 );
 CREATE INDEX IF NOT EXISTS idx_pverdict_tenant ON bot_product_verdicts(tenant_key, created_at);
 
+-- 3.9 问答缓存：同一问题短期内不重复调 LLM（老大要求：抓一次存下来，下次直接读）
+--     key = (租户, 问题哈希)；TTL 1 天（画像类结论一天内不会变）
+CREATE TABLE IF NOT EXISTS bot_qa_cache (
+  tenant_key TEXT NOT NULL,
+  q_hash     TEXT NOT NULL,
+  question   TEXT DEFAULT '',
+  answer     TEXT DEFAULT '',
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (tenant_key, q_hash)
+);
+CREATE INDEX IF NOT EXISTS idx_qacache_created ON bot_qa_cache(created_at);
+
 -- 3.8 合作机会推送日志：去重（record_id+tenant_key 唯一）+ 频控（每周≤N条）
 -- 工单 docs/BACKLOG-coop-automation-工单.md 硬要求①
 CREATE TABLE IF NOT EXISTS bot_coop_push_log (
@@ -205,6 +221,27 @@ def init_db():
         if "weekly_push_slot" not in cols:
             conn.execute("ALTER TABLE bot_tenants "
                          "ADD COLUMN weekly_push_slot INTEGER NOT NULL DEFAULT 577")
+        # 轻量迁移：选品结论表补「商品键 + 完整结论 + 商品数据快照」三列
+        #   （2026-10-21 加缓存：同商品同达人的结论直接复用，不重复烧 LLM）
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(bot_product_verdicts)")}
+        if "product_key" not in cols:
+            conn.execute("ALTER TABLE bot_product_verdicts "
+                         "ADD COLUMN product_key TEXT DEFAULT ''")
+        if "md" not in cols:
+            conn.execute("ALTER TABLE bot_product_verdicts "
+                         "ADD COLUMN md TEXT DEFAULT ''")
+        if "stats_json" not in cols:
+            conn.execute("ALTER TABLE bot_product_verdicts "
+                         "ADD COLUMN stats_json TEXT DEFAULT ''")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_pverdict_key "
+                     "ON bot_product_verdicts(tenant_key, product_key, created_at)")
+    # 启动时清一次过期的问答缓存（结论档案表不清，见 purge_expired_caches 注释）
+    try:
+        n = purge_expired_caches()
+        if n:
+            log.info("purged %d expired qa cache rows", n)
+    except Exception:
+        log.warning("purge qa cache failed", exc_info=True)
 
 
 def now_ts() -> int:
@@ -515,6 +552,109 @@ def cache_put(product_key: str, name: str = '', price: str = '',
                  fetched_at=excluded.fetched_at""",
             (product_key, name, price, commission,
              json.dumps(stats or {}, ensure_ascii=False), source_url, now_ts()))
+
+
+# ---------- 复用层（2026-10-21 老大要求：抓一次存下来，下次直接读） ----------
+# 设计原则：
+#   ① 数据分三层存 —— 结构化指标走结构化表，文本结论走结论表 + 知识库
+#   ② 复用判定放在**入队处**（唯一入口），命中就 cache_hit=1 且不扣积分
+#      —— 放到执行时判定就晚了，LLM 已经烧掉了
+#   ③ TTL 分层：问答 1 天（画像一天不变）；商品数据/选品结论 7 天
+#      （= 老大的「一周之后再给达人重新抓取」：TTL 到期 = 自动回源重抓）
+QA_CACHE_TTL = 86400              # 秒
+VERDICT_CACHE_TTL = 7 * 86400     # 与商品缓存 / 周度重抓同周期
+
+# 含时效词的问题**一律不缓存** —— 答案会过期，缓存住等于给假的新鲜度
+_QA_VOLATILE_WORDS = ("最近", "今天", "今日", "最新", "现在", "刚才", "实时",
+                       "目前", "本周", "这周", "这几天", "近期", "几点", "今天到")
+
+
+def _qhash(question: str) -> str:
+    return hashlib.md5((question or "").strip().encode("utf-8")).hexdigest()
+
+
+def qa_cacheable(question: str) -> bool:
+    """这个问题能不能缓存（含时效词 → 不能）。"""
+    q = (question or "").strip()
+    if len(q) < 4:          # 太短的问题缓存下来没意义，还容易被拒答占位
+        return False
+    return not any(w in q for w in _QA_VOLATILE_WORDS)
+
+
+def qa_cache_get(tenant_key: str, question: str):
+    """命中返回答案文本；未命中/过期/不可缓存 → None。"""
+    if not qa_cacheable(question):
+        return None
+    with db_ctx() as conn:
+        r = conn.execute(
+            "SELECT answer, created_at FROM bot_qa_cache "
+            "WHERE tenant_key=? AND q_hash=?", (tenant_key, _qhash(question))).fetchone()
+        if not r:
+            return None
+        d = dict(r)
+        if now_ts() - int(d["created_at"]) > QA_CACHE_TTL:
+            return None      # 过期视同未命中
+        return d["answer"] or None
+
+
+def qa_cache_put(tenant_key: str, question: str, answer: str) -> None:
+    if not qa_cacheable(question) or not (answer or "").strip():
+        return
+    with db_ctx() as conn:
+        conn.execute(
+            """INSERT INTO bot_qa_cache (tenant_key, q_hash, question, answer, created_at)
+               VALUES (?,?,?,?,?)
+               ON CONFLICT(tenant_key, q_hash) DO UPDATE SET
+                 answer=excluded.answer, created_at=excluded.created_at""",
+            (tenant_key, _qhash(question), (question or "")[:200], answer, now_ts()))
+
+
+def verdict_cache_get(tenant_key: str, product_key: str):
+    """同租户同商品的结论缓存（7 天内直接复用，不重复调 LLM）。"""
+    if not product_key:
+        return None
+    with db_ctx() as conn:
+        r = conn.execute(
+            """SELECT * FROM bot_product_verdicts
+               WHERE tenant_key=? AND product_key=?
+               ORDER BY created_at DESC LIMIT 1""",
+            (tenant_key, product_key)).fetchone()
+        if not r:
+            return None
+        d = dict(r)
+        if now_ts() - int(d["created_at"]) > VERDICT_CACHE_TTL:
+            return None
+        return d
+
+
+def verdict_cache_put(tenant_key: str, product_key: str, name: str = "",
+                      verdict: str = "", why: str = "", md: str = "",
+                      stats: dict = None) -> None:
+    if not product_key:
+        return
+    with db_ctx() as conn:
+        conn.execute(
+            """INSERT INTO bot_product_verdicts
+               (tenant_key, product_key, name, verdict, why, md, stats_json,
+                analyzed_at, created_at)
+               VALUES (?,?,?,?,?,?,?,?,?)""",
+            (tenant_key, product_key, name or "", verdict or "", why or "",
+             md or "", json.dumps(stats or {}, ensure_ascii=False),
+             datetime.date.today().isoformat(), now_ts()))
+
+
+def purge_expired_caches() -> int:
+    """清掉过期的问答缓存（启动时跑一次）。
+
+    ⚠️ 只清 QA 缓存。`bot_product_verdicts` 是**结论档案**不是缓存 ——
+       它记录「哪天、给谁、判了什么结论」，是审计和回溯的依据，不能删。
+       （过期判定在读的时候做：verdict_cache_get 过期视同未命中，
+         同时保留历史行。两者分工：读时判过期、启动时清纯缓存。）
+    """
+    with db_ctx() as conn:
+        cur = conn.execute("DELETE FROM bot_qa_cache WHERE created_at < ?",
+                            (now_ts() - QA_CACHE_TTL,))
+        return cur.rowcount or 0
 
 
 # ---------- 周报（weekly.py 配套：快照/订阅/系统账） ----------
