@@ -20,6 +20,7 @@ from pathlib import Path
 
 from . import db
 from . import executors
+from . import cockpit_link
 
 log = logging.getLogger("daren-bot.weekly")
 
@@ -484,9 +485,10 @@ def _ai_tips(tenant_key: str, name: str, cur: dict, prev: dict,
 # ---------------- 卡片渲染（复用 report_card 视觉体系） ----------------
 
 def render_weekly_card(name: str, douyin_id: str, md: str,
-                       out_path: str) -> str:
+                       out_path: str, link: str = "") -> str:
     from .report_card import (_font, _round, _vgrad, _text_w, W, M,
-                              BLUE, DARK, GRAY, LIGHT, GREEN, ORANGE, RED)
+                              BLUE, DARK, GRAY, LIGHT, GREEN, ORANGE, RED,
+                              _draw_link)
     from PIL import Image, ImageDraw
 
     im = Image.new("RGB", (W, 3000), "white")
@@ -532,6 +534,7 @@ def render_weekly_card(name: str, douyin_id: str, md: str,
         dr.text((M, y), body if body else s, font=_font(26), fill=color)
         y += 42
     y += 20
+    y = _draw_link(dr, y, link)
     dr.text((M, y), "数据来自我们系统 · 每周一自动推送", font=_font(20), fill=GRAY)
     im.crop((0, 0, W, min(y + 60, 3000))).save(out_path)
     return out_path
@@ -572,11 +575,13 @@ def execute_weekly_report(task: dict) -> str:
                 data_cur, data_cur, data_prev, anomalies,
                 dc.recent_picks(tk), str(tmp),
                 collected_at=(cur or {}).get("collected_at", ""),
-                week_label=f"{iso_y} 第 {iso_w} 周")
+                week_label=f"{iso_y} 第 {iso_w} 周",
+                link=cockpit_link.tenant_cockpit_link(tk))
             img = str(tmp)
         else:
             tmp = Path(tempfile.gettempdir()) / f"daren_weekly_{week_no}_{dyid}.png"
-            render_weekly_card(name, dyid, md, str(tmp))
+            render_weekly_card(name, dyid, md, str(tmp),
+                               link=cockpit_link.tenant_cockpit_link(tk))
             img = str(tmp)
     except Exception:
         log.exception("weekly card render failed, text only: %s", dyid)

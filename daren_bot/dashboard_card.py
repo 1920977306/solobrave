@@ -13,7 +13,8 @@ import re
 
 from . import db
 from .report_card import (_font, _round, _vgrad, _text_w, W, M,
-                          BLUE, DARK, GRAY, LIGHT, GREEN, ORANGE, RED, LINE)
+                          BLUE, DARK, GRAY, LIGHT, GREEN, ORANGE, RED, LINE,
+                          _draw_link)
 from .weekly import gmv_mid_wan, _num, _ocr
 
 log = logging.getLogger("daren-bot.dashboard")
@@ -179,14 +180,15 @@ def recent_picks(tenant_key: str, limit: int = 3) -> list:
 
 def render_dashboard(t, cur: dict, prev: dict, anomalies: list,
                      picks: list, out_path: str,
-                     collected_at: str = "", week_label: str = "") -> str:
+                     collected_at: str = "", week_label: str = "",
+                     link: str = "") -> str:
     from PIL import Image, ImageDraw
     ocr = _ocr(cur)
     scores = compute_scores(cur, ocr)
     word = account_verdict(cur, prev, anomalies)
     vcolor, state_tag = VERDICT_META[word]
 
-    im = Image.new("RGB", (W, 2400), "white")
+    im = Image.new("RGB", (W, 2600), "white")
     dr = ImageDraw.Draw(im)
     y = 0
 
@@ -377,12 +379,13 @@ def render_dashboard(t, cur: dict, prev: dict, anomalies: list,
             y += 88 + 14
 
     # 页脚
+    y = _draw_link(dr, y, link)
     dr.text((M, y), "数据来自我们系统 · 每周一自动更新", font=_font(20), fill=GRAY)
     dr.text((M, y + 32), "选品结论会随时间变化，带货前把商品链接重新发我确认一次",
             font=_font(20), fill=GRAY)
     y += 90
 
-    im.crop((0, 0, W, min(y + 20, 2400))).save(out_path)
+    im.crop((0, 0, W, min(y + 20, 2600))).save(out_path)
     return out_path
 
 

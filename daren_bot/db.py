@@ -134,6 +134,22 @@ CREATE TABLE IF NOT EXISTS bot_product_verdicts (
   created_at  INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_pverdict_tenant ON bot_product_verdicts(tenant_key, created_at);
+
+-- 3.8 合作机会推送日志：去重（record_id+tenant_key 唯一）+ 频控（每周≤N条）
+-- 工单 docs/BACKLOG-coop-automation-工单.md 硬要求①
+CREATE TABLE IF NOT EXISTS bot_coop_push_log (
+  id          TEXT PRIMARY KEY,
+  record_id   TEXT NOT NULL,                 -- 飞书合作机会表 record_id
+  tenant_key  TEXT NOT NULL,                 -- 推给了谁
+  brand       TEXT DEFAULT '',               -- 品牌/商家（排查用）
+  category    TEXT DEFAULT '',
+  week_no     INTEGER NOT NULL DEFAULT 0,    -- ISO 周号，频控按周算
+  pushed_at   INTEGER NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_coop_push_uniq
+  ON bot_coop_push_log(record_id, tenant_key);
+CREATE INDEX IF NOT EXISTS idx_coop_push_week
+  ON bot_coop_push_log(tenant_key, week_no);
 """
 
 
@@ -571,3 +587,38 @@ def get_latest_chat_id(tenant_key: str) -> str:
             "SELECT chat_id FROM bot_collect_tasks WHERE tenant_key=? AND chat_id!='' "
             "ORDER BY created_at DESC LIMIT 1", (tenant_key,)).fetchone()
         return r["chat_id"] if r else ""
+
+
+# ---------------- 合作机会推送：去重 + 频控（工单 coop-automation） ----------------
+
+def coop_push_exists(record_id: str, tenant_key: str) -> bool:
+    """这条机会是否已经推过给这个达人（防重复打扰）。"""
+    if not record_id or not tenant_key:
+        return False
+    with db_ctx() as conn:
+        r = conn.execute(
+            "SELECT 1 FROM bot_coop_push_log WHERE record_id=? AND tenant_key=?",
+            (record_id, tenant_key)).fetchone()
+        return r is not None
+
+
+def coop_push_count_week(tenant_key: str, week_no: int) -> int:
+    """该达人本周已收到多少条合作机会（频控：每周至多 N 条）。"""
+    with db_ctx() as conn:
+        r = conn.execute(
+            "SELECT COUNT(*) c FROM bot_coop_push_log "
+            "WHERE tenant_key=? AND week_no=?", (tenant_key, week_no)).fetchone()
+        return int(r["c"])
+
+
+def log_coop_push(record_id: str, tenant_key: str, brand: str = "",
+                  category: str = "", week_no: int = 0) -> None:
+    """记一条推送（去重 + 频控的依据）。"""
+    import uuid
+    with db_ctx() as conn:
+        conn.execute(
+            "INSERT OR IGNORE INTO bot_coop_push_log "
+            "(id, record_id, tenant_key, brand, category, week_no, pushed_at) "
+            "VALUES (?,?,?,?,?,?,?)",
+            (str(uuid.uuid4()), record_id, tenant_key, brand, category,
+             week_no, now_ts()))

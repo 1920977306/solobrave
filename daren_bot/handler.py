@@ -12,7 +12,7 @@ import re
 import time
 from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode
 
-from . import config, db
+from . import config, db, cockpit_link
 
 log = logging.getLogger("daren-bot.handler")
 
@@ -108,7 +108,10 @@ class Router:
         elif msg.message_type == "text":
             text = content.get("text", "")
             m = DOUYIN_IN_TEXT_RE.search(text) or DOUYIN_RE.match(text)
-            if m:
+            if cockpit_link.is_cockpit_url(text):
+                # 达人把自己收到的驾驶舱链接发回来 → 回入口，别当成商品链接扣 20 分
+                self._route_cockpit_link(tenant, chat_id, text, sender)
+            elif m:
                 self._route_douyin(tenant, chat_id, m.group(1), sender,
                                    name_hint=_extract_name_hint(text, m.group(1)))
             elif VIDEO_LINK_RE.search(text):
@@ -143,6 +146,9 @@ class Router:
                 self._route_trial_weekly(tenant, chat_id, text, sender)
             elif len(text.strip()) <= 8 and GREETING_RE.search(text):
                 sender.send_text(chat_id, GREETING_REPLY)
+            elif cockpit_link.is_cockpit_link_question(text):
+                # 驾驶舱入口导航（2026-10-20 交接项①）：零成本，不扣积分
+                self._route_cockpit_link(tenant, chat_id, text, sender)
             else:
                 # 业务问答：入队异步走 LLM（扣 1 积分），超出带货范围由模型拒答
                 self._route_qa(tenant, chat_id, text, sender)
@@ -155,6 +161,25 @@ class Router:
                         tenant["tenant_key"], elapsed)
 
     # ---------- 管理员后门：立即试跑周报（只回管理员，不推达人） ----------
+
+    def _route_cockpit_link(self, tenant, chat_id, text, sender):
+        """驾驶舱入口导航（2026-10-20 交接项①，2026-10-21 补做）。
+
+        **零成本** —— 纯导航不是分析，不该扣积分。
+        链接是达人专属 k（一人一链），只发给他本人。
+        ⚠️ 日志只记 tenant_key，**不打 k**（k 等同于访问密码）。
+        """
+        tk = tenant["tenant_key"]
+        link = cockpit_link.tenant_cockpit_link(tk)
+        if not link:
+            sender.send_text(chat_id,
+                             "你的专属驾驶舱还没开通～联系运营老师开一下就能用啦。")
+            return
+        log.info("cockpit link sent: tenant=%s", tk)
+        sender.send_text(
+            chat_id,
+            f"这是你的专属经营驾驶舱 👇\n{link}\n"
+            "（一人一链接，只给你自己；里面是账号数据、选品建议和合作机会）")
 
     def _route_trial_weekly(self, tenant, chat_id, text, sender):
         tk = tenant["tenant_key"]

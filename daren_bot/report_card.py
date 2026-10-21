@@ -100,9 +100,27 @@ def _wrap(text, font, max_w, draw):
     return lines
 
 
+def _draw_link(dr, y, link, label="你的专属经营驾驶舱"):
+    """页脚画专属驾驶舱链接（超宽自动折行）。
+
+    2026-10-20 交接项①：机器人推送的卡片统一带达人专属链接
+    —— **飞书是门，网页是工作台**（DAREN-ARCHITECTURE.md 三层分工）。
+    链接里带该达人的专属 k（一人一链），只出现在发给本人的卡片上。
+    """
+    if not link:
+        return y
+    dr.text((M, y), label, font=_font(22, True), fill=BLUE)
+    y += 36
+    for wl in _wrap(link, _font(20), W - 2 * M, dr):
+        dr.text((M, y), wl, font=_font(20), fill=BLUE)
+        y += 30
+    return y + 8
+
+
 # ---------------------------------------------------------------- 绘制
 
-def render_card(talent_id: str, douyin_id: str, out_path: str) -> str:
+def render_card(talent_id: str, douyin_id: str, out_path: str,
+                link: str = "") -> str:
     t = _read_talent(talent_id, douyin_id)
     if not t:
         raise RuntimeError("talent not found")
@@ -423,6 +441,7 @@ def render_card(talent_id: str, douyin_id: str, out_path: str) -> str:
     y += 20
     dr.line((M, y, W - M, y), fill=LINE, width=2)
     y += 18
+    y = _draw_link(dr, y, link)
     dr.text((M, y), f"数据来源：AI 带货助手　采集于 {time.strftime('%Y-%m-%d %H:%M')}",
             font=_font(20), fill=GRAY)
     y += 44
@@ -438,7 +457,7 @@ QA_PURPLE = (108, 76, 224)
 
 
 def render_qa_card(question: str, answer: str, talent_name: str = "",
-                   out_path: str = "") -> str:
+                   out_path: str = "", link: str = "") -> str:
     """业务问答可视化卡片：问句引用块 + 回答正文 + 页脚。
 
     渲染失败由调用方回退纯文字推送。
@@ -482,6 +501,7 @@ def render_qa_card(question: str, answer: str, talent_name: str = "",
     y += 14
     dr.line((M, y, W - M, y), fill=LINE, width=2)
     y += 18
+    y = _draw_link(dr, y, link)
     dr.text((M, y), f"全可AI Office　{time.strftime('%Y-%m-%d %H:%M')}",
             font=_font(20), fill=GRAY)
     y += 44

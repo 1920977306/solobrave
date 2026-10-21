@@ -251,7 +251,8 @@ def make_handler(state: dict):
         def do_POST(self):
             u = urlparse(self.path)
             q = parse_qs(u.query)
-            if u.path not in ("/admin/api/grant", "/admin/api/bind"):
+            if u.path not in ("/admin/api/grant", "/admin/api/bind",
+                              "/admin/api/coop-scan"):
                 return self._json(404, {"ok": False, "error": "not found"})
             if not self._auth(q):
                 return self._json(403, {"ok": False, "error": "token 无效"})
@@ -260,6 +261,21 @@ def make_handler(state: dict):
                 body = json.loads(self.rfile.read(length) or b"{}")
             except Exception:
                 return self._json(400, {"ok": False, "error": "请求体必须是 JSON"})
+            if u.path == "/admin/api/coop-scan":
+                # 合作机会扫描：运营改完状态想立刻推用。
+                # ⚠️ 默认 dry_run=true（只决策不推送）——「一按就推」太危险，
+                #    真推必须显式传 {"dry_run": false}。
+                from . import coop_notify
+                dry = body.get("dry_run", True)
+                dry = True if dry is None else bool(dry)
+                try:
+                    stat = coop_notify.scan_and_push(state["ws"], dry_run=dry)
+                except Exception as e:  # noqa: BLE001
+                    log.exception("coop scan failed")
+                    return self._json(500, {"ok": False, "error": str(e)})
+                log.info("admin coop-scan dry_run=%s -> %s", dry,
+                         {k: v for k, v in stat.items() if k != "details"})
+                return self._json(200, {"ok": True, "dry_run": dry, **stat})
             tk = str(body.get("tenant_key") or "").strip()
             if not db.get_tenant(tk):
                 return self._json(400, {"ok": False, "error": f"租户不存在: {tk}"})
