@@ -16,6 +16,8 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+from .product_link import extract_product_id
+
 log = logging.getLogger("daren-bot.executors")
 
 BUYIN_CONTROL = "http://127.0.0.1:8095"          # buyin_worker 控制口
@@ -190,7 +192,7 @@ def _bench(t: dict, key: str):
     tid = t.get("id") or ""
     cache_key = (cat, key)
     if cache_key not in _bench_cache:
-        conn = sqlite3.connect(f"file:{SOLOBRAVE_DB}?mode=ro", uri=True, timeout=10)
+        conn = _ro_conn()
         try:
             if cat:
                 rows = conn.execute(
@@ -644,10 +646,28 @@ def _build_report(talent_id: str, douyin_id: str) -> str:
     return "\n".join(lines)
 
 
+def _ro_conn():
+    """只读连接 solobrave.db。
+
+    ⚠️ 2026-10-21 修复（本文件 + reflow.py 共 5 处同款 bug）：
+      **不要用 `sqlite3.connect(f"file:{DB}?mode=ro", uri=True)`** ——
+      CLT sqlite 3.54 打不开 WAL 库的只读 URI，会抛
+      `OperationalError: unable to open database file`。
+      致命之处不在于报错，而在于**上层 `except Exception` 把异常静默吞掉**：
+      `_talent_context` 因此返回空串 → AI 选品判断和 AI 问答**拿不到任何
+      达人画像，等于盲判**；报告卡/周报同理。全程无日志，所以一直没人发现。
+      正确姿势：**普通连接 + `PRAGMA query_only=ON`**（引擎级禁写，比 mode=ro 更强，
+      且不受 sqlite 版本 × WAL 只读打开限制）。
+    """
+    conn = sqlite3.connect(str(SOLOBRAVE_DB), timeout=10)
+    conn.execute("PRAGMA query_only=ON")
+    return conn
+
+
 def _read_talent(talent_id: str, douyin_id: str):
     if not SOLOBRAVE_DB.is_file():
         return None
-    conn = sqlite3.connect(f"file:{SOLOBRAVE_DB}?mode=ro", uri=True, timeout=10)
+    conn = _ro_conn()
     try:
         conn.row_factory = sqlite3.Row
         if talent_id:
@@ -668,38 +688,153 @@ def _read_talent(talent_id: str, douyin_id: str):
 
 # ---------------- 商品链接采集（达人和商家共用一条链路） ----------------
 
+class ProductNotFound(RuntimeError):
+    """平台确实没有这个商品的数据（已下架 / 不在当前推广池）。
+
+    ★ 单独一类：不是技术故障 —— 重试、换链路（打开商品页让 AI 读正文）
+      都没用（实测商品页正文是「打开抖音APP」壳，product_id 出现 0 次），
+      调用方应据此直接给用户指路：「发个商品截图我照样能看」。
+    """
+
+
 def _buyin_logged_in() -> tuple:
-    """采集器健康检查 → (可达, 团长端已登录)。"""
+    """采集器健康检查 → (可达, 团长端浏览器已启动, 团长端已登录)。
+
+    ★ 为什么多返回「已启动」这一维：Browser.health() 在 ctx is None
+      （懒启动未触发）时返回 (False, False) —— 只看 logged_in 会把
+      「浏览器没开」误判成「登录态过期」，商家收到的是误导性报错。
+      只有「已启动 且 未登录」才是真的登录态失效。
+    """
     try:
         d = _http_json("GET", f"{BUYIN_CONTROL}/health", None, timeout=8)
-        return True, bool(d.get("logged_in"))
+        return True, bool(d.get("browser_up")), bool(d.get("logged_in"))
     except Exception:
-        return False, False
+        return False, False, False
+
+
+def _daren_collect_state() -> tuple:
+    """采集器健康检查 → (可达, 达人端浏览器已启动, 达人端已登录)。
+
+    ★ 注意「浏览器没启动」≠「登录态过期」：Browser.health() 在 ctx is None
+      （懒启动未触发）时返回 (False, False)，只看 logged_in 会误判成掉登录。
+      只有「已启动 且 未登录」才是真的登录态失效。
+    """
+    try:
+        d = _http_json("GET", f"{BUYIN_CONTROL}/health", None, timeout=8)
+        return True, bool(d.get("daren_browser_up")), bool(d.get("daren_logged_in"))
+    except Exception:
+        return False, False, False
+
+
+def collect_product_by_id(product_id: str, timeout: int = 150) -> dict:
+    """商品ID → 结构化商品数据。失败抛 RuntimeError（错误信息可读）。
+
+    ★ 2026-10-21 新增：走达人端「选品广场」商品接口（buyin_worker
+      /collect-product-id → 浏览器页面内 fetch material_list）。
+      接口直接给结构化字段：商品名/主图/三级类目/月销/好评率/近30天销量曲线/
+      佣金费率/佣金费/到手价/店铺名/店铺体验分/带货达人数/优惠标签。
+
+    ★ 为什么不用「打开商品页让 AI 读正文」：实测商品页正文里**没有商品数据**
+      （留存 HTML 389KB，product_id 出现 0 次，只有「打开抖音APP」壳），
+      走这条路 AI 只能瞎编。ID → 接口才是真数据。
+    """
+    pid = str(product_id or "").strip()
+    if not pid:
+        raise RuntimeError("商品ID为空")
+    reachable, up, logged = _daren_collect_state()
+    if not reachable:
+        raise RuntimeError(f"采集器未启动或不可达({BUYIN_CONTROL})，请稍后再试")
+    if up and not logged:
+        raise RuntimeError("达人端采集账号登录态过期了，跟运营老师说一声扫码重登就好")
+    try:
+        res = _http_json("POST", f"{BUYIN_CONTROL}/collect-product-id",
+                         {"product_id": pid, "size": 5})
+    except Exception as e:
+        raise RuntimeError(f"采集器未启动或不可达({BUYIN_CONTROL}): {e}")
+    cid = res.get("collect_id") or ""
+    if not cid:
+        raise RuntimeError(f"采集器未返回任务号: {res}")
+    deadline = time.time() + timeout
+    job = {}
+    while time.time() < deadline:
+        time.sleep(JOB_POLL_INTERVAL)
+        try:
+            job = _http_json("GET", f"{BUYIN_CONTROL}/jobs/{cid}")
+        except Exception:
+            job = {}
+        st = job.get("status") or ""
+        if st in ("done", "failed", "need_login", "not_found"):
+            break
+    st = (job or {}).get("status") or ""
+    if st == "need_login":
+        raise RuntimeError((job or {}).get("error")
+                           or "达人端采集账号登录态过期了，跟运营老师说一声扫码重登就好")
+    if st == "not_found":
+        raise ProductNotFound((job or {}).get("error")
+                              or "平台查不到这个商品（可能已下架，或不在当前推广池）")
+    if st != "done":
+        raise RuntimeError((job or {}).get("error") or "商品查询超时，过会儿再试")
+    try:
+        stats = json.loads((job or {}).get("result") or "{}")
+    except Exception:
+        stats = {}
+    if not stats.get("name"):
+        raise RuntimeError("平台没返回这个商品的名称，发个商品截图给我也行")
+    return stats
 
 
 def collect_product_by_url(url: str, timeout: int = 240) -> dict:
     """商品链接 → 商品字段。失败抛 RuntimeError（错误信息可读）。
 
+    ★ 2026-10-21 链路升级：**先解析商品ID → 走达人端商品接口**。
+      实测商品页（haohuo.jinritemai.com）正文里根本没有商品数据
+      （留存 HTML 389KB，product_id 出现 0 次，只有「打开抖音APP」壳），
+      靠 AI 读正文必然瞎编；ID → 接口才有价格/佣金/月销/类目真值。
+      ID 解析不出来（非抖音商品链接）才回退旧的页面解析链路。
+      ID 解析出来但平台查无此商品（已下架/不在推广池）→ 抛 ProductNotFound，
+      不做无意义回退。
+
     ★ 2026-10-21 抽出为公共函数：原来这段逻辑内嵌在 execute_product_collect 里，
       招商减负页（商家给链接）也要用同一条链路 —— 采集器(浏览器)是**全局单例**，
       两边共用才能避免各自起浏览器抢资源。
 
-    链路：buyin_worker /collect-product-url → 团长端浏览器打开页面 → LLM 结构化提取
+    链路：商品ID → buyin_worker /collect-product-id（达人端接口）→ 结构化真数据；
+      ID 解析不出来才走 /collect-product-url（团长端浏览器打开页面 → LLM 结构化提取）
       → GET /jobs/<cid> 轮询取 result。
 
-    ⚠️ 依赖团长端浏览器登录态（cookie ecom_us_lt_buyin + sessionid）。
+    ⚠️ 依赖浏览器登录态（团长端 cookie ecom_us_lt_buyin + sessionid；
+      达人端 cookie sid_ucp_sso_v1_daren，挂在 buyin-daren-sso 域）。
       未登录会返回 need_login → 这里翻译成可读错误，不静默失败。
     """
     url = (url or "").strip()
     if not url:
         raise RuntimeError("商品链接为空")
+
+    # ★★ 2026-10-21 主链路：**商品ID → 达人端商品接口**（结构化真数据）。
+    #   实测商品页（haohuo.jinritemai.com）正文里根本没有商品数据
+    #   （留存 HTML 389KB，product_id 出现 0 次，只有「打开抖音APP」壳），
+    #   走「AI 读正文」必然瞎编；ID → 接口才有价格/佣金/月销/类目真值。
+    #   ID 解析不出来（非抖音商品链接）才回退旧的页面解析链路。
+    pid = extract_product_id(url)
+    if pid:
+        try:
+            stats = collect_product_by_id(pid)
+            stats.setdefault('resolved_url', url)
+            return stats
+        except ProductNotFound:
+            # 平台没有这个商品（下架/不在推广池）→ 回退也没用，
+            # 直接把可读错误抛上去，让上层指路到「发商品截图」。
+            raise
+        except RuntimeError as e:
+            logging.getLogger(__name__).warning(
+                f"[product] ID 通路失败({pid}) → 回退页面解析链路: {e}")
     # ★ 预检登录态：没登录时 page.goto 会白等 60s 超时、或落到 need_login，
     #   商家端表现为"提交后卡住一分钟才失败"。先查健康接口，秒判。
-    reachable, logged_in = _buyin_logged_in()
+    reachable, up, logged_in = _buyin_logged_in()
     if not reachable:
         raise RuntimeError(f"采集器未启动或不可达({BUYIN_CONTROL})，请稍后再试或改用商品图片")
-    if not logged_in:
-        raise RuntimeError("百应登录态过期了，跟运营老师说一声扫码重登就好")
+    if up and not logged_in:
+        raise RuntimeError("采集账号登录态过期了，跟运营老师说一声扫码重登就好")
     try:
         res = _http_json("POST", f"{BUYIN_CONTROL}/collect-product-url", {"url": url})
     except Exception as e:
@@ -720,7 +855,7 @@ def collect_product_by_url(url: str, timeout: int = 240) -> dict:
             break
     st = (job or {}).get("status") or ""
     if st == "need_login":
-        raise RuntimeError("百应登录态过期了，跟运营老师说一声扫码重登就好")
+        raise RuntimeError("采集账号登录态过期了，跟运营老师说一声扫码重登就好")
     if st != "done":
         raise RuntimeError((job or {}).get("error") or "商品采集超时，过会儿再试")
     try:
@@ -774,29 +909,70 @@ PRODUCT_VERDICT_PROMPT = '''你是抖音电商达人的AI选品顾问。根据�
 
 ## 结论
 第一行只写「🟢 能带」「🟡 慎带」「🔴 别带」其中一个（不要写其他的），第二行用一句话说明理由（不超过30字）
+
+## 判定标准（按顺序判，命中即用）
+- 🟢 能带：①商品类目与该达人主营带货类目一致或高度相关 ②价格落在该达人粉丝消费力主力区间内
+  ③佣金率 ≥ 8%。**三条同时成立就是能带** —— 不要因为"数据还不够多"就降级。
+- 🟡 慎带：只满足其中 1-2 条，或有明确次要冲突（类目弱相关 / 价格带偏低 / 佣金一般）。
+- 🔴 别带：类目明显不相关，或价格明显超出粉丝消费力区间（≥2 倍），或佣金率 < 5%。
+
 ## 匹配分析
-- 价格匹配：商品价格 vs 该达人粉丝消费力
-- 人群匹配：商品目标人群 vs 该达人粉丝画像（性别/年龄/地域）
+- 价格匹配：商品价格 vs 该达人粉丝消费力（引用具体数字，如"¥100-200 段占 26%"）
+- 人群匹配：商品目标人群 vs 该达人粉丝画像（性别/年龄/地域），引用具体数字
 - 佣金评估：佣金率是否有吸引力（没有佣金数据就明说没有，不要编）
+- 类目匹配：商品类目 vs 该达人带货类目分布
+
 ## 行动建议
 - 2-3条具体可执行的建议（怎么讲卖点、适合什么内容形式）
 
 规则：
 1. 有数据必须引用数据；没有的维度明说"没有数据"，绝对不要编造数字。
-2. 如果商品信息里关键字段（价格/佣金）缺失，结论最多给"🟡 慎带"并说明缺什么。'''
+2. **不要因为"某个维度没数据"就把结论降级成慎带** —— 缺哪个维度就在分析里写明"该维度无数据"，
+   结论照常按其余维度判。只有当**多个关键维度同时缺失**（商品信息里价格、佣金、类目几乎全空）时才用「🟡 慎带」。
+3. 结论必须**明确且可复现**：同样的商品和同样的达人数据，要给出同样的结论。
+   不要用"可以先试试""建议小量测试"这类模糊表述代替明确的能带/慎带/别带。
+4. **信号权重**：达人的「带货类目分布」是最强信号（占比压倒性的类目就是ta的带货主场），
+   优先于性别/年龄这类单点分布。类目主场命中时，不要仅凭"男性粉丝偏多"就否决。'''
 
 
 def _product_verdict(tenant_key: str, stats: dict) -> str:
+    """商品 + 达人画像 → 「能带/慎带/别带」结论。
+
+    ⚠️ 2026-10-21 三处修正（老大质疑「AI 判断能力到底是不是对的」的产物）：
+      ① **模型名**：原来写死 `model='glm-4-flash'` —— 智谱 2026-10-18 就被摘除了，
+         这个模型名根本不在任何降级环里（靠软偏好落到 MiniMax-M3）。
+         请求一个已下线的模型 = 语义僵尸，改成不指定（用环默认模型）。
+      ② **温度**：原来吃环默认 temp=1.0（kimi coding 端点的硬要求），
+         而「出结论」需要可复现 → 显式传 temp=0.2。
+         实测 temp=1.0 时同一商品（同义输入）结论在「能带/慎带」之间飘。
+      ③ **失败不伪装成结论**：LLM 两次都失败时原来返回「🟡 慎带（AI 分析暂时没出结果）」
+         —— 这会把「分析没跑」记成「慎带」，污染结论数据、让审计失真。
+         现在明确写成「未出结果」，不占结论位。
+    """
     ctx = _talent_context(tenant_key)
+    # ★ 数据形态契约 ↔ prompt 呈现对齐：stats 是给前端/缓存用的**完整结构**，
+    #   但直接整包塞给 AI 会出事 —— sale_axis 是 30 天日销数组，
+    #   整包进去既烧 token 又把结论带偏（AI 会去数明细）。
+    #   这里只给 AI 看该看的：字段值 + 销量曲线压缩成一行摘要。
+    _skip = {"resolved_url", "main_img", "promotion_id", "sale_axis", "total"}
     lines = [f"- {k}：{v}" for k, v in stats.items()
-             if v and k != "resolved_url"]
+             if v and k not in _skip]
+    axis = stats.get("sale_axis") or []
+    if isinstance(axis, list) and axis:
+        try:
+            qty = [float(x.get("qty") or 0) for x in axis if isinstance(x, dict)]
+            if qty:
+                lines.append(f"- 近{len(qty)}天日销：最高{max(qty):g}、"
+                             f"最低{min(qty):g}、合计{sum(qty):g}")
+        except Exception:
+            pass
     prompt = (PRODUCT_VERDICT_PROMPT
               + "\n【商品信息】\n" + ("\n".join(lines) if lines else "(空)")
               + ("\n【该达人的账号数据】" + ctx if ctx else "\n【该达人的账号数据】暂无"))
     content = ""
     for attempt in (1, 2):
         try:
-            content = _qa_llm(prompt, model='glm-4-flash')
+            content = _qa_llm(prompt, temp=0.2)
         except Exception as e:
             log.warning("product verdict attempt %d failed: %s", attempt, e)
             content = ""
@@ -804,7 +980,8 @@ def _product_verdict(tenant_key: str, stats: dict) -> str:
             break
     ans = content.strip()
     if not ans:
-        return ("## 结论\n🟡 慎带（AI 分析暂时没出结果，可稍后重试）\n\n"
+        # ⚠️ 不要在这里编一个「慎带」出来 —— 那会把「没分析成」记成「慎带」。
+        return ("## 结论\n（AI 分析未出结果，暂不给结论）\n\n"
                 "## 商品信息\n" + ("\n".join(lines) if lines else "- （无）"))
     return ans[:4000]
 
@@ -1122,7 +1299,7 @@ def _zhipu_cfg_daren():
     return base, key
 
 
-def _qa_llm(prompt: str, model: str = '') -> str:
+def _qa_llm(prompt: str, model: str = '', temp: float = None) -> str:
     """问答直连文字模型链：Code 订阅 → kimi moonshot-v1-32k → minimax ×2。
 
     ★ 2026-10-18 老大拍板摘除智谱（余额耗尽 429/1113）。kimi coding 端点
@@ -1137,6 +1314,13 @@ def _qa_llm(prompt: str, model: str = '') -> str:
 
     `model` 参数是**软偏好**（旧代码里被 for 循环变量同名遮蔽，等于一直没生效）：
     该通道支持就用它，不支持就用通道默认模型并记一行日志，不再静默丢弃。
+
+    ⚠️ 2026-10-21 新增 `temp` 参数：**出结论类任务必须低温**。
+    原来所有环固定 temp=1.0（kimi coding 端点的硬要求），
+    而选品结论（能带/慎带/别带）也吃 temp=1.0 →
+    同义输入实测结论会在「能带/慎带」之间飘（"商品偏女性" vs "佣金可观"，
+    结论一个能带一个慎带）→ **同一个商品给用户两个答案**。
+    temp=0.0 时用通道默认值（kimi 仍 1.0），其余通道按传入值。
     """
     rings = _fallback_rings_daren(model)
     if not rings:
@@ -1149,6 +1333,9 @@ def _qa_llm(prompt: str, model: str = '') -> str:
     errors = []
     for idx, ring in enumerate(rings):
         try:
+            # 出结论类任务用低温求可复现；kimi coding 端点强制 temp=1.0，不动它
+            if temp is not None and 'moonshot' not in (ring.get('model') or ''):
+                ring = dict(ring, temp=temp)
             if ring['protocol'] == 'anthropic':
                 out = _call_anthropic(ring, prompt)
             else:
@@ -1538,7 +1725,12 @@ def _talent_context(tk: str) -> str:
                 if tops:
                     parts.append('近期视频: ' + '；'.join(tops))
         return '。'.join(parts)
-    except Exception:
+    except Exception as e:
+        # ⚠️ 2026-10-21：这里原来**静默 return ""** —— 上游 sqlite mode=ro 打不开
+        #   WAL 库的异常被吞掉 → AI 选品判断和 AI 问答拿不到任何达人画像，
+        #   **等于盲判**，且全程无日志 → 没人发现。
+        #   上下文为空是**异常状态**，不是正常情况，必须让人看得见。
+        log.warning("talent_context 读取失败 tenant=%s: %s", tk, e)
         return ""
 
 
@@ -1607,7 +1799,7 @@ def _find_mentioned_peers(tk: str, q: str) -> list:
         tenant = db.get_tenant(tk)
         own_dyid = (tenant or {}).get("bind_douyin_id") or ""
         flat = _re.sub(r'\s+', '', q)          # 去空白后做子串匹配
-        conn = sqlite3.connect(f"file:{SOLOBRAVE_DB}?mode=ro", uri=True, timeout=10)
+        conn = _ro_conn()
         try:
             conn.row_factory = sqlite3.Row
             names = conn.execute(
@@ -1827,7 +2019,7 @@ VIDEO_POLL_INTERVAL = 10
 
 def _video_job_result(job_id: str):
     """读 video_jobs/talent_videos → (status, title, 报告md原文, error)。"""
-    conn = sqlite3.connect(f"file:{SOLOBRAVE_DB}?mode=ro", uri=True, timeout=10)
+    conn = _ro_conn()
     try:
         r = conn.execute("SELECT status, error FROM video_jobs WHERE id=?",
                          (job_id,)).fetchone()

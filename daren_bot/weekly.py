@@ -412,7 +412,7 @@ def build_weekly_md(tenant_key: str, douyin_id: str,
     iso_y, iso_w = week_no // 100, week_no % 100
     L = [f"📈 达人经营周报（{iso_y} 第 {iso_w} 周）",
          f"👤 {name}（抖音号 {douyin_id}）",
-         "数据口径：巨量百应近60天滚动窗口"]
+         "数据口径：平台近60天滚动窗口"]
 
     if missing:
         last = (prev_snap or {}).get("collected_at", "")

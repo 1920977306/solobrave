@@ -336,7 +336,7 @@ def render_dashboard(t, cur: dict, prev: dict, anomalies: list,
         dr.text((M + 40, y + 140),
                 f"已连续采集 {n} / 4 周，攒满 4 周后自动出涨粉折线图",
                 font=_font(24), fill=GRAY)
-        dr.text((M + 40, y + 184), "成交趋势待百应分天粒度接入后上线",
+        dr.text((M + 40, y + 184), "成交趋势待平台分天粒度接入后上线",
                 font=_font(20), fill=GRAY)
     y += 240 + 10
 

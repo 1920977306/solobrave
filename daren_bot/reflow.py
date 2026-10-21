@@ -1,7 +1,12 @@
 """feat/daren-reflow (2026-10-18, 老大已批 daren-reflow-design.md): 采集数据回流 SoloBrave。
 
 三条管道全走 localhost HTTP + X-Internal-Secret 共享密钥, daren_bot 永不直接写
-solobrave.db (executors.py 现有的 mode=ro 隔离是特性, 本模块不破)。
+solobrave.db (executors.py 的只读隔离是特性, 本模块不破)。
+
+⚠️ 2026-10-21：只读连接的**姿势**也改了 —— 原来用
+`sqlite3.connect(f"file:{DB}?mode=ro", uri=True)`，CLT sqlite 3.54 打不开 WAL 库的
+只读 URI（`unable to open database file`），异常被上层静默吞掉 → 达人快照永远取不到。
+现在统一走 `executors._ro_conn()`（普通连接 + `PRAGMA query_only=ON`）。
 
 - 管道 3: 采集成功后把达人快照 JSON 落 bot_collect_tasks.payload (30 天滚动清理在 db.purge_old_payloads)
 - 管道 1: POST /internal/talents/upsert 按 douyin_id 去重回写达人库 10 列白名单
@@ -65,7 +70,7 @@ def _post(path: str, payload: dict):
 def snapshot_from_solobrave(douyin_id: str):
     """从 solobrave talents (ro) 按 douyin_id 取快照; 找不到退回按名字兜底, 都没有返回 None。"""
     cols = ", ".join(_SNAPSHOT_COLUMNS)
-    conn = sqlite3.connect(f"file:{executors.SOLOBRAVE_DB}?mode=ro", uri=True, timeout=10)
+    conn = executors._ro_conn()
     try:
         row = conn.execute(
             f"SELECT {cols} FROM talents WHERE douyin_id = ? AND douyin_id != '' "

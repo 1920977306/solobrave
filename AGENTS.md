@@ -167,3 +167,39 @@ v2 设计系统达人卡视觉(中性头像 / 评级 chip / 待评级虚线态)�
 
 > 扫描器上线时用**负向测试**验过闸门真的会失败(造 4 类真 token → 全部拦下 + exit 1),
 > 不是恒真检查。改扫描逻辑后请重跑一次负向测试。
+
+## 8. 商品数据查询:商品ID → 平台接口(2026-10-21 新增)
+
+**背景**:老大要求「商品链接直接打开没有用 没有数据 必须拿到商品链接上的商品ID
+然后去巨量找这个商品」。实测坐实:商品页正文里**没有商品数据**
+(留存 HTML 389KB,`product_id` 出现 0 次,只有「打开抖音APP」壳),
+所以「打开链接 → AI 读正文」必然瞎编。
+
+**唯一真数据源** = 达人端选品广场接口(契约与 6 个坑见 `daren_cockpit/README.md`
+「商品数据查询」章节,改这块前**先读那一节**):
+
+```
+POST https://buyin.jinritemai.com/pc/selection/common/material_list
+{"scene":"PCSquareSearch","size":N,"search_text":"<商品ID>",...}
+```
+
+### 本项目专属铁律
+
+1. **商品链接采集一律走「解析商品ID → 接口」**(`daren_bot/product_link.py:extract_product_id`
+   + `executors.collect_product_by_id`),不许再写「打开页面让 AI 读正文」当主链路。
+2. **`scene` 只能是 `PCSquareSearch`**。用 `PCSquareFeed` 时 `search_text` 被静默忽略,
+   返回全量流(`total: 2998`)且**不报错** —— 改这个字段等于改坏链路。
+3. **接口调用必须用绝对 URL + 页面在 buyin 域**。相对路径按当前页 origin 解析,
+   页面停在 haohuo/douyinec 域就会打到错域 → 404。
+4. **`code=-2` = 会话失效,不是「商品不存在」**。直接 goto `dashboard` 不触发 SSO 换 session。
+   ⚠️⚠️ **禁止用带 `log_out=1` 的 URL 自动重登**(那是**登出**语义,实测把已有会话注销了)。
+   登录是人工动作 → 引导扫码 → 轮询等待 → 自动续跑;入口 URL 去掉 `log_out`。
+   混淆这两者会把正常商品误报成「已下架」—— 属于把故障写成结论。
+5. **登录态检查要查全部域**(`ctx.cookies()`)。达人端 SSO cookie 挂在
+   `.buyin-daren-sso.jinritemai.com`,只查 `buyin.jinritemai.com` 永远查不到 → 假阴性。
+6. **`/health` 的 `logged_in:false` 可能是「浏览器没启动」**(`Browser.health()` 在
+   `ctx is None` 时返回 `(False,False)`)。判定「登录态过期」必须同时看 `*_browser_up`。
+7. **查不到 ≠ 报错**。平台查无此商品(已下架/不在推广池)走 `ProductNotFound`,
+   **不重试不回退**,直接指路「发个商品截图我照样能看」(vision 链路与浏览器无关,始终可用)。
+8. **stats 是完整结构,prompt 不是**。`_product_verdict()` 禁止把 `stats` 整包塞进 prompt ——
+   30 天日销曲线会烧 token 并带偏结论(已排除并压成一行摘要)。

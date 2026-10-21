@@ -259,13 +259,115 @@ POST /api/apply  →  落本地表 bot_coop_apply（status=pending）→ 立即�
 > 改布局时注意：**inline `onclick` 只能查全局作用域** —— `switchProductBatch()` 写在 `render()` 内部
 > 会变成「点了没反应」。这类函数必须留在顶层。
 
+## 商品数据查询：商品ID → 平台接口（2026-10-21 新增）
+
+### 为什么走这条路
+
+老大原话：「商品链接直接打开没有用 没有数据 必须拿到商品链接上的商品ID 然后去巨量找这个商品」。
+
+**实测坐实了这个判断**：商品页 `haohuo.jinritemai.com/.../detail/index.html?id=<ID>`
+留存 HTML 389KB，`product_id` 出现 **0 次**，正文只有「请使用抖音APP扫码 / 点此进入抖音查看商品信息 /
+检测到当前环境存在安全风险」的壳 —— **页面正文里没有商品数据**。
+所以「打开链接 → AI 读正文」这条路必然瞎编（AI 只能按商品名编价格）。
+
+有数据的是**达人端选品广场的商品接口**，输入商品ID 直接返回结构化真值。
+
+### 接口契约（浏览器上下文实测，非文档推测）
+
+```
+POST https://buyin.jinritemai.com/pc/selection/common/material_list
+Content-Type: application/json
+
+{"scene":"PCSquareSearch","size":5,"search_text":"<商品ID>","cursor":0,
+ "extra":{"new_session_strategy":"1","search_id":"","session_id":"",
+          "use_kol_product":"1","trigger_ids":"","feed_source":"","share_return_scene":""},
+ "filters":{}}
+```
+
+响应 `data.summary_promotions[0].base_model` 里就是商品数据：
+
+| 字段 | 路径 | 实测值 |
+|---|---|---|
+| 商品名 | `product_info.name` | 亲肤不冰被子固定器家用无痕床单… |
+| 到手价 | `marketing_info.price_desc.price.origin`（**单位是分**） | 890 → ¥8.9 |
+| 佣金费 | `promotion_info.cos_info.cos.cos_fee.origin`（分） | 445 → ¥4.45 |
+| 佣金率 | `promotion_info.cos_info.cos.cos_ratio.origin` | 50 → 50% |
+| 月销 | `product_info.month_sale.origin` | 589 |
+| 好评率 | `product_info.good_ratio.origin` | 91.3% |
+| 三级类目 | `product_info.category.first/second/third_category.category_name` | 居家日用 / 收纳整理工具 / 夹子 |
+| 店铺 | `shop_info.shop_name` | 萌乐用品店1号 |
+| 店铺体验分 | `shop_info.shop_score_info.shop_score.score` | 81 |
+| 带货达人数 | `promotion_info.cooper_author_num.origin` | 333 |
+| 近30天日销 | `product_info.sale_axis[]` | `[{x:'20260921',y:7},…]`（30 点） |
+| 优惠标签 | `tag_info.second_tags[].text.text` | 消费券 / 现货 / 包邮 |
+
+> `category` 对外给**一级类目** —— 达人侧的「带货类目分布」用的就是一级类目
+> （服饰内衣/美妆/居家日用…），两边不同层就没法比。二三级另存 `category_second/third`。
+
+### ⚠️ 六个坑（全是实测踩出来的，不是猜的）
+
+1. **`scene` 必须是 `PCSquareSearch`（搜索场景）**。用 `PCSquareFeed`（信息流场景）时
+   `search_text` 被**静默忽略**，返回全量商品流（`total: 2998`）—— 不是你要的商品，**且不报错**。最坑的一个。
+2. **必须用绝对 URL**。相对路径 `/pc/...` 按当前页面 origin 解析 —— 页面若停在 `haohuo`/`douyinec` 域
+   就打到错误的域 → 404。
+3. **必须先落到 buyin 域**（跨域被 CORS 拦；`about:blank` 没有 base URL）。
+   跳转是**连跳**（`mpa/account/login` → sso → `dashboard`），
+   跳转期间执行 evaluate 会抛 `Execution context was destroyed` → 要等 URL **连续两次不变**再动手。
+4. **直接 goto `dashboard` 不会建立会话** → 接口返回 `code=-2 用户未登录`。
+   ⚠️⚠️ **绝对不要用带 `log_out=1` 的 URL 自动「重登」** —— 那是**登出**语义。
+   反复走它会让服务端把已有会话标为失效（实测踩过：cookie 还在本地，
+   但 SSO `check_login` 返回 `subject_has_login:false`，接口全线 `code=-2`）。
+   **登录是人工动作（扫码）**，系统的正确做法是「引导扫码 → 轮询等待 → 自动续跑」；
+   进工作台的入口 URL 要**去掉 `log_out` 参数**（`_enter_daren_workspace()` 干这件事）。
+   ⚠️ `code=-2` 是**会话问题，不是商品查不到** —— 混淆了就会把正常商品误报成「已下架」。
+5. **接口 URL 带 `msToken` + `a_bogus`（抖音请求签名）**，我们自拼的 fetch 拼不出 `a_bogus`
+   → **新会话冷启动时服务端不报错、直接返回空列表**。所以「空」要当「可能没就绪」重试
+   （已做：3 次重试 + 刷新会话 + 必要时 SSO 重建），不能当「商品不存在」直接报错。
+6. **达人端 cookie 在兄弟域**：`sid_ucp_sso_v1_daren` 挂在 `.buyin-daren-sso.jinritemai.com`，
+   只查 `buyin.jinritemai.com` 域**永远查不到** → 假阴性「登录态过期」。（已修：`ctx.cookies()` 查全部域。）
+
+### 推广池边界（业务上要知道）
+
+接口只覆盖**当前在售 / 在推广池**的商品。2022 年的老商品能查到评论
+（`/pc/decision/comment/list?product_id=<ID>` 返 200 有数据）但**选品广场搜不到**。
+
+这种情况抛 `ProductNotFound`（**不是**技术故障）→ 不重试、不回退，直接指路：
+
+> 平台查不到这个商品（可能已下架，或不在当前推广池）—— 发个商品截图我照样能看
+
+（截图走 vision 链路，与浏览器无关，**始终可用**。）
+
+### 端点
+
+| 端点 | 用途 |
+|---|---|
+| `POST /collect-product-id` `{product_id, size}` | 商品ID → 结构化商品数据；排队取 `GET /jobs/<cid>` |
+| `GET /daren-net?limit=N&q=关键字` | **常驻**流量日志（人工在浏览器里手动操作也能抓到接口） |
+| `POST /daren-fetch` `{path, method, body}` | 在达人端页面上下文里 fetch 任意接口（自带登录 cookie） |
+| `POST /probe-product-api` | 探路：进达人工作台 → 抓接口清单 / DOM / 菜单 |
+
+### 代码位置
+
+- `daren_bot/product_link.py` — `extract_product_id(url)`（抖音商品链接里的 19 位数字就是商品ID）
+- `daren_bot/executors.py` — `collect_product_by_id()` / `collect_product_by_url()`（优先 ID 通路）
+- `buyin_worker.py` — `_run_daren_product_impl()` / `_parse_daren_product()` / `_ensure_buyin_page()` / `_daren_sso_relogin()`
+
+### 数据形态契约 ↔ 呈现对齐（别踩）
+
+`stats` 是给前端/缓存用的**完整结构**（含 30 天销量曲线），但 `_product_verdict()`
+**不能把 stats 整包塞进 prompt** —— 30 个日销点会烧 token 还会把结论带偏（AI 会去数明细）。
+已排除 `sale_axis/main_img/promotion_id/resolved_url/total`，并把日销曲线压成一行摘要
+「近30天日销：最高X、最低Y、合计Z」。
+
 ## 已知边界
 
 - 飞书 lark-cli 只能 `--as user`；启动预热只暖 daren_boss + roster
 - echarts 走 unpkg + bootcdn 兜底（jsDelivr 被墙）
 - CLT sqlite 3.54 打不开 WAL 只读 URI → 用普通连接 + `PRAGMA query_only=ON`
-- **商品链接采集依赖团长端浏览器登录态**（`ecom_us_lt_buyin` + `sessionid`）。
-  2026-10-21 实测 `buyin_worker /health` → `logged_in: false` = **登录态已过期**，需人工扫码重登。
-  没登录时 `collect_product_by_url()` **秒判**并抛可读错误（不再白等 60s `page.goto` 超时）。
-  → **商家的图片路径不受影响**（vision 走套餐 key，与浏览器无关），所以「发商品图」始终可用。
+- **商品链接采集现在走「商品ID → 平台接口」**（见上一节），依赖**达人端**浏览器登录态
+  （cookie `sid_ucp_sso_v1_daren`，挂在 `.buyin-daren-sso.jinritemai.com` 域）。
+  ⚠️ `GET /health` 的 `daren_logged_in: false` 可能是「浏览器没启动」而不是「掉登录」——
+  **只有 `daren_browser_up: true` 且 `daren_logged_in: false` 才是真的登录态失效**。
+  旧链路的团长端登录态（`ecom_us_lt_buyin` + `sessionid`）只用于「ID 解析不出来」时的页面解析兜底。
+  → **商家的图片路径始终不受影响**（vision 走套餐 key，与浏览器无关），所以「发商品图」永远可用。
 - 商品图是飞书 attachment 字段，**尚未接入下载通道** → 卡片里 `image` 恒为空（接口已留好）。
