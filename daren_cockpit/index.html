@@ -59,6 +59,25 @@
   .talent-card{display:block;text-decoration:none;color:inherit;border-top:4px solid transparent}
   .tc-优质{border-top-color:var(--green)} .tc-良好{border-top-color:#2f6fed}
   .tc-待观察{border-top-color:var(--amber)} .tc-未评估{border-top-color:#b2b2b2}
+  /* 商品推荐：今日精选网格 + 历史折叠区 */
+  /* ⚠️ grid 列必须写 minmax(0,1fr) 而不是 1fr：1fr 的最小尺寸是 min-content，
+     商品名一长就把列撑破（手机端横向溢出 22px）。minmax(0,1fr) 才是真·可压缩。 */
+  .pgrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+  @media(min-width:560px){.pgrid{grid-template-columns:repeat(3,minmax(0,1fr))}}
+  .pcard{background:#fafafa;border:1px solid var(--line);border-radius:12px;padding:12px;
+    display:flex;flex-direction:column;min-width:0;overflow-wrap:anywhere}
+  .pcard .pn{font-size:14px;font-weight:600;line-height:1.4;
+    display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .pmore{border:1px solid var(--line);border-radius:12px;margin-top:10px;background:#fafafa}
+  .pmore>summary{cursor:pointer;padding:12px 14px;font-size:14px;font-weight:600;
+    list-style:none;display:flex;align-items:center;justify-content:space-between;gap:8px}
+  .pmore>summary::-webkit-details-marker{display:none}
+  .pmore .pbody{padding:0 12px 12px}
+  .pmore .pitem{border-top:1px solid var(--line);padding:10px 2px;min-width:0;overflow-wrap:anywhere}
+  .pmore .pitem:first-child{border-top:0}
+  .swatch{font-size:12px;padding:3px 10px;border-radius:8px;font-weight:500;white-space:nowrap}
+  /* 长文本（合作说明/商品名）必须能断行，否则手机端把整页撑出横向滚动条 */
+  .break{overflow-wrap:anywhere;word-break:break-word;min-width:0}
 </style>
 </head>
 <body>
@@ -70,6 +89,9 @@
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const COOP_FORM = 'https://my.feishu.cn/share/base/shrcntWrz2k7Vx4REmvGW0yLttf';
+/* ★ 招商减负版入口：商家只填 2 项 + （链接|图片|描述）任一，AI 自动补商品字段。
+   飞书分享表单（COOP_FORM）保留为「填完整表」备选，不再是默认入口。 */
+const COOP_APPLY = '/apply';
 
 /* 运营 key：admin 页首次访问输入，存 sessionStorage，所有请求带头 */
 const getOpsKey = () => sessionStorage.getItem('opskey') || '';
@@ -110,8 +132,8 @@ function renderLanding(){
     {href:'', icon:'🧑‍🎤', title:'达人驾驶舱', who:'达人本人视角',
      perms:['自己的粉丝 / GMV / 选品结论','每周采集自动更新','招商合作机会直达'],
      note:'入口在飞书机器人推送的专属链接里，一人一链'},
-    {href:COOP_FORM, icon:'🤝', title:'招商合作', who:'品牌 / 供应商视角',
-     perms:['提交合作意向（佣金预算、类目）','运营评估后匹配给合适达人','达人侧实时可见']},
+    {href:COOP_APPLY, icon:'🤝', title:'招商合作', who:'品牌 / 供应商视角',
+     perms:['2 项必填，商品信息 AI 自动识别','商品链接 / 图片 / 一句话都行','提交后运营评估并匹配给合适达人']},
   ];
   $('#app').innerHTML = `
   <div class="card p-6 text-center mt-4">
@@ -199,6 +221,27 @@ function renderAdmin(d){
     </a>`).join('') || `<div class="empty sub">暂无达人，机器人绑定后自动出现</div>`;
 
   const STATUSES = ['待评估', '有意向', '已合作', '不合适'];
+
+  /* 商家提交（AI 识别）——本地表，飞书同步失败时运营也能看到 */
+  const APPLY_ST = {pending:['待识别','#fdf3e7','#fa9d3b'], parsing:['识别中','#fdf3e7','#fa9d3b'],
+    done:['已识别','#e8f8ef','#05914d'], partial:['部分识别','#fdf3e7','#fa9d3b'],
+    failed:['识别失败','#feecec','#fa5151']};
+  const appliesBlock = (d.applies || []).length ? (d.applies || []).map(a => {
+    const st = APPLY_ST[a.status] || APPLY_ST.pending;
+    return `<div class="flex items-center justify-between py-2 gap-2" style="border-bottom:1px solid var(--line)">
+      <div class="min-w-0">
+        <span class="font-semibold text-sm">${esc(a.brand)}</span>
+        <span class="sub ml-2">${esc(a.contact)}</span>
+        <div class="sub">${esc(a.product_name || a.category || '—')}${a.category && a.product_name ? ' · ' + esc(a.category) : ''}</div>
+        ${a.error ? `<div class="sub" style="color:var(--red)">${esc(a.error)}</div>` : ''}
+      </div>
+      <div class="flex items-center gap-2 shrink-0">
+        <span class="sub">${esc(a.code)}</span>
+        <span class="tag" style="background:${st[1]};color:${st[2]}">${st[0]}</span>
+        ${a.synced ? '<span class="tag" style="background:#e8f0fe;color:#2f6fed">已入管道</span>' : ''}
+      </div>
+    </div>`;
+  }).join('') : `<div class="empty sub">暂无商家提交</div>`;
   const coopRecent = (d.coop_recent || []).map((c, i) => `
     <div class="flex items-center justify-between py-2 gap-2" style="border-bottom:1px solid var(--line)">
       <div class="min-w-0"><span class="font-semibold text-sm">${esc(c.brand)}</span>
@@ -258,7 +301,16 @@ function renderAdmin(d){
   <div class="card p-5">
     <div class="sec-title mb-2">最新合作意向</div>
     ${coopRecent}
-    <a class="btn-green mt-3" style="display:inline-flex" href="${COOP_FORM}" target="_blank">📮 招商合作填表</a>
+    <div class="flex items-center gap-3 mt-3 flex-wrap">
+      <a class="btn-green" style="display:inline-flex" href="${COOP_APPLY}">📮 提交合作意向（减负版）</a>
+      <a class="sub" href="${COOP_FORM}" target="_blank">填完整表 →</a>
+    </div>
+  </div>
+
+  <div class="card p-5">
+    <div class="sec-title mb-2">商家提交（AI 识别）</div>
+    <div class="sub mb-3">商家只填 2 项 + 商品链接/图片/描述，商品字段由 AI 自动补齐</div>
+    ${appliesBlock}
   </div>
   <div class="sub text-center pt-1">口径声明：评分为系统采集评估，GMV 为百应档位口径，仅供参考。</div>`;
 }
@@ -302,38 +354,117 @@ window.addEventListener('resize', () => {
   _rsz = setTimeout(() => _charts.forEach(c => c.resize()), 150);
 });
 
+/* ---------- 商品推荐：今日精选 + 换一批 + 更多（不全量平铺） ----------
+   ⚠️ 2026-10-21 老大反馈「商品一多就一直往下划」→ 改成分层：
+     ① 今日推荐（今天的商品，网格 + 换一批）
+     ② 更多推荐（历史，折叠收起，默认不展开）
+   服务端 d.cards 已从「硬截 [:3] 平铺」改成全量返回。
+   ⚠️ 必须留在**全局作用域**：按钮是 inline onclick= 调用的，函数藏在
+     render() 里会变成"点了没反应"（inline handler 只查全局作用域）。 */
+const _pState = {batch: 0};
+const PAGE_SIZE = 4;
+let _lastData = null;
+
+function productCard(c){
+  const vTag = c.verdict ? `<span class="swatch v-${esc(c.verdict)}">${esc(c.verdict)}</span>`
+    : (c.score !== undefined ? `<span class="swatch" style="background:#f2f2f2;color:#666">匹配 ${c.score}</span>` : '');
+  const meta = [c.price && '价格 ' + esc(c.price), c.comm && '佣金 ' + esc(c.comm),
+    (c.sales !== '' && c.sales !== undefined && c.sales !== 0) && '销量 ' + esc(c.sales)].filter(Boolean).join(' · ');
+  const img = c.image ? `<img src="${esc(c.image)}" alt="" style="width:100%;height:110px;object-fit:cover;border-radius:8px;margin-bottom:8px">` : '';
+  return `<div class="pcard">
+    ${img}
+    <div class="flex items-start justify-between gap-1 mb-1">
+      <span class="pn">${esc(c.name || '未命名商品')}</span>${vTag}
+    </div>
+    ${meta ? `<div class="sub mb-1">${meta}</div>` : ''}
+    ${c.reason ? `<div class="sub" style="line-height:1.5">${esc(c.reason)}</div>` : ''}
+    ${c.date ? `<div class="sub mt-1">${esc(c.date)}</div>` : ''}
+  </div>`;
+}
+
+function drawProducts(d){
+  const zone = document.getElementById('prodZone');
+  if(!zone) return;
+  const all = (d.cards || []).slice();
+  if(!all.length){ zone.innerHTML = `<div class="empty sub">暂无推荐，采集后自动生成</div>`; return; }
+  const today = all.filter(c => c.is_today);
+  const rest  = all.filter(c => !c.is_today);
+  const pool  = today.length ? today : all.slice(0, 3);
+  const pages = Math.max(1, Math.ceil(pool.length / PAGE_SIZE));
+  const b = Math.min(_pState.batch, pages - 1);
+  const slice = pool.slice(b * PAGE_SIZE, b * PAGE_SIZE + PAGE_SIZE);
+  const lastDate = (all.find(c => c.date) || {}).date || '';
+  const head = today.length
+    ? `<div class="flex items-baseline justify-between flex-wrap gap-1 mb-3">
+         <div class="sec-title">今日推荐</div>
+         <div class="sub">${today.length} 件新推荐</div>
+       </div>`
+    : `<div class="flex items-baseline justify-between flex-wrap gap-1 mb-3">
+         <div class="sec-title">最近推荐</div>
+         <div class="sub">今天还没有新推荐 · 最近一次 ${esc(lastDate)}</div>
+       </div>`;
+  const switcher = pages > 1
+    ? `<div class="flex items-center justify-between mt-3">
+         <button class="sub" style="background:none;border:0;color:var(--green-dk);padding:0" onclick="switchProductBatch(-1)">‹ 上一批</button>
+         <span class="sub">第 ${b+1}/${pages} 批</span>
+         <button class="sub" style="background:none;border:0;color:var(--green-dk);padding:0" onclick="switchProductBatch(1)">换一批 ›</button>
+       </div>` : '';
+  const more = rest.length ? `
+    <details class="pmore">
+      <summary><span>更多推荐</span><span class="sub">${rest.length} 件历史</span></summary>
+      <div class="pbody">
+        ${rest.map(c => `<div class="pitem">
+          <div class="flex items-start justify-between gap-2">
+            <span class="pn" style="font-size:13px">${esc(c.name || '未命名商品')}</span>
+            ${c.verdict ? `<span class="swatch v-${esc(c.verdict)}">${esc(c.verdict)}</span>` : ''}
+          </div>
+          <div class="sub mt-1">${[c.price && esc(c.price), c.comm && ('佣金 ' + esc(c.comm)), c.date && esc(c.date)].filter(Boolean).join(' · ')}</div>
+          ${c.reason ? `<div class="sub mt-1">${esc(c.reason)}</div>` : ''}
+        </div>`).join('')}
+      </div>
+    </details>` : '';
+  zone.innerHTML = head + `<div class="pgrid">${slice.map(productCard).join('')}</div>` + switcher + more;
+}
+
+function switchProductBatch(delta){
+  _pState.batch = Math.max(0, _pState.batch + delta);
+  if(_lastData) drawProducts(_lastData);
+}
+
 function render(d){
   const delta = d.fans_delta === null || d.fans_delta === undefined ? '<span class="sub">攒数据中 · 采满 2 次算环比</span>'
     : (d.fans_delta > 0 ? `<span style="color:var(--green-dk)">▲ +${d.fans_delta}</span>`
     : (d.fans_delta < 0 ? `<span style="color:var(--red)">▼ ${d.fans_delta}</span>` : '<span class="sub">本周持平</span>'));
 
-  const cards = (d.cards || []).map(c => {
-    const vTag = c.verdict ? `<span class="tag v-${esc(c.verdict)}">${esc(c.verdict)}</span>`
-      : (c.score !== undefined ? `<span class="tag" style="background:#f2f2f2;color:#666">匹配度 ${c.score}</span>` : '');
-    const meta = [c.price && '价格 ' + esc(c.price), c.comm && '佣金 ' + esc(c.comm),
-      (c.sales !== '' && c.sales !== 0) && '销量 ' + esc(c.sales)].filter(Boolean).join(' · ');
-    return `<div class="rounded-xl p-4 mb-3" style="background:#fafafa;border:1px solid var(--line)">
-      <div class="flex items-center justify-between mb-2 gap-2">
-        <span class="font-semibold">${esc(c.name)}</span>${vTag}
-      </div>
-      ${meta ? `<div class="sub mb-2">${meta}</div>` : ''}
-      ${c.reason ? `<div class="sub leading-relaxed">${esc(c.reason)}</div>` : ''}
-      ${c.date ? `<div class="sub mt-2">推荐日期 ${esc(c.date)} · 来源：百应联盟</div>` : ''}
-    </div>`;
-  }).join('') || `<div class="empty sub">暂无推荐，采集后自动生成</div>`;
-
   const interact = d.interact || {};
   const interTotal = Object.values(interact).reduce((a,b)=>a+b,0);
 
-  const coop = (d.coop || []).map(c => `
-    <div class="rounded-xl p-4 mb-3" style="background:#fafafa;border:1px solid var(--line)">
+  const coopCard = c => `
+    <div class="rounded-xl p-4 mb-3 break" style="background:#fafafa;border:1px solid var(--line)">
       <div class="flex items-center justify-between flex-wrap gap-2">
         <div><span class="font-semibold">${esc(c.brand)}</span>
-        <span class="sub ml-2">${esc(c.contact)}${c.phone ? ' · ' + esc(c.phone) : ''}</span></div>
+          <span class="sub ml-2">${esc(c.contact)}${c.phone ? ' · ' + esc(c.phone) : ''}</span></div>
         <span class="tag st-${esc(c.status)}">${esc(c.status || '待评估')}</span>
       </div>
-      <div class="sub mt-2">${[esc(c.category), esc(c.budget), esc(c.note)].filter(Boolean).join(' · ')}</div>
-    </div>`).join('') || `<div class="empty sub">暂无合作意向 · 把下方按钮发给招商</div>`;
+      <div class="sub mt-2 break">${[esc(c.category), esc(c.budget), esc(c.note)].filter(Boolean).join(' · ')}</div>
+    </div>`;
+  /* 合作机会：同样别一直往下划 —— 默认最近 3 条，其余折叠进「更多合作机会」 */
+  const coopAll = (d.coop || []);
+  const coop = coopAll.length
+    ? coopAll.slice(0, 3).map(coopCard).join('')
+    : `<div class="empty sub">暂无合作意向 · 把下方按钮发给招商</div>`;
+  const coopMore = coopAll.length > 3 ? `
+    <details class="pmore" style="margin-top:0">
+      <summary><span>更多合作机会</span><span class="sub">${coopAll.length - 3} 条</span></summary>
+      <div class="pbody">${coopAll.slice(3).map(c => `
+        <div class="pitem break">
+          <div class="flex items-center justify-between flex-wrap gap-2">
+            <span class="font-semibold text-sm">${esc(c.brand)}</span>
+            <span class="tag st-${esc(c.status)}">${esc(c.status || '待评估')}</span>
+          </div>
+          <div class="sub mt-1">${[esc(c.category), esc(c.budget), esc(c.note)].filter(Boolean).join(' · ')}</div>
+        </div>`).join('')}</div>
+    </details>` : '';
 
   $('#app').innerHTML = `
   <div class="flex items-center justify-between pt-1">
@@ -356,7 +487,7 @@ function render(d){
     <div class="flex items-center justify-between gap-3 flex-wrap">
       <div><div class="sub mb-1">本周一句话</div>
         <div class="font-semibold" style="color:var(--green-dk)">${esc(d.verdict_line)}</div></div>
-      <a class="btn-green" href="${COOP_FORM}" target="_blank">📮 招商合作填表</a>
+      <a class="btn-green" href="${COOP_APPLY}">📮 提交合作意向</a>
     </div>
   </div>
 
@@ -368,7 +499,7 @@ function render(d){
     <div class="card p-4"><div class="sub mb-1">累计带货 GMV</div>
       <div class="kpi-num" style="color:var(--green-dk)">${esc(d.gmv_text)}</div>
       <div class="sub mt-1">百应 60 天窗口 · 档位口径</div></div>
-    <div class="card p-4"><div class="sub mb-1">本周推荐商品</div>
+    <div class="card p-4"><div class="sub mb-1">推荐商品</div>
       <div class="kpi-num">${d.cards.length}<span class="text-base" style="color:var(--sub)"> 件</span></div>
       <div class="sub mt-1" id="verdict-mini"></div></div>
     <div class="card p-4"><div class="sub mb-1">视频带货占比</div>
@@ -396,16 +527,17 @@ function render(d){
   <!-- 选品 -->
   <div class="card p-5">
     <div class="flex items-baseline justify-between mb-4 flex-wrap gap-1">
-      <div class="sec-title">本周选品推荐</div>
-      <div class="sub">结论会随时间变化，以最新日期为准</div>
+      <div class="sec-title">商品推荐</div>
+      <div class="sub">今天的优先 · 历史收在「更多推荐」里</div>
     </div>
-    ${cards}
+    <div id="prodZone"></div>
   </div>
 
   <!-- 合作 -->
   <div class="card p-5">
     <div class="sec-title mb-3">合作机会</div>
     ${coop}
+    ${coopMore}
   </div>
 
   <div class="sub text-center pt-1">口径声明：GMV 为百应档位中值，粉丝为采集时点值；结论仅供参考，选品以最新周报为准。</div>`;
@@ -416,6 +548,9 @@ function render(d){
   const el = $('#verdict-mini');
   if(el) el.innerHTML = ['能带','慎带','别带'].map(v =>
     `<span style="color:${v==='能带'?'var(--green-dk)':v==='慎带'?'var(--amber)':'var(--red)'}">${v} ${vc[v]||0}</span>`).join(' · ');
+  // 商品区分层渲染 + 缓存数据（换一批按钮要重画）
+  _lastData = d;
+  drawProducts(d);
 }
 
 let _charts = [];

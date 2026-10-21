@@ -150,6 +150,36 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_coop_push_uniq
   ON bot_coop_push_log(record_id, tenant_key);
 CREATE INDEX IF NOT EXISTS idx_coop_push_week
   ON bot_coop_push_log(tenant_key, week_no);
+
+-- 3.9 商家招商减负提交（极简表单落地）
+-- 商家只给：品牌 + 联系方式 + （商品链接 | 商品图片 | 一段话描述）任一
+-- 解析结果（商品名/价格/佣金/类目）由后台异步回填；再同步到飞书合作机会表
+-- 走运营既有的「待评估 → 有意向/已合作」管道。
+-- ⚠️ 只丢不造：解析不出来就留空 + status='partial'，绝不编商品字段。
+CREATE TABLE IF NOT EXISTS bot_coop_apply (
+  id             INTEGER PRIMARY KEY AUTOINCREMENT,
+  code           TEXT NOT NULL UNIQUE,            -- 提交编号（AP-XXXXXX），商家凭它查进度
+  brand          TEXT NOT NULL,                   -- 品牌/商家
+  contact        TEXT NOT NULL,                   -- 联系方式（微信/电话，二合一）
+  link           TEXT DEFAULT '',                 -- 商品链接
+  image_path     TEXT DEFAULT '',                 -- 商品图本地路径
+  desc_text      TEXT DEFAULT '',                 -- 一段话描述
+  status         TEXT NOT NULL DEFAULT 'pending', -- pending/parsing/done/partial/failed
+  source         TEXT DEFAULT '',                 -- 解析来源：link/image/desc（多选逗号分隔）
+  product_name   TEXT DEFAULT '',
+  price          TEXT DEFAULT '',
+  commission     TEXT DEFAULT '',
+  sales          TEXT DEFAULT '',
+  category       TEXT DEFAULT '',                 -- 合作类目（用于匹配达人）
+  shop           TEXT DEFAULT '',
+  product_url    TEXT DEFAULT '',                 -- 解析出的真实商品页 URL
+  error          TEXT DEFAULT '',                 -- 解析失败原因（可读，排查用）
+  coop_record_id TEXT DEFAULT '',                 -- 同步到飞书合作机会表后的 record_id
+  created_at     INTEGER NOT NULL,
+  updated_at     INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_coop_apply_created
+  ON bot_coop_apply(created_at DESC);
 """
 
 
@@ -622,3 +652,57 @@ def log_coop_push(record_id: str, tenant_key: str, brand: str = "",
             "VALUES (?,?,?,?,?,?,?)",
             (str(uuid.uuid4()), record_id, tenant_key, brand, category,
              week_no, now_ts()))
+
+
+# ---------------- 商家招商减负提交（极简表单落地） ----------------
+
+def create_coop_apply(code: str, brand: str, contact: str, link: str = "",
+                      image_path: str = "", desc_text: str = "") -> int:
+    """落一条招商提交（status=pending，等后台解析回填）。返回自增 id。"""
+    with db_ctx() as conn:
+        cur = conn.execute(
+            "INSERT INTO bot_coop_apply "
+            "(code, brand, contact, link, image_path, desc_text, status, "
+            " created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?)",
+            (code, brand, contact, link, image_path, desc_text, "pending",
+             now_ts(), now_ts()))
+        return int(cur.lastrowid)
+
+
+def update_coop_apply(code: str, **fields) -> None:
+    """回填解析结果 / 状态。只允许更新白名单列（防 SQL 注入拼错列名）。"""
+    allowed = ("status", "source", "product_name", "price", "commission",
+               "sales", "category", "shop", "product_url", "error",
+               "coop_record_id")
+    sets, vals = [], []
+    for k, v in fields.items():
+        if k not in allowed:
+            continue
+        sets.append(f"{k}=?")
+        vals.append(v)
+    if not sets:
+        return
+    sets.append("updated_at=?")
+    vals.extend([now_ts(), code])
+    with db_ctx() as conn:
+        conn.execute(f"UPDATE bot_coop_apply SET {','.join(sets)} WHERE code=?",
+                     vals)
+
+
+def get_coop_apply(code: str) -> dict:
+    """按提交编号查一条（商家查进度用）。"""
+    if not code:
+        return {}
+    with db_ctx() as conn:
+        r = conn.execute(
+            "SELECT * FROM bot_coop_apply WHERE code=?", (code,)).fetchone()
+        return dict(r) if r else {}
+
+
+def recent_coop_apply(limit: int = 50) -> list:
+    """最近的招商提交（运营工作台看）。"""
+    with db_ctx() as conn:
+        rows = conn.execute(
+            "SELECT * FROM bot_coop_apply ORDER BY created_at DESC LIMIT ?",
+            (int(limit),)).fetchall()
+        return [dict(r) for r in rows]

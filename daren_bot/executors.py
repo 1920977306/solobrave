@@ -666,7 +666,71 @@ def _read_talent(talent_id: str, douyin_id: str):
         conn.close()
 
 
-# ---------------- 未接入（诚实失败路径，spec 4.2/4.3） ----------------
+# ---------------- 商品链接采集（达人和商家共用一条链路） ----------------
+
+def _buyin_logged_in() -> tuple:
+    """采集器健康检查 → (可达, 团长端已登录)。"""
+    try:
+        d = _http_json("GET", f"{BUYIN_CONTROL}/health", None, timeout=8)
+        return True, bool(d.get("logged_in"))
+    except Exception:
+        return False, False
+
+
+def collect_product_by_url(url: str, timeout: int = 240) -> dict:
+    """商品链接 → 商品字段。失败抛 RuntimeError（错误信息可读）。
+
+    ★ 2026-10-21 抽出为公共函数：原来这段逻辑内嵌在 execute_product_collect 里，
+      招商减负页（商家给链接）也要用同一条链路 —— 采集器(浏览器)是**全局单例**，
+      两边共用才能避免各自起浏览器抢资源。
+
+    链路：buyin_worker /collect-product-url → 团长端浏览器打开页面 → LLM 结构化提取
+      → GET /jobs/<cid> 轮询取 result。
+
+    ⚠️ 依赖团长端浏览器登录态（cookie ecom_us_lt_buyin + sessionid）。
+      未登录会返回 need_login → 这里翻译成可读错误，不静默失败。
+    """
+    url = (url or "").strip()
+    if not url:
+        raise RuntimeError("商品链接为空")
+    # ★ 预检登录态：没登录时 page.goto 会白等 60s 超时、或落到 need_login，
+    #   商家端表现为"提交后卡住一分钟才失败"。先查健康接口，秒判。
+    reachable, logged_in = _buyin_logged_in()
+    if not reachable:
+        raise RuntimeError(f"采集器未启动或不可达({BUYIN_CONTROL})，请稍后再试或改用商品图片")
+    if not logged_in:
+        raise RuntimeError("百应登录态过期了，跟运营老师说一声扫码重登就好")
+    try:
+        res = _http_json("POST", f"{BUYIN_CONTROL}/collect-product-url", {"url": url})
+    except Exception as e:
+        raise RuntimeError(f"采集器未启动或不可达({BUYIN_CONTROL}): {e}")
+    cid = res.get("collect_id") or ""
+    if not cid:
+        raise RuntimeError(f"采集器未返回任务号: {res}")
+    deadline = time.time() + timeout     # 开页+提取约1-2分钟，最多等 timeout 秒
+    job = {}
+    while time.time() < deadline:
+        time.sleep(JOB_POLL_INTERVAL)
+        try:
+            job = _http_json("GET", f"{BUYIN_CONTROL}/jobs/{cid}")
+        except Exception:
+            job = {}
+        st = job.get("status") or ""
+        if st in ("done", "failed", "need_login"):
+            break
+    st = (job or {}).get("status") or ""
+    if st == "need_login":
+        raise RuntimeError("百应登录态过期了，跟运营老师说一声扫码重登就好")
+    if st != "done":
+        raise RuntimeError((job or {}).get("error") or "商品采集超时，过会儿再试")
+    try:
+        stats = json.loads((job or {}).get("result") or "{}")
+    except Exception:
+        stats = {}
+    if not stats.get("name"):
+        raise RuntimeError("没能从页面里识别出商品信息，发个商品截图给我也行")
+    return stats
+
 
 def execute_product_collect(task: dict) -> str:
     """商品链接分析：缓存命中直接用缓存；未命中调 buyin_worker /collect-product-url
@@ -687,36 +751,7 @@ def execute_product_collect(task: dict) -> str:
                 stats = None
 
     if stats is None:
-        try:
-            res = _http_json("POST", f"{BUYIN_CONTROL}/collect-product-url",
-                             {"url": product_key})
-        except Exception as e:
-            raise RuntimeError(f"采集器未启动或不可达({BUYIN_CONTROL}): {e}")
-        cid = res.get("collect_id") or ""
-        if not cid:
-            raise RuntimeError(f"采集器未返回任务号: {res}")
-        deadline = time.time() + 240      # 开页+提取约1-2分钟，最多等4分钟
-        job = {}
-        while time.time() < deadline:
-            time.sleep(JOB_POLL_INTERVAL)
-            try:
-                job = _http_json("GET", f"{BUYIN_CONTROL}/jobs/{cid}")
-            except Exception:
-                job = {}
-            st = job.get("status") or ""
-            if st in ("done", "failed", "need_login"):
-                break
-        st = (job or {}).get("status") or ""
-        if st == "need_login":
-            raise RuntimeError("百应登录态过期了，跟运营老师说一声扫码重登就好")
-        if st != "done":
-            raise RuntimeError((job or {}).get("error") or "商品采集超时，过会儿再试")
-        try:
-            stats = json.loads((job or {}).get("result") or "{}")
-        except Exception:
-            stats = {}
-        if not stats.get("name"):
-            raise RuntimeError("没能从页面里识别出商品信息，发个商品截图给我也行")
+        stats = collect_product_by_url(product_key, timeout=240)
         # 写商品共享缓存（全平台达人共用，TTL 7 天）
         try:
             _db.cache_put(product_key,
@@ -834,6 +869,28 @@ def _kimi_cfg():
     return base, key
 
 
+def _img_mime(b64: str) -> str:
+    """按 base64 载荷的 magic bytes 判真实 MIME。
+
+    ⚠️ 原实现硬写 'data:image/jpeg;base64,' —— 但商家上传的截图可能是 PNG/WebP。
+    MiniMax 容忍（实测 PNG 标 jpeg 也能读出来），但严格的多模态后端会拒收
+    或错判格式 → 别靠「对方宽容」当正确性。
+    """
+    try:
+        raw = base64.b64decode(b64[:64] + '==', validate=False)
+    except Exception:
+        return 'image/jpeg'
+    if raw.startswith(b'\x89PNG'):
+        return 'image/png'
+    if raw.startswith(b'RIFF') and raw[8:12] == b'WEBP':
+        return 'image/webp'
+    if raw.startswith(b'\xff\xd8\xff'):
+        return 'image/jpeg'
+    if raw.startswith(b'GIF8'):
+        return 'image/gif'
+    return 'image/jpeg'
+
+
 def _vision_try(base: str, key: str, model: str, b64: str,
                 temperature: float = 0.1) -> dict:
     """OpenAI 协议的 vision 调用，返回提取字段（无 name 返回 {}）。
@@ -845,7 +902,7 @@ def _vision_try(base: str, key: str, model: str, b64: str,
             'messages': [{'role': 'user', 'content': [
                 {'type': 'text', 'text': VISION_PRODUCT_PROMPT},
                 {'type': 'image_url',
-                 'image_url': {'url': f'data:image/jpeg;base64,{b64}'}},
+                 'image_url': {'url': f'data:{_img_mime(b64)};base64,{b64}'}},
             ]}],
             'temperature': temperature,
             'max_tokens': 1500,
@@ -855,45 +912,89 @@ def _vision_try(base: str, key: str, model: str, b64: str,
         method='POST')
     with urllib.request.urlopen(req, timeout=120) as resp:
         data = json.loads(resp.read().decode())
+    # ⚠️ 同款「HTTP 200 ≠ 成功」：MiniMax 会在 body 里塞 base_resp.status_code
+    #   （1008 insufficient balance 等）而状态码仍是 200 —— 只看 HTTP 会把它
+    #   当成成功，然后解析出一个空 content → 报"没识别出商品"，把余额问题
+    #   伪装成识别问题，排查方向直接跑偏。
+    bresp = data.get('base_resp') or {}
+    if bresp.get('status_code'):
+        raise RuntimeError(str(bresp.get('status_msg') or bresp.get('status_code')))
     content = (data.get('choices') or [{}])[0].get('message', {}).get('content') or ''
-    return _extract_json_obj(content)
+    return _extract_json_obj(_strip_think(content))
+
+
+# 套餐 key 走 OpenAI 协议的 vision base（2026-10-21 实测 MiniMax-M3 能读图）
+CP_VISION_BASE = 'https://api.minimaxi.com/v1'
+CP_VISION_MODELS = ('MiniMax-M3', 'MiniMax-M3.1-Flash')
+
+
+def _vision_rings() -> list:
+    """vision 降级环（按凭据稳定性排）。
+
+    ⚠️ 2026-10-21：vision 链曾**全灭**（kimi 429 月度上限 + 开放平台 402 余额 0），
+    而「商家发商品图」是招商减负方案的地基（不依赖团长端浏览器登录态）——
+    链断了整条路就废了。所以套餐 key（唯一有额度的长期凭据）必须排在最前。
+
+    环序理由与问答降级链一致（见 _fallback_rings_daren）：
+      环 0：套餐 key（sk-cp-…，长期凭据，唯一有额度）★ 新增
+      环 1：kimi vision（moonshot-v1-8k-vision-preview，当前 429）
+      环 2：minimax 开放平台（sk-api-…，当前 402 余额 0）
+    """
+    rings = []
+
+    # ---- 环 0：MiniMax 套餐 API（唯一有额度的长期凭据）----
+    cp_key = _env_api_key('MINIMAX_CP_API_KEY')
+    if cp_key:
+        rings.append({'label': 'minimax-cp', 'base': CP_VISION_BASE, 'key': cp_key,
+                      'model': CP_DEFAULT_MODEL, 'temp': 1.0})
+    else:
+        log.warning("[vision] 套餐 API: .env 无 MINIMAX_CP_API_KEY → 该环跳过")
+
+    # ---- 环 1：kimi 视觉 ----
+    try:
+        base, key = _kimi_cfg()
+        rings.append({'label': 'kimi', 'base': base, 'key': key,
+                      'model': 'moonshot-v1-8k-vision-preview', 'temp': 1.0})
+    except Exception as e:
+        log.warning("[vision] kimi 不可用: %s", e)
+
+    # ---- 环 2：minimax 开放平台 ----
+    try:
+        base, key = _minimax_cfg()
+        rings.append({'label': 'minimax-open', 'base': base, 'key': key,
+                      'model': 'MiniMax-M3.1-Flash-Preview', 'temp': 1.0})
+    except Exception as e:
+        log.warning("[vision] minimax 开放平台不可用: %s", e)
+
+    return rings
 
 
 def _vision_extract_product(b64: str) -> dict:
-    """商品截图 → vision 结构化字段。kimi 视觉优先，退 minimax M3 系列。
-    ★ 2026-10-18 老大拍板摘除智谱（余额耗尽 429/1113）。"""
-    last_err = ""
-    # 第一梯队：kimi 视觉
-    try:
-        base, key = _kimi_cfg()
-        d = _vision_try(base, key, 'moonshot-v1-8k-vision-preview', b64,
-                        temperature=1.0)
-        if d.get('name'):
-            log.info("vision via kimi")
-            return d
-        last_err = "kimi no-name output"
-    except Exception as e:
-        last_err = str(e)
-        log.warning("vision kimi failed: %s", e)
-    # 第二梯队：minimax M3 系列（新套餐原生多模态）
-    try:
-        base, key = _minimax_cfg()
-        for model in ('MiniMax-M3.1-Flash-Preview', 'MiniMax-M3'):
-            try:
-                d = _vision_try(base, key, model, b64, temperature=1.0)
-            except Exception as e:
-                last_err = str(e)
-                log.warning("vision minimax(%s) failed: %s", model, e)
-                continue
+    """商品截图 → vision 结构化字段。降级环：套餐 key → kimi → minimax 开放平台。
+    ★ 2026-10-18 老大拍板摘除智谱（余额耗尽 429/1113）。
+    ★ 2026-10-21 套餐 key 提到环 0（唯一有额度的长期凭据；kimi 429 / 开放平台 402）。"""
+    rings = _vision_rings()
+    if not rings:
+        raise RuntimeError('AI 视觉暂时不可用（没有可用通道），可以换一张清晰截图，'
+                           '或直接发商品链接')
+    errors = []
+    for idx, ring in enumerate(rings):
+        try:
+            d = _vision_try(ring['base'], ring['key'], ring['model'], b64,
+                            temperature=ring['temp'])
             if d.get('name'):
-                log.info("vision via minimax(%s) fallback", model)
+                log.info("[vision] 命中环%d channel=%s model=%s base=%s",
+                         idx, ring['label'], ring['model'], ring['base'])
                 return d
-            last_err = f"{model} no-name output"
-    except Exception as e:
-        last_err = str(e)
-        log.warning("minimax cfg failed: %s", e)
-    raise RuntimeError('AI 视觉暂时不可用或没识别出商品（%s），可以换一张清晰截图，或直接发商品链接'
-                       % last_err[:120])
+            errors.append(f"{ring['label']} no-name output")
+            log.warning("[vision] 环%d %s 没识别出商品名", idx, ring['label'])
+        except Exception as e:
+            errors.append(f"{ring['label']}: {str(e)[:80]}")
+            log.warning("[vision] 环%d %s 失败: %s", idx, ring['label'], e)
+    # 全链失败：错误信息必须可读 —— 原来只留最后一个错误，看不出是额度问题
+    # 还是识别问题（kimi 429 / 402 会被伪装成"没识别出商品"）。
+    raise RuntimeError('AI 视觉暂时不可用或没识别出商品（%s），可以换一张清晰截图，'
+                       '或直接发商品链接' % ' | '.join(errors)[:200])
 
 
 def execute_image_vision(task: dict) -> str:

@@ -10,6 +10,7 @@
 """
 import argparse
 import json
+import logging
 import re
 import sqlite3
 import subprocess
@@ -23,9 +24,11 @@ from urllib.parse import urlparse, parse_qs
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT.parent))  # 引入 daren_bot
 from daren_bot import config, db as botdb  # noqa: E402
+from daren_cockpit import apply as apply_mod  # noqa: E402
 
 SOLOBRAVE_DB = config.ROOT / "data" / "solobrave.db"
 TEMPLATE = (ROOT / "index.html").read_text(encoding="utf-8")
+APPLY_TEMPLATE = (ROOT / "apply.html").read_text(encoding="utf-8")
 
 DEMO_BASE = "MZEdbVJMeah4x9sYYzncuhnbnnb"   # 样板库（合作机会）
 COOP_TABLE = "tblolFFeJTNfyInn"
@@ -344,22 +347,33 @@ def load_cockpit(tenant_key: str):
             t = str(r.get("类型") or "其他")
             interact[t] = interact.get(t, 0) + 1
 
-    # 飞书：tenant products（带结论的选品，优先于本地匹配）
+    # 飞书：tenant products（带结论的选品）
+    # ⚠️ 2026-10-21 改版：原来硬截 [:3] 平铺，商品一多就得一直往下划。
+    #   现在**全量返回**（上限 60 条控 payload），前端按「今日精选 / 换一批 / 更多」分层展示。
+    #   is_today 由服务端按本地日期算 —— 「今天的商品推荐」是老大明确要的锚点。
     cards = []
     rows = bundle.get("products")
+    today_str = time.strftime("%Y-%m-%d")
     if rows:
-        for r in sorted(rows, key=lambda x: str(x.get("日期") or ""), reverse=True)[:3]:
+        for r in sorted(rows, key=lambda x: str(x.get("日期") or ""), reverse=True)[:60]:
             v = r.get("结论") or ""
             v = v[0] if isinstance(v, list) else str(v)
+            d = _fmt_date(r.get("日期"))
             cards.append({
                 "name": str(r.get("商品名") or ""), "verdict": v,
                 "price": str(r.get("价格") or ""),
                 "comm": str(r.get("佣金率") or ""),
                 "sales": str(r.get("销量") or ""),
                 "reason": _clean_reason(r.get("匹配理由")),
-                "date": _fmt_date(r.get("日期")),
+                "date": d,
+                "is_today": bool(d) and d == today_str,
+                "image": "",          # 商品图是 attachment 字段，暂未接入下载通道
             })
     if not cards:
+        for p in products_local:
+            p.setdefault("image", "")
+            p["is_today"] = False
+            p["date"] = p.get("date") or ""
         cards = products_local
 
     # 飞书：样板库合作机会
@@ -493,6 +507,25 @@ def load_roster():
     for t in tenants:
         bands[t["band"]] = bands.get(t["band"], 0) + 1
     total_fans = sum(t["fans"] for t in tenants)
+
+    # 商家招商减负提交（本地表）：飞书同步失败时运营也能看到提交 + 解析状态
+    applies = []
+    try:
+        for r in botdb.recent_coop_apply(20):
+            applies.append({
+                "code": r.get("code", ""),
+                "brand": r.get("brand", ""),
+                "contact": r.get("contact", ""),
+                "status": r.get("status", "pending"),
+                "product_name": r.get("product_name", ""),
+                "category": r.get("category", ""),
+                "error": r.get("error", "")[:120],
+                "synced": bool(r.get("coop_record_id")),
+                "date": _fmt_date(r.get("created_at") * 1000 if r.get("created_at") else 0),
+            })
+    except Exception:
+        pass
+
     return {
         "tenants": tenants,
         "kpi": {"talents": len(tenants),
@@ -503,6 +536,7 @@ def load_roster():
         "bands": bands,
         "coop_pipe": pipe,
         "coop_recent": coop_recent[:5],
+        "applies": applies,
         "updated": time.strftime("%Y-%m-%d %H:%M"),
     }
 
@@ -525,6 +559,17 @@ class Handler(BaseHTTPRequestHandler):
         u = urlparse(self.path)
         if u.path in ("/", "/index.html"):
             self._send(200, TEMPLATE)
+        elif u.path == "/apply":
+            self._send(200, APPLY_TEMPLATE)
+        elif u.path == "/api/apply/status":
+            code = parse_qs(u.query).get("code", [""])[0]
+            row = apply_mod.apply_status(code)
+            if not row:
+                self._send(404, json.dumps({"ok": False, "error": "没查到这个编号"}),
+                           "application/json; charset=utf-8")
+                return
+            self._send(200, json.dumps({"ok": True, **row}, ensure_ascii=False),
+                       "application/json; charset=utf-8")
         elif u.path == "/manifest.webmanifest":
             self._send(200, (ROOT / "manifest.webmanifest").read_bytes(),
                        "application/manifest+json")
@@ -576,7 +621,33 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         u = urlparse(self.path)
-        if u.path == "/api/coop/status":
+        if u.path == "/api/apply":
+            try:
+                n = int(self.headers.get("Content-Length") or 0)
+                if n > 20 * 1024 * 1024:
+                    self._send(413, json.dumps({"ok": False, "error": "内容太大"}),
+                               "application/json; charset=utf-8")
+                    return
+                body = json.loads(self.rfile.read(n).decode("utf-8") or "{}")
+            except Exception:
+                self._send(400, json.dumps({"ok": False, "error": "bad json"}),
+                           "application/json; charset=utf-8")
+                return
+            ip = self.client_address[0] if self.client_address else ""
+            code, err = apply_mod.submit_apply(
+                brand=str(body.get("brand") or ""),
+                contact=str(body.get("contact") or ""),
+                link=str(body.get("link") or ""),
+                desc=str(body.get("desc") or ""),
+                image_b64=str(body.get("image") or ""),
+                ip=ip)
+            if not code:
+                self._send(400, json.dumps({"ok": False, "error": err or "提交失败"}),
+                           "application/json; charset=utf-8")
+                return
+            self._send(200, json.dumps({"ok": True, "code": code}, ensure_ascii=False),
+                       "application/json; charset=utf-8")
+        elif u.path == "/api/coop/status":
             if not _is_ops(self):
                 self._send(403, json.dumps({"ok": False, "error": "unauthorized"}),
                            "application/json; charset=utf-8")
@@ -602,6 +673,13 @@ def main():
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=7100)
     args, _ = ap.parse_known_args()
+    # ⚠️ 2026-10-21：不配 logging 的话，apply.py / executors.py 里的
+    #   log.info/log.warning 全是哑弹 —— 招商提交解析失败时**日志里一行都没有**，
+    #   表现成"功能静默不工作"，排查时完全瞎。必须显式开日志。
+    logging.basicConfig(
+        level=logging.INFO,
+        format="[%(asctime)s] %(name)s %(levelname)s %(message)s",
+        stream=sys.stdout)
     srv = ThreadingHTTPServer((args.host, args.port), Handler)
     # 启动即后台预热默认租户缓存——第一个访问者也不吃冷启动
     threading.Thread(target=_warm_cache, daemon=True).start()

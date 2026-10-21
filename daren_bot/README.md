@@ -87,6 +87,38 @@ python3 -m venv .venv-daren          # 仓库根目录执行（已建好）
   没有这行就看不出「套餐环失灵、静默降级到 kimi」这类故障
   （跳过警告只在该环被跳过时才打）
 
+### vision 降级环（2026-10-21 重排）
+
+vision 链曾**全灭**（kimi 429 月度上限 + 开放平台 402 余额 0），而「商家发商品图」
+是招商减负方案的地基（**不依赖团长端浏览器登录态**）—— 链断了整条路就废了。
+
+| 环 | 通道 | 凭据 | 状态（2026-10-21 实测） |
+|---|---|---|---|
+| 0 | `api.minimaxi.com/v1`（OpenAI 协议）`MiniMax-M3` | `.env` `MINIMAX_CP_API_KEY`（套餐 key） | ✅ **唯一有额度，3.8s 出结果** |
+| 1 | kimi `moonshot-v1-8k-vision-preview` | OpenClaw key store | ❌ 401 |
+| 2 | `api.minimaxi.com/v1` 开放平台 | `sk-api-…` | ❌ 401 |
+
+实现要点：
+
+- **环序按凭据稳定性排**（与问答降级链一致）：套餐 key 是长期凭据 → 排环 0
+- `_vision_try()` 补了 `base_resp.status_code` 检查：**HTTP 200 不代表成功**，
+  MiniMax 会在 body 里塞 1008（余额不足）——只看状态码会把它伪装成「没识别出商品」，
+  把余额问题伪装成识别问题，排查方向直接跑偏
+- **MIME 按 magic bytes 判**（`_img_mime`）：原来硬写 `data:image/jpeg`，商家传 PNG 就标错格式
+- **全链失败时错误信息必须可读**：逐环列出失败原因（原来只留最后一个）
+- 抽出的公共函数 `collect_product_by_url(url, timeout)`：链接采集链路（达人和商家共用），
+  **前置检查登录态**——没登录时秒判报错，不再白等 60s `page.goto` 超时
+
+实测（合成商品图）：
+
+```
+name='轻便折叠登山杖 铝合金伸缩款' price='¥59.9' commission_rate='20%'
+sales='8600件' category='户外装备 / 登山杖'
+```
+
+喂一张**抖音首页**截图（不是商品图）时，模型返回全空字段并拒绝编造 → 判定为 no-name，
+继续下一环。**这是正确行为**（诚实失败），不是 bug。
+
 ### 排障
 
 ```bash

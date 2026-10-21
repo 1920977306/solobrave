@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>提交合作意向 · 达人经营工作台</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#07c160">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="合作申请">
+<style>
+  :root{
+    --bg:#ededed; --card:#fff; --line:#f0f0f0;
+    --txt:#191919; --sub:#888;
+    --green:#07c160; --green-dk:#05914d; --green-bg:#e8f8ef;
+    --amber:#fa9d3b; --red:#fa5151;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  body{background:var(--bg);color:var(--txt);margin:0;
+       font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;
+       padding:16px 14px 40px;line-height:1.55}
+  .wrap{max-width:560px;margin:0 auto}
+  h1{font-size:22px;font-weight:700;margin:6px 0 4px}
+  .sub{color:var(--sub);font-size:13px}
+  .card{background:var(--card);border-radius:16px;padding:18px 16px;margin-top:12px}
+  label{display:block;font-size:14px;font-weight:600;margin:0 0 7px}
+  .req{color:var(--red);margin-left:3px}
+  input[type=text],textarea{width:100%;border:1px solid #e3e3e3;border-radius:10px;
+    padding:11px 12px;font-size:15px;font-family:inherit;background:#fafafa;outline:none}
+  input[type=text]:focus,textarea:focus{border-color:var(--green);background:#fff}
+  textarea{resize:vertical;min-height:72px}
+  .field{margin-bottom:18px}
+  .hint{font-size:12px;color:var(--sub);margin-top:6px}
+  .divider{display:flex;align-items:center;gap:10px;margin:22px 0 16px;
+    font-size:12px;color:var(--sub)}
+  .divider:before,.divider:after{content:"";flex:1;height:1px;background:var(--line)}
+  .divider b{color:var(--amber);font-weight:600}
+  .filebtn{display:flex;align-items:center;justify-content:center;gap:8px;
+    width:100%;padding:16px;border:1px dashed #d5d5d5;border-radius:10px;
+    background:#fafafa;color:var(--sub);font-size:14px;cursor:pointer}
+  .filebtn:active{background:#f2f2f2}
+  input[type=file]{display:none}
+  #preview{margin-top:10px;display:none}
+  #preview img{max-width:100%;max-height:220px;border-radius:10px;display:block}
+  #preview .rm{margin-top:8px;font-size:13px;color:var(--red);background:none;border:0;padding:0}
+  .btn{width:100%;display:block;border:0;border-radius:999px;background:var(--green);
+    color:#fff;font-size:16px;font-weight:600;padding:14px;cursor:pointer;
+    box-shadow:0 3px 10px rgba(7,193,96,.28)}
+  .btn:disabled{opacity:.55;box-shadow:none}
+  .err{color:var(--red);font-size:13px;margin-top:8px;display:none}
+  .ok{display:none;text-align:center;padding:8px 0 4px}
+  .code{font-size:22px;font-weight:700;letter-spacing:1px;margin:8px 0}
+  .status{font-size:13px;color:var(--sub);margin-top:6px}
+  .status .s-pending,.status .s-parsing{color:var(--amber)}
+  .status .s-done{color:var(--green-dk)}
+  .status .s-partial,.status .s-failed{color:var(--red)}
+  .found{margin-top:12px;padding:12px;border-radius:10px;background:var(--green-bg);
+    text-align:left;font-size:13px}
+  .found .n{font-weight:700;font-size:15px;margin-bottom:3px}
+  .back{display:block;text-align:center;margin-top:18px;font-size:13px;color:var(--sub);
+    text-decoration:none}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div style="text-align:center;padding:10px 0 4px">
+    <h1>提交合作意向</h1>
+    <div class="sub">2 项必填 · 其余给一项就行 · 约 10 秒提交</div>
+  </div>
+
+  <div class="card" id="formCard">
+    <div class="field">
+      <label for="brand">品牌 / 商家<span class="req">*</span></label>
+      <input type="text" id="brand" placeholder="例：山货零食旗舰店" autocomplete="organization">
+      <div class="err" id="err-brand"></div>
+    </div>
+    <div class="field">
+      <label for="contact">联系方式<span class="req">*</span></label>
+      <input type="text" id="contact" placeholder="微信号或手机号都行" autocomplete="tel">
+      <div class="hint">留一个能联系到你的方式就行</div>
+      <div class="err" id="err-contact"></div>
+    </div>
+
+    <div class="divider">下面<b>任给一项</b>，我们帮你识别商品</div>
+
+    <div class="field">
+      <label for="link">商品链接</label>
+      <input type="text" id="link" placeholder="粘贴商品链接（淘宝 / 抖音 / 拼多多都行）">
+    </div>
+    <div class="field">
+      <label for="file">商品图片</label>
+      <label class="filebtn" for="file">📷 拍照或选一张商品图</label>
+      <input type="file" id="file" accept="image/*">
+      <div id="preview">
+        <img id="pv" alt="商品图预览">
+        <button class="rm" id="rmimg" type="button">移除图片</button>
+      </div>
+    </div>
+    <div class="field">
+      <label for="desc">商品描述</label>
+      <textarea id="desc" placeholder="一句话就行，例：休闲零食，佣金 20% 起，想约两场直播带货"></textarea>
+    </div>
+
+    <button class="btn" id="submit">提交</button>
+    <div class="err" id="err-form"></div>
+    <div class="hint" style="text-align:center;margin-top:12px">
+      提交后运营会在 1 个工作日内联系你
+    </div>
+  </div>
+
+  <div class="card ok" id="okCard">
+    <div style="font-size:34px">✅</div>
+    <div class="code" id="okCode">AP-000000</div>
+    <div class="sub" id="okMsg">已收到！我们正在识别商品信息</div>
+    <div class="status" id="okStatus"></div>
+    <div class="found" id="okFound" style="display:none"></div>
+    <a class="btn" href="/apply" style="margin-top:18px;background:#fff;color:var(--green-dk);
+       box-shadow:none;border:1px solid var(--green)">再提一条</a>
+    <a class="back" href="/">‹ 返回工作台</a>
+  </div>
+
+  <div class="card" id="queryCard">
+    <div class="sec-title" style="font-size:15px;font-weight:600;margin-bottom:10px">查提交进度</div>
+    <div style="display:flex;gap:8px">
+      <input type="text" id="qcode" placeholder="提交编号 AP-XXXXXX" style="flex:1">
+      <button class="btn" id="qbtn" style="width:auto;padding:11px 18px;font-size:14px">查询</button>
+    </div>
+    <div class="status" id="qstatus"></div>
+  </div>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const STATUS_TEXT = {
+  pending:'已收到，等待识别', parsing:'正在识别商品信息…', done:'商品信息已识别',
+  partial:'部分信息已识别（看下方）', failed:'商品信息识别失败，运营会人工看'
+};
+
+let imgData = '';   // {name, dataUrl}
+
+/* 图片：客户端压缩（长边 ≤1400px，JPEG q0.85）——
+   ① 手机原图动辄 4MB，base64 后 5MB+，上传慢且拖垮 vision；
+   ② 压完 vision 更快更准。 */
+$('#file').addEventListener('change', e => {
+  const f = e.target.files && e.target.files[0];
+  if(!f) return;
+  if(f.size > 20*1024*1024){ alert('图片太大了（>20MB），换一张小一点的'); e.target.value=''; return; }
+  const reader = new FileReader();
+  reader.onload = () => {
+    const img = new Image();
+    img.onload = () => {
+      const max = 1400;
+      let w = img.width, h = img.height;
+      if(Math.max(w,h) > max){ const s = max/Math.max(w,h); w = Math.round(w*s); h = Math.round(h*s); }
+      const cv = document.createElement('canvas');
+      cv.width = w; cv.height = h;
+      cv.getContext('2d').drawImage(img, 0, 0, w, h);
+      imgData = cv.toDataURL('image/jpeg', 0.85);
+      $('#pv').src = imgData;
+      $('#preview').style.display = 'block';
+    };
+    img.onerror = () => alert('这张图片读不出来，换一张试试');
+    img.src = reader.result;
+  };
+  reader.readAsDataURL(f);
+});
+$('#rmimg').addEventListener('click', () => {
+  imgData = '';
+  $('#file').value = '';
+  $('#preview').style.display = 'none';
+});
+
+function showErr(id, msg){
+  const el = $('#err-' + id);
+  if(!el) return;
+  el.textContent = msg || '';
+  el.style.display = msg ? 'block' : 'none';
+}
+
+$('#submit').addEventListener('click', async () => {
+  showErr('brand',''); showErr('contact',''); showErr('form','');
+  const brand = $('#brand').value.trim();
+  const contact = $('#contact').value.trim();
+  const link = $('#link').value.trim();
+  const desc = $('#desc').value.trim();
+  if(!brand){ showErr('brand','填一下品牌/商家名称'); $('#brand').focus(); return; }
+  if(!contact){ showErr('contact','留个联系方式，我们才能回你'); $('#contact').focus(); return; }
+  if(!link && !imgData && !desc){
+    showErr('form','商品链接、图片、描述 —— 至少给一项，不然我们不知道推什么给达人');
+    return;
+  }
+  const btn = $('#submit');
+  btn.disabled = true; btn.textContent = '提交中…';
+  try{
+    const r = await fetch('/api/apply', {method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({brand, contact, link, desc, image: imgData})});
+    const d = await r.json();
+    if(!r.ok || !d.ok) throw new Error(d.error || ('HTTP ' + r.status));
+    $('#formCard').style.display = 'none';
+    $('#queryCard').style.display = 'none';
+    $('#okCard').style.display = 'block';
+    $('#okCode').textContent = d.code;
+    $('#okMsg').textContent = '已收到！我们正在识别商品信息';
+    $('#okStatus').className = 'status s-pending';
+    $('#okStatus').textContent = STATUS_TEXT.pending;
+    poll(d.code);
+  }catch(e){
+    showErr('form', e.message || '提交失败，请稍后再试');
+    btn.disabled = false; btn.textContent = '提交';
+  }
+});
+
+let timer = null;
+function poll(code){
+  if(timer) clearTimeout(timer);
+  timer = setTimeout(async () => {
+    try{
+      const r = await fetch('/api/apply/status?code=' + encodeURIComponent(code));
+      const d = await r.json();
+      if(!r.ok || !d.ok) throw new Error(d.error || '查询失败');
+      const st = d.status || 'pending';
+      $('#okStatus').className = 'status s-' + st;
+      $('#okStatus').textContent = STATUS_TEXT[st] || st;
+      if(d.user_hint) $('#okStatus').textContent = d.user_hint;
+      if(st === 'done' || st === 'partial' || st === 'failed'){
+        const f = d.product || {};
+        const bits = [];
+        if(f.name) bits.push('商品：' + f.name);
+        if(f.price) bits.push('价格：' + f.price);
+        if(f.commission) bits.push('佣金：' + f.commission);
+        if(f.category) bits.push('类目：' + f.category);
+        if(bits.length){
+          $('#okFound').style.display = 'block';
+          $('#okFound').innerHTML = '<div class="n">' + esc(f.name || '已识别') + '</div>'
+            + '<div>' + esc(bits.slice(1).join(' · ')) + '</div>';
+        }
+        return;
+      }
+      poll(code);
+    }catch(e){
+      $('#okStatus').textContent = '查询中断：' + e.message;
+    }
+  }, 4000);
+}
+
+$('#qbtn').addEventListener('click', async () => {
+  const code = $('#qcode').value.trim().toUpperCase();
+  if(!code){ $('#qstatus').textContent = '输入提交编号'; return; }
+  $('#qstatus').textContent = '查询中…';
+  try{
+    const r = await fetch('/api/apply/status?code=' + encodeURIComponent(code));
+    const d = await r.json();
+    if(!r.ok || !d.ok) throw new Error(d.error || '没查到');
+    const st = d.status || 'pending';
+    $('#qstatus').className = 'status s-' + st;
+    $('#qstatus').textContent = (d.user_hint || STATUS_TEXT[st] || st);
+    const f = d.product || {};
+    if(f.name) $('#qstatus').textContent += ' · ' + f.name;
+  }catch(e){
+    $('#qstatus').className = 'status s-failed';
+    $('#qstatus').textContent = e.message;
+  }
+});
+</script>
+</body>
+</html>
