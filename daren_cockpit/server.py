@@ -27,8 +27,31 @@ from daren_bot import config, db as botdb  # noqa: E402
 from daren_cockpit import apply as apply_mod  # noqa: E402
 
 SOLOBRAVE_DB = config.ROOT / "data" / "solobrave.db"
-TEMPLATE = (ROOT / "index.html").read_text(encoding="utf-8")
-APPLY_TEMPLATE = (ROOT / "apply.html").read_text(encoding="utf-8")
+
+# ⚠️ 模板按 mtime 热加载，不要在 import 时读死。
+#   踩过的坑（2026-10-21）：模板在 import 时读进内存 → 磁盘上把「巨量百应」改掉了，
+#   进程却还是 19:22 启动的旧副本 → **公网仍然显示旧文案**，老大的要求没落地，
+#   而且「我改了文件」和「线上生效了」完全是两件事（声明端 ≠ 使用端）。
+#   现在：每次请求 stat 一次 mtime，变了才重新读；没变直接用内存副本，零 IO 压力。
+_TPL_CACHE: dict = {}
+
+
+def _load_tpl(path: Path) -> str:
+    """按 mtime 热加载模板。文件读失败（写到一半/权限）时回退上一份好副本。"""
+    key = str(path)
+    try:
+        mtime = path.stat().st_mtime
+    except OSError:
+        return _TPL_CACHE.get(key, ("", ""))[1]
+    hit = _TPL_CACHE.get(key)
+    if hit and hit[0] == mtime:
+        return hit[1]
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return hit[1] if hit else ""
+    _TPL_CACHE[key] = (mtime, text)
+    return text
 
 DEMO_BASE = "MZEdbVJMeah4x9sYYzncuhnbnnb"   # 样板库（合作机会）
 COOP_TABLE = "tblolFFeJTNfyInn"
@@ -558,9 +581,9 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         u = urlparse(self.path)
         if u.path in ("/", "/index.html"):
-            self._send(200, TEMPLATE)
+            self._send(200, _load_tpl(ROOT / "index.html"))
         elif u.path == "/apply":
-            self._send(200, APPLY_TEMPLATE)
+            self._send(200, _load_tpl(ROOT / "apply.html"))
         elif u.path == "/api/apply/status":
             code = parse_qs(u.query).get("code", [""])[0]
             row = apply_mod.apply_status(code)
