@@ -2836,6 +2836,10 @@ def _prompt_daren_login(page):
     路径按老大实测走通的来：官网首页 → 「登录」→「达人工作台」→ 停在扫码页。
     """
     try:
+        # 已经在扫码页就别动它 —— 重新导航会刷新二维码，老大扫的码就失效了
+        if 'mpa/account/login' in (page.url or ''):
+            log(f'[DarenProduct] 已在扫码页，保持不动 url={page.url}')
+            return
         page.goto(DAREN_HOME, timeout=60000)
         page.wait_for_load_state('domcontentloaded')
         time.sleep(2)
