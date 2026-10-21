@@ -62,7 +62,15 @@ class Worker(threading.Thread):
             if not task:
                 self._stop_event.wait(self.poll_interval)
                 continue
-            self._process(task)
+            try:
+                self._process(task)
+            except Exception:
+                # ⚠️ 单条任务失败（含飞书推送失败）**不能让 worker 线程猝死** ——
+                #   线程一死，整个机器人静默停摆：日志里只有一条 traceback，
+                #   之后所有任务都不再处理（达人也等不到任何回复），而且没人发现。
+                #   单条任务失败 ≠ worker 生命周期结束 → 记日志，继续跑下一条。
+                log.exception("process task failed (worker continues): id=%s type=%s",
+                              task.get("id"), task.get("type"))
 
     def _process(self, task: dict) -> None:
         tk = task["tenant_key"]
@@ -104,6 +112,8 @@ class Worker(threading.Thread):
                 # 问答推送：优先可视化卡片，渲染失败回退纯文字
                 executors.notify_qa_card(self.wm.get_sender(tk), task["chat_id"],
                                          task["target"], result_summary, tk)
+                log.info("push ok: type=qa task=%s chat=%s",
+                         task["id"], task["chat_id"])
             elif task["type"] in ("product", "image") and task.get("chat_id"):
                 # 商品分析推送（链接抓取/截图识别共用）：分节卡片 + 文字版 + 商品推荐记录表
                 # executor 返回结构化信封 {"title","stats","md","source"?}
@@ -118,18 +128,30 @@ class Worker(threading.Thread):
                     title, _, md = (result_summary or "").partition("\n")
                 executors.notify_product_card(self.wm.get_sender(tk), task["chat_id"],
                                               title, md, tk, stats, source)
+                log.info("push ok: type=%s task=%s chat=%s cache_hit=%s",
+                         task["type"], task["id"], task["chat_id"],
+                         task.get("cache_hit"))
                 # 看板「本周精选 TOP3」数据源：绿黄红结论落库（失败不阻塞主流程）
-                from . import dashboard_card as _dc
-                _dc.save_product_verdict(tk, title, md)
+                # ⚠️ import 也要在 try 里 —— 渲染依赖（PIL）缺失时 import 就炸，
+                #   放外面等于「一个可选的写表失败带累整个 worker 线程」。
+                try:
+                    from . import dashboard_card as _dc
+                    _dc.save_product_verdict(tk, title, md)
+                except Exception:
+                    log.exception("save_product_verdict failed: task=%s", task["id"])
             elif task["type"] == "video" and task.get("chat_id"):
                 # 视频拆解推送：优先分节卡片长图，渲染失败回退纯文本
                 executors.notify_video_card(self.wm.get_sender(tk), task["chat_id"],
                                             result_summary, tk)
+                log.info("push ok: type=video task=%s chat=%s",
+                         task["id"], task["chat_id"])
             elif task["type"] == "weekly_report" and task.get("chat_id"):
                 # 周报推送：长图卡片 + 摘要 + 文字版（OpenAPI，不走 ws）
                 from . import weekly
                 weekly.notify_weekly(self.wm.get_sender(tk), task["chat_id"],
                                      result_summary)
+                log.info("push ok: type=weekly_report task=%s chat=%s",
+                         task["id"], task["chat_id"])
             else:
                 # qa/video 是对话型/报告型推送，不带「任务完成：」前缀
                 prefix = "" if task["type"] in ("qa", "video") else "任务完成："

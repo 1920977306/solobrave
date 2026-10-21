@@ -331,3 +331,33 @@ python3 -m pytest tests/test_daren_cache_layer.py -q
 | 命中了但还是烧了 LLM | 判定放在了执行处 | 判定必须挪到 `handler._route_*` |
 | 不同达人的结论串了 | 结论缓存没按租户隔离 | `verdict_cache_get` 必须带 `tenant_key` |
 | 结论标签显示「能带」但实际是「慎带」 | 标签从全文里搜的 | 用 `executors._verdict_lines()`,只认结论行 |
+
+### 飞书全链路验证（会真发消息！）
+
+```bash
+# ⚠️ 这个脚本会**真的往 daren_test2 的飞书对话发消息**（老大的测试号），
+#    用来证明「达人发链接 → handler 判定 → worker 采集/判结论 → 飞书推卡片」整条链通。
+#    跑第 1 轮清缓存真采集（20 分），第 2 轮命中结论缓存（5 分）。
+.venv-daren/bin/python daren_bot/tools/feishu_e2e.py
+```
+
+必须用 `.venv-daren/bin/python`（系统 python3 没有 `Crypto` / `lark_oapi` / `PIL`）。
+目标租户写死在 `daren_test2`（测试号），不要改成真达人。
+
+**看日志自证推送成功**（不必肉眼盯飞书）：
+
+```bash
+grep -E "task claimed|push ok|process task failed" logs/daren-bot.launchd.log | tail -12
+# push ok: type=product task=... chat=... cache_hit=1   ← 缓存命中那条
+# 没有 fallback 日志 = 这一轮没调 LLM
+```
+
+### worker 韧性（2026-10-21 修）
+
+- `worker.run()` 里 `self._process(task)` **原来没包 try** → 一次飞书推送抛异常会
+  **直接杀死 worker 线程**，整个机器人静默停摆（日志里只有一条 traceback）。
+  现在单条任务失败只记日志，worker 继续跑下一条。
+- `dashboard_card` 的 **import 也在 try 里**（渲染依赖 PIL，缺了 import 就炸，
+  一个可选的写表失败不该带累整个 worker）。
+- 推送成功现在有 `push ok:` 日志 —— 以前成功失败都不留痕，
+  「飞书到底收到没有」只能靠肉眼。

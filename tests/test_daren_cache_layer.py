@@ -327,3 +327,90 @@ class TestVerdictLabel:
         ex = bot["executors"]
         assert ex._verdict_label("") == ""
         assert ex._verdict_label("## 结论\n（AI 分析未出结果，暂不给结论）") == ""
+
+
+# ---------------- worker 韧性：推送失败不能杀死线程 ----------------
+
+class TestWorkerSurvivesPushFailure:
+    """★ 2026-10-21 线上体检发现：worker.run() 里 `self._process(task)` 没包 try，
+    一次飞书推送抛异常 → **worker 线程猝死** → 整个机器人静默停摆
+    （日志里只有一条 traceback，之后所有任务都不再处理，没人发现）。
+
+    这两个用例把「线程还活着」钉成断言，不靠嘴说。
+    """
+
+    def _worker(self, bot, monkeypatch):
+        import daren_bot.worker as wkm
+        db = bot["db"]
+        # 商品 executor 换成假实现，别真去开浏览器
+        monkeypatch.setitem(
+            wkm.EXECUTORS, "product",
+            lambda task: json.dumps({"title": "T", "stats": {}, "md": "## 结论\n🟢 能带\n理由"}))
+        db.enqueue_task(TK, "product", "pk_push_fail", 20, chat_id="chat_x")
+
+        class _Sender:
+            def send_text(self, *a, **kw):
+                pass
+
+        class _WM:
+            def get_sender(self, tenant_key):
+                return _Sender()
+
+        w = wkm.Worker(_WM(), poll_interval=0.1)
+        w.start()
+        return w
+
+    def test_push_failure_does_not_kill_worker_thread(self, bot, monkeypatch):
+        import time
+        ex = bot["executors"]
+
+        def _boom(*a, **kw):
+            raise RuntimeError("模拟飞书推送失败")
+
+        monkeypatch.setattr(ex, "notify_product_card", _boom)
+        w = self._worker(bot, monkeypatch)
+        try:
+            time.sleep(1.5)
+            alive = w.is_alive()
+        finally:
+            w.stop()
+            w.join(timeout=3)
+        assert alive, "推送失败把 worker 线程带死了（整个机器人会静默停摆）"
+
+    def test_verdict_save_failure_does_not_kill_worker_thread(self, bot, monkeypatch):
+        import sys
+        import time
+        import types
+
+        # dashboard_card 依赖 PIL（测试环境没装）→ 用假模块注入，
+        # 顺便验证 worker 里的 `from . import dashboard_card` 失败也不会带累线程
+        fake = types.ModuleType("daren_bot.dashboard_card")
+
+        def _boom(*a, **kw):
+            raise RuntimeError("模拟写看板表失败")
+
+        fake.save_product_verdict = _boom
+        monkeypatch.setitem(sys.modules, "daren_bot.dashboard_card", fake)
+
+        w = self._worker(bot, monkeypatch)
+        try:
+            time.sleep(1.5)
+            alive = w.is_alive()
+        finally:
+            w.stop()
+            w.join(timeout=3)
+        assert alive, "写看板表失败把 worker 线程带死了"
+
+    def test_push_success_is_logged(self, bot, monkeypatch, caplog):
+        """推送成功必须留痕 —— 否则「飞书到底收到没有」只能靠肉眼。"""
+        import logging
+        import time
+        w = self._worker(bot, monkeypatch)
+        try:
+            with caplog.at_level(logging.INFO, logger="daren-bot.worker"):
+                time.sleep(1.5)
+        finally:
+            w.stop()
+            w.join(timeout=3)
+        assert any("push ok: type=product" in r.getMessage()
+                   for r in caplog.records), "推送成功没有日志"
