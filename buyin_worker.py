@@ -110,6 +110,13 @@ def _openai_chat(base, key, model, messages, max_tokens=8000, temperature=0.0,
         raise LLMError(f'{model} http {e.code}: {e.read()[:300]}')
     except Exception as e:
         raise LLMError(f'{model} request failed: {e}')
+    # ⚠️ 2026-10-21：同款「HTTP 200 ≠ 成功」—— MiniMax 会在 body 里塞
+    #   base_resp.status_code（1008 insufficient balance 等），状态码仍是 200。
+    #   只看 HTTP 码会把它当成功，然后拿到空 content → 报「empty content」，
+    #   把余额问题伪装成模型问题，排查方向跑偏。
+    bresp = data.get('base_resp') or {}
+    if bresp.get('status_code'):
+        raise LLMError(f'{model} {bresp.get("status_msg") or bresp.get("status_code")}')
     content = (data.get('choices') or [{}])[0].get('message', {}).get('content') or ''
     if not content.strip():
         raise LLMError(f'{model} empty content')
@@ -145,23 +152,118 @@ def llm_chat_fb(messages, max_tokens=8000, temperature=0.0, timeout=180,
     raise LLMError('降级链全灭: ' + ' | '.join(errs))
 
 
+def _openclaw_api_key(provider: str) -> str:
+    """从 OpenClaw 拿 provider 的**真** API key。
+
+    ⚠️ 2026-10-21 修复（本文件与 daren_bot/executors.py 同源同 bug）：
+      openclaw.json 里 `models.providers.<name>.apiKey` 是**引用形式**
+      `{'source': 'store', 'provider': 'default', 'id': 'MODEL_APIKEY_XXX'}`
+      —— 不是密钥本身。真值在 `~/.openclaw/agents/<agent>/agent/models.json` 里。
+      老代码直接把引用 dict 当 key 用（`if km.get('apiKey')` 对非空 dict 恒真），
+      实际发出去的是 `Bearer {'source': 'store', ...}` → 必然 401。
+      **症状**：降级链的 kimi / minimax 环从来没真正工作过，商品链接采集的
+      「AI 提取商品字段」一步直接 401 失败 → 表现为「打开链接没有数据」。
+
+    查找顺序：
+      1. 各 agent 的 models.json（真 key 落盘处）—— 逐个 agent 找
+      2. openclaw.json 里如果直接就是字符串（老版本/手工配置）也认
+      3. 都是引用形式 → 返回空串（跳过该 provider），并记日志
+    """
+    home = Path.home() / '.openclaw'
+    # openclaw.json 与 models.json 的 provider 命名不一致，需别名映射：
+    #   openclaw.json: 'kimi'  → models.json: 'kimi-code'
+    aliases = {'kimi': ('kimi', 'kimi-code')}
+    names = aliases.get(provider, (provider,))
+    # 1) models.json —— 真 key 在这
+    for models_file in sorted(home.glob('agents/*/agent/models.json')):
+        try:
+            with open(models_file, encoding='utf-8') as f:
+                mj = json.load(f)
+        except Exception:
+            continue
+        mprovs = mj.get('providers') or {}
+        for pname in names:
+            pcfg = mprovs.get(pname)
+            if not isinstance(pcfg, dict):
+                continue
+            key = pcfg.get('apiKey')
+            if isinstance(key, str) and key and not key.startswith('{'):
+                return key
+    # 2) openclaw.json —— 可能是老版本的直接字符串
+    try:
+        with open(OPENCLAW_CFG, encoding='utf-8') as f:
+            cfg = json.load(f)
+        pcfg = (cfg.get('models', {}).get('providers', {}) or {}).get(provider) or {}
+        key = pcfg.get('apiKey')
+        if isinstance(key, str) and key and not key.startswith('{'):
+            return key
+    except Exception:
+        pass
+    return ''
+
+
+def _env_api_key(name: str) -> str:
+    """从项目根 .env 读 key（绝对路径，避开 CWD 依赖）。
+
+    ⚠️ 2026-10-21 新增：MiniMax 套餐 key（sk-cp-…）是**唯一有额度的长期凭据**，
+      必须排进降级环最前 —— 老的 kimi key 401 / 开放平台 402 会让整条链全灭。
+      密钥只进 .env（AGENTS.md §7 规则 1），代码只读不算。
+    """
+    try:
+        env_path = PROD_DIR / '.env'
+    except NameError:
+        env_path = Path.cwd() / '.env'
+    try:
+        with open(env_path, encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith(name + '='):
+                    return line.split('=', 1)[1].strip().strip('"\'')
+    except Exception:
+        pass
+    return ''
+
+
+# MiniMax 套餐 API（sk-cp-…）—— 与 daren_bot/executors.py 同一把 key
+CP_BASE = 'https://api.minimaxi.com/v1'
+CP_MODEL = 'MiniMax-M3'
+
+
 def _text_fallback_cfgs():
     """文字链路配置（vision 链路用 _fallback_cfgs，模型不同别混）。
-    kimi moonshot-v1-32k: coding 端点实测 2 万 token 输入正常返回（reasoning 模型）。
+
+    ⚠️ 2026-10-21 重排 + 修 bug：
+      环 0 = **MiniMax 套餐 key**（sk-cp-…，唯一有额度的长期凭据）★
+        —— 老大买的是 Code 订阅，开放平台余额是另一本账，老链必然 401/402。
+      环 1 = kimi moonshot-v1-32k（openclaw key store，真 key 从 models.json 取）
+      环 2 = minimax 开放平台（sk-api-…，当前 402/401）
     返回 [(base, key, model, temperature), ...]。"""
     out = []
+    # ---- 环 0：套餐 key（长期凭据，唯一有额度）----
+    cp_key = _env_api_key('MINIMAX_CP_API_KEY')
+    if cp_key:
+        out.append((CP_BASE, cp_key, CP_MODEL, 1.0))
+    else:
+        log('  [LLM] 套餐 API: .env 无 MINIMAX_CP_API_KEY → 该环跳过')
+
+    # ---- 环 1/2：openclaw 系（kimi / minimax 开放平台）----
     try:
         cfg = json.load(open(OPENCLAW_CFG, encoding='utf-8'))
         km = cfg.get('models', {}).get('providers', {}).get('kimi') or {}
         kbase = (km.get('baseUrl') or 'https://api.kimi.com/coding').rstrip('/')
         if not kbase.endswith('/v1'):
             kbase += '/v1'
-        if km.get('apiKey'):
-            out.append((kbase, km['apiKey'], 'moonshot-v1-32k', 1.0))
-        mm = cfg.get('models', {}).get('providers', {}).get('minimax') or {}
-        if mm.get('apiKey'):
+        kkey = _openclaw_api_key('kimi')
+        if kkey:
+            out.append((kbase, kkey, 'moonshot-v1-32k', 1.0))
+        else:
+            log('  [LLM] kimi 无可用 key（models.json 里没有真 key）→ 该环跳过')
+        mmkey = _env_api_key('MINIMAX_API_KEY') or _openclaw_api_key('minimax')
+        if mmkey:
             for m in ('MiniMax-M3.1-Flash-Preview', 'MiniMax-M3'):
-                out.append(('https://api.minimaxi.com/v1', mm['apiKey'], m, 1.0))
+                out.append(('https://api.minimaxi.com/v1', mmkey, m, 1.0))
+        else:
+            log('  [LLM] minimax 开放平台无可用 key → 该环跳过')
     except Exception as e:
         log(f'  [LLM] 文字降级配置读取失败: {e}')
     return out
@@ -389,22 +491,35 @@ _SUB_TABS = {
 
 
 def _fallback_cfgs():
-    """智谱 429/挂之后的降级链：kimi 视觉 → minimax M3 系列。
-    配置读 openclaw.json（与 daren_bot 视觉兜底同源）。
+    """视觉降级链：套餐 key（MiniMax-M3）→ kimi 视觉 → minimax 开放平台。
+
+    ⚠️ 2026-10-21 重排 + 修 bug（与文字链同源同因）：
+      ① openclaw.json 的 apiKey 是**引用形式**（dict），老代码当字符串用 → 必然 401
+      ② 套餐 key（唯一有额度的长期凭据）没进链 → 环全灭
     返回 [(base, key, model, temperature), ...]。"""
     out = []
+    cp_key = _env_api_key('MINIMAX_CP_API_KEY')
+    if cp_key:
+        out.append((CP_BASE, cp_key, CP_MODEL, 1.0))
+    else:
+        log('  [LLM] 视觉链: .env 无 MINIMAX_CP_API_KEY → 该环跳过')
     try:
         cfg = json.load(open(OPENCLAW_CFG, encoding='utf-8'))
         km = cfg.get('models', {}).get('providers', {}).get('kimi') or {}
         kbase = (km.get('baseUrl') or 'https://api.kimi.com/coding').rstrip('/')
         if not kbase.endswith('/v1'):
             kbase += '/v1'
-        if km.get('apiKey'):
-            out.append((kbase, km['apiKey'], 'moonshot-v1-8k-vision-preview', 1.0))
-        mm = cfg.get('models', {}).get('providers', {}).get('minimax') or {}
-        if mm.get('apiKey'):
+        kkey = _openclaw_api_key('kimi')
+        if kkey:
+            out.append((kbase, kkey, 'moonshot-v1-8k-vision-preview', 1.0))
+        else:
+            log('  [LLM] 视觉链: kimi 无可用 key → 该环跳过')
+        mmkey = _env_api_key('MINIMAX_API_KEY') or _openclaw_api_key('minimax')
+        if mmkey:
             for m in ('MiniMax-M3.1-Flash-Preview', 'MiniMax-M3'):
-                out.append(('https://api.minimaxi.com/v1', mm['apiKey'], m, 1.0))
+                out.append(('https://api.minimaxi.com/v1', mmkey, m, 1.0))
+        else:
+            log('  [LLM] 视觉链: minimax 开放平台无可用 key → 该环跳过')
     except Exception as e:
         log(f'  [LLM] 视觉降级配置读取失败: {e}')
     return out
@@ -680,6 +795,14 @@ class NeedLogin(Exception):
     pass
 
 
+class ProductNotFound(Exception):
+    """平台确实没有这个商品的数据（已下架 / 不在当前推广池）。
+
+    ★ 单独一类：这不是技术故障 —— 重试、换链路（页面正文/截图）都没用，
+      调用方应据此直接给用户指路（「发个商品截图我照样能看」）。
+    """
+
+
 class Browser:
     """常驻 Playwright 浏览器（有头模式，登录态持久化）。"""
 
@@ -690,9 +813,66 @@ class Browser:
         self.ctx = None
         self.page = None
         self.lock = threading.Lock()
+        # 常驻流量监听：人工在浏览器里手动操作也能抓到接口
+        # （探针是「跑一次就退」，抓不到手动操作产生的请求）
+        self.net_log = []
+        self.net_enabled = True
+        self.net_max = 800
 
     def up(self):
         return self.ctx is not None
+
+    def _attach_net(self):
+        """在 context 级挂常驻 XHR/fetch 监听。
+
+        ★ 为什么挂 context 而不是 page：人工可能在浏览器里新开 tab，
+          context 级监听覆盖所有 page（含新 tab），漏不掉。
+        ★ 为什么记 body：光有 URL 不知道返回结构，记 body 前 1200 字符
+          才能判断「这个接口是不是商品列表」。
+        """
+        def _on_resp(resp):
+            try:
+                if resp.request.resource_type not in ('xhr', 'fetch'):
+                    return
+                u = resp.url
+                bare = u.split('?', 1)[0]
+                if bare.endswith(('.js', '.css', '.png', '.jpg', '.jpeg', '.webp',
+                                  '.svg', '.gif', '.woff', '.woff2', '.ttf', '.mp4')):
+                    return
+                rec = {'t': time.strftime('%H:%M:%S'), 'm': resp.request.method,
+                       's': resp.status, 'u': u[:400]}
+                try:
+                    pd = resp.request.post_data
+                    if pd:
+                        rec['pd'] = (pd if isinstance(pd, str)
+                                     else pd.decode('utf-8', 'replace'))[:600]
+                except Exception:
+                    pass
+                if self.net_enabled:
+                    try:
+                        ct = (resp.headers.get('content-type') or '')
+                        # ⚠️ 只读 json 的 body：text/event-stream / chunked 长连接
+                        #   在 sync API 回调里读 body 会**阻塞事件分发**，
+                        #   把整个浏览器线程卡死（事件回调是同步执行的）。
+                        #   大响应也跳过，避免一次性灌进内存。
+                        cl = resp.headers.get('content-length')
+                        big = cl.isdigit() and int(cl) > 2_000_000 if cl else False
+                        if 'json' in ct and not big:
+                            # 4000 字符：够装下 summary_promotions[0] 的商品主体
+                            rec['b'] = resp.text()[:4000]
+                    except Exception:
+                        pass
+                with _job_lock:
+                    self.net_log.append(rec)
+                    if len(self.net_log) > self.net_max:
+                        del self.net_log[:len(self.net_log) - self.net_max]
+            except Exception:
+                return
+
+        try:
+            self.ctx.on('response', _on_resp)
+        except Exception as e:
+            log(f'[Browser:{self.label}] 网络监听挂载失败: {e}')
 
     def ensure(self):
         """确保浏览器已启动；返回主 page。"""
@@ -707,21 +887,34 @@ class Browser:
         self.profile_dir.mkdir(parents=True, exist_ok=True)
         try:
             self._pw = sync_playwright().start()
+            self.ctx = self._pw.chromium.launch_persistent_context(
+                str(self.profile_dir),
+                headless=False,
+                locale='zh-CN',
+                timezone_id='Asia/Shanghai',
+                viewport={'width': 1440, 'height': 900},
+                args=['--disable-blink-features=AutomationControlled',
+                      '--start-maximized'],
+            )
         except Exception as e:
-            if 'asyncio loop' in str(e):
-                # 线程事件循环被污染（Chromium 崩溃后遗症），交由 _browser_loop 换线程自愈
-                raise BrowserLoopPoisoned(str(e))
+            # ⚠️ 2026-10-21 修：Playwright **sync API 一个线程只能有一个实例**。
+            #   团长端浏览器已开着时再开达人端，会在这里抛
+            #   「It looks like you are using Playwright Sync API inside the asyncio loop」。
+            #   老代码只在 sync_playwright().start() 处识别 'asyncio loop'，
+            #   异常实际抛在 launch_persistent_context → 走成了普通 Exception →
+            #   **自愈机制（BrowserLoopPoisoned → 换线程）根本不触发**，
+            #   结果是达人端永远起不来。
+            #   现在整个启动段都识别，命中就抛 BrowserLoopPoisoned 交给自愈。
+            msg = str(e)
+            if ('asyncio loop' in msg or 'Sync API inside' in msg
+                    or 'greenlet' in msg or 'event loop' in msg):
+                self.ctx = None
+                self.page = None
+                self._pw = None
+                raise BrowserLoopPoisoned(msg)
             raise
-        self.ctx = self._pw.chromium.launch_persistent_context(
-            str(self.profile_dir),
-            headless=False,
-            locale='zh-CN',
-            timezone_id='Asia/Shanghai',
-            viewport={'width': 1440, 'height': 900},
-            args=['--disable-blink-features=AutomationControlled',
-                  '--start-maximized'],
-        )
         self.page = self.ctx.pages[0] if self.ctx.pages else self.ctx.new_page()
+        self._attach_net()
         log(f'[Browser:{self.label}] 已启动')
         return self.page
 
@@ -748,10 +941,15 @@ class Browser:
             url = self.page.url
             if 'login' in url or 'passport' in url:
                 return True, False
+            # ★ 必须查**全部域**的 cookie：达人端的 SSO cookie
+            #   (sid_ucp_sso_v1_daren) 挂在 .buyin-daren-sso.jinritemai.com，
+            #   而 buyin.jinritemai.com 只是它的兄弟域 ——
+            #   只查 buyin 域 → 永远查不到 → 假阴性「登录态过期」。
+            #   （这正是之前 daren_logged_in 恒为 false 的原因）
+            cookies = self.ctx.cookies()
+            names = {c.get('name') for c in cookies}
             # 以登录 cookie 为准；达人端用 daren 专属标记
             mark = DAREN_LOGIN_MARK if self.label == '达人端' else None
-            cookies = self.ctx.cookies('https://buyin.jinritemai.com')
-            names = {c.get('name') for c in cookies}
             if mark:
                 return True, mark in names
             logged = 'ecom_us_lt_buyin' in names and 'sessionid' in names
@@ -814,10 +1012,11 @@ def _check_login_state(page):
         raise NeedLogin('页面跳转到了登录页')
     # 以登录 cookie 为准（e.g. ecom_us_lt_buyin），不做 QR 元素猜测——
     # 页面里的客服/联系二维码会造成误报
+    # ★ 查全部域：cookie 按域存放，只查单个域可能漏掉（达人端 SSO 就在兄弟域上）
     try:
-        cookies = page.context.cookies('https://buyin.jinritemai.com')
+        cookies = page.context.cookies()
         names = {c.get('name') for c in cookies}
-        if 'ecom_us_lt_buyin' not in names:
+        if 'ecom_us_lt_buyin' not in names and 'sid_ucp_sso_v1_daren' not in names:
             raise NeedLogin('登录 cookie 缺失')
     except NeedLogin:
         raise
@@ -1558,7 +1757,7 @@ def _capture_one_video(profile, vid, dom_index, item, talent_name):
 def teardown_pipeline(job_id, talent_id, name, douyin_id, top_n=3):
     """视频拆解主流程：搜达人 → 视频详情 tab → 播放量 TOP N → 逐条下载+双路分析。"""
     with BROWSER.lock:
-        page = BROWSER.ensure()
+        page = _switch_to(BROWSER, DAREN_BROWSER)
         _media_sniffer_on(page.context)
         _vdb_update('video_jobs', job_id, stage='打开达人主页')
         profile, profile_name = _search_and_open(page, name, douyin_id, job_id)
@@ -1652,7 +1851,7 @@ def teardown_url_pipeline(job_id, url):
     """直链视频拆解：打开链接 → 嗅探/提取视频源 → 下载 → 转写 → 看画面 → 拆解报告。
     给达人机器人用：客户发任意抖音视频链接，无需百应页面有该达人数据。"""
     with BROWSER.lock:
-        page = BROWSER.ensure()
+        page = _switch_to(BROWSER, DAREN_BROWSER)
         _media_sniffer_on(page.context)
         _vdb_update('video_jobs', job_id, stage='打开视频链接')
         page.goto(url, timeout=60000, wait_until='domcontentloaded')
@@ -1740,7 +1939,7 @@ def _run_teardown_url_job(row):
 def collect_pipeline(collect_id, name, douyin_id):
     """执行一次完整采集，返回 dict(原始材料+截图清单)。"""
     with BROWSER.lock:
-        page = BROWSER.ensure()
+        page = _switch_to(BROWSER, DAREN_BROWSER)
         job_shots = []
         tabs_dom = {}
         all_xhr = []
@@ -2042,6 +2241,26 @@ def _ensure_browser_thread():
         log('[BrowserLoop] 工作线程已启动')
 
 
+def _switch_to(browser, other):
+    """要开 browser，先把另一个关掉。
+
+    ⚠️ 2026-10-21：Playwright **sync API 一个线程只能有一个实例**。
+      团长端（buyin.jinritemai.com，采集达人数据）和达人端（抖店达人工作台，
+      查商品数据）是两套独立 profile，但共用同一条浏览器工作线程 →
+      第二个一起就报「Sync API inside the asyncio loop」。
+      策略：**职责分离 + 互斥切换** —— 开一个先关另一个。
+      关浏览器不丢登录态（cookie 在 profile 目录里，关闭时才落盘）。
+    """
+    try:
+        if other.up():
+            log(f'[BrowserLoop] 切换浏览器：先关闭 {other.label}'
+                f'（{other.profile_dir.name}）')
+            other.close()
+    except Exception as e:
+        log(f'[BrowserLoop] 关闭 {other.label} 失败（继续尝试开启）: {e}')
+    return browser.ensure()
+
+
 def _browser_loop():
     """Playwright  sync API 要求对象只在创建它的线程使用——
     所有浏览器操作集中在这一条线程。"""
@@ -2052,7 +2271,7 @@ def _browser_loop():
             break
         if row.get('_open_browser'):
             try:
-                page = BROWSER.ensure()
+                page = _switch_to(BROWSER, DAREN_BROWSER)
                 page.goto(BUYIN_HOME, timeout=60000)
                 log('[Control] 已打开百应首页（如需登录请扫码）')
             except Exception as e:
@@ -2060,7 +2279,7 @@ def _browser_loop():
             continue
         if row.get('_open_daren_browser'):
             try:
-                page = DAREN_BROWSER.ensure()
+                page = _switch_to(DAREN_BROWSER, BROWSER)
                 page.goto(DAREN_HOME, timeout=60000)
                 page.wait_for_load_state('domcontentloaded')
                 _human_sleep(3, 5)
@@ -2084,6 +2303,201 @@ def _browser_loop():
             except Exception as e:
                 log(f'[Control] 优雅关闭失败: {e}')
             continue
+        if row.get('_probe_product_api'):
+            # 探测达人端「按商品ID 查商品」的真实接口。
+            # 目的：商品链接的页面正文里没有商品数据（实测留存 HTML 389KB，
+            #      product_id 出现 0 次），必须用商品ID 走接口拿结构化数据。
+            # 做法：进达人工作台 → 拦截 XHR → 打印接口路径 + 响应片段。
+            pid = str(row.get('product_id') or '').strip()
+            try:
+                page = _switch_to(DAREN_BROWSER, BROWSER)
+                hits = []
+
+                def _on_resp(r):
+                    try:
+                        u = r.url
+                        if '/api' in u or 'product' in u.lower() or 'commodity' in u.lower():
+                            hits.append((r.status, u[:220]))
+                    except Exception:
+                        pass
+                page.on('response', _on_resp)
+                target = (row.get('url') or '').strip()
+                if not target:
+                    target = DAREN_HOME
+                page.goto(target, timeout=60000)
+                page.wait_for_load_state('domcontentloaded')
+                _human_sleep(4, 6)
+                # 官网 → 进达人工作台。
+                # ⚠️ 不用文本点击：顶部导航是 hover 下拉，click 会被弹窗
+                #    （div.styles_box__rPJpd）拦截 pointer events。
+                #    直接把导航里所有 href 抓出来，挑出工作台入口自己跳。
+                if 'douyinec.com' in page.url:
+                    try:
+                        hrefs = page.evaluate(
+                            "() => Array.from(document.querySelectorAll('a'))"
+                            ".map(a => (a.textContent||'').trim() + '|' + (a.getAttribute('href')||''))"
+                            ".filter(x => x.includes('|') && x.split('|')[1])")
+                        cands = [h for h in hrefs
+                                 if any(k in h for k in ('达人工作台', 'daren', 'buyin', 'workbench'))]
+                        log(f'[Control] 官网导航候选 {len(cands)} 条: {cands[:12]}')
+                        pick = None
+                        for h in cands:
+                            txt, href = h.split('|', 1)
+                            if '达人工作台' in txt and '机构' not in txt:
+                                pick = href
+                                break
+                        if not pick:
+                            for h in cands:
+                                txt, href = h.split('|', 1)
+                                if 'daren' in href.lower():
+                                    pick = href
+                                    break
+                        if pick:
+                            if pick.startswith('//'):
+                                pick = 'https:' + pick
+                            elif pick.startswith('/'):
+                                pick = 'https://www.douyinec.com' + pick
+                            page.goto(pick, timeout=60000)
+                            page.wait_for_load_state('domcontentloaded')
+                            _human_sleep(5, 8)
+                            log(f'[Control] 跳转达人工作台 → url={page.url}')
+                    except Exception as e:
+                        log(f'[Control] 官网入口跳转失败: {e}')
+                # 若停在角色选择页 → 进达人工作台
+                if 'roles-select' in page.url:
+                    try:
+                        page.get_by_text('登录达人工作台', exact=True).first.click(timeout=8000)
+                        page.wait_for_load_state('domcontentloaded')
+                        _human_sleep(4, 6)
+                    except Exception as e:
+                        log(f'[Control] 进达人工作台失败: {e}')
+                # 可选：在页面上点某个导航文本（如「选品」）；click_seq 逗号分隔多步
+                click_seq = [t for t in str(row.get('click_seq') or '').split(',') if t.strip()]
+                if click_seq:
+                    for step in click_seq:
+                        try:
+                            loc = page.locator(f'text={step}').first
+                            loc.click(timeout=10000)
+                            page.wait_for_load_state('domcontentloaded')
+                            _human_sleep(5, 8)
+                            log(f'[Control] 已点「{step}」→ url={page.url}')
+                        except Exception as e:
+                            log(f'[Control] 点「{step}」失败: {e}')
+                click_text = str(row.get('click_text') or '').strip()
+                if click_text:
+                    try:
+                        loc = page.locator(f'text={click_text}').first
+                        loc.click(timeout=10000)
+                        page.wait_for_load_state('domcontentloaded')
+                        _human_sleep(5, 8)
+                        log(f'[Control] 已点「{click_text}」→ url={page.url}')
+                    except Exception as e:
+                        log(f'[Control] 点「{click_text}」失败: {e}')
+                # 可选：在搜索框输入商品ID并回车（找「按ID查商品」的接口）
+                search_text = str(row.get('search_text') or '').strip()
+                if search_text:
+                    try:
+                        inputs = page.locator('input[type=text], input:not([type])')
+                        n = inputs.count()
+                        log(f'[Control] 页面文本框 {n} 个')
+                        done = False
+                        for i in range(min(n, 6)):
+                            try:
+                                el = inputs.nth(i)
+                                ph = (el.get_attribute('placeholder') or '')
+                                el.click(timeout=3000)
+                                el.fill(search_text)
+                                el.press('Enter')
+                                done = True
+                                log(f'[Control] 已在输入框#{i}（placeholder={ph!r}）'
+                                    f'填入 {search_text} 并回车')
+                                break
+                            except Exception as e:
+                                log(f'[Control] 输入框#{i} 失败: {e}')
+                        if not done:
+                            log('[Control] 没找到可用输入框')
+                        page.wait_for_load_state('domcontentloaded')
+                        _human_sleep(6, 10)
+                    except Exception as e:
+                        log(f'[Control] 搜索失败: {e}')
+                # 抓页面里所有链接路径（定位「选品广场」等子页 URL 用）
+                try:
+                    hrefs = page.evaluate(
+                        "() => Array.from(document.querySelectorAll('a'))"
+                        ".map(a => (a.textContent||'').trim() + '|' + (a.getAttribute('href')||''))"
+                        ".filter(x => x.includes('|') && x.split('|')[1])")
+                    with _job_lock:
+                        STATE.setdefault('daren_api_probe', {})['hrefs'] = hrefs[:120]
+                except Exception as e:
+                    log(f'[Control] href 抓取失败: {e}')
+                # 抓页面里能直接读到的菜单结构（里面有各功能页的真实路径）
+                try:
+                    menu = page.evaluate("""async () => {
+                        try {
+                            const r = await fetch('/api/permission/menu', {credentials:'include'});
+                            const t = await r.text();
+                            return t.slice(0, 4000);
+                        } catch (e) { return 'ERR ' + e; }
+                    }""")
+                    with _job_lock:
+                        STATE.setdefault('daren_api_probe', {})['menu'] = menu
+                except Exception as e:
+                    log(f'[Control] 菜单抓取失败: {e}')
+                body = ''
+                try:
+                    body = page.evaluate(
+                        "() => (document.body ? document.body.innerText : '').slice(0, 600)")
+                except Exception:
+                    pass
+                with _job_lock:
+                    STATE['daren_api_probe'] = {
+                        'url': page.url, 'title': page.title()[:80],
+                        'body': body, 'hits': hits[:60], 'product_id': pid,
+                        'net': list(DAREN_BROWSER.net_log[-80:])}
+                log(f'[Control] 商品API探测 url={page.url} hits={len(hits)}')
+                for st, u in hits[:25]:
+                    log(f'    XHR {st} {u}')
+                log(f'[Control] body: {body[:300]!r}')
+            except Exception as e:
+                log(f'[Control] 商品API探测失败: {e}')
+            continue
+        if row.get('_daren_fetch'):
+            # 在达人端页面上下文里 fetch 任意接口（自带登录 cookie）。
+            # 用途：抓到接口路径后直接调用取结构化数据；也用于盲探候选路径。
+            path = str(row.get('path') or '').strip()
+            method = str(row.get('method') or 'GET').upper()
+            body = row.get('body')
+            try:
+                page = _switch_to(DAREN_BROWSER, BROWSER)
+                # ★ 必须在 buyin 域内才能 fetch（跨域 CORS 拦；about:blank 没有 base URL）
+                try:
+                    _ensure_buyin_page(page)
+                except Exception as e:
+                    log(f'[Control] 达人端落域失败（仍尝试绝对 URL）: {e}')
+                full = path if path.startswith('http') else (
+                    'https://buyin.jinritemai.com' + path)
+                out = page.evaluate("""async (args) => {
+                    try {
+                        const opt = {method: args.method, credentials: 'include'};
+                        if (args.body) {
+                            opt.headers = {'Content-Type': 'application/json'};
+                            opt.body = typeof args.body === 'string'
+                                       ? args.body : JSON.stringify(args.body);
+                        }
+                        const r = await fetch(args.path, opt);
+                        const t = await r.text();
+                        return {status: r.status, text: t.slice(0, 20000)};
+                    } catch (e) { return {error: String(e)}; }
+                }""", {'path': full, 'method': method, 'body': body})
+                with _job_lock:
+                    STATE['daren_fetch'] = {'path': full, 'method': method,
+                                           'at': time.strftime('%H:%M:%S'), 'out': out}
+                log(f'[Control] 达人端 fetch {method} {full} → {str(out)[:200]}')
+            except Exception as e:
+                with _job_lock:
+                    STATE['daren_fetch'] = {'path': path, 'error': str(e)}
+                log(f'[Control] 达人端 fetch 失败: {e}')
+            continue
         if row.get('_probe_daren'):
             try:
                 info = {'up': DAREN_BROWSER.up(), 'url': None, 'cookies': []}
@@ -2091,8 +2505,19 @@ def _browser_loop():
                     info['url'] = DAREN_BROWSER.page.url
                     cs = DAREN_BROWSER.ctx.cookies()
                     info['cookies'] = sorted({f"{c.get('domain','')}:{c.get('name')}" for c in cs})
+                    # performance API：抓当前页所有资源请求 URL（含无响应的），
+                    # 补充 context 监听器可能漏掉的（如页面加载早期）
+                    try:
+                        res = DAREN_BROWSER.page.evaluate(
+                            "() => performance.getEntriesByType('resource')"
+                            ".map(r => r.name).filter(u => u.includes('/api') || u.includes('jinritemai'))"
+                            ".slice(-80)")
+                        info['resources'] = res
+                    except Exception as e:
+                        info['resources'] = [f'ERR {e}']
                 with _job_lock:
                     STATE['daren_probe'] = info
+                    STATE['daren_net_count'] = len(DAREN_BROWSER.net_log)
                 log(f"[Control] probe: url={info['url']} cookies={len(info['cookies'])}")
             except Exception as e:
                 log(f'[Control] probe 失败: {e}')
@@ -2114,6 +2539,8 @@ def _browser_loop():
                 _run_product_impl(row)
             elif row.get('_product_url'):
                 _run_product_url_impl(row)
+            elif row.get('_daren_product'):
+                _run_daren_product_impl(row)
             else:
                 _run_collect_impl(row)
         except BrowserLoopPoisoned:
@@ -2169,7 +2596,7 @@ def _run_product_url_impl(row):
     _job_set(cid, status='collecting', stage='启动团长端浏览器', started=time.time())
     log(f'[ProductURL] {cid} 开始商品链接采集: {url}')
     try:
-        page = BROWSER.ensure()
+        page = _switch_to(BROWSER, DAREN_BROWSER)
         _job_set(cid, stage='打开商品页')
         page.goto(url, timeout=60000)
         page.wait_for_load_state('domcontentloaded')
@@ -2211,6 +2638,350 @@ def _run_product_url_impl(row):
         _job_set(cid, status='failed', error=err)
 
 
+# ───────────────── 达人端商品接口（商品ID → 结构化商品数据） ─────────────────
+# ★ 2026-10-21 浏览器上下文实测定位（不是文档推测）：
+#   POST https://buyin.jinritemai.com/pc/selection/common/material_list
+#   body: {"scene":"PCSquareSearch","size":N,"search_text":"<商品ID>","cursor":0,
+#          "extra":{...},"filters":{}}
+#   → data.summary_promotions[] 里就是结构化商品数据
+#     （名称/主图/三级类目/月销/好评率/近30天销量曲线/佣金费率/到手价/店铺体验分）
+#
+# ★★ 踩坑记录：scene 必须用 PCSquareSearch（搜索场景）。
+#    用 PCSquareFeed（信息流场景）时 search_text 会被**静默忽略**，
+#    返回全量商品流（total=2998），根本不是你要的那个商品 —— 不报错，最坑。
+DAREN_PRODUCT_PATH = '/pc/selection/common/material_list'
+# ★ 用**绝对 URL**：相对路径会按当前页面 origin 解析 —— 页面若停在
+#   haohuo/douyinec 域，相对路径就打到了错误的域（实测 404）。
+DAREN_PRODUCT_FULL = 'https://buyin.jinritemai.com/pc/selection/common/material_list'
+DAREN_PRODUCT_EXTRA = {
+    'new_session_strategy': '1', 'search_id': '', 'session_id': '',
+    'use_kol_product': '1', 'trigger_ids': '', 'feed_source': '',
+    'share_return_scene': '',
+}
+# 达人端会话失效时，等老大扫码的最长秒数（登录是人工动作，系统只负责等）
+DAREN_LOGIN_WAIT = 300
+
+
+def _dnum(node, default=None):
+    """从接口的 {origin, integer, decimal, suffix} 结构里取数值。"""
+    if node is None:
+        return default
+    if isinstance(node, (int, float)):
+        return node
+    if isinstance(node, dict):
+        for k in ('origin', 'integer'):
+            v = node.get(k)
+            if v not in (None, ''):
+                try:
+                    return float(v)
+                except Exception:
+                    pass
+    return default
+
+
+def _dmoney(node, prefix='¥'):
+    """金额：接口给的是**分**（origin=890 → 8.9 元）。"""
+    v = _dnum(node)
+    if v is None:
+        return ''
+    s = f'{v / 100.0:.2f}'.rstrip('0').rstrip('.')
+    return f'{prefix}{s}'
+
+
+def _parse_daren_product(item):
+    """达人端接口的一条商品 → 统一商品字段（与旧 LLM 链路同一套 key，前端不用改）。"""
+    bm = item.get('base_model') or {}
+    pi = bm.get('product_info') or {}
+    promo = bm.get('promotion_info') or {}
+    mk = bm.get('marketing_info') or {}
+    shop = bm.get('shop_info') or {}
+    cat = pi.get('category') or {}
+
+    def cname(lv):
+        return (cat.get(lv) or {}).get('category_name') or ''
+
+    cos = ((promo.get('cos_info') or {}).get('cos') or {})
+    price_node = (mk.get('price_desc') or {}).get('price')
+    ratio = _dnum(cos.get('cos_ratio'))
+    good = _dnum(pi.get('good_ratio'))
+    sale = _dnum(pi.get('month_sale'))
+    authors = _dnum(promo.get('cooper_author_num'))
+    # 店铺体验分是嵌套的 {"shop_score_info": {"shop_score": {"score": 81}}}，
+    # _dnum 认不出这层 → 直接取 score
+    _ss = (shop.get('shop_score_info') or {}).get('shop_score')
+    score = _ss.get('score') if isinstance(_ss, dict) else _dnum(_ss)
+
+    tags = []
+    for t in ((bm.get('tag_info') or {}).get('second_tags') or []):
+        tx = ((t.get('text') or {}).get('text')) or ''
+        if tx:
+            tags.append(tx)
+    sale_axis = []
+    for p in (pi.get('sale_axis') or []):
+        if isinstance(p, dict):
+            sale_axis.append({'date': p.get('x'), 'qty': p.get('y')})
+    img = ''
+    try:
+        u = (pi.get('main_img') or {}).get('url_list') or []
+        img = u[0] if u else ''
+    except Exception:
+        pass
+
+    return {
+        'product_id': str(item.get('product_id') or ''),
+        'promotion_id': str(item.get('promotion_id') or ''),
+        'name': pi.get('name') or '',
+        'price': _dmoney(price_node),
+        'commission': _dmoney(cos.get('cos_fee')),
+        'commission_rate': (f'{ratio:g}%' if ratio is not None else ''),
+        'sales': (str(int(sale)) if sale is not None else ''),
+        'shop': shop.get('shop_name') or '',
+        # ★ category 给**一级类目**：达人侧的「带货类目分布」用的就是平台一级类目
+        #   （服饰内衣/美妆/居家日用…），商品侧必须同层才可比。
+        #   二三级另存字段，需要时再取。
+        'category': cname('first_category') or cname('second_category'),
+        'category_first': cname('first_category'),
+        'category_second': cname('second_category'),
+        'category_third': cname('third_category'),
+        'shop_score': (str(int(score)) if score is not None else ''),
+        'main_img': img,
+        'resolved_url': pi.get('detail_url') or '',
+        'good_ratio': (f'{good:.1f}%' if good is not None else ''),
+        'cooper_author_num': (str(int(authors)) if authors is not None else ''),
+        'sale_axis': sale_axis,
+        'tags': tags,
+        'coupon': ('消费券' if '消费券' in tags else ''),
+        'highlights': '',
+        'target_crowd': '',
+        'source': '平台商品接口',
+    }
+
+
+def _ensure_buyin_page(page):
+    """把达人端浏览器停在 buyin 域（SSO 会自动跳转），返回最终 URL。
+
+    ★ 必须在 buyin 域内才能 fetch 接口（跨域被 CORS 拦）。
+    ★ 为什么要「等 URL 稳定」：从官网/商品页跳工作台会连跳好几跳
+      （mpa/account/login → sso → dashboard），跳转期间执行 evaluate
+      会抛 "Execution context was destroyed" —— 等 URL 连续两次不变再干活。
+    """
+    if 'buyin.jinritemai.com' not in (page.url or ''):
+        try:
+            page.goto('https://buyin.jinritemai.com/dashboard/merch-picking-library',
+                      timeout=60000)
+        except Exception as e:
+            log(f'[Browser] 跳转达人工作台失败: {e}')
+    last, stable = None, 0
+    for _ in range(12):
+        try:
+            page.wait_for_load_state('domcontentloaded', timeout=15000)
+        except Exception:
+            pass
+        u = page.url or ''
+        if u == last:
+            stable += 1
+            if stable >= 2:
+                break
+        else:
+            last = u
+            stable = 0
+        time.sleep(1)
+    return page.url or ''
+
+
+DAREN_SSO_ENTRY = ('https://buyin.jinritemai.com/mpa/account/login'
+                    '?log_out=1&type=24')   # 官网导航里的「达人工作台」入口（走完整 SSO 换 session）
+
+
+# ⚠️ 2026-10-21 删除 `_daren_sso_relogin()`：
+#   它用带 `log_out=1` 的 URL 自动「重登」，而那是**登出**语义 ——
+#   反复走它会让服务端把已有会话标为失效（实测：cookie 还在本地，
+#   但 SSO `check_login` 返回 `subject_has_login:false`，接口全线
+#   `code=-2 用户未登录`）。登录是**人工动作**（扫码），
+#   系统只负责：引导 → 检测 → 等待 → 继续（见 `_prompt_daren_login` /
+#   `_enter_daren_workspace`）。别再加回来。
+
+
+def _prompt_daren_login(page):
+    """把浏览器停到官网首页，让页面显示扫码登录入口，等老大扫码。
+
+    ★★★ 铁律：绝对不要 goto 带 `log_out=1` 的 URL ★★★
+      那是**登出**语义 —— 反复走它会让服务端把已有会话标为失效
+      （实测踩过：cookie 还在本地，但 `check_login` 返回
+      `subject_has_login:false`，接口全线 `code=-2 用户未登录`）。
+      登录是**人工动作**（扫码），系统只负责：引导 → 检测 → 等待 → 继续。
+    """
+    try:
+        page.goto(DAREN_HOME, timeout=60000)
+        page.wait_for_load_state('domcontentloaded')
+        time.sleep(2)
+    except Exception as e:
+        log(f'[DarenProduct] 打开登录页失败: {e}')
+
+
+def _enter_daren_workspace(page):
+    """扫码后从官网进「达人工作台」——**去掉 log_out 参数**（那是登出语义）。"""
+    try:
+        page.goto(DAREN_HOME, timeout=60000)
+        page.wait_for_load_state('domcontentloaded')
+        time.sleep(2)
+        hrefs = page.evaluate(
+            "() => Array.from(document.querySelectorAll('a'))"
+            ".map(a => (a.textContent||'').trim() + '|' + (a.getAttribute('href')||''))"
+            ".filter(x => x.includes('|') && x.split('|')[1])")
+        for h in hrefs:
+            txt, href = h.split('|', 1)
+            if '达人工作台' in txt and '机构' not in txt:
+                if href.startswith('//'):
+                    href = 'https:' + href
+                elif href.startswith('/'):
+                    href = 'https://www.douyinec.com' + href
+                # ★ 去掉 log_out：进工作台不需要登出语义
+                href = href.replace('log_out=1', '')
+                page.goto(href, timeout=60000)
+                page.wait_for_load_state('domcontentloaded')
+                time.sleep(3)
+                log(f'[DarenProduct] 已进达人工作台 url={page.url}')
+                return page.url
+    except Exception as e:
+        log(f'[DarenProduct] 进入达人工作台失败: {e}')
+    return page.url or ''
+
+
+def _run_daren_product_impl(row):
+    """商品ID → 达人端选品广场接口 → 结构化商品数据。
+
+    ★ 完全不走 LLM：接口直接给结构化字段（价格/佣金/月销/好评率/类目/店铺分…），
+      比「打开商品页再让 AI 读正文」准得多也快得多 ——
+      实测商品页正文里**根本没有商品数据**（389KB 壳页，product_id 出现 0 次）。
+    """
+    cid = row['id']
+    pid = str(row.get('product_id') or '').strip()
+    _job_set(cid, status='collecting', stage='启动达人端浏览器', started=time.time())
+    log(f'[DarenProduct] {cid} 开始查商品: {pid}')
+    try:
+        page = _switch_to(DAREN_BROWSER, BROWSER)
+        _job_set(cid, stage='查询平台商品接口')
+        body = {
+            'scene': 'PCSquareSearch',
+            'size': int(row.get('size') or 5),
+            'search_text': pid,
+            'cursor': 0,
+            'extra': dict(DAREN_PRODUCT_EXTRA),
+            'filters': {},
+        }
+        # ★ 为什么要重试：接口 URL 上带 msToken + **a_bogus**（抖音请求签名），
+        #   我们在页面内自己 fetch 拼不出 a_bogus → 新会话冷启动时服务端
+        #   **不报错、直接返回空列表**（实测：新启动浏览器的第一次调用就空，
+        #   第二次起就正常）。所以「空」要当成「可能没就绪」重试，
+        #   而不是当成「商品不存在」直接报错。
+        items, err = [], ''
+        attempt = 0
+        code = None
+        login_prompted = False
+        login_deadline = time.time() + DAREN_LOGIN_WAIT
+        while True:
+            attempt += 1
+            # ① 必须在 buyin 域内才能 fetch（跨域 CORS 拦）。
+            #    没落域 = 会话没建立 → 走引导扫码流程，不猜「商品不存在」。
+            _ensure_buyin_page(page)
+            if 'buyin.jinritemai.com' not in (page.url or ''):
+                if not login_prompted:
+                    login_prompted = True
+                    log(f'[DarenProduct] {cid} 未进达人工作台（{page.url}），'
+                        f'已打开登录页，请扫码')
+                    _prompt_daren_login(page)
+                if time.time() > login_deadline:
+                    raise NeedLogin('请在弹出的浏览器里扫码登录达人工作台')
+                time.sleep(15)
+                _enter_daren_workspace(page)
+                continue
+            try:
+                out = page.evaluate("""async (args) => {
+                    try {
+                        const r = await fetch(args.path, {
+                            method: 'POST', credentials: 'include',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify(args.body)});
+                        return {status: r.status, text: (await r.text()).slice(0, 200000)};
+                    } catch (e) { return {error: String(e)}; }
+                }""", {'path': DAREN_PRODUCT_FULL, 'body': body})
+            except Exception as e:
+                # 「Execution context was destroyed」= 执行期间页面在跳转 → 当作一次失败重试
+                out = {'error': f'页面执行失败(可能正在跳转): {e}'}
+            if not isinstance(out, dict) or out.get('error'):
+                err = f'接口调用失败: {(out or {}).get("error")}'
+            elif out.get('status') != 200:
+                err = f'接口返回 HTTP {out.get("status")}'
+            else:
+                try:
+                    data = json.loads(out.get('text') or '{}')
+                except Exception as e:
+                    err = f'接口返回不是 JSON: {e}'
+                    data = {}
+                code = data.get('code')
+                if code in (0, '0'):
+                    items = ((data.get('data') or {}).get('summary_promotions')) or []
+                    if items:
+                        break
+                    err = '接口返回空列表（会话可能未就绪）'
+                elif code == -2:
+                    # ★ code=-2「用户未登录」= **会话失效**，不是「商品不存在」。
+                    #   ★★ 绝不自动登出重登：带 log_out=1 的 URL 是**登出**语义，
+                    #      反复走它会让服务端把会话标为失效（实测踩过：
+                    #      cookie 还在本地，但 check_login 返回 subject_has_login:false）。
+                    #   正确做法：登录是**人工动作** → 引导老大扫码 → 轮询等待 → 自动续跑。
+                    err = '会话失效(code=-2 用户未登录)'
+                    if not login_prompted:
+                        login_prompted = True
+                        log(f'[DarenProduct] {cid} {err}，已打开登录页，请扫码')
+                        _prompt_daren_login(page)
+                    if time.time() > login_deadline:
+                        raise NeedLogin('达人端会话已失效，请在弹出的浏览器里扫码重登')
+                    time.sleep(15)
+                    _enter_daren_workspace(page)   # 扫码后进工作台，再试
+                    continue
+                else:
+                    err = (f'接口返回 code={code} '
+                           f'msg={data.get("msg") or data.get("message") or ""}')
+            if attempt >= 3:
+                break
+            log(f'[DarenProduct] {cid} 第{attempt}次未拿到数据({err})，刷新会话后重试')
+            try:
+                page.reload(timeout=60000)
+            except Exception as e:
+                log(f'[DarenProduct] {cid} 刷新页面失败: {e}')
+            # _ensure_buyin_page 内部会等 URL 连续两次不变（SSO 跳完再动手）
+            _ensure_buyin_page(page)
+        if not items:
+            # ★ 单独用 not_found 状态：这是「平台确实没有这个商品的数据」
+            #   （已下架 / 不在选品广场推广池），不是技术故障 ——
+            #   重试、换链路都没用，调用方要据此直接指路到「发商品截图」。
+            raise ProductNotFound(
+                f'平台查不到这个商品（可能已下架，或不在当前推广池）'
+                f'；已重试 3 次，最后一次原因: {err or "未知"}')
+        fields = _parse_daren_product(items[0])
+        fields['total'] = (data.get('data') or {}).get('total')
+        _job_set(cid, status='done', stage='完成',
+                 result=json.dumps(fields, ensure_ascii=False))
+        log(f'[DarenProduct] {cid} 完成: {fields.get("name")!r} '
+            f'price={fields.get("price")} rate={fields.get("commission_rate")} '
+            f'sales={fields.get("sales")}')
+    except NeedLogin as e:
+        err = f'达人端登录态过期了，跟运营老师说一声扫码重登就好（{e}）'
+        log(f'[DarenProduct] {cid} {err}')
+        _job_set(cid, status='need_login', error=err)
+    except ProductNotFound as e:
+        log(f'[DarenProduct] {cid} 平台无此商品: {e}')
+        _job_set(cid, status='not_found', error=str(e))
+    except BrowserLoopPoisoned:
+        raise
+    except Exception as e:
+        err = f'{type(e).__name__}: {e}'
+        log(f'[DarenProduct] {cid} 失败: {err}\n{traceback.format_exc()[:1000]}')
+        _job_set(cid, status='failed', error=err)
+
+
 def _run_product_impl(row):
     """商品库采集（达人端浏览器）。v1=DOM 侦察：打开目标页并留存现场，
     人工确认达人端商品页结构后再升级为完整解析管线。"""
@@ -2219,7 +2990,7 @@ def _run_product_impl(row):
     _job_set(cid, status='collecting', stage='启动达人端浏览器', started=time.time())
     log(f'[ProductJob] {cid} 开始商品采集: url={url} name={name} shop={shop}')
     try:
-        page = DAREN_BROWSER.ensure()
+        page = _switch_to(DAREN_BROWSER, BROWSER)
         _job_set(cid, stage='打开商品页')
         if url:
             page.goto(url, timeout=60000)
@@ -2453,9 +3224,36 @@ class ControlHandler(BaseHTTPRequestHandler):
                 'ok': True, 'browser_up': up, 'logged_in': logged_in,
                 'daren_browser_up': dup, 'daren_logged_in': dlogged,
                 'daren_probe': STATE.get('daren_probe'),
+                'daren_api_probe': STATE.get('daren_api_probe'),
                 'queue_pending': len(db_pending()),
                 'jobs': jobs,
             })
+            return
+        if self.path.startswith('/daren-net'):
+            # 常驻流量日志（人工手动操作也能抓到接口）
+            qs = self.path.split('?', 1)[1] if '?' in self.path else ''
+            limit = 120
+            q = ''
+            for kv in qs.split('&'):
+                if kv.startswith('limit='):
+                    try:
+                        limit = max(1, min(800, int(kv[6:])))
+                    except Exception:
+                        pass
+                elif kv.startswith('q='):
+                    q = kv[2:]
+            with _job_lock:
+                net = list(DAREN_BROWSER.net_log)
+                enabled = DAREN_BROWSER.net_enabled
+            if q:
+                net = [r for r in net if q in r.get('u', '') or q in (r.get('b') or '')]
+            self._json(200, {'ok': True, 'enabled': enabled, 'total': len(net),
+                             'log': net[-limit:]})
+            return
+        if self.path == '/daren-fetch':
+            with _job_lock:
+                out = STATE.get('daren_fetch')
+            self._json(200, out or {'error': 'not run yet'})
             return
         if self.path.startswith('/jobs/'):
             cid = self.path[len('/jobs/'):]
@@ -2504,7 +3302,55 @@ class ControlHandler(BaseHTTPRequestHandler):
         if self.path == '/probe-daren':
             # 只读探测：当前 URL + cookie 名，不导航不点击（登录诊断用）
             JOB_Q.put({'_probe_daren': True})
-            self._json(200, {'ok': True, 'msg': 'probe 已入队，随后 GET /probe-result'})
+            self._json(200, {'ok': True, 'msg': 'probe 已入队，结果见 GET /health 的 daren_probe'})
+            return
+        if self.path == '/daren-fetch':
+            # 在达人端页面上下文里 fetch 任意接口（带登录 cookie）
+            path = str(body.get('path') or '').strip()
+            method = str(body.get('method') or 'GET').strip().upper()
+            if not path:
+                self._json(400, {'error': 'missing path'})
+                return
+            JOB_Q.put({'_daren_fetch': True, 'path': path, 'method': method,
+                       'body': body.get('body')})
+            self._json(200, {'ok': True, 'msg': 'fetch 已入队，结果见 GET /daren-fetch'})
+            return
+        if self.path == '/daren-net':
+            # 常驻流量监听开关 + 清空
+            if 'enable' in body:
+                DAREN_BROWSER.net_enabled = bool(body.get('enable'))
+            if body.get('clear'):
+                with _job_lock:
+                    DAREN_BROWSER.net_log.clear()
+            self._json(200, {'ok': True, 'enabled': DAREN_BROWSER.net_enabled,
+                             'msg': '已应用（监听需浏览器已启动才生效）'})
+            return
+        if self.path == '/probe-product-api':
+            # 探测达人端「按商品ID 查商品」的真实接口（找接口用，不是业务链路）
+            url = str(body.get('url') or '').strip()
+            pid = str(body.get('product_id') or '').strip()
+            click_text = str(body.get('click_text') or '').strip()
+            click_seq = str(body.get('click_seq') or '').strip()
+            search_text = str(body.get('search_text') or '').strip()
+            JOB_Q.put({'_probe_product_api': True, 'url': url, 'product_id': pid,
+                       'click_text': click_text, 'click_seq': click_seq,
+                       'search_text': search_text})
+            self._json(200, {'ok': True, 'msg': '探测已入队，结果见 GET /health 的 daren_api_probe'})
+            return
+        if self.path == '/collect-product-id':
+            # 商品ID → 达人端选品广场接口 → 结构化商品数据（不走 LLM）
+            pid = str(body.get('product_id') or '').strip()
+            if not pid:
+                self._json(400, {'error': 'missing product_id'})
+                return
+            try:
+                size = max(1, min(30, int(body.get('size') or 5)))
+            except Exception:
+                size = 5
+            cid = f"pid_{int(time.time()*1000)}_{secrets.token_hex(3)}"
+            submit_collect({'_daren_product': True, 'id': cid,
+                            'product_id': pid, 'size': size})
+            self._json(200, {'ok': True, 'collect_id': cid})
             return
         if self.path == '/collect-product-url':
             # 商品链接采集：{url} → 团长端浏览器打开 → LLM 提取 → GET /jobs/<id> 取 result
