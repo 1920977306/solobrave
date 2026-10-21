@@ -87,6 +87,7 @@ v2 设计系统达人卡视觉(中性头像 / 评级 chip / 待评级虚线态)�
 - **方案阶段**用 4 段结构(现状 / Gap / 改动 / 风险),不要堆砌代码片段
 - **明确"待你确认"的 blocking 问题**,用 `ask_user` 而不是堆问题列表
 - **改完跑完,主动给 5 张验收图 + 1 段 commit summary**,不等用户问
+- **commit 前必跑 `python3 scripts/secret_scan.py --staged`**,退出码非 0 不许提交(见 §7)
 
 ## 6. commit message 模板
 
@@ -95,3 +96,74 @@ v2 设计系统达人卡视觉(中性头像 / 评级 chip / 待评级虚线态)�
 - 修复:`fix: <症状>`
 
 每个 commit 前 `git log -1 --stat origin/dev` 确认远端 HEAD,避免本地 commit 错位。
+
+## 7. 密钥管理铁律(2026-10-21 新增,优先级仅次于 §1)
+
+**背景**:2026-10-21 查出 4 把生产 Kimi API key 明文硬编码在 `solobrave-server.py`,
+被提交进 git 历史**并推送到 GitHub**。代码改掉了、**历史撤不回**——只能去 Kimi 后台轮换作废。
+根因不是笔误,是**流程性漏洞**:没有任何机制在提交前拦住它。
+本节 + `scripts/secret_scan.py` 就是那道闸门。
+
+### 规则
+
+1. **密钥只进 `.env`,代码里只读不算**
+   - `.env` 已在 `.gitignore`(`*.env`),权限必须 `chmod 600`
+   - 代码里一律 `os.environ.get('XXX_KEY')` 读,**不许出现 key 字面量**
+   - ⚠️ 读 `.env` 用**绝对路径**(`os.path.dirname(os.path.abspath(__file__))`),
+     不要只依赖 `os.environ`——本项目 `_load_dotenv()` 在 `solobrave-server.py`
+     **模块末尾**才调用,晚于 key 池创建,纯环境变量方案会**静默失效**
+     (2026-10-21 实测踩过:注释写"环境变量优先",实际 100% 走内置明文池)
+
+2. **提交前必跑扫描器,退出码非 0 不许提交**
+   ```bash
+   python3 scripts/secret_scan.py --staged       # 提交前(只扫暂存区,最快)
+   python3 scripts/secret_scan.py                # 工作区全量(跟踪文件 + 未跟踪新文件)★默认
+   python3 scripts/secret_scan.py --all          # 同上,显式全量(发版前)
+   python3 scripts/secret_scan.py --history      # 扫 git 历史所有版本(轮换后确认残留,约 5 秒)
+   ```
+   ⚠️ **未跟踪的新文件也算**(2026-10-21 修过一个假安全感):
+   旧实现的 `--all` 反而**跳过**未跟踪文件,而新泄漏恰恰都在还没 `git add` 的新文件里
+   → "用了 --all 就万事大吉"实际是自欺。现在 `--all` = 真全量,
+   另有 `--tracked-only` 给确实只想扫跟踪文件的场景。
+
+   ⚠️ **历史里的密钥改代码不算修**: `--history` 扫出历史里还剩几把、分别在哪些文件,
+   那份清单才是要去供应商后台**轮换作废**的名单。
+
+3. **带密钥的备份文件一律放 repo 外**
+   ```bash
+   cp x.py ~/.solobrave-backups/x.py.bak-<ts>   # 不要留在仓库里
+   ```
+   原因同 §1:`.gitignore` 对已跟踪文件不生效,而 `git add .` 会把备份一起带走。
+   2026-10-21 那个 `solobrave-server.py.bak-kimi-keys-*` 就是这么差点**二次泄漏**的。
+
+4. **已提交的密钥必须轮换,改代码不算修**
+   ```bash
+   git log --all --oneline -S "<key前缀>"    # 有输出 = 进过历史 = 必须去后台 revoke
+   ```
+
+5. **误报登记走 allowlist,不要直接忽略整类**
+   `scripts/secret_scan_allowlist.txt` 每行 = `<指纹>|<原因>|<负责人>|<日期>`,
+   指纹用 `python3 scripts/secret_scan.py --fingerprint "<值>"` 生成(**不写明文**,
+   否则这个文件本身就成了新的泄漏点)。登记项**不阻塞提交但会打印提醒**,处理完删行。
+
+6. **第三种密钥形态:由客户端自持的凭据 —— 代码只读不算,且必须实时读盘**
+   有些凭据根本不该进 `.env`,因为**客户端已经在替我们持有并自动续期**
+   (2026-10-21 实例:MiniMax Code 订阅的 OAuth accessToken 在
+   `~/.minimax/auth/<env>/<region>/mcode-public/auth.json`,Code 桌面端会自行
+   续期并重写该文件)。这类凭据:
+   - **绝不复制进 `.env` 或代码** —— 复制就等于制造第二份需要轮换的副本
+   - **每次调用实时读盘,绝不缓存** —— 缓存下来的短期 token 必然在下次调用时 401,
+     表现是「刚开始还能用、跑一会儿全灭」,极易误判成「额度又没了」
+   - **过期就跳过,不要让用户等一次必然失败的请求**;401 时可重读一次凭据重试
+   - 这类凭据天然不进仓库 → 扫描器扫不到也正常,**不代表它可以进仓库**
+
+### 扫描器基线里的 3 条已知待处理(2026-10-21 登记)
+
+| 项 | 风险 | 处置 | 优先级 |
+|---|---|---|---|
+| OpenClaw gateway token 硬编码在前端 JS(4 个文件) | gateway 是内网 `ws://192.168.1.25:18789`,公网拿到也连不上 | 前端不直连,改走后端代理(服务端持 token) | P1 |
+| 旧 Kimi key 遗留在 `KIMI_API_PROXY_SPEC.md` | 已实测 401 失效 | 文档改成「从 .env 读」的说明 | P2 |
+| 飞书多维表格 Base token 硬编码 `v3_scorer.py` | 拿到可读该 Base 的数据 | 迁 `.env`(`FEISHU_APP_TOKEN`) | P1 |
+
+> 扫描器上线时用**负向测试**验过闸门真的会失败(造 4 类真 token → 全部拦下 + exit 1),
+> 不是恒真检查。改扫描逻辑后请重跑一次负向测试。

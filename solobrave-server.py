@@ -33151,14 +33151,34 @@ class KimiKeyPool:
             logger.warning(f'[KimiKeyPool] Key blocked: {masked}, recover in {block_seconds}s')
 
 
-# 真实 Kimi API Key 池：环境变量 KIMI_API_KEY（逗号分隔可配多个）优先，否则用内置 key 列表
-_env_kimi_keys = [k.strip() for k in os.environ.get('KIMI_API_KEY', '').split(',') if k.strip()]
-KIMI_KEY_POOL = KimiKeyPool(_env_kimi_keys or [
-    "sk-kimi-o35k9gcgprEzAZ0Q9Kw9bqiPGJyD66qXbe2biTZoZKaBm9DEszUQnSGML7qJBfaE",
-    "sk-kimi-DbTa3q8VcsJOUSA68nbnFkvTsE0jTXBxL2SMGOOSwUNGwceFrMgAI9LbULucVXfu",
-    "sk-kimi-nl2dFFqoGPKpA6boPerKqeFtaQKySphOnVQ6mLtbrITg5ivOygnh5dtFMDayoqtx",
-    "sk-kimi-EKcvRlizd3g4TggDDHOlCyTfOtvr9nTWc47FPKK1uaddgTOojXM2IUpYmfhR4ybN",
-])
+# 真实 Kimi API Key 池：进程环境变量 KIMI_API_KEY（逗号分隔）> 同目录 .env 的 KIMI_API_KEY
+#
+# ⚠️ 为什么不能只依赖 os.environ：本文件的 _load_dotenv() 在模块末尾（约 36222 行）才被调用，
+#    **晚于**此处 key 池创建 → 模块加载期 os.environ 里还没有 .env 的内容，
+#    纯环境变量方案会**静默失效**（实测运行进程环境里根本没有 KIMI_API_KEY，
+#    launchd 也没配 EnvironmentVariables）。故此处额外按绝对路径直接读 .env，
+#    绕开调用顺序与 CWD 依赖。
+# ⚠️ 密钥不再写死在代码里（曾明文入库并被推送到 GitHub，2026-10-21 迁出）
+#    —— 统一放 .env（已 gitignore，权限 600）。改动后需重启 server 生效。
+def _kimi_keys_from_config():
+    raw = os.environ.get('KIMI_API_KEY', '').strip()
+    if not raw:
+        try:
+            _env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env')
+            with open(_env_path, 'r', encoding='utf-8') as _f:
+                for _line in _f:
+                    _line = _line.strip()
+                    if _line.startswith('KIMI_API_KEY='):
+                        raw = _line.split('=', 1)[1].strip().strip('"\'')
+                        break
+        except Exception:
+            pass
+    return [k.strip() for k in raw.split(',') if k.strip()]
+
+_env_kimi_keys = _kimi_keys_from_config()
+KIMI_KEY_POOL = KimiKeyPool(_env_kimi_keys)
+if not KIMI_KEY_POOL.size:
+    logger.warning('[KimiKeyPool] 未读到任何 Kimi key（进程环境 KIMI_API_KEY / 同目录 .env）—— Kimi 相关功能将不可用')
 # 上游 base url：可用环境变量覆盖（便于本地 mock 测试），默认真实 Kimi coding endpoint
 KIMI_PROXY_REAL_BASE_URL = os.environ.get('KIMI_PROXY_BASE_URL', '').strip() or 'https://api.kimi.com/coding'
 
