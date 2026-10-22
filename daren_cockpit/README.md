@@ -67,9 +67,35 @@ curl -s -o /dev/null -w "%{http_code}\n" "https://daren.sczlgyl.com/api/cockpit?
 - [ ] `cockpit_keys.json` 未被 git 跟踪（`git status` 里不应出现）
 
 ### 关联系统回归（改动接口/鉴权后必查，2026-10-20 误报事故教训）
-- [ ] **每周体检 automation**（`automation_30e3c477`，脚本在 blueprint assets）手动试跑一次 dryRun，确认 checks 全绿（含 form_anon_ok：招商表单匿名可填）
+- [ ] **本机体检探针**（真值版，2026-10-22 落地）：`/Users/qichen/Developer/solobrave-ops/healthcheck.py`
+      → 由 launchd `com.solobrave.healthcheck` 每 120s 跑，日志尾部应出现 `驾驶舱=OK`
+      ```bash
+      tail -1 /Users/qichen/Developer/solobrave-ops/health.log   # 期望：... 驾驶舱=OK
+      ```
+      检查项四件套（名字与历史云端体检保持一致）：`keys_ok` / `reach` / `http_200` / `form_anon_ok`。
+      - `http_200` 必须**带 k** 打 `/api/cockpit`（不带 k 必然 403 → 那是鉴权问题，不是服务故障）
+      - `form_anon_ok` = 招商表单 `/apply` 匿名可填
+      - ⚠️ 探针**不告警即通过**；真挂了会走 healthcheck 既有的飞书/Bark 通道（30 分钟节流）
+      > ⚠️ **原清单里的「每周体检 automation（automation_30e3c477，脚本在 blueprint assets）」已作废**。
+      > 2026-10-22 穷举核查：全仓 + `~/.minimax` + `~/.openclaw` + `~/Developer/solobrave-ops`
+      > + LaunchAgents + Code 定时任务（`cron_read` 空）+ 洛链运行时配置（`api.lolia.link`
+      > 拉下来只有 `localPort 7188`，无任何 monitor/probe 字段）⇒ **该 automation 在本机与洛链均不存在**，
+      > 且洛链文档全站没有「云端定时体检」这个功能。保留此行只会让人每周白跑一次。
 - [ ] **daren_bot 读取方**：改了接口格式/鉴权/k 的存放方式时，检查 `weekly.py` / `report_card.py` 拼链接的逻辑是否还兼容（格式以 `cockpit_keys.json` 为准）
 - [ ] **周报 R1/看板渲染**：改了 `/api/cockpit` 返回字段时，确认 daren_bot 侧周报和看板长图的取数字段没断
+
+### ⚠️ 巡检端口：7188 是唯一真值（2026-10-22 查清）
+
+历史上有个探针把端口写成 **`79999`**，往老大飞书刷「驾驶舱巡检异常」。**这不是驾驶舱坏了，是端口号本身非法**：
+
+| 端口 | urllib 行为 | 含义 |
+|---|---|---|
+| `79999` / `65536`（**越界**） | `gaierror [Errno 8] nodename nor servname provided` | **端口非法**（超 TCP 上限 65535）→ 报文长得像「DNS 解析失败」，极易误判成「服务连不上」 |
+| `65535` / `9999`（合法但无人监听） | `[Errno 61] Connection refused` | 端口对、服务没起 |
+| `7188` | `200` | 真端口（launchd `com.solobrave.daren-cockpit`） |
+
+⇒ **教训**：`Errno 8` 在 URL 场景里不等于「DNS 坏了」，先查**端口是否越界**（`>65535`）。
+本机探针已加端口闸门：越界直接报「端口非法」并拦下，不再伪装成网络故障。
 
 ## 公网暴露（洛链 FRP 隧道）
 
