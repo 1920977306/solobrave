@@ -57,6 +57,11 @@ curl -s -o /dev/null -w "%{http_code}\n" "https://daren.sczlgyl.com/api/cockpit?
 - [ ] 运营链路：admin 口令门 → roster → 下钻 `?t=`（ops 头通道）→ 改状态写回飞书 → **测完还原状态**
 - [ ] 异常态：坏 JSON 400 / 非法 tenant 字符 400 / 缺 record_id 400 / 无 ops 头 403
 - [ ] 落地页三卡渲染正常（JS 改动后 `node --check` 抽出的 script）
+- [ ] **视觉同源守卫**：`python3 daren_bot/tools/verify_visual_sync.py` → 全绿（exit 0）
+      > 校验 H5 驾驶舱与飞书 BaseApp 的**结论颜色 / emoji / 一句话结论**是否还是一套。
+      > 唯一事实来源 = `daren_bot/verdict_ui.py`；改任何一边都要跑，漏改会 exit 1。
+      > ⚠️ 改守卫本身也要**反向验证一次**（故意改错 → 确认它真的报红），别写恒真断言。
+      > `--offline` 只查本地 H5（不调飞书），改 H5 时用这个更快。
 - [ ] `launchctl kickstart -k gui/$(id -u)/com.solobrave.daren-cockpit` 重启后冒烟
       → `daren_cockpit/tools/public_smoke.sh --local`（本地直连 7188，**不依赖公网证书**，13 项全绿才算过）
 - [ ] `cockpit_keys.json` 未被 git 跟踪（`git status` 里不应出现）
@@ -432,6 +437,24 @@ Content-Type: application/json
   旧链路的团长端登录态（`ecom_us_lt_buyin` + `sessionid`）只用于「ID 解析不出来」时的页面解析兜底。
   → **商家的图片路径始终不受影响**（vision 走套餐 key，与浏览器无关），所以「发商品图」永远可用。
 - 商品图是飞书 attachment 字段，**尚未接入下载通道** → 卡片里 `image` 恒为空（接口已留好）。
+
+## 视觉：与飞书 App 同源（2026-10-22）
+
+老大反馈「两个设计风格没有一样，不然会以为是两个系统」。查证后确认**两端展示的是同一个达人（hlb725 洁洁爱户外）的同一套数据**——飞书统计卡的 filter 就是 `抖音号 = hlb725`——所以这个观感是真的。
+
+修法不是追求像素一致（飞书的顶栏/卡片/主题色被平台锁死），而是让**三层语义**对齐：
+
+| 层 | 规则 | 本次落地 |
+|---|---|---|
+| ① 品牌识别 | 两边同名 | H5 顶栏加**品牌头**（绿点 + 「达人经营驾驶舱」），与飞书 App 顶栏 App 名一致；landing / 运营视图同步 |
+| ② 色彩语义 | 同一句话同色 | 飞书 4 个单选字段 `options.hue` 按 `daren_bot/verdict_ui.py` 改色；H5 徽章按同一张表取色 |
+| ③ 内容结构 | 同一套指标名/口径句/结论 emoji | 飞书新增「本周一句话」块；口径句统一「数据来自我们系统」 |
+
+**修掉的两个真割裂**：
+- 飞书「评估结论」潜力型是**紫**标签、「🟢 能带」是**红色**标签（emoji 与颜色反了），H5 是绿的 → 同一句话两个颜色。
+- 飞书商品结论选项名带 emoji（`🟢 能带`），H5 直接拿它拼 `.v-*` 类名 → 拼出不存在的类 → **结论标签掉底色**（裸文字）。修法：`verdictKey()` 归一化（Python 侧 `verdict_ui.verdict_key()` 是孪生）。
+
+**守卫**：`python3 daren_bot/tools/verify_visual_sync.py`（见「发版前检查清单」）。映射表全量见 `docs/DAREN-DASHBOARD-TEMPLATE.md` §9.3，API 边界见 `AGENTS.md` §10。
 
 ## 数字展示：粉丝量统一「万」单位（2026-10-22）
 

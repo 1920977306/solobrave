@@ -24,6 +24,7 @@ from urllib.parse import urlparse, parse_qs
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT.parent))  # 引入 daren_bot
 from daren_bot import config, db as botdb  # noqa: E402
+from daren_bot import verdict_ui  # noqa: E402  结论/状态视觉映射的唯一事实来源
 from daren_cockpit import apply as apply_mod  # noqa: E402
 
 SOLOBRAVE_DB = config.ROOT / "data" / "solobrave.db"
@@ -425,12 +426,8 @@ def load_cockpit(tenant_key: str):
     delta = None
     if len(trend) >= 2 and trend[0]["fans"]:
         delta = trend[-1]["fans"] - trend[0]["fans"]
-    verdict_line = {
-        "潜力型": "涨粉健康、带货稳，优先接高佣标品",
-        "能带": "账号状态好，适合加大带货频率",
-        "慎带": "近期数据波动，选品从严、先测品",
-        "别带": "账号数据异常，先养内容再带货",
-    }.get(verdict, "数据积累中，每周一更新结论")
+    # 结论一句话：映射表在 daren_bot/verdict_ui.py（与飞书 Base 选色同源，见该文件头注释）
+    verdict_line = verdict_ui.verdict_line(verdict)
 
     return {
         "tenant": tenant_key, "dyid": dyid,

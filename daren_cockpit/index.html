@@ -35,6 +35,19 @@
   .v-能带{background:var(--green-bg);color:var(--green-dk)}
   .v-慎带{background:#fdf3e7;color:var(--amber)}
   .v-别带{background:#feecec;color:var(--red)}
+  /* 达人评级色（潜力型/成长型/稳健型/成熟型/风险型）—— 与飞书 Base「评估结论」
+     选项 hue 严格一一对应：潜力型=Green 成长型=Lime 稳健型/成熟型=Yellow 风险型=Red。
+     ⚠️ 同一句话必须同色，否则两边像两个系统（2026-10-22 老大反馈）。 */
+  .v-潜力型{background:var(--green-bg);color:var(--green-dk)}
+  .v-成长型{background:var(--green-bg);color:var(--green-dk)}
+  .v-稳健型{background:#fdf3e7;color:var(--amber)}
+  .v-成熟型{background:#fdf3e7;color:var(--amber)}
+  .v-风险型{background:#feecec;color:var(--red)}
+  .v-评估中{background:#f2f2f2;color:#999}
+  /* 品牌头：与飞书 App 顶栏同名（达人经营驾驶舱），两个入口一眼看出是同一套系统 */
+  .brand-dot{width:8px;height:8px;border-radius:99px;background:var(--green);flex:0 0 auto;
+    box-shadow:0 0 0 3px rgba(7,193,96,.16)}
+  .brand-name{font-size:14px;font-weight:700;color:var(--txt);letter-spacing:.2px;white-space:nowrap}
   .st-待评估{background:#fdf3e7;color:var(--amber)}
   .st-有意向{background:#e8f0fe;color:#2f6fed}
   .st-已合作{background:var(--green-bg);color:var(--green-dk)}
@@ -99,6 +112,27 @@ function fmtFans(v){
   const w = (x >= 0 ? Math.floor(x/10000*10 + 0.5) : -Math.floor(-x/10000*10 + 0.5)) / 10;
   return (Number.isInteger(w) ? String(w) : w.toFixed(1)) + '万';
 }
+/* 结论 → emoji。与飞书 Base 单选字段的选项 hue 同源（同一句话同一个颜色）：
+   能带/潜力型/成长型=🟢绿  慎带/稳健型/成熟型=🟡琥珀  别带/风险型=🔴红。
+   ⚠️ 改这里必须同步改飞书 Base「商品推荐记录·结论」和「账号档案·评估结论」的
+      options.hue，否则 H5 和飞书 App 又变成两个系统。 */
+const VERDICT_EMOJI = {
+  '能带':'🟢','潜力型':'🟢','成长型':'🟢',
+  '慎带':'🟡','稳健型':'🟡','成熟型':'🟡',
+  '别带':'🔴','风险型':'🔴',
+};
+function verdictEmoji(v){ return VERDICT_EMOJI[v] || '⚪'; }
+/* 飞书字段原值 → 结论裸词：商品推荐记录·结论 的选项名带 emoji 前缀（「🟢 能带」），
+   账号档案·评估结论 是裸词（「潜力型」）。拼 .v-* CSS 类名前必须剥掉前缀 ——
+   否则会拼出 v-🟢 能带 这种不存在的类 → 结论标签掉底色（2026-10-22 实测发现）。
+   ⚠️ 与 daren_bot/verdict_ui.py 的 verdict_key() 保持一致（守卫脚本对拍）。 */
+function verdictKey(v){
+  let out = '';
+  for(const ch of String(v || '')){
+    if(/[0-9A-Za-z一-鿿]/.test(ch)) out += ch;
+  }
+  return out;
+}
 const COOP_FORM = 'https://my.feishu.cn/share/base/shrcntWrz2k7Vx4REmvGW0yLttf';
 /* ★ 招商减负版入口：商家只填 2 项 + （链接|图片|描述）任一，AI 自动补商品字段。
    飞书分享表单（COOP_FORM）保留为「填完整表」备选，不再是默认入口。 */
@@ -141,7 +175,7 @@ async function boot(){
 
 /* ---------- 多角色入口（学千家工作台：选身份进入，各看各的） ---------- */
 function renderLanding(){
-  document.title = '达人经营工作台';
+  document.title = '达人经营驾驶舱';
   const roles = [
     {href:'?view=admin', icon:'📊', title:'运营工作台', who:'管理员 · 品牌方视角',
      perms:['全部达人名单与评分分布','合作机会管道跟进','每位达人点进去看详细驾驶舱']},
@@ -153,7 +187,7 @@ function renderLanding(){
   ];
   $('#app').innerHTML = `
   <div class="card p-6 text-center mt-4">
-    <div class="text-2xl font-bold">达人经营工作台</div>
+    <div class="text-2xl font-bold">达人经营驾驶舱</div>
     <div class="sub mt-2">选一个身份进入 · 不同身份看到的数据不一样</div>
   </div>
   <div class="grid gap-3" style="grid-template-columns:1fr">
@@ -167,7 +201,7 @@ function renderLanding(){
       <div class="mt-3 text-sm font-semibold sub">${esc(r.note)}</div>
     </div>`).join('')}
   </div>
-  <div class="sub text-center pt-1">内测版 · 数据由我们系统采集与评估，每周一更新</div>`;
+  <div class="sub text-center pt-1">内测版 · 数据来自我们系统采集与评估，每周一更新</div>`;
 }
 
 function roleCardInner(r){
@@ -272,13 +306,18 @@ function renderAdmin(d){
     </div>`).join('') || `<div class="empty sub">暂无合作意向</div>`;
 
   $('#app').innerHTML = `
-  <div class="flex items-center justify-between pt-1">
-    <a href="/" class="sub" style="text-decoration:none">‹ 换身份</a>
-    <span class="sub">运营·管理员 · ${esc(d.updated)} 更新</span>
+  <div class="flex items-center justify-between pt-1 gap-2">
+    <div class="flex items-center gap-2 min-w-0">
+      <span class="brand-dot"></span>
+      <span class="brand-name">达人经营驾驶舱</span>
+      <span class="sub">· 运营视图</span>
+    </div>
+    <a href="/" class="sub shrink-0" style="text-decoration:none">‹ 换身份</a>
   </div>
   <div class="card p-5">
     <div class="text-xl font-bold">运营工作台</div>
     <div class="sub mt-1">全部达人一屏总览 · 点卡片进达人驾驶舱</div>
+    <div class="sub mt-1">运营·管理员 · ${esc(d.updated)} 更新</div>
   </div>
 
   <div class="grid grid-cols-2 gap-3">
@@ -382,7 +421,7 @@ const PAGE_SIZE = 4;
 let _lastData = null;
 
 function productCard(c){
-  const vTag = c.verdict ? `<span class="swatch v-${esc(c.verdict)}">${esc(c.verdict)}</span>`
+  const vTag = c.verdict ? `<span class="swatch v-${esc(verdictKey(c.verdict))}">${esc(c.verdict)}</span>`
     : (c.score !== undefined ? `<span class="swatch" style="background:#f2f2f2;color:#666">匹配 ${c.score}</span>` : '');
   const meta = [c.price && '价格 ' + esc(c.price), c.comm && '佣金 ' + esc(c.comm),
     (c.sales !== '' && c.sales !== undefined && c.sales !== 0) && '销量 ' + esc(c.sales)].filter(Boolean).join(' · ');
@@ -432,7 +471,7 @@ function drawProducts(d){
         ${rest.map(c => `<div class="pitem">
           <div class="flex items-start justify-between gap-2">
             <span class="pn" style="font-size:13px">${esc(c.name || '未命名商品')}</span>
-            ${c.verdict ? `<span class="swatch v-${esc(c.verdict)}">${esc(c.verdict)}</span>` : ''}
+            ${c.verdict ? `<span class="swatch v-${esc(verdictKey(c.verdict))}">${esc(c.verdict)}</span>` : ''}
           </div>
           <div class="sub mt-1">${[c.price && esc(c.price), c.comm && ('佣金 ' + esc(c.comm)), c.date && esc(c.date)].filter(Boolean).join(' · ')}</div>
           ${c.reason ? `<div class="sub mt-1">${esc(c.reason)}</div>` : ''}
@@ -448,6 +487,7 @@ function switchProductBatch(delta){
 }
 
 function render(d){
+  document.title = '达人经营驾驶舱';
   const delta = d.fans_delta === null || d.fans_delta === undefined ? '<span class="sub">攒数据中 · 采满 2 次算环比</span>'
     : (d.fans_delta > 0 ? `<span style="color:var(--green-dk)">▲ +${d.fans_delta}</span>`
     : (d.fans_delta < 0 ? `<span style="color:var(--red)">▼ ${d.fans_delta}</span>` : '<span class="sub">本周持平</span>'));
@@ -483,9 +523,13 @@ function render(d){
     </details>` : '';
 
   $('#app').innerHTML = `
-  <div class="flex items-center justify-between pt-1">
-    <a href="/" class="sub" style="text-decoration:none">‹ 换身份</a>
-    <span class="sub">达人视图</span>
+  <div class="flex items-center justify-between pt-1 gap-2">
+    <div class="flex items-center gap-2 min-w-0">
+      <span class="brand-dot"></span>
+      <span class="brand-name">达人经营驾驶舱</span>
+      <span class="sub">· 达人视图</span>
+    </div>
+    <a href="/" class="sub shrink-0" style="text-decoration:none">‹ 换身份</a>
   </div>
   <!-- 账号卡 -->
   <div class="card p-5">
@@ -494,7 +538,7 @@ function render(d){
       <div class="flex-1 min-w-0">
         <div class="flex items-center gap-2 flex-wrap">
           <span class="text-xl font-bold">${esc(d.name)}</span>
-          <span class="tag" style="background:var(--green-bg);color:var(--green-dk)">🟢 ${esc(d.verdict)}</span>
+          <span class="tag v-${esc(d.verdict)}">${verdictEmoji(d.verdict)} ${esc(d.verdict)}</span>
         </div>
         <div class="sub mt-1">抖音号 ${esc(d.dyid)} · 数据来自我们系统 · ${esc(d.updated)} 更新</div>
       </div>
