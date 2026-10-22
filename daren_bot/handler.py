@@ -12,7 +12,7 @@ import re
 import time
 from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode
 
-from . import config, db, cockpit_link
+from . import config, db, cockpit_link, product_intent
 
 log = logging.getLogger("daren-bot.handler")
 
@@ -107,13 +107,25 @@ class Router:
             self._route_image(tenant, msg, content, sender)
         elif msg.message_type == "text":
             text = content.get("text", "")
-            m = DOUYIN_IN_TEXT_RE.search(text) or DOUYIN_RE.match(text)
+            # 路由顺序有讲究（2026-10-22 商品意图修复）：
+            #   ① 明确标注「抖音号：xxx」→ 一定是抖音号
+            #   ② 裸商品ID（17-20 位数字）→ 必须在 ③ 之前！否则 DOUYIN_RE 会把它当抖音号抢走
+            #   ③ 整条是一个 alnum 串 → 抖音号
+            dy_in_text = DOUYIN_IN_TEXT_RE.search(text)
+            dy_only = DOUYIN_RE.match(text)
+            bare_pid = self._bare_product_id(tenant, text, dy_only)
             if cockpit_link.is_cockpit_url(text):
                 # 达人把自己收到的驾驶舱链接发回来 → 回入口，别当成商品链接扣 20 分
                 self._route_cockpit_link(tenant, chat_id, text, sender)
-            elif m:
-                self._route_douyin(tenant, chat_id, m.group(1), sender,
-                                   name_hint=_extract_name_hint(text, m.group(1)))
+            elif dy_in_text:
+                self._route_douyin(tenant, chat_id, dy_in_text.group(1), sender,
+                                   name_hint=_extract_name_hint(text, dy_in_text.group(1)))
+            elif bare_pid:
+                # 达人按引导语只发了一串商品ID → 和商品链接同一条链路
+                self._route_product_id(tenant, chat_id, bare_pid, sender)
+            elif dy_only:
+                self._route_douyin(tenant, chat_id, dy_only.group(1), sender,
+                                   name_hint=_extract_name_hint(text, dy_only.group(1)))
             elif VIDEO_LINK_RE.search(text):
                 self._route_video(tenant, chat_id, text, sender)
             elif URL_RE.search(text):
@@ -149,6 +161,11 @@ class Router:
             elif cockpit_link.is_cockpit_link_question(text):
                 # 驾驶舱入口导航（2026-10-20 交接项①）：零成本，不扣积分
                 self._route_cockpit_link(tenant, chat_id, text, sender)
+            elif product_intent.missing_product_ref_question(text):
+                # 商品判断意图 + 没给商品标识（2026-10-22 老大截图实锤）：
+                # 以前这种会掉进「其他问题帮不上忙」的通用兜底，达人以为机器人不懂货。
+                # 零成本（只是要一个输入），不扣积分、不调 LLM。
+                sender.send_text(chat_id, product_intent.NEED_PRODUCT_REF_REPLY)
             else:
                 # 业务问答：入队异步走 LLM（扣 1 积分），超出带货范围由模型拒答
                 self._route_qa(tenant, chat_id, text, sender)
@@ -159,6 +176,40 @@ class Router:
         if elapsed > 3:
             log.warning("HANDLER OVER 3s: tenant=%s elapsed=%.2fs",
                         tenant["tenant_key"], elapsed)
+
+    # ---------- 裸商品ID：抖音号 还是 商品ID？ ----------
+
+    def _bare_product_id(self, tenant, text: str, dy_only) -> str:
+        """整条消息是一串 17-20 位数字时，判定它是**商品ID**还是**抖音号**。
+
+        为什么要判（2026-10-22）：`DOUYIN_RE` 是 `^[A-Za-z0-9_]{5,24}$`，
+        一串 19 位纯数字**会被当成抖音号**抢走 —— 而我们正在教达人「发商品ID」，
+        收了却走错路 = 空头支票。
+
+        判据（对着库判，不靠猜）：
+          ① 消息里明确写「抖音号：xxx」→ 抖音号（调用方已先处理）
+          ② 消息里还有别的字（不是整条一个数字）→ 只可能是商品ID
+          ③ 整条一个数字：等于本租户已绑定的抖音号 → 抖音号；
+             库里能查到这号是已采集达人 → 抖音号；其余 → 商品ID
+             （抖音号几乎不会是 17-20 位纯数字，商品ID 一定是）
+        """
+        pid = product_intent.find_bare_product_id(text)
+        if not pid:
+            return ""
+        if DOUYIN_IN_TEXT_RE.search(text):
+            return ""
+        if not dy_only:
+            # 消息里还有别的字 → 不可能是抖音号
+            return pid
+        bound = (tenant.get("bind_douyin_id") or "").strip()
+        if bound and bound == pid:
+            return ""
+        try:
+            if db.get_tenant_by_douyin(pid):
+                return ""
+        except Exception:
+            log.warning("bare id dyid lookup failed", exc_info=True)
+        return pid
 
     # ---------- 管理员后门：立即试跑周报（只回管理员，不推达人） ----------
 
@@ -333,12 +384,22 @@ class Router:
         sender.send_text(chat_id, f"收到，我想一下～（积分余额 {bal}）")
         db.enqueue_task(tk, "qa", q[:200], config.COST_QA, chat_id=chat_id)
 
-    # ---------- ③ 商品链接（spec 4.3） ----------
+    # ---------- ③ 商品链接 / 商品ID（spec 4.3） ----------
 
     def _route_link(self, tenant, chat_id, text, sender) -> None:
-        tk = tenant["tenant_key"]
         url = URL_RE.search(text).group(0)
-        product_key = normalize_product_url(url)
+        self._route_product(tenant, chat_id, normalize_product_url(url), sender, "链接")
+
+    def _route_product_id(self, tenant, chat_id, pid, sender) -> None:
+        """裸商品ID —— 和商品链接**同一条链路**。
+
+        2026-10-22：既然引导语说了「发链接或商品ID」，就必须真能收下 ID。
+        链路复用不变：`collect_product_by_url(target)` → `extract_product_id` → 查真值。
+        """
+        self._route_product(tenant, chat_id, pid, sender, "商品ID")
+
+    def _route_product(self, tenant, chat_id, product_key, sender, label="链接") -> None:
+        tk = tenant["tenant_key"]
 
         # ★ 2026-10-21 复用层：**结论缓存**优先于商品数据缓存。
         #   结论缓存命中 = 连 LLM 都不用调（最贵的一步），只花 5 分。
@@ -352,7 +413,7 @@ class Router:
                 return
             sender.send_text(
                 chat_id,
-                f"收到链接（结论缓存命中，秒出结果）～（积分余额 {bal}）")
+                f"收到{label}（结论缓存命中，秒出结果）～（积分余额 {bal}）")
             db.enqueue_task(tk, "product", product_key,
                             config.COST_PRODUCT_CACHED, cache_hit=1,
                             chat_id=chat_id,
@@ -369,7 +430,7 @@ class Router:
                 return
             sender.send_text(
                 chat_id,
-                f"收到链接（缓存命中，秒出结果）～（积分余额 {bal}）")
+                f"收到{label}（缓存命中，秒出结果）～（积分余额 {bal}）")
             db.enqueue_task(tk, "product", product_key,
                             config.COST_PRODUCT_CACHED, cache_hit=1,
                             chat_id=chat_id)
@@ -385,9 +446,11 @@ class Router:
         if not ok:
             sender.send_text(chat_id, "积分余额不足，联系运营老师补充额度")
             return
+        tip = ("收到商品ID，正在查这个商品的数据，分析中" if label == "商品ID"
+               else "收到链接，打开商品页分析中")
         sender.send_text(
             chat_id,
-            f"收到链接，打开商品页分析中，大约 1-2 分钟～（积分余额 {bal}）")
+            f"{tip}，大约 1-2 分钟～（积分余额 {bal}）")
         db.enqueue_task(tk, "product", product_key, config.COST_COLLECT_PRODUCT,
                         chat_id=chat_id)
 
