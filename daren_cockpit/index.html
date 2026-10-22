@@ -123,10 +123,15 @@ async function boot(){
     d = await r.json();
     if(!r.ok) throw new Error(d.error || r.status);
   }catch(e){
+    // ⚠️ 2026-10-22：老大手机点收藏的旧专属链接 → 403。原提示是「无权访问 + 让用户
+    //    从飞书机器人推送的链接进入」—— 他明明就是从飞书拿的链接，这句话等于没回答
+    //    他的问题。真实原因通常是**专属链接已过期**（key 轮换过，防泄漏），
+    //    所以要说人话、指向下一步动作。
+    //    ⚠️ 幽灵租户和错 key 走同一条分支、同一句文案 → 不泄露租户是否存在。
     const msg = e.message === 'unauthorized'
-      ? '无权访问：请从飞书机器人推送的专属链接进入'
+      ? '链接无效或已过期。专属链接会定期更换(安全原因),请向运营老师要一下最新的链接。'
       : e.message;
-    $('#app').innerHTML = `<div class="card p-6 text-center"><div class="font-bold mb-1">出错了</div><div class="sub">${esc(msg)}</div></div>`;
+    $('#app').innerHTML = `<div class="card p-6 text-center"><div class="font-bold mb-1">打不开这个链接</div><div class="sub">${esc(msg)}</div></div>`;
     return;
   }
   render(d);

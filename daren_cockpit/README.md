@@ -4,7 +4,44 @@
 
 - **入口**：`http://192.168.1.25:7188/`（内网）
 - **达人**：专属链接 `?t=<tenant_key>&k=<k>`，k 在 `cockpit_keys.json`（不入库，gitignore）
-- **运营**：admin 页口令 = `cockpit_keys.json` 的 `_ops` 值
+- **运营**：打开 H5 首页会弹「运营口令」输入框，口令 = `cockpit_keys.json` 的 `_ops` 值。⚠️ **没有独立的 `/admin` 页面**（实测 404）—— 运营台就是 H5 首页里的一道口令门，口令存 sessionStorage`['opskey']`，之后请求带 `x-ops-key` 头。运营台**不用** `?t=_ops&k=`：`_ops` 不是 `bot_tenants` 里的达人租户，`tenant_link_key('_ops')` 返回空 → 该 URL 形式**永远 403**。
+
+## 访问鉴权：两种身份，URL 形态完全不同（2026-10-22 老大踩坑后补）
+
+驾驶舱有**两种**访问身份，鉴权机制也不同，**别混用**：
+
+| 身份 | URL 形态 | 后端校验 | 看得到 |
+|---|---|---|---|
+| 达人 | `https://daren.sczlgyl.com/?t=<tenant_key>&k=<key>` | `tenant_link_key(t)` 非空 **且** `k` 相等 | 只有自己 |
+| 运营 | 打开 `https://daren.sczlgyl.com/` → 弹「运营口令」 | 请求头 `x-ops-key` == `ops_key()` | 全部租户 |
+
+### ⚠️ 三个坑
+
+1. **没有 `/admin` 页面**（实测 404）。运营台不是独立页面，是 H5 首页里的一道口令门：口令存 `sessionStorage['opskey']`，之后每个请求带 `x-ops-key` 头。
+
+2. **`?t=_ops&k=<运营口令>` 永远 403。** `server.py:tenant_link_key()` 首行就是 `if not botdb.get_tenant(t): return ""` —— `_ops` 不是 `bot_tenants` 里的达人租户，取不到 key → 校验必挂。**运营台只能用口令弹窗进。**
+
+3. **key 轮换 → 老链接集体 403。** 2026-10-22 为防泄漏轮换了 `cockpit_keys.json` 里的 key，老大手机收藏的旧链接当场 403（新 key 200 / 旧 key 403，实测）。
+   已把 403 文案从「无权访问 + 让你从飞书机器人拿链接」改成说人话的**「链接无效或已过期。专属链接会定期更换(安全原因),请向运营老师要一下最新的链接。」**
+   ⚠️ **幽灵租户（不存在的 `t`）和错 key 走同一条分支、同一句文案**（`server.py:613` `if not _is_ops(self) and (not lk or k != lk)`）→ **不泄露租户是否存在**。
+
+### 403 排障（先拿响应码，别猜）
+
+```bash
+# 1) 本地直查 keys 文件有没有被轮换过（只看键名和值长度，不打印明文）
+python3 -c "import json;d=json.load(open('daren_cockpit/cockpit_keys.json'));print({k:len(str(v)) for k,v in d.items()})"
+
+# 2) 公网实际响应码（这是唯一判据）
+curl -s -o /dev/null -w "%{http_code}\n" "https://daren.sczlgyl.com/api/cockpit?t=<t>&k=<k>"
+```
+
+| 响应码 | 含义 | 下一步 |
+|---|---|---|
+| 200 | key 与租户匹配 | 正常 |
+| 403 | key 错了 / 已轮换 / 租户不存在 | 查 `cockpit_keys.json` 是否被轮换过 → 让运营重推新链接 |
+| 000 / 超时 | 隧道或 TLS 层问题 | 走本文档「排障决策表」 |
+
+> 通用教训：**403 只说明「鉴权没过」，不说明「谁错了」。** 别把「我手机打不开」直接写成「服务挂了」—— 先 curl 拿真实响应码，再区分是鉴权 / 隧道 / 浏览器缓存。
 
 ## 发版前检查清单（每次改 server.py / index.html 必过）
 
