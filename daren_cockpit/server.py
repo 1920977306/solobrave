@@ -217,13 +217,25 @@ def coop_set_status(record_id: str, status: str) -> tuple:
 _GMVTEXT_RE = re.compile(r"(\d+(?:\.\d+)?)\s*[万kK]?\s*[-~—～]\s*[¥￥]?\s*(\d+(?:\.\d+)?)\s*([万kK]?)")
 
 def gmv_mid_yuan(total_gmv, total_gmv_text):
-    """精确 GMV 优先；否则档位文本中值（元）。返回 (display_text, mid_yuan|None)。"""
+    """精确 GMV 优先；否则档位文本中值（元）。
+
+    返回 (主数值文案, 中值元|None, 档位区间文案|None)。
+
+    ★ 2026-10-22 老大反馈「手机端 3 行偏挤」后的改法：
+      原来档位情形返回 `"25万-50万（档位中值 ¥37.5万）"` —— 一行 18 个字，
+      手机上必折 3 行，挤爆 KPI 卡。
+      ⇒ 拆成**主数值 + 档位区间**两段：
+        主数值 = **档位中值**（`¥37.5万`）→ 1 行，
+        档位区间（`25万-50万`）→ 挪到副行。
+      顺带好处：**主数值和飞书指标卡的 37.5 完全同源**（同一个档位中值口径），
+      不再出现「H5 写 25万-50万 / 飞书卡写 37.5」这种同页两种写法。
+    """
     try:
         v = float(total_gmv or 0)
     except Exception:
         v = 0.0
     if v > 0:
-        return f"¥{v/10000:.1f}万", v
+        return f"¥{v/10000:.1f}万", v, None
     text = (total_gmv_text or "").strip()
     if text:
         m = _GMVTEXT_RE.search(text)
@@ -232,9 +244,10 @@ def gmv_mid_yuan(total_gmv, total_gmv_text):
             unit = m.group(3) or ("万" if "万" in text else "")
             mult = 10000 if unit == "万" else (1000 if unit in ("k", "K") else 1)
             mid = (lo + hi) / 2 * mult
-            return f"{text.replace('¥','')}（档位中值 ¥{mid/10000:.1f}万）", mid
-        return text, None
-    return "暂无数据", None
+            return (f"¥{mid/10000:.1f}万", mid,
+                    f"{m.group(1)}{m.group(3) or ''}-{m.group(2)}{m.group(3) or ''}")
+        return text, None, None
+    return "暂无数据", None, None
 
 
 def _num(v, default=0.0):
@@ -419,8 +432,8 @@ def load_cockpit(tenant_key: str):
 
     # KPI 计算
     fans = kpi.get("fans") or int(_num(talent and talent["followers"]))
-    gmv_text, _mid = gmv_mid_yuan(kpi.get("gmv_raw"),
-                                  talent and talent["total_gmv_text"])
+    gmv_text, _mid, gmv_range = gmv_mid_yuan(kpi.get("gmv_raw"),
+                                             talent and talent["total_gmv_text"])
     vr = _pct(kpi.get("video_ratio")) or _pct(talent and talent["video_ratio"]) \
         or _pct(talent and talent["video_gmv_ratio"])
     delta = None
@@ -437,6 +450,7 @@ def load_cockpit(tenant_key: str):
         "summary": summary,
         "fans": fans, "fans_delta": delta,
         "gmv_text": gmv_text,
+        "gmv_range": gmv_range,
         "video_ratio": vr or "暂无",
         "video_note": "纯视频达人" if vr and float(vr.replace('%','')) > 80 else "直播/视频混合",
         "trend": trend[-8:],
@@ -494,13 +508,14 @@ def load_roster():
 
     for tk, dyid, created, credits in trows:
         t = talent_by_dyid.get(str(dyid or "")) or {}
-        gmv_text, _ = gmv_mid_yuan(t.get("total_gmv"), t.get("total_gmv_text"))
+        gmv_text, _, gmv_range = gmv_mid_yuan(t.get("total_gmv"), t.get("total_gmv_text"))
         band = _rating_band(t.get("rating_score"))
         tenants.append({
             "tenant": tk, "dyid": dyid or "",
             "name": t.get("name") or tk,
             "fans": int(_num(t.get("followers"))),
             "gmv_text": gmv_text or "暂无",
+            "gmv_range": gmv_range,
             "band": band,
             "score": (_num(t.get("rating_score"), -1)),
             "credits": int(_num(credits)),

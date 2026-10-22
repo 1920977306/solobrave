@@ -558,7 +558,7 @@ function render(d){
       <div class="sub mt-1">${delta}</div></div>
     <div class="card p-4"><div class="sub mb-1">累计带货 GMV</div>
       <div class="kpi-num" style="color:var(--green-dk)">${esc(d.gmv_text)}</div>
-      <div class="sub mt-1">近 60 天窗口 · 平台档位口径</div></div>
+      <div class="sub mt-1">${d.gmv_range ? '档位 ' + esc(d.gmv_range) : '近 60 天窗口 · 平台档位口径'}</div></div>
     <div class="card p-4"><div class="sub mb-1">推荐商品</div>
       <div class="kpi-num">${d.cards.length}<span class="text-base" style="color:var(--sub)"> 件</span></div>
       <div class="sub mt-1" id="verdict-mini"></div></div>
@@ -600,7 +600,7 @@ function render(d){
     ${coopMore}
   </div>
 
-  <div class="sub text-center pt-1">口径声明：GMV 为平台档位中值，粉丝为采集时点值；结论仅供参考，选品以最新周报为准。</div>`;
+  <div class="sub text-center pt-1">口径声明：GMV 为近 60 天窗口的平台档位中值（区间见卡片副行），粉丝为采集时点值；结论仅供参考，选品以最新周报为准。</div>`;
 
   // 绿黄红 mini 统计
   const vc = {};
