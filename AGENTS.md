@@ -170,6 +170,11 @@ v2 设计系统达人卡视觉(中性头像 / 评级 chip / 待评级虚线态)�
 
 ## 8. 商品数据查询:商品ID → 平台接口(2026-10-21 新增)
 
+> ⚠️ **先分清是哪一端**（老大 2026-10-23 铁律）：
+> 「**达人数据用团长端看,商品才会用达人端看**」——
+> **商品**（商品名/价/佣金/月销/类目/店铺）走**达人端** `material_list`（本节）；
+> **达人**（出单/成交/粉丝/GMV/经营概览）走**团长端** `captain/institution/**`（见 §8.1）。
+
 **背景**:老大要求「商品链接直接打开没有用 没有数据 必须拿到商品链接上的商品ID
 然后去巨量找这个商品」。实测坐实:商品页正文里**没有商品数据**
 (留存 HTML 389KB,`product_id` 出现 0 次,只有「打开抖音APP」壳),
@@ -214,6 +219,39 @@ POST https://buyin.jinritemai.com/pc/selection/common/material_list
     (17-20 位数字)。而 `DOUYIN_RE`(`^[A-Za-z0-9_]{5,24}$`)会把一串 19 位数字当成抖音号抢走
     ⇒ 裸商品ID 判定**必须排在抖音号之前**,且要**对着库判**(是否本租户已绑定的抖音号 /
     是否已知达人),不能靠猜。改 `handler._dispatch` 的分流顺序前先读这条。
+
+### 8.1 达人数据走**团长端**(2026-10-23 老大纠正,新增)
+
+老大原话：「**达人数据用团长端看,商品才会用达人端看**」。
+
+| 端 | profile | 入口 | 拿什么 |
+|---|---|---|---|
+| **团长端** | `data/buyin_browser/profile` | `buyin.jinritemai.com`(右上角身份=**团长**) | **达人数据**:达人出单/成交/粉丝/GMV/经营概览 |
+| **达人端** | `data/buyin_browser/profile_daren` | `www.douyinec.com`→达人工作台 | **商品数据**:选品广场/商品详情 |
+
+⚠️⚠️ **同一个 host、同一路径,`用哪个 profile 就是哪个身份`**：
+拿达人端 profile 打 `buyin.jinritemai.com/dashboard/...` 会进「**达人自己的罗盘**」
+(`compass_api/author/**`,author=自己),**看不到我们机构的成交数据**。
+2026-10-22 我就是这么查错的(结论已作废,见 `docs/PROGRESS-2026-10-22.md` 第七/十三节)。
+
+**团长端真接口**(页面上下文 fetch,**不需要 `a_bogus`**):
+
+```
+GET /ecom/captain/institution/statistics/overview?start_time=&end_time=&date_type=
+GET /ecom/captain/institution/statistics/promoter/list?...&sort_type=0
+    &sort_field=order_product_count&page=&page_size=20&promoter_type=0
+    &author_query=&colonel_query=&date_type=1
+GET /ecom/captain/operate_analysis/coop_diagnosis/overview?period_type=&ewid=<机构id>
+```
+
+- `captain`=团长 / `institution`=机构 ⇒ 路径名自证是团长视角;我们 `ewid=4e29de4e35955d8ebdfbfffde0354882`。
+- **金额单位是「分」**(同 `material_list`),落库换算成元。
+- 采集器:`daren_cockpit/tools/captain_stats.py`;表:`platform_inst_stats` / `platform_talent_stats`。
+- ⚠️ `promoter/list` 少传 `promoter_type/author_query/colonel_query/date_type`
+  **不报错、直接返回空数组**;⚠️ 平台会返回**完全重复的行** ⇒ 必须显式去重。
+- ⚠️⚠️ **`talents.douyin_id` 字段名骗人** —— 它实际存的是**平台达人 id**
+  (`Wgg292`/`hlb725`),不是抖音号。拿平台 `user_source_id`(真抖音号)去对拍
+  **恒为 0 命中**;能对上的是 `platform_talent_id`。**下「命中 0」结论前先确认键口径**。
 
 ## 9. 复用层:抓一次存下来,下次直接读(2026-10-21 新增)
 

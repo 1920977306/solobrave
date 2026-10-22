@@ -464,6 +464,36 @@ Content-Type: application/json
   → **商家的图片路径始终不受影响**（vision 走套餐 key，与浏览器无关），所以「发商品图」永远可用。
 - 商品图是飞书 attachment 字段，**尚未接入下载通道** → 卡片里 `image` 恒为空（接口已留好）。
 
+## 达人数据走团长端，商品数据走达人端（2026-10-23 老大纠正）
+
+老大原话：「**达人数据用团长端看，商品才会用达人端看**」。
+
+| 端 | profile | 入口 | 拿什么 |
+|---|---|---|---|
+| **团长端** | `data/buyin_browser/profile` | `buyin.jinritemai.com`（右上角身份=**团长**） | **达人数据**：达人出单/成交/粉丝/GMV/经营概览 |
+| **达人端** | `data/buyin_browser/profile_daren` | `www.douyinec.com` → 达人工作台 | **商品数据**：选品广场 `material_list`、商品详情 |
+
+⚠️ **同一个 host、同一路径，`用哪个 profile 就是哪个身份`** —— 拿达人端 profile 打
+`buyin.jinritemai.com/dashboard/...` 会进「达人自己的罗盘」（`compass_api/author/**`），
+**看不到我们机构的成交数据**。
+
+团长端真接口（页面上下文 fetch，**不需要 `a_bogus`**）：
+
+```
+GET /ecom/captain/institution/statistics/overview?start_time=&end_time=&date_type=
+GET /ecom/captain/institution/statistics/promoter/list?...&promoter_type=0&date_type=1
+GET /ecom/captain/operate_analysis/coop_diagnosis/overview?period_type=&ewid=<机构id>
+```
+
+- 采集器：`daren_cockpit/tools/captain_stats.py`（团长端 profile **APFS 克隆**后跑，
+  不与常驻 worker 抢同一 profile；`--dry-run` 只看不入库）
+- 表：`platform_inst_stats`（机构经营概览）/ `platform_talent_stats`（达人出单明细）
+- **金额单位是「分」**（同 `material_list`），落库统一换算成元。
+- ⚠️ `promoter/list` 少传 `promoter_type/author_query/colonel_query/date_type`
+  **不报错、直接返回空数组**；平台还会返回**完全重复的行** ⇒ 必须显式去重。
+- ⚠️ **`talents.douyin_id` 实际存的是平台达人 id**（`Wgg292`/`hlb725`），不是抖音号 ——
+  拿平台 `user_source_id` 对拍**恒为 0 命中**，能对上的是 `platform_talent_id`。
+
 ## 视觉：与飞书 App 同源（2026-10-22）
 
 老大反馈「两个设计风格没有一样，不然会以为是两个系统」。查证后确认**两端展示的是同一个达人（hlb725 洁洁爱户外）的同一套数据**——飞书统计卡的 filter 就是 `抖音号 = hlb725`——所以这个观感是真的。
