@@ -16,6 +16,19 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+from .llm_text import strip_think as _strip_think_impl
+from .llm_channels import (
+    CP_ANTHROPIC_BASE,
+    CP_DEFAULT_MODEL,
+    CODE_SUB_BASE,
+    call_anthropic as _call_anthropic_impl,
+    call_openai as _call_openai_impl,
+    code_sub_token as _code_sub_token_impl,
+    env_api_key as _env_api_key_impl,
+    openclaw_api_key as _openclaw_api_key_impl,
+    text_rings as _text_rings_impl,
+    vision_rings as _vision_rings_impl,
+)
 from .product_link import extract_product_id
 
 log = logging.getLogger("daren-bot.executors")
@@ -1171,42 +1184,14 @@ CP_VISION_MODELS = ('MiniMax-M3', 'MiniMax-M3.1-Flash')
 def _vision_rings() -> list:
     """vision 降级环（按凭据稳定性排）。
 
+    ★ 2026-10-22：实现搬到 `daren_bot/llm_channels.py`（**唯一事实来源**）。
+    保留本函数名做薄壳。
+
     ⚠️ 2026-10-21：vision 链曾**全灭**（kimi 429 月度上限 + 开放平台 402 余额 0），
     而「商家发商品图」是招商减负方案的地基（不依赖团长端浏览器登录态）——
     链断了整条路就废了。所以套餐 key（唯一有额度的长期凭据）必须排在最前。
-
-    环序理由与问答降级链一致（见 _fallback_rings_daren）：
-      环 0：套餐 key（sk-cp-…，长期凭据，唯一有额度）★ 新增
-      环 1：kimi vision（moonshot-v1-8k-vision-preview，当前 429）
-      环 2：minimax 开放平台（sk-api-…，当前 402 余额 0）
     """
-    rings = []
-
-    # ---- 环 0：MiniMax 套餐 API（唯一有额度的长期凭据）----
-    cp_key = _env_api_key('MINIMAX_CP_API_KEY')
-    if cp_key:
-        rings.append({'label': 'minimax-cp', 'base': CP_VISION_BASE, 'key': cp_key,
-                      'model': CP_DEFAULT_MODEL, 'temp': 1.0})
-    else:
-        log.warning("[vision] 套餐 API: .env 无 MINIMAX_CP_API_KEY → 该环跳过")
-
-    # ---- 环 1：kimi 视觉 ----
-    try:
-        base, key = _kimi_cfg()
-        rings.append({'label': 'kimi', 'base': base, 'key': key,
-                      'model': 'moonshot-v1-8k-vision-preview', 'temp': 1.0})
-    except Exception as e:
-        log.warning("[vision] kimi 不可用: %s", e)
-
-    # ---- 环 2：minimax 开放平台 ----
-    try:
-        base, key = _minimax_cfg()
-        rings.append({'label': 'minimax-open', 'base': base, 'key': key,
-                      'model': 'MiniMax-M3.1-Flash-Preview', 'temp': 1.0})
-    except Exception as e:
-        log.warning("[vision] minimax 开放平台不可用: %s", e)
-
-    return rings
+    return _vision_rings_impl()
 
 
 def _vision_extract_product(b64: str) -> dict:
@@ -1416,29 +1401,12 @@ def _qa_llm(prompt: str, model: str = '', temp: float = None) -> str:
 
 
 def _call_openai(ring: dict, prompt: str) -> str:
-    """OpenAI 协议环：POST {base}/chat/completions。"""
-    req = urllib.request.Request(
-        ring['base'].rstrip('/') + '/chat/completions',
-        data=json.dumps({
-            'model': ring['model'],
-            'messages': [{'role': 'user', 'content': prompt[:15000]}],
-            'temperature': ring.get('temp', 1.0),
-            'max_tokens': ring.get('max_tokens', 1200),
-        }).encode('utf-8'),
-        headers={'Content-Type': 'application/json',
-                 'Authorization': f"Bearer {ring['key']}"},
-        method='POST')
-    with urllib.request.urlopen(req, timeout=120) as resp:
-        data = json.loads(resp.read().decode())
-    # ⚠️ 2026-10-21:部分厂商(如 MiniMax)会用「HTTP 200 + body 里塞错误」的方式
-    #   返回失败(base_resp.status_code=1008 insufficient balance),
-    #   只看 HTTP 状态码会把它当成成功 → 必须查响应体里的真实错误。
-    #   (同款坑:今天在冒烟预检上也踩过 —— 成功握手的输出含 'handshake has read')
-    bresp = data.get('base_resp') or {}
-    if bresp.get('status_code'):
-        raise RuntimeError(str(bresp.get('status_msg') or bresp.get('status_code')))
-    raw = (data.get('choices') or [{}])[0].get('message', {}).get('content') or ''
-    return _strip_think(raw)
+    """OpenAI 协议环：POST {base}/chat/completions。
+
+    ★ 2026-10-22：实现搬到 `daren_bot/llm_channels.py`（唯一事实来源）。
+    保留本函数名做薄壳 —— `probe_llm_channels.py` 等外部调用方按名引用。
+    """
+    return _call_openai_impl(ring, prompt)
 
 
 def _call_anthropic(ring: dict, prompt: str) -> str:
@@ -1447,22 +1415,11 @@ def _call_anthropic(ring: dict, prompt: str) -> str:
     ⚠️ 401 特判：token 是 30 分钟量级的短期凭据，读盘到发请求之间可能刚好过期
     （Code 桌面端续期后重写 auth.json）→ 401 时重读一次凭据再重试，
     而不是直接判定该环失败。
+
+    ★ 2026-10-22：实现搬到 `daren_bot/llm_channels.py`（唯一事实来源）。
+    保留本函数名做薄壳 —— 外部调用方按名引用。
     """
-    key = ring['key']
-    for attempt in (1, 2):
-        try:
-            return _anthropic_messages(
-                ring['base'], key, ring['model'], ring.get('temp', 1.0), prompt,
-                auth=ring.get('auth', 'bearer'),
-                max_tokens=ring.get('max_tokens', 2000))
-        except urllib.error.HTTPError as e:
-            if e.code == 401 and attempt == 1 and ring.get('refresh'):
-                fresh = _code_sub_token()
-                if fresh and fresh != key:
-                    log.info("[fallback] Code 通道 401 → 重读凭据后重试一次")
-                    key = fresh
-                    continue
-            raise
+    return _call_anthropic_impl(ring, prompt)
 
 
 def _anthropic_messages(base: str, key: str, model: str, temp: float,
@@ -1470,279 +1427,85 @@ def _anthropic_messages(base: str, key: str, model: str, temp: float,
                         max_tokens: int = 2000) -> str:
     """Anthropic /messages 单次调用。
 
+    ★ 2026-10-22：实现搬到 `daren_bot/llm_channels.py`（唯一事实来源）。
+    本函数保留为薄壳。
+
     `auth` 两种形态（**实测两种都通，但不能靠猜**）：
       'x-api-key' → 头 `x-api-key: <key>`（Anthropic 规范形态，套餐 API key 用这个）
       'bearer'    → 头 `Authorization: Bearer <key>`（Code OAuth token 用这个）
     """
-    headers = {'Content-Type': 'application/json', 'anthropic-version': '2023-06-01'}
-    if auth == 'x-api-key':
-        headers['x-api-key'] = key
-    else:
-        headers['Authorization'] = f'Bearer {key}'
-    req = urllib.request.Request(
-        base.rstrip('/') + '/messages',
-        data=json.dumps({
-            'model': model,
-            'messages': [{'role': 'user', 'content': prompt[:15000]}],
-            'temperature': temp,
-            'max_tokens': max_tokens,
-        }).encode('utf-8'),
-        headers=headers,
-        method='POST')
-    with urllib.request.urlopen(req, timeout=120) as resp:
-        data = json.loads(resp.read().decode())
-    # 同款「HTTP 200 ≠ 成功」：Code 通道成功时 base_resp.status_code=0（falsy）,
-    # 非 0 才是真错误 → 用 truthy 判断，不能写成 `!= 0`。
-    bresp = data.get('base_resp') or {}
-    if bresp.get('status_code'):
-        raise RuntimeError(str(bresp.get('status_msg') or bresp.get('status_code')))
-    parts = []
-    for blk in (data.get('content') or []):
-        # 只取 type=='text' —— 推理模型可能回 thinking 块，不该混进正文
-        if isinstance(blk, dict) and blk.get('type') == 'text':
-            parts.append(blk.get('text') or '')
-    return _strip_think(''.join(parts).strip())
+    return _anthropic_messages_impl(base, key, model, temp, prompt,
+                                    auth=auth, max_tokens=max_tokens)
 
 
 def _strip_think(text: str) -> str:
     """剥掉 OpenAI 协议返回里混入的 <think>…</think> 推理块。
 
-    ⚠️ 实测：M3 走 OpenAI 协议时 content 开头就是 '<think>We need answer…'，
-    直接透传给飞书用户会看到一堆英文思考过程 → 必须剥。
-    （Anthropic 协议是分块返回 thinking/text，已在上面按 type 过滤）
+    ⚠️ 2026-10-22 修 bug：旧实现是 `out.strip() or text.strip()`，
+    在「整个 content 都是 think 块」（M3 有时把最终草稿也写进 think 里）时
+    out 为空 → 兜底把**原文**还回去 = 根本没剥 → 英文思维链直接进 notes/飞书摘要。
+    唯一实现搬到 `daren_bot/llm_text.py`（buyin_worker 那边也用同一份）。
     """
-    if '<think>' not in text:
-        return text
-    out = _re.sub(r'<think>.*?</think>', '', text, flags=_re.S)
-    return out.strip() or text.strip()
+    return _strip_think_impl(text)
 
 
 def _openclaw_api_key(provider: str) -> str:
     """从 OpenClaw 拿 provider 的**真** API key。
 
-    ⚠️ 2026-10-21 修复:`openclaw.json` 里 `models.providers.<name>.apiKey` 是
-    **引用形式** `{'source': 'store', 'provider': 'default', 'id': 'MODEL_APIKEY_XXX'}`
-    —— 不是密钥本身。真值在 `~/.openclaw/agents/<agent>/agent/models.json` 里。
-    老代码直接把引用 dict 当 key 用(`if km.get('apiKey')` 对非空 dict 恒真),
-    实际发出去的是 `Bearer {'source': 'store', ...}` → 必然 401,
-    **降级链的 minimax 环从来没真正工作过**。
+    ★ 2026-10-22：实现搬到 `daren_bot/llm_channels.py`（唯一事实来源）。
+    保留本函数名做薄壳 —— 外部调用方按名引用。
 
-    查找顺序:
-      1. 各 agent 的 models.json(真 key 落盘处)—— 逐个 agent 找
-      2. openclaw.json 里如果直接就是字符串(老版本/手工配置)也认
-      3. 都是引用形式 → 返回空串(跳过该 provider),并记日志
+    ⚠️ 历史坑（详见 llm_channels 同名函数注释）：openclaw.json 里的 apiKey
+    是**引用形式** dict，不是密钥本身 —— 真值在 models.json 里。
+    老代码把 dict 当字符串用 → 必然 401 → 该环从来没真正工作过。
     """
-    home = Path.home() / '.openclaw'
-    # openclaw.json 与 models.json 的 provider 命名不一致，需别名映射:
-    #   openclaw.json: 'kimi'  → models.json: 'kimi-code'
-    aliases = {'kimi': ('kimi', 'kimi-code')}
-    names = aliases.get(provider, (provider,))
-    # 1) models.json —— 真 key 在这
-    for models_file in sorted(home.glob('agents/*/agent/models.json')):
-        try:
-            with open(models_file, encoding='utf-8') as f:
-                mj = json.load(f)
-        except Exception:
-            continue
-        mprovs = mj.get('providers') or {}
-        for pname in names:
-            pcfg = mprovs.get(pname)
-            if not isinstance(pcfg, dict):
-                continue
-            key = pcfg.get('apiKey')
-            if isinstance(key, str) and key and not key.startswith('{'):
-                return key
-    # 2) openclaw.json —— 仅当直接就是明文字符串
-    try:
-        with open(home / 'openclaw.json', encoding='utf-8') as f:
-            cfg = json.load(f)
-        pcfg = (cfg.get('models', {}).get('providers', {}) or {}).get(provider) or {}
-        key = pcfg.get('apiKey')
-        if isinstance(key, str) and key and not key.startswith('{'):
-            return key
-        if isinstance(key, dict):
-            log.warning("[fallback] provider %s 的 apiKey 是引用(%s)，"
-                        "models.json 里没找到真 key → 该环跳过", provider, key.get('id'))
-    except Exception as e:
-        log.warning("[fallback] openclaw.json read failed: %s", e)
-    return ''
-
+    return _openclaw_api_key_impl(provider)
 
 def _env_api_key(name: str) -> str:
     """从项目根 .env 读 key（绝对路径，避开 CWD 依赖）。
 
-    ⚠️ 2026-10-21 新增：密钥一律只进 .env（已 gitignore, 600），代码里只读不算
+    ★ 2026-10-22：实现搬到 `daren_bot/llm_channels.py`（唯一事实来源）。
+    保留本函数名做薄壳。
+
+    ⚠️ 密钥一律只进 .env（已 gitignore, 600），代码里只读不算
     —— 与 AGENTS.md §7 密钥管理铁律配套。
     """
-    try:
-        env_path = Path(__file__).resolve().parent.parent / '.env'
-    except NameError:                      # 被 exec/嵌入调用时 __file__ 可能不存在
-        env_path = Path.cwd() / '.env'
-    try:
-        with open(env_path, encoding='utf-8') as f:
-            for line in f:
-                line = line.strip()
-                if line.startswith(name + '='):
-                    return line.split('=', 1)[1].strip().strip('"\'')
-    except Exception:
-        pass
-    return ''
-
-
-# ---------------- Code 订阅通道（MiniMax Code / M Plan 订阅制） ----------------
-#
-# ⚠️ 2026-10-21 老大一句「充值？我买的是 code 啊」揭开的真相：
-#   老大买的是 **Code 订阅**，额度绑定在 Code 客户端的 OAuth 凭据上，
-#   **不走开放平台余额**。所以老大给的 sk-api-… 打 api.minimaxi.com 必然 402
-#   （余额 0），而同一订阅在 agent.minimax.cn 上是通的 —— 前提是：
-#     ① 用 Code 自己的 OAuth accessToken（mmoat_ 前缀），不是 sk-api-…
-#     ② 用 **Anthropic 协议** `/messages`，不是 `/chat/completions`（后者 503）
-#   两个条件任一不满足都会得到"看起来该通却不通"的假象。
-#
-# 凭据落在 Code 客户端自己的认证目录（~/.minimax/auth/<env>/<region>/mcode-public/），
-# **不进 .env、不进仓库、不落盘到项目里** —— 这是 §7 密钥管理铁律最省事的一种形态：
-# 密钥由客户端持有并自动续期，代码只读不算。
-CODE_SUB_BASE = 'https://agent.minimax.cn/mavis/api/v1/llm/v1'
-CODE_SUB_AUTH_DIR = Path.home() / '.minimax' / 'auth'
-CODE_SUB_MODELS = ('MiniMax-M3', 'MiniMax-M3.1-Flash', 'MiniMax-M2.7')
-CODE_SUB_DEFAULT_MODEL = 'MiniMax-M3'
-
-# ---------------- MiniMax 套餐 API（sk-cp-… 套餐 key） ----------------
-#
-# ⚠️ 2026-10-21 老大补充「这个是套餐 API」。这把 key 与开放平台余额无关，
-#   是**订阅套餐**的接入凭据，能力矩阵与 OAuth 通道不同（实测）：
-#     Anthropic 协议 /messages ✅（anthropic-version 头必需）
-#     OpenAI 协议 /chat/completions ✅（同一把 key 也通，鉴权头用 Bearer）
-#   鉴权头两种形态都通：x-api-key（Anthropic 规范）/ Authorization: Bearer
-#   → 代码用 ring['auth'] 显式声明，不靠猜。
-#   读法：只进 .env（AGENTS.md §7），代码只读不算。
-CP_ANTHROPIC_BASE = 'https://api.minimax.cn/anthropic/v1'   # 官方 M Plan Claude Code base
-CP_DEFAULT_MODEL = 'MiniMax-M3'
-
+    return _env_api_key_impl(name)
 
 def _code_sub_token() -> str:
     """取 MiniMax Code 订阅的 OAuth accessToken（**每次调用实时读盘，绝不缓存**）。
+
+    ★ 2026-10-22：实现搬到 `daren_bot/llm_channels.py`（唯一事实来源）。
+    保留本函数名做薄壳。
 
     ⚠️ 为什么不能缓存：token 是 30 分钟量级的短期凭据，Code 桌面端会自行
     续期并**重写 auth.json**（旧 token 随之作废）。缓存下来的 token 会在
     下一次问答时变成 401 —— 表现是"刚开始还能用、跑一会儿就全灭"，
     排查时极容易误判成"额度又没了"。
     """
-    now_ms = time.time() * 1000
-    best = ''
-    try:
-        auth_files = sorted(CODE_SUB_AUTH_DIR.glob('**/mcode-public/auth.json'))
-    except Exception:
-        return ''
-    for auth_file in auth_files:
-        try:
-            with open(auth_file, encoding='utf-8') as f:
-                data = json.load(f)
-        except Exception:
-            continue
-        for rec in (data.get('records') or {}).values():
-            if not isinstance(rec, dict):
-                continue
-            tok = rec.get('accessToken') or ''
-            if not tok.startswith('mmoat_'):
-                continue
-            exp = rec.get('expiresAtMs') or 0
-            # 剩余不足 60s 视为过期 —— 宁可跳过这一环，也别让用户等一次 401
-            if exp and exp - now_ms < 60_000:
-                continue
-            if len(tok) > len(best):
-                best = tok
-    return best
-
+    return _code_sub_token_impl()
 
 def _fallback_rings_daren(requested_model: str = '') -> list:
     """问答降级环（按优先级从高到低）。
+
+    ★ 2026-10-22：实现搬到 `daren_bot/llm_channels.py`（**唯一事实来源**）。
+    保留本函数名做薄壳 —— `probe_llm_channels.py` 等外部调用方按名引用。
 
     每环字段：
       protocol : 'openai' → POST {base}/chat/completions
                  'anthropic' → POST {base}/messages
       base/key/model/temp/models : 通道参数
+      auth     : 'x-api-key'（套餐 API key）/ 'bearer'（Code OAuth token）
       refresh  : 是否允许 401 后重读凭据重试（Code 通道为 True）
 
-    ⚠️ 2026-10-21:同名函数 `_fallback_cfgs_daren` 已下线 —— 它只能表达
-    OpenAI 协议的 4 元组，装不下 Code 订阅这条 Anthropic 协议环。
-    buyin_worker.py 里的 `_fallback_cfgs` 是**另一份独立拷贝**（同源同 bug），
-    本轮未动，等老大决定是否一并修。
+    ⚠️ 历史（2026-10-21 → 2026-10-22）：
+      同名函数 `_fallback_cfgs_daren` 已下线 —— 它只能表达 OpenAI 协议的 4 元组，
+      装不下 Code 订阅这条 Anthropic 协议环。
+      `buyin_worker.py` 里的 `_text_fallback_cfgs` 曾是**另一份独立拷贝**，
+      且**只支持 OpenAI 协议** → 采集 / 报告摘要链拿不到「贾维斯自己」那条环。
+      现已两份共用 `daren_bot/llm_channels.py`，同源同 bug 从根上消除。
     """
-    rings = []
-    requested = (requested_model or '').strip()
-
-    # ---- 环 0：MiniMax 套餐 API（老大给的 sk-cp-… 套餐 key）----
-    # ⚠️ 2026-10-21 老大补充「这个是套餐 API」。实测能力矩阵（与 OAuth 通道不同）：
-    #   Anthropic 协议：api.minimax.cn/anthropic/v1/messages ✅（官方 M Plan Claude Code base）
-    #                    api.minimaxi.com/anthropic/v1/messages ✅
-    #                    api.minimax.chat/anthropic/v1/messages ✅
-    #   OpenAI 协议：  api.minimaxi.com/v1/chat/completions ✅（同一把 key 也通）
-    #   鉴权头：x-api-key（Anthropic 规范形态）与 Authorization: Bearer **两种都通**
-    # 放环 0 的理由：这是**长期凭据**（不用 30 分钟一轮换、不依赖 Code 桌面端开着），
-    # 且是官方文档化的 M Plan 接入路径 —— 稳定性优于 OAuth 通道。
-    cp_key = _env_api_key('MINIMAX_CP_API_KEY')
-    if cp_key:
-        cp_models = ('MiniMax-M3', 'MiniMax-M3.1-Flash')
-        model = requested if requested in cp_models else CP_DEFAULT_MODEL
-        if requested and requested not in cp_models:
-            log.info("[fallback] 请求模型 %s 不在套餐通道 → 用 %s", requested, model)
-        rings.append({'protocol': 'anthropic', 'base': CP_ANTHROPIC_BASE, 'key': cp_key,
-                      'model': model, 'temp': 1.0, 'models': cp_models,
-                      'auth': 'x-api-key', 'refresh': False, 'max_tokens': 2000})
-    else:
-        log.warning("[fallback] 套餐 API: .env 无 MINIMAX_CP_API_KEY → 该环跳过")
-
-    # ---- 环 1：Code 订阅通道（客户端自持 OAuth token，套餐 key 失效时的备份）----
-    token = _code_sub_token()
-    if token:
-        model = requested if requested in CODE_SUB_MODELS else CODE_SUB_DEFAULT_MODEL
-        if requested and requested not in CODE_SUB_MODELS:
-            log.info("[fallback] 请求模型 %s 不在 Code 订阅通道 → 用 %s",
-                     requested, model)
-        rings.append({'protocol': 'anthropic', 'base': CODE_SUB_BASE, 'key': token,
-                      'model': model, 'temp': 1.0, 'models': CODE_SUB_MODELS,
-                      'auth': 'bearer', 'refresh': True, 'max_tokens': 2000})
-    else:
-        log.warning("[fallback] Code 订阅通道: 无有效 accessToken"
-                    "（Code 桌面端未登录 / 凭据已过期）→ 该环跳过")
-
-    # ---- 环 2：套餐 key 走 OpenAI 协议（协议冗余：Anthropic 端点挂了还能活）----
-    if cp_key:
-        rings.append({'protocol': 'openai', 'base': 'https://api.minimaxi.com/v1',
-                      'key': cp_key, 'model': CP_DEFAULT_MODEL, 'temp': 1.0,
-                      'models': ('MiniMax-M3',), 'refresh': False, 'max_tokens': 2000})
-    else:
-        log.warning("[fallback] 套餐 API(OpenAI 协议冗余环): 无 key → 该环跳过")
-
-    # ---- 环 3/4：kimi moonshot + minimax 开放平台（OpenAI 协议，目前全灭但保留）----
-    try:
-        cfg = json.load(open(Path.home() / '.openclaw' / 'openclaw.json', encoding='utf-8'))
-        km = cfg.get('models', {}).get('providers', {}).get('kimi') or {}
-        kbase = (km.get('baseUrl') or 'https://api.kimi.com/coding').rstrip('/')
-        if not kbase.endswith('/v1'):
-            kbase += '/v1'
-        kkey = _openclaw_api_key('kimi')
-        if kkey:
-            rings.append({'protocol': 'openai', 'base': kbase, 'key': kkey,
-                          'model': 'moonshot-v1-32k', 'temp': 1.0,
-                          'models': ('moonshot-v1-32k',), 'refresh': False})
-        else:
-            log.warning("[fallback] kimi 无可用 key → 该环跳过")
-        # minimax：.env 优先（AGENTS.md §7），回退 OpenClaw key store
-        mmkey = _env_api_key('MINIMAX_API_KEY') or _openclaw_api_key('minimax')
-        if mmkey:
-            mm_models = ('MiniMax-M3.1-Flash-Preview', 'MiniMax-M3')
-            for m in mm_models:
-                rings.append({'protocol': 'openai', 'base': 'https://api.minimaxi.com/v1',
-                              'key': mmkey, 'model': m, 'temp': 1.0,
-                              'models': mm_models, 'refresh': False})
-        else:
-            log.warning("[fallback] minimax 无可用 key → 该环跳过")
-    except Exception as e:
-        log.warning("fallback rings read failed: %s", e)
-    return rings
-
+    return _text_rings_impl(requested_model)
 
 def _talent_context(tk: str) -> str:
     """该达人绑定的账号画像摘要（问答上下文）：

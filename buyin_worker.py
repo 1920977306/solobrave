@@ -29,6 +29,19 @@ import urllib.error
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+# ★ 2026-10-22：LLM 文本清洗（剥推理块）的唯一实现在 daren_bot/llm_text.py。
+#   本 worker 是独立脚本，但与 daren_bot 同仓 → 把仓库根加进 sys.path 直接引用，
+#   避免「同一条逻辑三份拷贝、其中两份各带一个 bug」（2026-10-22 踩坑记录）。
+#
+# ★ 2026-10-22：LLM **降级环**的唯一事实来源在 daren_bot/llm_channels.py。
+#   本 worker 原来自己维护一份环（第三份拷贝），只支持 OpenAI 协议 ⇒
+#   装不下「贾维斯自己」（Code 订阅 Anthropic 环），
+#   商品采集 / 报告摘要链只剩套餐 key 一个活环（老大：「kimi 没额度只能你来」）。
+import sys as _sys
+_sys.path.insert(0, str(Path('/Users/qichen/solobrave-prod')))
+from daren_bot import llm_channels  # noqa: E402
+from daren_bot import llm_text  # noqa: E402
+
 # ─────────────────────────────── 配置 ───────────────────────────────
 PROD_DIR = Path('/Users/qichen/solobrave-prod')
 DB_PATH = PROD_DIR / 'data' / 'solobrave.db'
@@ -90,6 +103,17 @@ def _zhipu_cfg():
     return base, key
 
 
+def _strip_think(text: str) -> str:
+    """剥掉 OpenAI 协议返回里混入的 <think>…</think> 推理块。
+
+    ⚠️ 2026-10-22 实测：套餐环切到 MiniMax-M3（reasoning 模型）后，content 开头
+    就是 '<think>We need answer…'，**直接写进 notes** → 画像摘要变成 1293 字的英文
+    思维链，污染飞书 Base「报告摘要」+ H5 摘要 + 达人报告卡。
+    唯一实现在 `daren_bot/llm_text.py`（executors.py 也用同一份，避免「同源同 bug」第三例）。
+    """
+    return llm_text.strip_think(text)
+
+
 def _openai_chat(base, key, model, messages, max_tokens=8000, temperature=0.0,
                  timeout=180):
     """通用 OpenAI chat completions 调用（智谱/Kimi/MiniMax 同协议）。"""
@@ -118,6 +142,7 @@ def _openai_chat(base, key, model, messages, max_tokens=8000, temperature=0.0,
     if bresp.get('status_code'):
         raise LLMError(f'{model} {bresp.get("status_msg") or bresp.get("status_code")}')
     content = (data.get('choices') or [{}])[0].get('message', {}).get('content') or ''
+    content = _strip_think(content)
     if not content.strip():
         raise LLMError(f'{model} empty content')
     return content
@@ -132,23 +157,40 @@ def llm_chat(messages, max_tokens=8000, temperature=0.0, timeout=180, model='glm
 
 def llm_chat_fb(messages, max_tokens=8000, temperature=0.0, timeout=180,
                 truncate_chars=None):
-    """跨厂家降级链（★ 2026-10-18 老大拍板: 智谱已去掉）:
-    kimi moonshot-v1-32k（主, 32k 上下文, reasoning 模型）→ minimax M3.1/M3。
-    注意: kimi coding 端点这些模型是 reasoning 模型 —— 会先烧推理 token 再出内容,
-    max_tokens 必须给足(≥4000), 且 temperature 只能 1.0(用配置里的温度, 忽略入参)。
-    truncate_chars: 对 user 消息截断（主模型 32k 上下文也经不起 12 万字原材料）。"""
+    """跨厂家降级链（★ 2026-10-18 老大拍板: 智谱已去掉）。
+
+    ★ 2026-10-22：**环与凭据全部来自 `daren_bot/llm_channels.py`（唯一事实来源）**，
+    与问答链（`daren_bot/executors.py`）共用同一份降级环。
+
+    为什么必须共用（这轮踩到的真问题）：
+      老大说「kimi 现在没额度，只能你来」——「你」= Code 订阅 OAuth 环。
+      但**这条环是 Anthropic 协议**（打 /messages），而本文件原来的环只会
+      打 OpenAI 协议的 /chat/completions ⇒ 就算把 token 塞进来也调不通。
+      结果：商品采集 / **报告摘要**链（`summarize_for_notes` → 本函数）
+      只剩套餐 key 一个活环，套餐 key 一挂就全灭 ——
+      而报告摘要正是老大要修的那一环。
+
+    环序（LIFO，最稳的排最前）：套餐 API(Anthropic) → Code 订阅(Anthropic)
+      → 套餐 API(OpenAI 冗余) → kimi(429) → 开放平台(402)。
+
+    truncate_chars: 对 user 消息截断（32k 上下文也经不起 12 万字原材料）。
+    """
     errs = []
     fb_messages = messages
     if truncate_chars:
         fb_messages = [dict(m, content=(m.get('content') or '')[:truncate_chars])
                        if m.get('role') == 'user' else m
                        for m in messages]
-    for base, key, model, temp in _text_fallback_cfgs():
+    for ring in _text_fallback_cfgs():
         try:
-            return _openai_chat(base, key, model, fb_messages, max_tokens=max_tokens,
-                                temperature=temp, timeout=timeout)
-        except LLMError as e:
-            errs.append(f'{model}: {str(e)[:120]}')
+            out = llm_channels.call_ring_messages(
+                ring, fb_messages, max_tokens=max_tokens,
+                temperature=temperature, timeout=timeout)
+            if out and out.strip():
+                return out
+            errs.append(f'{ring.get("model")} empty content')
+        except Exception as e:
+            errs.append(f'{ring.get("model")}: {str(e)[:120]}')
     raise LLMError('降级链全灭: ' + ' | '.join(errs))
 
 
@@ -205,69 +247,26 @@ def _openclaw_api_key(provider: str) -> str:
 def _env_api_key(name: str) -> str:
     """从项目根 .env 读 key（绝对路径，避开 CWD 依赖）。
 
+    ★ 2026-10-22：实现搬到 `daren_bot/llm_channels.py`（唯一事实来源）。
+    保留本函数名做薄壳。
+
     ⚠️ 2026-10-21 新增：MiniMax 套餐 key（sk-cp-…）是**唯一有额度的长期凭据**，
       必须排进降级环最前 —— 老的 kimi key 401 / 开放平台 402 会让整条链全灭。
       密钥只进 .env（AGENTS.md §7 规则 1），代码只读不算。
     """
-    try:
-        env_path = PROD_DIR / '.env'
-    except NameError:
-        env_path = Path.cwd() / '.env'
-    try:
-        with open(env_path, encoding='utf-8') as f:
-            for line in f:
-                line = line.strip()
-                if line.startswith(name + '='):
-                    return line.split('=', 1)[1].strip().strip('"\'')
-    except Exception:
-        pass
-    return ''
-
-
-# MiniMax 套餐 API（sk-cp-…）—— 与 daren_bot/executors.py 同一把 key
-CP_BASE = 'https://api.minimaxi.com/v1'
-CP_MODEL = 'MiniMax-M3'
-
+    return llm_channels.env_api_key(name)
 
 def _text_fallback_cfgs():
-    """文字链路配置（vision 链路用 _fallback_cfgs，模型不同别混）。
+    """文字链路降级环 —— **唯一事实来源在 `daren_bot/llm_channels.py`**。
 
-    ⚠️ 2026-10-21 重排 + 修 bug：
-      环 0 = **MiniMax 套餐 key**（sk-cp-…，唯一有额度的长期凭据）★
-        —— 老大买的是 Code 订阅，开放平台余额是另一本账，老链必然 401/402。
-      环 1 = kimi moonshot-v1-32k（openclaw key store，真 key 从 models.json 取）
-      环 2 = minimax 开放平台（sk-api-…，当前 402/401）
-    返回 [(base, key, model, temperature), ...]。"""
-    out = []
-    # ---- 环 0：套餐 key（长期凭据，唯一有额度）----
-    cp_key = _env_api_key('MINIMAX_CP_API_KEY')
-    if cp_key:
-        out.append((CP_BASE, cp_key, CP_MODEL, 1.0))
-    else:
-        log('  [LLM] 套餐 API: .env 无 MINIMAX_CP_API_KEY → 该环跳过')
+    ★ 2026-10-22 改：原来这里是**另一份独立拷贝**（同源同 bug 的第三例），
+      只支持 OpenAI 协议 ⇒ 装不下「贾维斯自己」（Code 订阅 Anthropic 环），
+      商品采集 / 报告摘要链因此只剩套餐 key 一个活环。
+      现与问答链共用 `llm_channels.text_rings()`。
 
-    # ---- 环 1/2：openclaw 系（kimi / minimax 开放平台）----
-    try:
-        cfg = json.load(open(OPENCLAW_CFG, encoding='utf-8'))
-        km = cfg.get('models', {}).get('providers', {}).get('kimi') or {}
-        kbase = (km.get('baseUrl') or 'https://api.kimi.com/coding').rstrip('/')
-        if not kbase.endswith('/v1'):
-            kbase += '/v1'
-        kkey = _openclaw_api_key('kimi')
-        if kkey:
-            out.append((kbase, kkey, 'moonshot-v1-32k', 1.0))
-        else:
-            log('  [LLM] kimi 无可用 key（models.json 里没有真 key）→ 该环跳过')
-        mmkey = _env_api_key('MINIMAX_API_KEY') or _openclaw_api_key('minimax')
-        if mmkey:
-            for m in ('MiniMax-M3.1-Flash-Preview', 'MiniMax-M3'):
-                out.append(('https://api.minimaxi.com/v1', mmkey, m, 1.0))
-        else:
-            log('  [LLM] minimax 开放平台无可用 key → 该环跳过')
-    except Exception as e:
-        log(f'  [LLM] 文字降级配置读取失败: {e}')
-    return out
-
+    返回：环 dict 列表（protocol/base/key/model/temp/auth/label/...）。
+    """
+    return llm_channels.text_rings()
 
 def _balanced_json(text):
     """从文本中截取第一个 { 起到配平 } 的完整 JSON 段，忽略前后杂物。"""
@@ -491,39 +490,14 @@ _SUB_TABS = {
 
 
 def _fallback_cfgs():
-    """视觉降级链：套餐 key（MiniMax-M3）→ kimi 视觉 → minimax 开放平台。
+    """视觉降级链 —— **唯一事实来源在 `daren_bot/llm_channels.py`**。
 
-    ⚠️ 2026-10-21 重排 + 修 bug（与文字链同源同因）：
-      ① openclaw.json 的 apiKey 是**引用形式**（dict），老代码当字符串用 → 必然 401
-      ② 套餐 key（唯一有额度的长期凭据）没进链 → 环全灭
-    返回 [(base, key, model, temperature), ...]。"""
-    out = []
-    cp_key = _env_api_key('MINIMAX_CP_API_KEY')
-    if cp_key:
-        out.append((CP_BASE, cp_key, CP_MODEL, 1.0))
-    else:
-        log('  [LLM] 视觉链: .env 无 MINIMAX_CP_API_KEY → 该环跳过')
-    try:
-        cfg = json.load(open(OPENCLAW_CFG, encoding='utf-8'))
-        km = cfg.get('models', {}).get('providers', {}).get('kimi') or {}
-        kbase = (km.get('baseUrl') or 'https://api.kimi.com/coding').rstrip('/')
-        if not kbase.endswith('/v1'):
-            kbase += '/v1'
-        kkey = _openclaw_api_key('kimi')
-        if kkey:
-            out.append((kbase, kkey, 'moonshot-v1-8k-vision-preview', 1.0))
-        else:
-            log('  [LLM] 视觉链: kimi 无可用 key → 该环跳过')
-        mmkey = _env_api_key('MINIMAX_API_KEY') or _openclaw_api_key('minimax')
-        if mmkey:
-            for m in ('MiniMax-M3.1-Flash-Preview', 'MiniMax-M3'):
-                out.append(('https://api.minimaxi.com/v1', mmkey, m, 1.0))
-        else:
-            log('  [LLM] 视觉链: minimax 开放平台无可用 key → 该环跳过')
-    except Exception as e:
-        log(f'  [LLM] 视觉降级配置读取失败: {e}')
-    return out
+    ★ 2026-10-22 改：同 `_text_fallback_cfgs`，改为共用 `vision_rings()`。
 
+    ⚠️ 识图环**不含** Code 订阅环：实测该通道的 Anthropic 协议读图返
+    529 overloaded_error（能力边界，不是配置问题）⇒ 别把它塞进识图环。
+    """
+    return llm_channels.vision_rings()
 
 def _vision_chat(base, key, model, prompt, content_parts, temperature=0.0,
                  timeout=300):
@@ -680,7 +654,10 @@ def _vision_extract_fields(shots):
             time.sleep(6)               # 批间限速
         ok = False
         # ★ 2026-10-18 老大拍板: 智谱已去掉, 视觉直接走 kimi → minimax
-        for fbase, fkey, fmodel, ftemp in _fallback_cfgs():
+        # ★ 2026-10-22：环从 4 元组改为 dict（唯一事实来源，llm_channels.vision_rings()）
+        for ring in _fallback_cfgs():
+            fbase, fkey = ring['base'], ring['key']
+            fmodel, ftemp = ring['model'], ring.get('temp', 1.0)
             for attempt in (1, 2):
                 try:
                     if _try_vision(fbase, fkey, fmodel, prompt, batch, ftemp):
@@ -780,8 +757,10 @@ def summarize_for_notes(fields):
         content = llm_chat_fb([
             {'role': 'system', 'content':
              '把达人结构化数据写成 200 字以内的中文档案速览，纯文本无 markdown，'
-             '格式：昵称/粉丝/地区/主营类目 | 核心数据（结算额、直播视频占比）| 粉丝画像要点 | 合作要点。'
-             '所有数字必须来自输入，没有的写"未提供"。'},
+             '格式：昵称/粉丝/地区/主营类目 | 核心数据（累计GMV、直播视频占比）| 粉丝画像要点 | 合作要点。'
+             '所有数字必须来自输入，没有的写"未提供"。'
+             '⚠️ 粉丝数和GMV一律用输入给的「万」单位写法（如 1.3万 / 25万-50万），**不要自己换算成原始数字**；'
+             '不要输出「Draft:」这类草稿标签，也不要输出思考过程。'},
             {'role': 'user', 'content': json.dumps(fields, ensure_ascii=False)[:20000]},
         ], max_tokens=600, temperature=0.0, truncate_chars=15000)
         return content.strip()
@@ -1645,7 +1624,10 @@ def _vision_watch(video_path, talent_name, item):
                   'video_url': {'url': f'data:video/mp4;base64,{b64}'}}]
         err = ''
         # ★ 2026-10-18 老大拍板: 智谱已去掉, 直接 kimi → minimax（M3 套餐含视频输入）
-        for fbase, fkey, fmodel, ftemp in _fallback_cfgs():
+        # ★ 2026-10-22：环从 4 元组改为 dict（唯一事实来源）
+        for ring in _fallback_cfgs():
+            fbase, fkey = ring['base'], ring['key']
+            fmodel, ftemp = ring['model'], ring.get('temp', 1.0)
             try:
                 desc = _vision_chat(fbase, fkey, fmodel, prompt, parts, ftemp)
                 if desc.strip():
@@ -2208,6 +2190,23 @@ def _state_set(**kw):
         STATE.update(kw)
 
 
+def _refresh_browser_state():
+    """把两个浏览器的存活/登录态写进 STATE（供 /health 读）。
+
+    ⚠️ 2026-10-22 新增：原先只在浏览器线程**处理完一个采集 job 之后**刷新，
+    而 `/open` `/open-daren` `/graceful-daren` 这些控制类 job 都在循环尾部
+    刷新之前 `continue` 掉了 → 刚拉起浏览器，/health 仍显示 `daren_browser_up: false`
+    → 运维误判「浏览器挂了」。现在这些分支也显式刷一次。
+    """
+    try:
+        up, logged = BROWSER.health()
+        dup, dlogged = DAREN_BROWSER.health()
+        _state_set(browser_up=up, logged_in=logged,
+                   daren_browser_up=dup, daren_logged_in=dlogged)
+    except Exception:
+        pass
+
+
 def submit_collect(row):
     """任意线程调用：把任务放入队列，由唯一浏览器线程执行。"""
     JOB_Q.put(row)
@@ -2274,6 +2273,7 @@ def _browser_loop():
                 page = _switch_to(BROWSER, DAREN_BROWSER)
                 page.goto(BUYIN_HOME, timeout=60000)
                 log('[Control] 已打开百应首页（如需登录请扫码）')
+                _refresh_browser_state()   # ★ 2026-10-22：控制类 job 也要刷状态
             except Exception as e:
                 log(f'[Control] 打开浏览器失败: {e}')
             continue
@@ -2293,6 +2293,10 @@ def _browser_loop():
                     except Exception as e:
                         log(f'[Control] 官网登录入口点击失败（可人工操作）: {e}')
                 log(f'[Control] 达人端入口已打开 url={page.url}')
+                # ★ 2026-10-22 立刻刷新状态：否则 /health 一直显示 daren_browser_up=false
+                #   （这些控制类 job 都在循环尾部的状态刷新**之前** continue 掉了）。
+                #   症状：刚 open-daren 拉起浏览器，health 却说没起来 → 误判「浏览器挂了」。
+                _refresh_browser_state()
             except Exception as e:
                 log(f'[Control] 打开达人端浏览器失败: {e}')
             continue
@@ -3201,7 +3205,16 @@ def _run_collect_impl(row):
         if res.get('duplicate') and res.get('can_update') and talent_id:
             log(f'[Job] {cid} 达人已存在 {talent_id}，以管理员身份执行更新')
             try:
-                api('PUT', f'/api/talents/{talent_id}', fields, timeout=60, admin=True)
+                # ★ 2026-10-22 显式声明要刷新的派生字段。
+                #   PUT /api/talents 的 merge 默认「只补空、严禁覆盖」⇒ notes（画像摘要）
+                #   第一次采集后永远冻结 ⇒ 飞书 Base「报告摘要」/ H5 摘要永远是旧文本
+                #   （实测：飞书卡片 GMV 37.5万，同页摘要却写「¥10万-25万」）。
+                #   派生字段语义 = 「最近一次采集的结果」→ 应当每次刷新。
+                #   服务端有白名单双保险，核心事实字段（followers/GMV…）刷不动。
+                api('PUT', f'/api/talents/{talent_id}',
+                    {**fields, '__refresh_fields': ['notes', 'ai_summary', 'ai_analysis',
+                                                   'ai_reason', 'ai_rating', 'ai_tags']},
+                    timeout=60, admin=True)
                 log(f'[Job] {cid} 更新完成')
             except Exception as e:
                 log(f'[Job] {cid} PUT 更新失败（保留原数据）: {e}')
@@ -3549,13 +3562,16 @@ class ControlHandler(BaseHTTPRequestHandler):
 def main():
     log('=' * 50)
     log('buyin_worker 启动')
-    # 探测 LLM 配置（★ 智谱已去掉: 探文字链 kimi/minimax）
+    # 探测 LLM 配置（★ 智谱已去掉: 探文字链）
     try:
         cfgs = _text_fallback_cfgs()
         if not cfgs:
-            raise RuntimeError('openclaw.json 缺 kimi/minimax apiKey')
-        log(f'LLM 文字链配置 OK ({len(cfgs)} 家: ' +
-            ', '.join(m for _, _, m, _ in cfgs) + ')')
+            raise RuntimeError('LLM 文字链无可用通道'
+                               '（.env MINIMAX_CP_API_KEY 缺失 / Code 订阅凭据缺失'
+                               ' / kimi 与 minimax 无可用 key）')
+        # ★ 2026-10-22：环是 dict（唯一事实来源），日志按 label 打印更可读
+        log(f'LLM 文字链配置 OK ({len(cfgs)} 环: ' +
+            ', '.join(f"{c.get('label')}[{c.get('protocol')}]" for c in cfgs) + ')')
     except Exception as e:
         log(f'!! LLM 配置异常: {e}')
     server = ThreadingHTTPServer((CONTROL_HOST, CONTROL_PORT), ControlHandler)

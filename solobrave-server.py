@@ -25583,6 +25583,23 @@ def _map_talent_form_to_record(form):
     return record
 
 
+# ★ 2026-10-22 允许被**显式刷新**的派生字段白名单。
+#   语义 = 「最近一次采集的结果」—— 每次采集都应该更新，而不是第一次写完就冻结。
+#   ⚠️ 绝不放核心事实字段（followers / total_gmv / video_gpm / rating_score …）：
+#      那些是「只补空、严禁覆盖」硬约束保护的对象（fix/talent-full-sync 的由来）。
+#   ⚠️ 为什么需要它：老 merge 对「老值非空 + 新值非空」一律保留老值 ⇒ `notes`（画像摘要）
+#      第一次采集后**永远冻结** ⇒ 飞书 Base「报告摘要」和 H5 摘要永远是第一次采集的旧文本
+#      （实测：飞书卡片显示 GMV 37.5万，同页摘要却写「¥10万-25万」—— 同页两个数字打架）。
+_TALENT_REFRESHABLE_DERIVED = frozenset({
+    'notes',          # 画像摘要（→ 飞书 Base「报告摘要」→ H5 摘要）
+    'ai_summary',     # AI 摘要
+    'ai_analysis',    # 团长视角合作评估明细
+    'ai_reason',      # 评估理由
+    'ai_rating',      # AI 评级
+    'ai_tags',        # AI 标签
+})
+
+
 def _merge_talent_only_empty(existing, body):
     """★ fix/talent-full-sync: PUT merge — 只补空值, 严禁覆盖已有数据.
 
@@ -25593,6 +25610,12 @@ def _merge_talent_only_empty(existing, body):
       - 老值空 (同上) → 用新值补
       - 老值非空 + 新值非空 → 保留老值 (不覆盖)
       - id / updated_at 由调用方设置, 这里不动
+
+    ★ 2026-10-22 新增「显式刷新派生字段」：body 里带 `__refresh_fields: ["notes", ...]`
+      时，白名单内的字段允许被新值覆盖（它们语义 = 最近一次采集的结果）。
+      双重保险：既要在调用方声明里，又要在 _TALENT_REFRESHABLE_DERIVED 白名单里，
+      否则一律按老值保留 —— 调用方传错也刷不掉核心事实字段。
+      ⚠️ 新值仍为空时不覆盖（保留原有「不拿空值冲掉好数据」的保护）。
 
     ★ fix/merge-empty-container (2026-10-17 实锤): 空容器必须视为"空".
       _talent_row_to_dict 对 JSON 列的读取默认值是 {} / [] (如 fan_price_range 读不到返回 {}),
@@ -25615,14 +25638,23 @@ def _merge_talent_only_empty(existing, body):
     if not body:
         return dict(existing)
     merged = dict(existing)
+    # ★ 2026-10-22 显式刷新派生字段：调用方在 body 里声明 __refresh_fields。
+    #   双重保险：既要在声明里，又要在 _TALENT_REFRESHABLE_DERIVED 白名单里 ——
+    #   调用方传错也刷不掉核心事实字段（老大的「严禁覆盖」硬约束不被绕过）。
+    refresh = body.get('__refresh_fields') or []
+    if isinstance(refresh, str):
+        refresh = [refresh]
+    refresh = set(refresh) & _TALENT_REFRESHABLE_DERIVED
     for k, v in body.items():
-        if k in ('id', 'updated_at'):
+        if k in ('id', 'updated_at', '__refresh_fields'):
             continue
         if _is_empty(v):
             continue  # 新值空, 不覆盖
         existing_val = merged.get(k)
         if _is_empty(existing_val):
             merged[k] = v  # 老值空, 用新值补
+        elif k in refresh:
+            merged[k] = v  # ★ 显式声明刷新该派生字段（白名单内）
         # else: 老值非空, 保留老值 (不覆盖) — 老大硬约束
     return merged
 

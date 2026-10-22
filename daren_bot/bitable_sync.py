@@ -490,17 +490,15 @@ def _gmv_from_text(text: str):
 
     百应只给 GMV 档位区间，数值字段为空/0 时按档位中值兜底，
     与 dashboard_card 的「档位中值」口径一致。解析失败返回 None。
+
+    ★ 2026-10-22：实现已搬到 `daren_bot/fmt.gmv_mid_from_text`（轻量、无重依赖）。
+      原因：本模块 import `crypto_util` → 需要 pycryptodome → **系统 python 下
+      import 就炸**（ModuleNotFoundError: No module named 'Crypto'），
+      依赖此解析的工具会静默跳过（异常被 except 吞掉）→ GMV 口径丢失。
+      这里保留薄壳，只为不破坏既有调用点。
     """
-    if not text:
-        return None
-    m = _GMVTEXT_RE.search(str(text))
-    if not m:
-        return _to_float(text)
-    lo = float(m.group(1))
-    hi = float(m.group(2))
-    unit = m.group(3) or ("万" if "万" in str(text) else "")
-    mult = 10000 if unit in ("万",) else (1000 if unit in ("k", "K") else 1)
-    return (lo + hi) / 2 * mult
+    from .fmt import gmv_mid_from_text
+    return gmv_mid_from_text(text)
 
 
 def _gmv_value(talent: dict):

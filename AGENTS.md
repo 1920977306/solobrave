@@ -290,3 +290,69 @@ POST https://buyin.jinritemai.com/pc/selection/common/material_list
 
 > ⚠️ `API error:[1]` 是不透明错误码,**含义不唯一**。排查手法:**分解探针** ——
 > 一次改两个字段失败时,拆成「只改 A」「只改 B」各试一次,立刻定位是哪个字段的锅。
+
+## 11. LLM 通道铁律:降级环只有一份(2026-10-22 新增)
+
+老大原话:「**kimi 现在没额度,只能你来**」——「你」= **Code 订阅 OAuth 通道**
+(`agent.minimax.cn/mavis/api/v1/llm/v1`,Anthropic 协议)。
+
+### 唯一事实来源
+
+**`daren_bot/llm_channels.py`** —— 环构造 + 凭据读取 + 两种协议调用,全在这里。
+
+| 东西 | 在哪 | 谁在用 |
+|---|---|---|
+| 文字降级环 | `llm_channels.text_rings()` | 问答链(`executors`)+ 采集/摘要链(`buyin_worker`) |
+| 识图降级环 | `llm_channels.vision_rings()` | 同上 |
+| 凭据读取 | `env_api_key()` / `openclaw_api_key()` / `code_sub_token()` | 同上 |
+| 协议调用 | `call_ring()`(单 prompt)/ `call_ring_messages()`(多消息) | 同上 |
+
+`executors.py` 与 `buyin_worker.py` 里的 `_fallback_rings_daren` /
+`_text_fallback_cfgs` / `_fallback_cfgs` **全是薄壳**,只做转发。
+**别再在任何一个文件里手写环。**
+
+### 环序(LIFO,最稳的排最前)
+
+| 环 | 通道 | 协议 | 凭据 | 2026-10-22 实测 |
+|---|---|---|---|---|
+| 0 | MiniMax 套餐 API | Anthropic | `.env` `MINIMAX_CP_API_KEY` | ✅ 1.2s |
+| 1 | **Code 订阅(=贾维斯自己)** | Anthropic | `~/.minimax/auth/**/mcode-public/auth.json` | ✅ 1.2s |
+| 2 | MiniMax 套餐 API | OpenAI | 同环 0(协议冗余) | ✅ 3.9s |
+| 3 | kimi moonshot-v1-32k | OpenAI | OpenClaw key store | ❌ 429 |
+| 4/5 | minimax 开放平台 | OpenAI | `.env` `MINIMAX_API_KEY` | ❌ 402 |
+
+### 为什么必须收敛(这轮踩到的真 bug)
+
+改动前有**两份独立拷贝**的环(第三例「同源同 bug」),且:
+- 采集/摘要链那份**只支持 OpenAI 协议**(`_openai_chat` 打 `/chat/completions`),
+  而 Code 订阅环是 **Anthropic 协议**(打 `/messages`)⇒ **就算把 token 塞进去也调不通**;
+- 结果:采集链只剩套餐 key 一个活环 —— 套餐一挂就全灭,
+  而**「报告摘要」正是这条链生成的**(`summarize_for_notes` → `llm_chat_fb`)。
+
+**已验收**:掐掉套餐 key 后,采集/摘要链靠环 1 跑通(实测 1893ms 生成 139 字摘要,
+万单位/GMV 档位与飞书卡片一致)。测试见 `tests/test_llm_channels.py`。
+
+### 能力边界(实测,别再试)
+
+- **Code 订阅环不能读图**:Anthropic 协议传 base64 图片 → `529 overloaded_error`。
+  ⇒ 识图环**不许**放它(放进去每次识图都白等一次失败)。
+- 识图/视频链只能用 OpenAI 协议的环。
+
+### 协议坑
+
+- Anthropic 的 **system 是顶层字段**,不是 `messages` 里的一条
+  ⇒ OpenAI 形态的 messages 直接塞进 `/messages` 会**丢掉 system 提示词**
+  (表现为「模型不知道要干什么」)。`llm_channels._split_system()` 负责拆。
+- 两种鉴权头:套餐 key 用 `x-api-key`,Code OAuth token 用 `Authorization: Bearer`
+  ⇒ 环里用 `auth` 字段**显式声明**,不靠猜。
+- `kimi/moonshot` 是 reasoning 模型,**强制 temp=1.0**;
+  其余通道尊重传入值(出结论类任务要低温求可复现)。
+
+### 探针
+
+`python3 daren_bot/tools/probe_llm_channels.py [--vision]` —— 逐环真调一次。
+
+⚠️ **识图链的判据**:1×1 像素图里没有商品,模型**诚实返回空字段是正确行为**
+(「不编造」原则),**不等于通道死**。旧判据把它当死亡 ⇒ 报过「识图链全灭」的
+**假警报**。现在分三态:`alive`(有回复)/ `empty`(通但空)/ `dead`(真错误)。
+文字链同款三态。

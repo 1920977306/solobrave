@@ -44,3 +44,49 @@ def _round1(x: float) -> float:
     if x >= 0:
         return math.floor(x * 10 + 0.5) / 10
     return -math.floor(-x * 10 + 0.5) / 10
+
+
+# ---------- 平台档位文本 → 中值（2026-10-22） ----------
+#
+# 抖音给的 GMV 常常**不是精确数字**，而是档位文本「¥25万-50万」。
+# 飞书 Base「累计GMV(万)」= 375000 = (25+50)/2*10000 —— 这个口径必须**只有一处**，
+# 否则「卡片显示 37.5万 / 摘要写 ¥10万-25万」这种同页打架会再来一次。
+#
+# ⚠️ 原来这份解析在 `bitable_sync._gmv_from_text`，但那个模块 import 了
+#   `crypto_util` → 需要 pycryptodome → **系统 python 下 import 就炸**
+#   （实测 ModuleNotFoundError: No module named 'Crypto'），
+#   依赖它的工具会静默跳过补值（异常被 except 吞掉）。
+#   ⇒ 解析搬到这里（轻量、无重依赖），bitable_sync 改为引用本函数。
+import re as _re
+
+# ⚠️ 正则与单位判定**逐字照搬** bitable_sync 的原实现（口径必须只有一处），
+#    差别会在「卡片 37.5万 / 摘要 ¥10万-25万」这种同页打架里显形。
+_GMVTEXT_RE = _re.compile(r"(\d+(?:\.\d+)?)\s*[万kK]?\s*[-~—～]\s*[¥￥]?\s*(\d+(?:\.\d+)?)\s*([万kK]?)")
+
+
+def _to_float_plain(v):
+    try:
+        return float(str(v).replace(",", "").replace("万", "")
+                     .replace("¥", "").strip())
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def gmv_mid_from_text(text):
+    """平台档位文本「¥25万-50万」→ 中值 375000.0。取不到返回 None。
+
+    口径与飞书 Base「累计GMV(万)」公式字段完全一致（(lo+hi)/2 × 单位），
+    与 `bitable_sync._gmv_value` 同一份实现（那边改为引用本函数）。
+    """
+    if not text:
+        return None
+    m = _GMVTEXT_RE.search(str(text))
+    if not m:
+        return _to_float_plain(text)
+    lo = float(m.group(1))
+    hi = float(m.group(2))
+    unit = m.group(3) or ("万" if "万" in str(text) else "")
+    mult = 10000 if unit in ("万",) else (1000 if unit in ("k", "K") else 1)
+    return (lo + hi) / 2 * mult
+
+

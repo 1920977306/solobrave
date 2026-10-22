@@ -28,7 +28,6 @@ import re
 import subprocess
 import sys
 from pathlib import Path
-
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
@@ -44,6 +43,11 @@ TABLE_PRODUCT = "tbl22zFZvVtqXZnc"               # 商品推荐记录
 TABLE_COOP = "tblolFFeJTNfyInn"                  # 合作机会
 
 H5_HTML = ROOT / "daren_cockpit" / "index.html"
+
+# 摘要 provenance 里的时间戳（采集链写「buyin_worker 自动采集 <ts>」，回填写「重新生成 <ts>」）
+_PROV_RE = re.compile(r"\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}")
+# 飞书 datetime 列（ISO 串）里的日期时间
+_DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}")
 
 # 飞书 Base 单选字段 → (表 id, 字段名, 期望 hue 字典)
 # ⚠️ 期望字典的 key 是**飞书选项真名**：账号档案用裸词「潜力型」，
@@ -221,6 +225,66 @@ def check_key_mapping() -> list:
              f"{len(verdict_ui.VERDICT_UI)} 个结论归一化一致")]
 
 
+def check_summary_freshness() -> list:
+    """飞书 Base 最新快照行的「报告摘要」不能比这行数据更旧。
+
+    背景（2026-10-22）：飞书卡片显示 GMV 37.5万，同页「报告摘要」却写「¥10万-25万」
+    —— 同页两个数字打架。根因是 `PUT /api/talents` 的 merge「只补空、严禁覆盖」
+    ⇒ `notes`（画像摘要）第一次采集后**永远冻结**（已加 `__refresh_fields` 机制修复）。
+
+    判据：摘要 provenance 里的时间 **>= 该行的「日期」**。
+      - 摘要比行数据更早 → 摘要过期（描述的不是这行数据）→ ❌
+      - 摘要等于或晚于行日期 → ✅（采集时生成，或事后回填）
+    """
+    d = _lark(["base", "+record-list", "--base-token", BASE_TOKEN,
+               "--table-id", TABLE_PROFILE])
+    if not d.get("ok"):
+        return [("飞书 · 报告摘要新鲜度", False, "record-list 失败")]
+    data = d.get("data") or {}
+    fields = data.get("fields") or []
+    rows = data.get("data") or []
+    if not fields:
+        return [("飞书 · 报告摘要新鲜度", False, "record-list 返回空")]
+    for need in ("日期", "最新快照", "报告摘要"):
+        if need not in fields:
+            return [("飞书 · 报告摘要新鲜度", False, f"表里缺字段 {need}")]
+    i_date = fields.index("日期")
+    i_snap = fields.index("最新快照")
+    i_sum = fields.index("报告摘要")
+
+    def flat(v):
+        if isinstance(v, list):
+            v = v[0] if v else ""
+        if isinstance(v, dict):
+            v = v.get("name") or v.get("text") or ""
+        return str(v or "")
+
+    checked = 0
+    for row in rows:
+        if not isinstance(row, list) or len(row) <= max(i_date, i_snap, i_sum):
+            continue
+        if flat(row[i_snap]) != "是":          # 只查当前展示的那行
+            continue
+        date_raw = flat(row[i_date])
+        summary = flat(row[i_sum])
+        checked += 1
+        m_sum = _PROV_RE.search(summary)
+        if not m_sum:
+            return [("飞书 · 报告摘要新鲜度", False,
+                     f"摘要里找不到采集时间戳（provenance）：{summary[:60]!r}")]
+        m_date = _DATE_RE.search(date_raw)
+        if not m_date:
+            return [("飞书 · 报告摘要新鲜度", False,
+                     f"行日期解析不了：{date_raw!r}")]
+        if m_sum.group(0) < m_date.group(0):
+            return [("飞书 · 报告摘要新鲜度", False,
+                     f"摘要时间 {m_sum.group(0)} **早于**该行数据 {m_date.group(0)} "
+                     f"→ 摘要过期（同页数字会打架）")]
+        return [("飞书 · 报告摘要新鲜度", True,
+                 f"摘要 {m_sum.group(0)} ≥ 行日期 {m_date.group(0)}")]
+    return [("飞书 · 报告摘要新鲜度", False, "没有「最新快照=是」的行可查")]
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--offline", action="store_true", help="只查本地 H5，不调飞书")
@@ -230,6 +294,7 @@ def main() -> int:
     if not args.offline:
         results.insert(0, check_hue())
         results.append(check_weekly_line())
+        results.append(check_summary_freshness())
 
     print("🔍 视觉同源守卫（H5 驾驶舱 ↔ 飞书 BaseApp）")
     print("=" * 62)
