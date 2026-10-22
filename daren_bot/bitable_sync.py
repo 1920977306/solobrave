@@ -510,6 +510,29 @@ def _gmv_value(talent: dict):
     return _gmv_from_text(talent.get("total_gmv_text") or talent.get("gmv_text"))
 
 
+def _wan(v) -> float | None:
+    """原始数值 → 「万」单位数值（1 位小数）。**薄壳**，实现在 `daren_bot.fmt.wan_value`。
+
+    ★ 2026-10-22 实测（飞书 BaseApp 经营总览页）：
+      **指标卡（statistics）对数值一律取整，且不看字段 style** ——
+      实测三组：公式 `粉丝(万)`=1.3 → 卡上 **1**；number+precision=1 的
+      `粉丝(万)·卡`=1.3 → 卡上 **1**；number+precision=2 的 12.5 → 卡上 **13**
+      （不是 12.50）。**只有千分位生效**（原始 `粉丝`=12804 → "12,804"）。
+      ⇒ 「字段 style 决定卡上精度」是**错判**，已更正。
+      **指标卡的小数精度只能在飞书 UI 里改**（块菜单 → 配置 → 自定义配置 →
+      小数精度 = 保留 1 位小数），**API 改不了**（`data_config` 不接受 format/precision，
+      服务端也不给 formula 字段加 style）。
+      ⇒ 因此这里写「带 style.precision=1 的 number 副本字段」：
+        ① 列表/表格视图按字段自身格式显示 **1.3 / 37.5**（与 H5 一致）；
+        ② 指标卡指过去，配合 UI 的「小数精度=1 位小数」显示 1.3 / 37.5。
+      公式字段保留不动（人类在表里看到的仍是公式，不破坏既有结构）。
+    ★ 口径必须与 `fmt.fmt_wan` / H5 逐位一致 ⇒ 实现在 fmt.wan_value，
+      舍入用 `_round1`（远离零），**不用内置 round()**（银行家舍入会差 0.1）。
+    """
+    from .fmt import wan_value
+    return wan_value(v)
+
+
 def _to_ratio(v):
     """百分比(0-100) → 小数(0-1)，配 formatter '0.00%' 显示为百分比。"""
     f = _to_float(v)
@@ -530,6 +553,12 @@ def sync_profile(tenant_key: str, talent: dict, verdict: str, summary: str,
         "昵称": talent.get("name") or "",
         "粉丝": _to_int(talent.get("followers")),
         "累计GMV": _gmv_value(talent),
+        # ★ 2026-10-22：飞书卡的「同源副本」—— 指标卡取整、列表/表格按字段格式显示，
+        #   所以万单位小数必须落在**独立 number 字段**上（口径见 `fmt.wan_value`）。
+        #   字段名不带「(万)」：<1万 的达人沿用 H5 口径存**原值**（0.5万≈5000≠5251，
+        #   H5 显示原值正是为了不丢精度）⇒ 写死「(万)」反而误导。
+        "粉丝·卡": _wan(talent.get("followers")),
+        "累计GMV·卡": _wan(_gmv_value(talent)),
         "视频占比": _to_ratio(talent.get("video_gmv_ratio") or talent.get("video_ratio")),
         "评估结论": verdict or "",
         "最新快照": "是",
