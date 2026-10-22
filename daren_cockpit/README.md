@@ -395,3 +395,53 @@ Content-Type: application/json
   旧链路的团长端登录态（`ecom_us_lt_buyin` + `sessionid`）只用于「ID 解析不出来」时的页面解析兜底。
   → **商家的图片路径始终不受影响**（vision 走套餐 key，与浏览器无关），所以「发商品图」永远可用。
 - 商品图是飞书 attachment 字段，**尚未接入下载通道** → 卡片里 `image` 恒为空（接口已留好）。
+
+## 数字展示：粉丝量统一「万」单位（2026-10-22）
+
+老大定调「1.3万这样好看点」。同一个粉丝数在**四个地方**展示，必须给同一个字符串：
+
+| 位置 | 实现 |
+|---|---|
+| 飞书 App 指标卡 | 公式字段 `粉丝(万)` = `ROUND([粉丝]/10000, 1)`（区块名「粉丝总量(万)」） |
+| H5 驾驶舱 | `index.html` 顶层 `fmtFans()` |
+| 飞书长图看板 | `daren_bot/dashboard_card.py` → `fmt_wan()` |
+| 周报文字 | `daren_bot/weekly.py` → `fmt_wan()` |
+
+- **唯一事实来源** = `daren_bot/fmt.py` 的 `fmt_wan()`；`fmtFans()` 是它的 JS 孪生。
+  两份手写实现靠人同步早晚会忘 → `tests/test_fmt_consistency.py` 用 node 实跑 JS
+  跟 Python **对拍**（反向验证过：故意改错 JS 阈值 → 测试立刻红并指出是哪个数不一致）。
+- 规则：< 1 万 → 千分位原值（5,251）；≥ 1 万 → X.X 万（12,804 → 1.3万）；整数不带小数。
+- ⚠️ 舍入用 `floor(x/10000*10+0.5)/10`（远离零），**不要用 Python 内置 `round()`**
+  （银行家舍入，和 JS 对不上）。
+- **不跟着转**：图表 Y 轴与数据点标签（真值才看得出变化）、粉丝环比增量、周报给 AI 的 diff、
+  「X 个粉丝带出 Y 成交」这种语义是「人数」的句子。
+
+### 改完 H5 怎么验（不用重启，但一定要真渲染）
+
+模板按 mtime 热加载（见发版清单）→ 改完刷新页面就生效。验证两件套：
+
+```bash
+# 1) 语法
+python3 - <<'PY'
+import re
+s = open('daren_cockpit/index.html', encoding='utf-8').read()
+open('/tmp/h5_all.js','w',encoding='utf-8').write(
+    '\n'.join(re.findall(r'<script>(.*?)</script>', s, re.S)))
+PY
+node --check /tmp/h5_all.js && echo "JS OK"
+
+# 2) 真渲染（手机视口截图，别只看代码）
+python3 - <<'PY'
+from playwright.sync_api import sync_playwright
+with sync_playwright() as p:
+    b = p.chromium.launch()
+    ctx = b.new_context(viewport={"width":390,"height":844},
+                        device_scale_factor=2, is_mobile=True)
+    pg = ctx.new_page()
+    pg.goto("https://daren.sczlgyl.com/?t=daren_boss&k=<key>",
+            wait_until="networkidle", timeout=45000)
+    pg.wait_for_timeout(2500)
+    pg.screenshot(path="/tmp/h5.png", full_page=True)
+    b.close()
+PY
+```

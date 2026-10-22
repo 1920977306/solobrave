@@ -12,6 +12,7 @@ import logging
 import re
 
 from . import db
+from .fmt import fmt_wan
 from .report_card import (_font, _round, _vgrad, _text_w, W, M,
                           BLUE, DARK, GRAY, LIGHT, GREEN, ORANGE, RED, LINE,
                           _draw_link)
@@ -300,7 +301,7 @@ def render_dashboard(t, cur: dict, prev: dict, anomalies: list,
     else:
         g_chg, g_c, g_sub = "—", GRAY, "暂不足"
     ap = cur.get("average_price")
-    stats = [("粉丝", f"{int(cf)}" if cf is not None else "—", f_chg, f_c, "vs 上周（时点）"),
+    stats = [("粉丝", fmt_wan(cf) if cf is not None else "—", f_chg, f_c, "vs 上周（时点）"),
              ("近60天带货成交", cur.get("total_gmv_text") or "—", gmv_chg, gmv_c, gmv_sub),
              ("带货效率（千次观看成交）",
               f"{int(gpm_mid)}元" if gpm_mid else "—", g_chg, g_c, g_sub),

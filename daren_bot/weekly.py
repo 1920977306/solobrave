@@ -21,6 +21,7 @@ from pathlib import Path
 from . import db
 from . import executors
 from . import cockpit_link
+from .fmt import fmt_wan
 
 log = logging.getLogger("daren-bot.weekly")
 
@@ -386,7 +387,9 @@ def _core_lines(d: dict) -> list:
     lines = []
     f = _num(d, "followers")
     if f is not None:
-        lines.append(("粉丝", f"{_fmt_num(f)}"))
+        # 粉丝量用「万」单位（老大 2026-10-22 定调：1.3万 好看），
+        # 与飞书 App 指标卡 / H5 同一规则（daren_bot/fmt.py 是唯一事实来源）
+        lines.append(("粉丝", fmt_wan(f)))
     lines.append(("带过商品", f"{_fmt_num(_num(d,'total_products') or 0)} 品 / "
                             f"{_fmt_num(_num(d,'total_shops') or 0)} 店"))
     if d.get("total_gmv_text"):

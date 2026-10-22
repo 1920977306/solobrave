@@ -88,6 +88,17 @@
 <script>
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+/* 粉丝量按「万」单位（老大 2026-10-22 定调：1.3万 好看）。
+   ⚠️ 必须与 daren_bot/fmt.py 的 fmt_wan() 逐位一致 —— 算式、舍入方向、阈值全同。
+      跨语言一致性由 tests/test_fmt_consistency.py 锁住，别单独改一边。
+   规则：<1万 → 千分位原值；≥1万 → X.X万（整数不带小数）。 */
+function fmtFans(v){
+  const x = Number(v);
+  if (v === null || v === undefined || !isFinite(x)) return '—';
+  if (Math.abs(x) < 10000) return (x >= 0 ? Math.round(x) : -Math.round(-x)).toLocaleString();
+  const w = (x >= 0 ? Math.floor(x/10000*10 + 0.5) : -Math.floor(-x/10000*10 + 0.5)) / 10;
+  return (Number.isInteger(w) ? String(w) : w.toFixed(1)) + '万';
+}
 const COOP_FORM = 'https://my.feishu.cn/share/base/shrcntWrz2k7Vx4REmvGW0yLttf';
 /* ★ 招商减负版入口：商家只填 2 项 + （链接|图片|描述）任一，AI 自动补商品字段。
    飞书分享表单（COOP_FORM）保留为「填完整表」备选，不再是默认入口。 */
@@ -213,7 +224,7 @@ function renderAdmin(d){
       </div>
       <div class="sub mt-1">抖音号 ${esc(t.dyid)} · 入驻 ${esc(t.joined)}</div>
       <div class="grid grid-cols-3 gap-2 mt-3 text-center">
-        <div><div class="font-bold">${Number(t.fans).toLocaleString()}</div><div class="sub">粉丝</div></div>
+        <div><div class="font-bold">${fmtFans(t.fans)}</div><div class="sub">粉丝</div></div>
         <div><div class="font-bold" style="font-size:13px">${esc(t.gmv_text)}</div><div class="sub">60天GMV</div></div>
         <div><div class="font-bold">${t.credits}</div><div class="sub">积分余额</div></div>
       </div>
@@ -269,7 +280,7 @@ function renderAdmin(d){
     <div class="card p-4"><div class="sub mb-1">在营达人</div>
       <div class="kpi-num">${k.talents || 0}<span class="text-base" style="color:var(--sub)"> 位</span></div></div>
     <div class="card p-4"><div class="sub mb-1">粉丝总量</div>
-      <div class="kpi-num">${Number(k.total_fans || 0).toLocaleString()}</div></div>
+      <div class="kpi-num">${fmtFans(k.total_fans || 0)}</div></div>
     <div class="card p-4"><div class="sub mb-1">本周已采集</div>
       <div class="kpi-num" style="color:var(--green-dk)">${k.updated_this_week || 0}<span class="text-base" style="color:var(--sub)"> 位</span></div>
       <div class="sub mt-1">每周一采集窗后更新</div></div>
@@ -494,7 +505,7 @@ function render(d){
   <!-- KPI -->
   <div class="grid grid-cols-2 gap-3">
     <div class="card p-4"><div class="sub mb-1">粉丝总量</div>
-      <div class="kpi-num">${Number(d.fans).toLocaleString()}</div>
+      <div class="kpi-num">${fmtFans(d.fans)}</div>
       <div class="sub mt-1">${delta}</div></div>
     <div class="card p-4"><div class="sub mb-1">累计带货 GMV</div>
       <div class="kpi-num" style="color:var(--green-dk)">${esc(d.gmv_text)}</div>
