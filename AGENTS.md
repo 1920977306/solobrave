@@ -292,7 +292,8 @@ POST https://buyin.jinritemai.com/pc/selection/common/material_list
 | 改块的**名字** | ❌ 不能 | 服务端不接受 `name` 字段(恒 `API error:[1]`,raw PATCH 同样挂)→ **只能 UI 改名** |
 | 新建块时定名 | ✅ 能 | `+app-block-create --name ...` |
 | 调整块**顺序 / 尺寸 / 标题显示** | ❌ 不能 | 不是公开字段 → **只能 UI 拖** |
-| 改**主题色** | ❌ 不能 | SSOT:`--theme-style` 只在 `+app-create` 生效 → 改已有 App 只能 UI |
+| 改**主题色** | ⚠️ 不能自定义 hex，**但能切预设** | API 侧 `--theme-style` 只在 `+app-create` 生效（6 套，无 hex）；**已有 App 可在编辑模式顶栏「外观」面板随时切**（`.base-app-style-comp-icon`，含绿系「清新」）→ 见坑 33 |
+| 改块**底色 / 描边 / 高度 / 图表色板** | ❌ 不能 | 版式与配色**不在公开 Create/Update 协议内**（CLI 明文）→ **只能 UI**，见坑 31/34/35 |
 | 改**单选选项配色** | ✅ 能 | `+field-update`(**PUT 全量语义**:先 `+field-get` 读回完整定义再整体提交) |
 | 读坏块 `wgtfRsGRrubM2pLU`(选品横幅) | ❌ 不能 | CLI 和 raw API 都是 `API error:[1]` → **不能写**(写了=瞎编内容) |
 
@@ -408,12 +409,48 @@ POST https://buyin.jinritemai.com/pc/selection/common/material_list
 
 ### 定位块的正确姿势
 
-- 用 **`data-ssr-widget-info` 里的 widget id**(`position.i`),
-  **不要用块标题** —— text 块在 DOM 里**没有标题元素**,按标题定位必然失败。
+- **图表/列表/指标卡的块用 `data-ssr-widget-info` 里的 widget id**(`position.i`),
+  **text 块用 `data-id`** —— ⚠️ 两种块**标识属性不同**,2026-10-22 用错属性导致
+  「元素明明在页面里,选择器却一个都匹配不上」,白排查半小时。
+- **不要用块标题定位图表块** —— text 块在 DOM 里**没有标题元素**(按标题定位必然失败);
+  反过来 **text 块按标题文字定位最稳**(`.react-grid-item` 里 `innerText.includes(标题)`),
+  前提是块已进 DOM。
+- ⚠️ **widget id 不能手抄**:本轮把 `wgtfRsGRurbM2pLU` 手抄成 `wgtfRsGRrubM2pLU`
+  (u/r 位置颠倒)⇒ 所有选择器静默失配。**对着页面真值核**(读 `getAttribute` 的字符码),
+  或干脆**按标题文字定位**。
 - 飞书**只渲染视口内的块**,屏幕外的块连 DOM 都没有 ⇒
   拖拽前把 Playwright 视口加高(`{'width':1600,'height':2400}`),整页进 DOM 才拖得动。
 - 视口 1600 宽时网格→页面映射(本样板 4 列实测):
   `page_x = 304 + grid_x*0.859`,`page_y = 108 + grid_y`。
+- **图表是 canvas 渲染**,DOM 里读不到 `fill/stroke` ⇒ 取色验收只能看
+  **截图**或**配置抽屉里的色板预览**(`.color-series-item` 的 computed backgroundColor)。
+- ⚠️ **渲染有延迟**:同一页不同块渲染完成时间不同(实测 2.5s~9s),
+  截图太早会拍到**空块**(本轮误以为「档案页文字丢了」,实际是截图早了)。
+  ⇒ 验收前**轮询等块 innerText 有内容**再截图,别赌固定 sleep。
+
+### 块菜单飞层 / 主题面板的交互姿势(2026-10-23 实测)
+
+- **二级飞层要「带轨迹的鼠标移动」才展开**:`mouse.move(x-60,y)` → `mouse.move(x,y,steps=12)`。
+  单点瞬移、`locator.hover()`、JS `.click()`、`locator.click(force=True)` **全部不触发**
+  (本轮连废 8 个探针脚本)。症状极具误导性:菜单能开但面板永远
+  `offsetParent===null`,报错像「面板没渲染」。
+- ⚠️ **DOM 里有多份同名副本**(颜色面板:块菜单里一份 `display:none`、
+  图表抽屉里一份)⇒ **一律按「可见」筛,别用 `.first`**;
+  `.first` 会命中隐藏副本,报错「element is not visible」且值是默认 `#000000`。
+- **text 块改高度**:块菜单「尺寸 → 高度 → **适应内容**」,治两行标题被裁切
+  (本轮 62px → 90px)。`宽度`/`高度` 各有「默认 / 适应内容 / 填充容器」档位,
+  ⚠️ **别误点宽度那组**。
+- **text 块底色可填精确 hex**(「更换背景色」→ 更多颜色 → HEX),
+  **描边不行** ——「背景描边」只有粗细档位(`跟随主题/0/0.5/1/2/3/4px`),
+  描边色**只能跟随 App 主题色**。
+- **App 主题可切**:编辑模式顶栏「**外观**」按钮(`.base-app-style-comp-icon`)
+  → 「外观设置」→ 主题 6 套(默认/云蓝/**清新**/柔光/未来/科技),
+  **清新 = 白底 + 青绿点缀**,是唯一绿系。
+  ⚠️ 必须点 `.theme-box-img` 缩略图(点外层不生效);⚠️ **别按坐标点**
+  (面板位置随右侧 AI 面板开合漂移,本轮点进过「应用模式 AI」面板)。
+- ⚠️ **「API 没有这个字段」≠「平台不支持」**:本轮曾据 CLI 文档
+  「`--theme-style` 只在 create 生效」就断言「主题色改不了、只能新建 App」,
+  实测**编辑模式外观面板一键可切** —— 写「做不到」结论前必须找过 UI 入口。
 
 ### 下「平台不支持」结论之前
 

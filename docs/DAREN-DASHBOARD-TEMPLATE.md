@@ -124,7 +124,8 @@
     - 后果：飞书 `statistics` 卡片会把区块 `name` **渲染两次**（黑色标题 + 灰色副标题），
       固定高度装不下 → **标题重复 + 数字被裁**。这是平台渲染行为，**API 无解**，
       只能去飞书 UI 手动把卡片拖高（另见坑 16 的取证方法）。
-    - 主题色（`theme_style`）建 App 时定死，之后只能 UI 改 → 蓝色底改不成 H5 的绿。
+    - 主题色（`theme_style`）**可以 UI 改**（编辑模式顶栏「外观」→ 6 套预设主题，含绿系「清新」）
+      —— 建 App 时的 `--theme-style` 只是**初始值**，不是锁死。见坑 33。
 13. **text 区块支持 Markdown，但有硬限制**（2026-10-21 实测 SSOT）：
     - 支持：`#`/`##`/`###` 标题、`**粗体**`、`*斜体*`、`~~删除线~~`、有序/无序列表。
     - **不支持**：链接、图片、代码块、表格（写了当纯文本显示）。
@@ -241,12 +242,13 @@
     - ⚠️ 连带影响：`show_title` / 布局 / 尺寸同理**不是公开字段**，所以
       「标题不显示」「卡片太矮」这类问题 API 一律无解，只能 UI 拖。
 
-22. **主题色只能建 App 时定，改不了已有 App（SSOT 明文）** ——
-    `lark-base` reference 原文：「`--theme-style` 只在 `+app-create` 时生效」，
-    可选值 `default|cloudBlue|fresh|softLight|future|technology`。
-    ⇒ 想让飞书 App 变成 H5 的微信绿，**只能新建一个 App**（代价：
-    重建全部区块 + 坏块 `wgtfRsGRrubM2pLU` 读不出内容会丢 + 排序要 UI 重拖）。
-    **默认不这么做** —— 平台壳层差异接受，靠 §9 的三层语义对齐（品牌名 / 颜色语义 / 内容结构）。
+22. **主题色可以在 UI 改（2026-10-23 更正）** ——
+    ⚠️ **本条原写「主题色只能建 App 时定，改不了已有 App」，已被实测推翻**。
+    `lark-base` reference 原文「`--theme-style` 只在 `+app-create` 时生效」只说明
+    **建 App 时不能传自定义 hex**（可选值 `default|cloudBlue|fresh|softLight|future|technology`），
+    **不等于「已有 App 改不了」** —— 编辑模式顶栏有「**外观**」面板，可随时切这 6 套预设主题。
+    ⇒ **不需要新建 App**，见坑 33 的入口与代码。
+    （教训同 §「做不到结论前必须穷举状态」：只查了 API 文档，没找 UI 入口就下全局结论。）
 
 23. **结论颜色必须与 H5 同源（2026-10-22 老大「两个设计风格没一样」）** ——
     修之前的割裂：同一个「潜力型」H5 绿底 / 飞书**紫**标签；「🟢 能带」飞书标签是**红色**
@@ -373,8 +375,10 @@
 > | **② 色彩语义层** | **同一句话必须同色** | 唯一事实来源 `daren_bot/verdict_ui.py`；飞书 4 个单选字段 hue 已按它改色；H5 按它取徽章底色 |
 > | **③ 内容结构层** | 同一套指标命名、同一套口径句、同一套结论 emoji、同一句「本周一句话」 | 见下方规则清单 |
 >
-> 平台锁死的那部分（顶栏形状/卡片圆角/主题色）**接受**：同一品牌两种终端形态本就该有不同气质。
-> 若老大坚持主色也统一，唯一路径是**新建 App 指定 `--theme-style`**（见 §7 坑 22），代价见该条。
+> 平台锁死的那部分（顶栏形状/卡片圆角）**接受**：同一品牌两种终端形态本就该有不同气质。
+> **主题色 2026-10-23 已统一**：App 主题切「清新」（白底+青绿点缀，见坑 33），
+> 内容层再叠 H5 同款绿（图表 `singleColorSeries-G` + 横幅底 `#e8f8ef` + 边框跟随主题），
+> 整屏观感与 H5 同调。
 
 - 每页一主题，页名带 emoji；页首一行标题横幅（纯文本，不写 markdown 符号）
 - 结论类（绿黄红 select）永远放卡片第一个字段
@@ -433,3 +437,109 @@ python3 daren_bot/tools/verify_visual_sync.py --offline  # 只查本地 H5
 它校验 4 件事：飞书 4 个单选字段的实际 hue、H5 的 `VERDICT_EMOJI` JS 映射（跨语言对拍）、
 H5 的 `.v-*` 色类齐全、飞书「本周一句话」块的文本 == `verdict_ui.verdict_line(最新评估结论)`。
 
+
+---
+
+## 坑 30：图表块的主题色**只有预设色板，没有自定义 hex**（2026-10-22 实测）
+
+老大问「色调为什么还是蓝色，我不是绿色的吗，我说了跟 H5 一样的来」—— 查清了：
+
+- **图表块（line/column/ring/bar）**：块菜单「配置」→ 右侧抽屉 → **「主题色」** 下拉，
+  共 **14 个预设色板**（每个 6 色），选择器类名 `color-series-dropdown-menu`，
+  每项 `sheet-test-attr="menuItem-<名字>ColorSeries@v2"`：
+  `baseAppCloudBlue(默认)` / `rainbow` / `complementary` / `converse` / `primary` /
+  `brandBlue` / `brandPurple` / `singleColorSeries-B/W/G/Y/O/R/D`。
+  **绿色系 = `singleColorSeries-G-@v2`**（首色 `rgb(52,199,35)` = #34C723，后 5 档深浅绿）。
+  ⚠️ **没有 hex 输入框** ⇒ 图表颜色**只能取预设值**。
+- **API 侧无颜色字段**：`+app-block-get` 读图表块，`data_config` 里只有
+  `base_token / data_sources / table_name`，**没有任何 color/theme/palette 字段**
+  ⇒ 颜色**只能 UI 改**（与「小数精度」同属 UI-only 的显示设置）。
+- 落地（2026-10-22）：总览页 4 个图表（粉丝数周度快照 / 评估结论分布 / 视频占比趋势 /
+  AI 互动类型）+ 选品页 1 个 ring 全部切到 `singleColorSeries-G`，
+  验收 = **重开抽屉看色板预览已是 `rgb(52,199,35)`** + 渲染截图全绿。
+- ⚠️ **验收不能用 SVG 取色**：飞书图表是 **canvas 渲染**，DOM 里没有 `fill/stroke`。
+  取色只有两条路：**截图肉眼验** / **读抽屉里的 `.color-series-item` computed color**。
+
+## 坑 31：text 块能设**精确 hex 底色**；但**描边没有颜色面板**
+
+- text 块（页头横幅）块菜单有「**更换背景色**」「**背景描边**」。
+- **「更换背景色」有完整颜色面板**：HEX/R/G/B 输入框（`.ud__color-picker-panel input`，
+  第一个是 HEX）、不透明度、背景模糊 ⇒ **底色能填精确色值**（与图表块不同）。
+  ⚠️ **HEX 输入框默认不可见**：必须先点面板里的「**更多颜色**」展开完整面板，
+  否则 `fill()` 报 "element is not visible"（2026-10-22 踩过）。
+- ⚠️ **「背景描边」没有颜色面板**（2026-10-23 实测更正）——
+  它是二级菜单「**粗细**」，第三层只有 `跟随主题 / 0px / 0.5px / 1px / 2px / 3px / 4px`
+  **粗细档位**，**没有 HEX、没有色板** ⇒ 描边色**只能跟随 App 主题色**，
+  填不出 `#07c160` 这种自定义值。（原写「描边颜色也在颜色面板里填 hex」是错的。）
+- 落地（2026-10-23）：三个页头横幅（选品横幅 / 档案横幅 / 合作横幅）
+  底色 `#e8f8ef`（H5 `--green-bg`）+ 描边 `1px 跟随主题`（主题已切「清新」青绿）。
+
+## 坑 32：**text 块和图表块的 DOM 标识属性不同**（2026-10-22 踩坑）
+
+- 图表/列表/指标卡：`[data-ssr-widget-info*="<widget_id>"]`
+- **text 块：`[data-id="<widget_id>"]`**（没有 `data-ssr-widget-info`）
+  ⇒ 用错属性时元素明明在页面里，`querySelector` 却**一个都匹配不上**，
+  而且**不报错**，只是静默返回 null（本轮白排查半小时）。
+- ⚠️ **widget id 不要手抄**：本轮把 `wgtfRsGRurbM2pLU` 手抄成 `wgtfRsGRrubM2pLU`
+  （u/r 位置颠倒）⇒ 所有选择器静默失配，误以为「块没渲染」。
+  **对着页面真值核**（读 `getAttribute('data-id')` 的字符码），或**按标题文字定位**：
+  `.react-grid-item` 里 `innerText.includes(横幅标题)`。
+  ⚠️ 同款：**块渲染有延迟**（实测 2.5s~9s 不等），定位前要**轮询等待**而不是赌固定 sleep。
+
+## 坑 33：App 外壳主题色**可以在 UI 改**（6 套预设，含绿系「清新」）
+
+- ⚠️ **本条原写「主题色改不了，除非新建 App」，已被实测推翻**（2026-10-23）。
+  原结论只查了 `lark-base` 文档里「`--theme-style` 只在 `+app-create` 生效」，
+  就外推成「已有 App 改不了」—— **API 层的限制 ≠ 产品层的限制**。
+- **入口**：编辑模式顶栏右上角「**外观**」按钮，类名 `.base-app-style-comp-icon`
+  （tooltip 文案就叫「外观」；同排还有 智能体 / 应用权限 / 应用模式 AI 等图标）。
+- **面板**「外观设置」三段：
+  - 导航布局：`侧边导航` / `顶部导航`
+  - **主题（6 套预设）**：`默认` / `云蓝` / `清新` / `柔光` / `未来` / `科技`
+  - 背景：`颜色` / `图片` + 下拉（`跟随主题` 等）
+- **6 套里只有「清新」是绿系**（白底 + 青绿点缀），其余：云蓝=蓝底、默认=浅灰、
+  柔光=米色、未来=深紫、科技=深蓝灰。⚠️ **仍然没有自定义 hex**（只有这 6 套）。
+- **切换代码**（2026-10-23 实测，一键生效 + 刷新后持久）：
+  ```python
+  pg.locator(".base-app-style-comp-icon").first.click()          # 打开外观面板
+  box = pg.locator(".theme-box", has_text="清新").first
+  box.scroll_into_view_if_needed()
+  box.locator(".theme-box-img").first.click()                     # 必须点缩略图
+  ```
+  ⚠️ **必须点 `.theme-box-img`**：点外层 `.theme-box` 的中心不生效（会点空）。
+  ⚠️ **别按坐标点**：面板位置会随右侧 AI 面板开合漂移（本轮按坐标点过一次，
+  结果点进了「应用模式 AI」面板，主题没切但多开了个 AI 面板）。
+- 落地：App `ZguOb2xCba10pVsRMlXcFmgenGd` 主题 `云蓝` → **`清新`**，
+  左侧导航栏从「蓝底白字」变「白底深字 + 绿色 App 图标」。
+- 想先看某套配色再点：预览图是静态 PNG，可直连
+  `https://lf-package-cn.feishucdn.com/obj/feishu-static/ccm/static_resource/scm_upload/ccm_bitable_baseapptheme_lm_v_<name>_v2.png`
+  （name ∈ default/yunlan/qingxin/rouguang/weilai/keji）。
+
+## 坑 34：块菜单的**二级飞层必须用「带轨迹的鼠标移动」才展开**（2026-10-23）
+
+- 块菜单（`更换背景色`/`背景描边`/`尺寸`/`移入`）是 **hover 展开飞层**，
+  而**单点瞬移** `page.mouse.move(x, y)` **不触发**，`locator.hover()` 也不触发。
+- ✅ **有效写法**（先从旁边靠近，再分步移动过去）：
+  ```python
+  pg.mouse.move(x - 60, y); pg.wait_for_timeout(150)
+  pg.mouse.move(x, y, steps=12); pg.wait_for_timeout(900)
+  ```
+- 本轮在这上面浪费了 8 个探针脚本（`mouse.click` / `locator.click(force=True)` /
+  JS `.click()` / `mouse.move` 全部无效），直到用 `steps=12` 轨迹移动才开面板。
+  **症状**：菜单能开、但颜色面板永远 `offsetParent === null`，
+  `get_by_text("更多颜色").first` 只会命中 DOM 里**隐藏的旧副本**（还带 `#000000` 默认值）
+  ⇒ 报错信息具有误导性（「element is not visible」看着像面板没渲染）。
+- ⚠️ **DOM 里同时存在多个同名可见/隐藏副本**：颜色面板一份在块菜单的
+  `display:none` 包装层里、一份在图表块配置抽屉里 ⇒ **一律按「可见」筛，别用 `.first`**。
+
+## 坑 35：版式 / 尺寸 / 配色**全部不在公开 Create/Update 协议内**
+
+- `+app-block-update` 的 CLI 明文：「**Widget layout, position, size and display settings
+  are not part of the public create/update protocol**」；
+  `+app-block-get` 实测 text 块 `data_config` 只有 `{"text": "..."}`，
+  图表块只有 `base_token / data_sources / table_name` —— **没有任何颜色/尺寸字段**。
+- ⇒ 版式类（块高/块宽/底色/描边/图表色板/小数精度）**一律只能走 UI**，
+  **不要在 API 层找解**（也别把「API 没有」写成「平台不支持」）。
+- text 块的**高度**在块菜单「尺寸 → 高度 → **适应内容**」里改（治两行标题被裁切）；
+  `高度` 另有 `默认高度` / `填充容器`，`宽度` 有 `默认宽度` / `填充容器`。
+  落地：三个横幅 `height: 62px → 90px`，两行文字完整显示（2026-10-23）。
