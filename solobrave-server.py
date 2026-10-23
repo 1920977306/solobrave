@@ -6760,16 +6760,47 @@ def _find_similar_kb_entry(conn, content, threshold=_ANALYSIS_DEDUP_THRESHOLD):
 
 
 def _vectorize_kb_entry(kb_id, content):
-    """为入库的分析结论条目分段并生成 embedding（走 settings.json 配置的 embedding API，如硅基流动）。
-    仅当条目内容与本次结论一致（新插入/同 id 更新）时才重建分段，避免覆盖被合并旧条目的分段。"""
+    """为入库的分析结论条目分段并生成 embedding（生产走智谱 embedding-2，.env 里老大买的资源包）。
+    仅当条目内容与本次结论一致（新插入/同 id 更新）时才重建分段，避免覆盖被合并旧条目的分段。
+
+    ★ 2026-10-23 加固：
+      实测智谱在余额/资源包不可用时返回 **429 {"code":"1113","message":"余额不足或无可用资源包"}**
+      （注意：智谱把余额问题也报 **429**，不是 402 —— 别按状态码猜原因，必须读 body）
+
+      原缺陷：向量化失败只被上层 try 吞成一行 ERROR 日志，**没有任何可查痕迹**
+              ⇒ 新入库的分析结论永远缺向量，知识库里看得见但 RAG 召不回
+              （RAG 条件: status='ok' AND embedding IS NOT NULL AND embedding_model=模型）
+              ⇒ 而现有 `kb_entries_retry_all_failed_embedding` 只扫 status IN
+                 ('embedding_failed','error')，**扫不到它** ⇒ 余额恢复后也补不回来。
+
+      修法（不动 status —— status 是审核闸语义 'ok'/'pending'，
+            被管理员审核覆盖会让「假绿灯」条目永远扫不到）：
+        1. 失败时 **保留 chunk 行但 embedding 留 NULL**（`_save_kb_chunks_without_embedding`
+           本来就是这么做的）⇒ 「有 chunk 无向量」就是缺向量的可查特征
+        2. 写 kb_operation_log 'embedding_failed' 留痕（含 provider/model/error）
+        3. **不吞异常**：向上抛，让上层记录 —— 但不让它影响知识事件双写
+    """
     emb_cfg = get_embedding_config()
     api_key = emb_cfg.get('apiKey')
     if not api_key:
         logger.info('  [AutoSaveAnalysis] 未配置 embedding API Key，跳过向量化')
         return
-    ks._save_kb_chunks_without_embedding(kb_id, '', content, 500, 100)
-    ks._vectorize_kb_chunks(kb_id, '', api_key, emb_cfg.get('provider', 'openai'),
-                            emb_cfg.get('model'), base_url=emb_cfg.get('baseUrl'))
+    try:
+        ks._save_kb_chunks_without_embedding(kb_id, '', content, 500, 100)
+        ks._vectorize_kb_chunks(kb_id, '', api_key, emb_cfg.get('provider', 'openai'),
+                                emb_cfg.get('model'), base_url=emb_cfg.get('baseUrl'))
+    except Exception as e:
+        # 留痕（查「哪些条目缺向量」的唯一入口）
+        try:
+            ks.kb_entry_log_operation(kb_id, 'embedding_failed', 'auto_analysis', {
+                'provider': emb_cfg.get('provider'),
+                'model': emb_cfg.get('model'),
+                'error': f'{type(e).__name__}: {e}',
+                'hint': '余额/资源包恢复后，用 _kb_backfill_missing_embeddings 补向量',
+            })
+        except Exception:
+            pass
+        raise
 
 
 def _extract_entity_from_analysis(reply, user_text=''):
