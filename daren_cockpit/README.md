@@ -464,14 +464,21 @@ Content-Type: application/json
   → **商家的图片路径始终不受影响**（vision 走套餐 key，与浏览器无关），所以「发商品图」永远可用。
 - 商品图是飞书 attachment 字段，**尚未接入下载通道** → 卡片里 `image` 恒为空（接口已留好）。
 
-## 达人数据走团长端，商品数据走达人端（2026-10-23 老大纠正）
+## 达人查团长端，商品查达人端（2026-10-23 老大纠正）
 
-老大原话：「**达人数据用团长端看，商品才会用达人端看**」。
+老大原话（两句）：
+
+1. 「**达人数据用团长端看，商品才会用达人端看**」
+2. 「商品数据在**达人端显示会更全面** —— 会展示**这个商品前几位带得好的达人卖的数据**
+   还有**那个视频**；团长端也可以找商品，但**数据不会显示前几位达人的数据还有视频**。
+   所以我**团长端只查找达人，达人端搜索商品**。」
+
+⇒ **不是「哪端都行」，是按「要什么数据」分工**：
 
 | 端 | profile | 入口 | 拿什么 |
 |---|---|---|---|
-| **团长端** | `data/buyin_browser/profile` | `buyin.jinritemai.com`（右上角身份=**团长**） | **达人数据**：达人出单/成交/粉丝/GMV/经营概览 |
-| **达人端** | `data/buyin_browser/profile_daren` | `www.douyinec.com` → 达人工作台 | **商品数据**：选品广场 `material_list`、商品详情 |
+| **团长端** | `data/buyin_browser/profile` | `buyin.jinritemai.com`（右上角身份=**团长**） | **达人数据**：达人出单/成交/粉丝/GMV/经营概览、合作达人管理、数据参谋 | 查商品**只能拿机构出单汇总**（GMV/单量/带单达人数），**没有前几位带货达人、没有视频** |
+| **达人端** | `data/buyin_browser/profile_daren` | `www.douyinec.com` → 达人工作台（选品库） | **商品数据**：选品广场 `material_list`、商品详情的**前几位带货达人 + 视频**、带货情况筛选（月销/浏览量/**带货达人数**） | 无机构级出单汇总 |
 
 ⚠️ **同一个 host、同一路径，`用哪个 profile 就是哪个身份`** —— 拿达人端 profile 打
 `buyin.jinritemai.com/dashboard/...` 会进「达人自己的罗盘」（`compass_api/author/**`），
@@ -500,6 +507,31 @@ GET /ecom/captain/operate_analysis/coop_diagnosis/overview?period_type=&ewid=<�
   （`captain_stats.name_coverage()`），纯 `in` 判断恒 False。
 - ⚠️ **`products.id` 是内部 id**（`prod_coolchap_1_4452c0`），库里**没有平台商品ID** ⇒
   目前只能靠名字对拍；把平台商品ID 存进 `products` 后就能用 `product_id=` 精确查。
+- **商品维度接口（团长端）只回答「我们推的商品卖了多少」**，不回答「这个商品谁能带、有什么视频」
+  —— 后者必须走**达人端**。
+- **达人端商品接口**（⚠️ 裸 fetch 会被风控 `code=10001010A` / `code=11001`，
+  **必须带页面签名，只能在真实页面交互里抓**）：
+  - `/pc/diagnose/get_total?product_ids=<逗号分隔平台商品ID>`（商品诊断：
+    风险提示 / **30日动销达人数** / 诊断指标 / 佣金率），
+    页面入口 `https://buyin.jinritemai.com/dashboard/product-diagnosis/home`
+  - `/pc/selection_tool/promotion/list` + `/pc/selection_tool/promotion/pools`
+    （**我的橱窗 / 最近带货 / 选品车**）
+  - `/api/authorStatData/productRelatedLives`（商品相关直播）、
+    `/api/authorStatData/salesAnalyseV2`（带货分析）、
+    `/api/authorStatData/authorRepresentWorksList`（达人代表作品/视频）、
+    `/api/authorStatData/similarAuthor`（相似达人）
+
+#### 两端能力矩阵（2026-10-23 实测）
+
+| 要什么 | 团长端 | 达人端 |
+|---|---|---|
+| 达人档案 / 出单 / 成交 / GMV | ✅ 直连 fetch | — |
+| 机构经营概览 | ✅ 直连 fetch | — |
+| 机构商品出单汇总 | ✅ 直连 fetch | — |
+| 商品基础信息（价/佣金/月销/类目/店铺/体验分） | ❌ | ✅ `material_list`（需签名） |
+| 商品的带货达人数/浏览量/榜单/投千川标记 | ❌ | ✅ 选品库列表 |
+| 商品诊断（风险提示/**30日动销达人数**） | ❌ | ✅ `/pc/diagnose/get_total`（需签名） |
+| 商品相关直播 / 视频 / 相似达人 | ❌ | ✅ `/api/authorStatData/*`（需签名） |
 
 ## 视觉：与飞书 App 同源（2026-10-22）
 

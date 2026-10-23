@@ -220,14 +220,21 @@ POST https://buyin.jinritemai.com/pc/selection/common/material_list
     ⇒ 裸商品ID 判定**必须排在抖音号之前**,且要**对着库判**(是否本租户已绑定的抖音号 /
     是否已知达人),不能靠猜。改 `handler._dispatch` 的分流顺序前先读这条。
 
-### 8.1 达人数据走**团长端**(2026-10-23 老大纠正,新增)
+### 8.1 达人查团长端，商品查达人端（2026-10-23 老大纠正 + 补充口径,新增）
 
-老大原话：「**达人数据用团长端看,商品才会用达人端看**」。
+老大原话（两句都要记）：
 
-| 端 | profile | 入口 | 拿什么 |
-|---|---|---|---|
-| **团长端** | `data/buyin_browser/profile` | `buyin.jinritemai.com`(右上角身份=**团长**) | **达人数据**:达人出单/成交/粉丝/GMV/经营概览 |
-| **达人端** | `data/buyin_browser/profile_daren` | `www.douyinec.com`→达人工作台 | **商品数据**:选品广场/商品详情 |
+1. 「**达人数据用团长端看,商品才会用达人端看**」
+2. 「商品数据在**达人端显示会更全面** —— 因为会展示**这个商品前几位带得好的达人卖的数据**
+   还有**那个视频**；团长端也可以找商品,但**数据不会显示前几位达人的数据还有视频**。
+   所以我**团长端只查找达人,达人端搜索商品**。」
+
+⇒ **不是「哪端都行」,是按「要什么数据」分工**：
+
+| 端 | profile | 入口 | 拿什么 | 缺什么 |
+|---|---|---|---|---|
+| **团长端** | `data/buyin_browser/profile` | `buyin.jinritemai.com`(右上角身份=**团长**) | **达人数据**:达人出单/成交/粉丝/GMV/经营概览、合作达人管理、数据参谋 | **查商品只能拿机构出单汇总**(GMV/单量/带单达人数),**没有「前几位带货达人」也没有视频** |
+| **达人端** | `data/buyin_browser/profile_daren` | `www.douyinec.com`→达人工作台(选品库) | **商品数据**:选品广场 `material_list`、商品详情的**前几位带货达人 + 视频**、带货情况筛选(月销/浏览量/**带货达人数**) | 无机构级出单汇总 |
 
 ⚠️⚠️ **同一个 host、同一路径,`用哪个 profile 就是哪个身份`**：
 拿达人端 profile 打 `buyin.jinritemai.com/dashboard/...` 会进「**达人自己的罗盘**」
@@ -257,6 +264,34 @@ GET /ecom/captain/operate_analysis/coop_diagnosis/overview?period_type=&ewid=<�
   现在只能靠名字对拍(实测 46 个出单商品只对上 2 个,44 个在出单的商品没建档)。
 - ⚠️ `promoter/list` 少传 `promoter_type/author_query/colonel_query/date_type`
   **不报错、直接返回空数组**;⚠️ 平台会返回**完全重复的行** ⇒ 必须显式去重。
+- **达人端商品详情接口**（JS bundle 挖出 + 真实交互验证,⚠️ **裸 fetch 会被风控**:
+  `code=10001010A 当前环境存在风险` / `code=11001 当前网络不稳定`
+  —— **必须带页面签名 a_bogus/verifyFp,只能在真实页面交互里抓**）：
+  - `/pc/diagnose/get_total?ewid=&product_ids=<逗号分隔平台商品ID>`
+    （**商品诊断**:风险提示 / **30日动销达人数** / 诊断指标 / 佣金率）
+    页面入口 `https://buyin.jinritemai.com/dashboard/product-diagnosis/home`（商品质量诊断）
+  - `/pc/selection_tool/promotion/list` + `/pc/selection_tool/promotion/pools`
+    （**我的橱窗 / 最近带货 / 选品车** —— 达人端的商品来源池）
+  - `/api/authorStatData/productRelatedLives`（商品相关直播）、
+    `/api/authorStatData/salesAnalyseV2`（带货分析）、
+    `/api/authorStatData/authorRepresentWorksList`（达人代表作品/视频）、
+    `/api/authorStatData/similarAuthor`（相似达人）、
+    `/api/benchmark/product/deal`（商品成交对比）
+
+#### 两端能力矩阵（2026-10-23 实测,别再猜哪端能干什么）
+
+| 要什么 | 团长端 `profile` | 达人端 `profile_daren` |
+|---|---|---|
+| 达人档案 / 出单 / 成交 / GMV | ✅ 直连 fetch | — |
+| 机构经营概览（支付GMV/订单量/成交达人） | ✅ 直连 fetch | — |
+| 机构商品出单汇总（GMV/单量/带单达人数） | ✅ 直连 fetch | — |
+| 商品基础信息（价/佣金/月销/类目/店铺/体验分） | ❌ | ✅ `material_list`（**需签名**） |
+| 商品的带货达人数/浏览量/榜单/投千川标记 | ❌ | ✅ 选品库列表 |
+| 商品诊断（风险提示/**30日动销达人数**） | ❌ | ✅ `/pc/diagnose/get_total`（**需签名**） |
+| 商品相关直播 / 视频 / 相似达人 | ❌ | ✅ `/api/authorStatData/*`（**需签名**） |
+
+⇒ **达人端商品数据更全面但必须走页面交互;团长端能直连但只有汇总。**
+⇒ 所以 **查达人 → 团长端;查商品 → 达人端**（老大手工分工,不是随意选的）。
 - ⚠️⚠️ **`talents.douyin_id` 字段名骗人** —— 它实际存的是**平台达人 id**
   (`Wgg292`/`hlb725`),不是抖音号。拿平台 `user_source_id`(真抖音号)去对拍
   **恒为 0 命中**;能对上的是 `platform_talent_id`。**下「命中 0」结论前先确认键口径**。
