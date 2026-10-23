@@ -85,6 +85,9 @@ import brain_knowledge_service as bks
 # Memory Pipeline（L0-L3 分层记忆 + Token 预算召回）
 import memory_pipeline
 
+# 知识库入库分档整理层（老大 2026-10-23 两档口径：分析类完全提取 / 平常类整理后）
+import knowledge_intake as ki
+
 # 统一 Provider 适配层（Anthropic/OpenAI 双向转换 + SSE + 错误规范化 + 冷却半开）
 import provider_adapters as padapters
 
@@ -6152,12 +6155,21 @@ def _upsert_knowledge_base(kb, user_id=''):
     dev/feat: kb_entries 修复 — 加 user_id 参数 (默认 '' 兼容老调用);
     INSERT 写 created_by = user_id (修复前硬编码 '', 导致 133 行 100% 归属缺失).
     调用方未来从 auth 拿真实 user_id 传入即可, 不传时仍为 '' (兼容老调用).
+
+    ★ 老大 2026-10-23「知识库入库分两档」：
+      tier   = 档位: analysis(分析之后类·完全提取) / daily(平常类·整理后) / manual(人工录入)
+      source = 来源: auto_analysis / auto_daily / auto_decision / auto_repeat / manual / daren_bot
+      两个字段以前**只在调用方字典里写、从不落库** ⇒ 声明端 ≠ 使用端：
+      库内无法区分「完全提取」和「整理后」，老大两档口径不可查、不可验。
+      本次补齐落库 + 透出（_kb_entry_row_to_dict 已加 tier/source）。
     """
     conn = _db_conn()
     try:
         now = int(time.time() * 1000)
         kb_id = kb.get('id') or ('kb_' + str(uuid.uuid4())[:8])
         content = kb.get('content', '')
+        tier = (kb.get('tier') or '').strip()
+        source = (kb.get('source') or '').strip()
         # 状态映射：active → ok；决策关键词触发也直接 ok；其余 pending
         # review_required=True（自动分析入库）强制 pending，等管理员审核通过才进 RAG
         if kb.get('review_required'):
@@ -6182,13 +6194,14 @@ def _upsert_knowledge_base(kb, user_id=''):
             final_category_id = category_id if category_id is not None else existing['category_id']
             final_category_name = category_name if category_id is not None else _kb_category_name_by_id(conn, existing['category_id'])
             conn.execute('''
-                UPDATE kb_entries SET title=?, content=?, category_id=?, category=?, project_id=?, status=?, updated_at=?
+                UPDATE kb_entries SET title=?, content=?, category_id=?, category=?, project_id=?, status=?,
+                       tier=COALESCE(NULLIF(?, ''), tier), source=COALESCE(NULLIF(?, ''), source), updated_at=?
                 WHERE id=?
             ''', (
                 kb.get('title', ''), content,
                 final_category_id, final_category_name,
                 project_id or existing['project_id'],
-                new_status, now, kb_id
+                new_status, tier, source, now, kb_id
             ))
             conn.commit()
             return kb_id
@@ -6214,12 +6227,13 @@ def _upsert_knowledge_base(kb, user_id=''):
                 return cand['id']
         created_at = kb.get('createdAt') or kb.get('created_at') or now
         conn.execute('''
-            INSERT INTO kb_entries (id, title, content, category, category_id, project_id, scope, emp_id, status, chunk_count, created_by, created_at, updated_at, domain)
-            VALUES (?, ?, ?, ?, ?, ?, 'global', ?, ?, 0, ?, ?, ?, ?)
+            INSERT INTO kb_entries (id, title, content, category, category_id, project_id, scope, emp_id, status, chunk_count, created_by, created_at, updated_at, domain, tier, source)
+            VALUES (?, ?, ?, ?, ?, ?, 'global', ?, ?, 0, ?, ?, ?, ?, ?, ?)
         ''', (
             kb_id, kb.get('title', ''), content,
             category_name, category_id, project_id, emp_id,
-            new_status, user_id, created_at, now, ks.KB_DEFAULT_DOMAIN
+            new_status, user_id, created_at, now, ks.KB_DEFAULT_DOMAIN,
+            tier or 'legacy', source or 'legacy'
         ))
         conn.commit()
         return kb_id
@@ -6366,6 +6380,10 @@ def _daren_kb_ingest(kind, text, title=''):
     kb_id = _upsert_knowledge_base({
         'title': (title or f"[daren_bot] {_DAREN_KB_KINDS[kind]}").strip()[:200],
         'content': text,
+        'source': ki.SOURCE_DAREN_BOT,
+        # 档位：daren_bot 三类里「画像洞察/匹配规律」是成型结论 ⇒ analysis（完全提取）；
+        #       「达人显式反馈」是碎片 ⇒ daily（整理后）。
+        'tier': ki.TIER_ANALYSIS if kind in ('talent_insight', 'match_pattern') else ki.TIER_DAILY,
         'status': 'pending',
         'review_required': True,   # 强制 pending, 人工审过才进 RAG
     }, user_id='daren_bot')
@@ -6373,7 +6391,21 @@ def _daren_kb_ingest(kind, text, title=''):
 
 
 def _auto_check_knowledge(emp_id, mem_id, value, tags=None):
-    """保存记忆时自动检查是否应沉淀到知识库（决策直接 active；重复>=阈值）"""
+    """保存记忆时自动检查是否应沉淀到知识库。
+
+    ★ 老大 2026-10-23 两档口径落地：
+      档 A「分析之后类」→ **完全提取**（原文一字不改，整段入库）
+      档 B「平常类」    → **整理后**（碎片归并 → 抽要素 → 结构化）
+
+      改前：无论什么内容都照抄原文入库，标题统一 '知识点：' + 前 40 字
+            ⇒ 实测产出 234 条「知识点：」条目，其中大半是
+               「知识点：达人ID：tal_xxx」「知识点：名称：大丸子」这类零信息量碎片
+      改后：先 classify_tier 判档位；
+            档 A 走完全提取（正文不变，只加 tier/source 标记）；
+            档 B 走 organize_daily 整理，整理不出结构 ⇒ 不入库（不硬凑空壳）。
+
+    返回 kb_id 或 None。
+    """
     if not value:
         return None
     content = str(value)
@@ -6388,31 +6420,78 @@ def _auto_check_knowledge(emp_id, mem_id, value, tags=None):
     if _is_low_quality_knowledge(content):
         logger.info(f'  [KnowledgeBase] {emp_id} 跳过低质量内容写入: {content[:60]}...')
         return None
-    # 决策触发：直接沉淀为 active
-    if _contains_decision_keyword(content):
-        title = content[:40] + ('...' if len(content) > 40 else '')
-        # dev/feat: 自动沉淀路径 created_by 标 'auto:' + emp_id (agent 自动产生, 非 user)
-        return _upsert_knowledge_base({
+
+    # ── 档位判定（老大两档）────────────────────────────────────────────
+    tier, tier_reason = ki.classify_tier(content)
+
+    # ── 档 A：分析之后类 ⇒ 完全提取（原文一字不改）────────────────────
+    if tier == ki.TIER_ANALYSIS:
+        title = _extract_analysis_title(content)
+        kb_id = _upsert_knowledge_base({
             'empId': emp_id,
-            'title': '决策：' + title,
-            'content': content,
-            'source': 'auto_decision',
+            'title': title,
+            'content': content,          # ★ 完全提取：不截断、不摘要、不改写
+            'source': ki.SOURCE_ANALYSIS,
+            'tier': ki.TIER_ANALYSIS,
             'tags': tags or [],
             'relatedMemIds': [mem_id],
-            'status': 'active'
+            'status': 'active',
         }, user_id='auto:' + (emp_id or ''))
-    # 重复提及：创建 pending，evidence_count 由 upsert 累加
-    title = content[:40] + ('...' if len(content) > 40 else '')
-    # dev/feat: 自动沉淀路径 created_by 标 'auto:' + emp_id (agent 自动产生, 非 user)
-    return _upsert_knowledge_base({
+        logger.info(f'  [KnowledgeBase] {emp_id} 档A(分析类·完全提取)入库 {kb_id} reason={tier_reason}')
+        return kb_id
+
+    # ── 档 B：平常类 ⇒ 整理后入库 ─────────────────────────────────────
+    # 开关（回滚点）：settings.json daily_kb_intake=false ⇒ 退回旧行为（照抄原文）
+    if not _daily_kb_intake_enabled():
+        title = content[:40] + ('...' if len(content) > 40 else '')
+        return _upsert_knowledge_base({
+            'empId': emp_id,
+            'title': '知识点：' + title,
+            'content': content,
+            'source': ki.SOURCE_REPEAT,
+            'tier': ki.TIER_DAILY,
+            'tags': tags or [],
+            'relatedMemIds': [mem_id],
+            'status': 'pending'
+        }, user_id='auto:' + (emp_id or ''))
+
+    organized = ki.organize_daily(content, context={'emp_id': emp_id, 'mem_id': mem_id})
+    if not organized:
+        # 整理不出结构 ⇒ 不入库（宁可漏，不可造垃圾条目）
+        logger.info(f'  [KnowledgeBase] {emp_id} 档B(平常类) 整理不出结构，不入库: {content[:60]}...')
+        return None
+    kb_id = _upsert_knowledge_base({
         'empId': emp_id,
-        'title': '知识点：' + title,
-        'content': content,
-        'source': 'auto_repeat',
+        'title': organized['title'],
+        'content': organized['content'],
+        'source': ki.SOURCE_DAILY,
+        'tier': ki.TIER_DAILY,
         'tags': tags or [],
         'relatedMemIds': [mem_id],
-        'status': 'pending'
+        'status': 'pending',
     }, user_id='auto:' + (emp_id or ''))
+    logger.info(
+        f'  [KnowledgeBase] {emp_id} 档B(平常类·整理后)入库 {kb_id} '
+        f'facts={len(organized["facts"])} notes={len(organized["notes"])} '
+        f'dropped={len(organized["dropped"])}'
+    )
+    return kb_id
+
+
+def _daily_kb_intake_enabled():
+    """平常类「整理后入库」开关（回滚点）。settings.json daily_kb_intake，默认开启。
+
+    ★ 回滚语义：设 false ⇒ 档 B 退回旧行为（照抄原文 + '知识点：' 标题）；
+      档 A（分析类完全提取）不受此开关影响 —— 那是老大明确要的行为。
+    """
+    try:
+        settings = _read_json(SETTINGS_FILE, {}) or {}
+    except Exception:
+        return True
+    value = settings.get('daily_kb_intake', True)
+    if isinstance(value, str):
+        return value.strip().lower() not in ('0', 'false', 'no', 'off')
+    return bool(value)
 
 
 # ═══ AI 分析结论自动入库 ═══
@@ -6499,11 +6578,29 @@ def _auto_save_analysis_enabled():
 
 
 def _is_analysis_conclusion(text):
-    """粗判 AI 回复是否为数据分析结论（长度 + 结论标记词 / 长文本组合信号）"""
-    if not text or len(text) < _ANALYSIS_MIN_LENGTH:
+    """粗判 AI 回复是否为数据分析结论（结论标记词 / 结构完整 / 长文本组合信号）
+
+    ★ 老大 2026-10-23 校准（背景：老大的口径是「分析之后类 ⇒ 完全提取后放入知识库」，
+      但旧判定用长度硬门槛把**短而完整的分析报告**挡在门外）：
+
+      实测反例（56 字，结构完整：评级 + 表格 + 核心结论）：
+        '【达人评级】：C | 项目 | 值 | | 粉丝 | 12.9万 | 核心结论：建议谨慎合作'
+        → 旧判定 False（len < _ANALYSIS_MIN_LENGTH=80）⇒ 被 _passes_auto_save_gate 拦掉
+        ⇒ 明明是成型分析，却没进知识库（生产日志里 25 次「命中闸门」）
+
+      新判定顺序：
+        1. 强标记词命中（结论/建议/推荐类）=> True（不再受长度门槛限制）
+        2. 结构完整（评级 / 核心结论 / Markdown 表格）=> True
+        3. 长文本 + 多指标词 + 判断词 => True（保持原组合信号）
+        4. 其余 => False
+    """
+    if not text:
         return False
-    # 强标记词命中即判定
+    # 强标记词命中即判定（不再要求长度 —— 短报告同样有结论价值）
     if any(m in text for m in _ANALYSIS_CONCLUSION_MARKERS):
+        return True
+    # 结构完整即判定（评级 / 核心结论 / 表格）—— 短但成型 => 是分析报告
+    if _has_analysis_structure(text):
         return True
     # 组合信号：长文本 + ≥2 个业务指标词 + ≥1 个判断/推荐词
     if len(text) >= _ANALYSIS_COMBO_MIN_LENGTH:
@@ -6546,12 +6643,20 @@ def _is_denial_class_reply(text):
 
 
 def _has_analysis_structure(text):
-    """分析结论的最小结构：要么含"评级"类措辞，要么含 Markdown 表格（任意行有 |）。
-    两条都不满足说明 AI 这次输出根本没形成可入库的分析（即使 _is_analysis_conclusion 误判）。"""
+    """分析结论的最小结构：含"评级/核心结论"类措辞，或含 Markdown 表格（任意行有 |）。
+
+    ★ 老大 2026-10-23 扩信号：原实现只认「评级」和表格，
+      导致「核心结论：建议谨慎合作」这类**无表格无评级**的成型分析被判无结构
+      ⇒ 在 _passes_auto_save_gate 被拦掉 ⇒ 明明是分析却没进知识库。
+      现在补上「核心结论 / 一句话核心结论 / 合作建议 / 分析结论」等结论段落标记。
+    """
     if not text:
         return False
     if '评级' in text:
         return True
+    for sig in ('核心结论', '一句话核心结论', '合作建议', '分析结论', '综合结论'):
+        if sig in text:
+            return True
     # Markdown 表格：至少一行含 | 且不全是空格 + |  + 空格的退化形式
     for line in text.split('\n'):
         s = line.strip()
@@ -6564,10 +6669,17 @@ def _has_analysis_structure(text):
 
 def _passes_auto_save_gate(text):
     """自动入库闸门：拒绝类元对话 或 完全没有分析结构时返回 False。
-    调用方在满足 _is_analysis_conclusion 后再调本函数二次过滤。"""
+    调用方在满足 _is_analysis_conclusion 后再调本函数二次过滤。
+
+    ★ 老大 2026-10-23 校准：老大的口径是「分析之后类 ⇒ 完全提取后放入知识库」，
+      闸门只该拦**元对话噪音**（否认/作废），不该拦**格式不同的成型分析**。
+      原实现对「无表格无评级」的成型分析一律拒 ⇒ 25 次「命中闸门」日志即是此坑。
+      现在：只要 _is_analysis_conclusion 判定为分析（标记词/结构/组合信号任一命中）就放行，
+      仅保留否认类拒绝 + 低质量内容拒绝（后者在调用方 _is_low_quality_knowledge）。
+    """
     if _is_denial_class_reply(text):
         return False
-    if not _has_analysis_structure(text):
+    if not _is_analysis_conclusion(text):
         return False
     return True
 
@@ -7033,7 +7145,8 @@ def _maybe_auto_save_analysis(agent_id, reply, user_text='', tool_results=None, 
         kb_id = _upsert_knowledge_base({
             'title': title,
             'content': analysis_text,
-            'source': 'auto_analysis',
+            'source': ki.SOURCE_ANALYSIS,
+            'tier': ki.TIER_ANALYSIS,   # ★ 老大档 A：分析之后类 ⇒ 完全提取
             'review_required': True,
         }, user_id='auto:' + (agent_id or ''))
         if not kb_id:
@@ -15325,7 +15438,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 'empId': emp_id,
                 'title': title,
                 'content': content,
-                'source': body.get('source', 'manual'),
+                'source': body.get('source', ki.SOURCE_MANUAL),
+                # 人工录入 ⇒ manual 档（老大两档口径里的人工档，不参与自动分档）
+                'tier': body.get('tier') or ki.TIER_MANUAL,
                 'tags': body.get('tags', []),
                 'relatedMemIds': [mem_id] if mem_id else [],
                 'categoryId': body.get('categoryId') or body.get('category_id'),

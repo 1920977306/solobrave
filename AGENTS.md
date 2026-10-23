@@ -653,6 +653,68 @@ tail -n +$((BEFORE+1)) /tmp/openclaw/openclaw-$(date +%Y-%m-%d).log \
 ⚠️ **实测 `knowledge_base` / `knowledge_base_new` 都是 0 行** —— 这条链目前没跑起来,
 不是「数据都在」。
 
+### ★★ 订正:知识库「真表」是 `kb_entries`,不是 `knowledge_base`(2026-10-23)
+
+**上一版 §14 写「知识库 0 行」是查错表了 —— 老大产品上的「知识库」界面一直有 636 条。**
+
+| 表 | 行数 | 谁在用 | 结论 |
+|---|---|---|---|
+| **`kb_entries`** | **636** | 前端 `GET /api/knowledge/entries` → `ks.kb_entry_list` | ★ **真表**,老大界面读它 |
+| `knowledge_base` | 0 | 废弃(`_upsert_knowledge_base` 注释明写「旧表已废弃,不再写入」) | 死表 |
+| `knowledge_base_new` | 0 | 链 B `brain_knowledge_service` | 链 B 未跑 |
+
+- 前端:`js/inline-07.js` 的 `sb2KbInit()` → `_sb2KbEntries` → `GET /api/knowledge/entries`
+  (SB2 路径**不读** legacy 的 `_knowledgeData` —— 那条路径在 SB2 下永远空)。
+- 旁证:`kb_entries.domain` 默认 `'tuangzhang'`;`ks.KB_DEFAULT_DOMAIN` 写死在 INSERT 里。
+- **教训**:「知识库空着」这类结论必须先确认**前端到底读哪张表**,
+  否则会把「我没找对表」当成「系统没数据」(同「探针结论必先对库再下判断」)。
+
+### ★★ 知识库入库分两档(老大 2026-10-23 口径,已落地)
+
+老大原话:「**分析之后类的就需要完全提取然后放入知识库,
+但有一些很平常的就整理出来再放入知识库**」
+
+| 档 | tier | source | 判定 | 处理 |
+|---|---|---|---|---|
+| **A 分析之后类** | `analysis` | `auto_analysis` | 成型结论(评级/核心结论/表格/结论句式) | **完全提取** —— 原文一字不改整段入库 |
+| **B 平常类** | `daily` | `auto_daily` | 碎片素材(一行一字段/一句建议) | **整理后** —— 归并同主题 → 抽要素 → 结构化 |
+| 人工录入 | `manual` | `manual` | 界面手工建 | 原样入库 |
+| 历史数据 | `legacy` | `legacy` | 迁移前的老行 | 如实标 legacy,**不假装是某一档** |
+
+**实现**:
+- `knowledge_intake.py`(新):`classify_tier()` 判档 / `organize_daily()` 整理 /
+  `merge_daily_fragments()` 同主题归并。**纯函数**,不碰 DB、不发网络请求。
+- `solobrave-server.py`:
+  - `_auto_check_knowledge()` —— 两档分流(记忆保存时触发)
+  - `_maybe_auto_save_analysis()` —— 档 A 主入口,标 `tier=analysis`
+  - `_daren_kb_ingest()` —— 画像洞察/匹配规律⇒analysis;显式反馈⇒daily
+  - `_upsert_knowledge_base()` —— **真落库** tier/source(见下)
+- `kb_entries` 加了 `tier` / `source` 两列(`init_kb_entries_db` 幂等迁移),API 已透出。
+
+**三条铁律**:
+1. **只丢不造** —— 整理只做「归并/剪裁/重排/抽要素」,不改写语义、不补原文没有的信息。
+   单元测 `test_no_fabrication` 断言每个值都必须在原文出现过。
+2. **宁可漏不可造** —— 整理不出结构 ⇒ **不入库**(纯碎片如「达人ID：tal_xxx」直接拒),
+   不硬凑空壳条目。改前库里有 234 条「知识点：」碎片大半是这类垃圾。
+3. **不确定就退回原文** —— 档 A 完全提取路径**不经过**任何剪裁逻辑。
+
+**★ 又一处「声明端 ≠ 使用端」**:
+`source='auto_analysis'` 这些值**以前只写在调用方字典里、从不落库**
+(`kb_entries` 当时根本没有这一列)⇒ 老大两档口径**不可查、不可验**。
+本次补齐落库 + API 透出。**apply when**:任何「按来源/档位分流」的字段,
+都要确认它**真的进了 DB**,而不是只在代码里出现过。
+
+**★ 闸门校准(同一轮)**:
+`_is_analysis_conclusion` 原来有 `len < 80` 的**长度硬门槛**,
+⇒ 56 字的「评级+表格+核心结论」短报告被判 False ⇒ 被 `_passes_auto_save_gate` 拦掉
+⇒ **明明是成型分析却没进知识库**(生产日志 25 次「命中闸门」)。
+已改:①标记词命中即 True(不限长度)②结构完整即 True(并扩充「核心结论/合作建议」信号)
+③`_passes_auto_save_gate` 只拦**否认类元对话**,不再要求特定格式。
+回归已验:寒暄/否认/工具转录**仍**被拦,库里真实分析**仍**放行。
+
+**回滚点**:`settings.json` `daily_kb_intake=false` ⇒ 档 B 退回旧行为(照抄原文 +「知识点：」标题);
+档 A(分析类完全提取)不受此开关影响 —— 那是老大明确要的行为。
+
 ### ★ L0 必须有「答」—— 2026-10-23 修的真问题
 
 - **症状**:Ray 的 **316 条飞书对话 `assistant_content` 100% 为空**

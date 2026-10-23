@@ -9858,7 +9858,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
   --sb2-bg:#101013; --sb2-s1:#17171B; --sb2-s2:#1C1C21; --sb2-s3:#232329;
   --sb2-border:#2A2A31; --sb2-border-strong:#3A3A43;
   --sb2-t1:#F4F4F5; --sb2-t2:#A7A7B3; --sb2-t3:#63636E;
-  --sb2-brand:#FF6B4A; --sb2-brand-soft:rgba(255,107,74,.13);
+  --sb2-brand:#FF6B4A; --sb2-brand-strong:#FF8A6B; --sb2-brand-soft:rgba(255,107,74,.13);
   --sb2-ink:#F4F4F5; --sb2-ink-hover:#D9D9DE;
   --sb2-accent:#6B84FF; --sb2-accent-strong:#88A1FF; --sb2-accent-soft:rgba(107,132,255,.14);
   --sb2-success:#34C06A; --sb2-success-soft:rgba(52,192,106,.14);
@@ -13379,6 +13379,10 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
 .sb2-tag-status-ok{ background:var(--sb2-success-soft); color:var(--sb2-success); }
 .sb2-tag-status-pending{ background:var(--sb2-warning-soft); color:var(--sb2-warning); }
 .sb2-tag-status-failed{ background:var(--sb2-danger-soft); color:var(--sb2-danger); }
+/* 〔知识库两档 2026-10-23〕档位徽标 —— 分析类(完全提取)用品牌色, 平常类(整理后)用强调色
+   语义: 品牌=原样保留的高价值结论 / 强调=经整理提炼的档案条目 */
+.sb2-tag-tier-analysis{ background:var(--sb2-brand-soft); color:var(--sb2-brand-strong); }
+.sb2-tag-tier-daily{ background:var(--sb2-accent-soft); color:var(--sb2-accent-strong); }
 
 /* —— 旧 knowledgeMid 系列容器兜底隐藏 (不退役仅兜底, 全勾后才退役) —— */
 #knowledgeMid,

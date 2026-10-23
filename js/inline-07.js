@@ -935,6 +935,18 @@ function sb2KbRenderList(entries){
     var statusRaw = e.status || 'ok';
     var statusLabel = statusRaw === 'pending' ? '待审核' : statusRaw === 'failed' ? '失败' : statusRaw === 'superseded' ? '已废弃' : '已入库';
     var statusClass = 'sb2-tag-status-' + (statusRaw === 'pending' ? 'pending' : statusRaw === 'failed' ? 'failed' : statusRaw === 'superseded' ? 'superseded' : 'ok');
+    /* 〔知识库两档 2026-10-23〕档位徽标:
+       — 老大口径「分析之后类 ⇒ 完全提取 / 平常类 ⇒ 整理后放入」
+       — 卡片上直接标出来, 管理员一眼能看出这条是完整报告还是整理后的档案
+       — 字段名兼容 camelCase/snake_case (后端 _kb_entry_row_to_dict 返回 camel, 但既有前端读 snake 的历史不一致在, 别假设一种)
+       — 档位未知(历史 legacy / 人工 manual) ⇒ 不显示徽标, 不编造 */
+    var tierRaw = e.tier || e.tier_name || '';
+    var tierTag = '';
+    if (tierRaw === 'analysis') {
+      tierTag = '<span class="sb2-tag sb2-tag-tier-analysis" title="分析之后类 · 原文完全提取入库">完全提取</span>';
+    } else if (tierRaw === 'daily') {
+      tierTag = '<span class="sb2-tag sb2-tag-tier-daily" title="平常类 · 整理后入库">整理后</span>';
+    }
     return '<article class="sb2-kb-card" data-kb-id="' + escapeAttr(id) + '" data-sb2-scope="' + escapeAttr(e.scope || e.scope_name || 'global') + '" title="' + escapeAttr(updatedRaw) + '" onclick="sb2KbOpenDetail(\'' + escapeAttr(id) + '\')">' +
       '<div class="sb2-kb-card-info">' +
         '<h3 class="sb2-kb-card-title">' + escapeHtml(title) + '</h3>' +
@@ -947,6 +959,7 @@ function sb2KbRenderList(entries){
         '</div>' +
       '</div>' +
       '<div class="sb2-kb-card-tags">' +
+        (tierTag ? tierTag : '') +
         '<span class="sb2-tag sb2-tag-cat">' + escapeHtml(cat) + '</span>' +
         '<span class="sb2-tag sb2-tag-scope">' + escapeHtml(scope) + '</span>' +
         '<span class="sb2-tag ' + statusClass + '">' + escapeHtml(statusLabel) + '</span>' +

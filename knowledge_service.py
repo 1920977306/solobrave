@@ -2065,6 +2065,13 @@ def init_kb_entries_db():
         _add_column_if_not_exists(conn, 'kb_entries', 'category_id', 'INTEGER')
         _add_column_if_not_exists(conn, 'kb_entries', 'project_id', "TEXT DEFAULT ''")
         _add_column_if_not_exists(conn, 'kb_entries', 'domain', "TEXT NOT NULL DEFAULT 'tuangzhang'")
+        # ★ 老大 2026-10-23「知识库入库分两档」载体列：
+        #   tier  = 入库档位: analysis(分析后完全提取) / daily(平常类整理后) / manual(人工录入)
+        #   source = 入库来源: auto_analysis / auto_daily / auto_decision / auto_repeat / manual / daren_bot ...
+        #   历史行默认 'legacy'（未标档位的老数据），不假装是某一档
+        _add_column_if_not_exists(conn, 'kb_entries', 'tier', "TEXT DEFAULT 'legacy'")
+        _add_column_if_not_exists(conn, 'kb_entries', 'source', "TEXT DEFAULT 'legacy'")
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_kb_entries_tier ON kb_entries(tier)')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_kb_entries_scope ON kb_entries(scope)')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_kb_entries_category ON kb_entries(category)')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_kb_entries_category_id ON kb_entries(category_id)')
@@ -2174,6 +2181,10 @@ def _kb_entry_row_to_dict(row):
         return None
     category_id = row['category_id']
     category_name = _kb_category_name(category_id) if category_id else (row['category'] or '')
+    # ★ 老大 2026-10-23 两档口径可观测: tier=analysis(完全提取)/daily(整理后)/manual,
+    #   source=auto_analysis/auto_daily/... ；历史行是 'legacy'（未标档位）
+    #   列可能尚未迁移（init_kb_entries_db 未跑）⇒ 防御读，不能让列表接口整体崩
+    _row_keys = row.keys() if hasattr(row, 'keys') else []
     return {
         'id': row['id'],
         'title': row['title'],
@@ -2190,6 +2201,8 @@ def _kb_entry_row_to_dict(row):
         'createdBy': row['created_by'] or '',
         'createdAt': row['created_at'],
         'updatedAt': row['updated_at'],
+        'tier': (row['tier'] if 'tier' in _row_keys else '') or 'legacy',
+        'source': (row['source'] if 'source' in _row_keys else '') or 'legacy',
     }
 
 
@@ -2479,8 +2492,11 @@ def _vectorize_kb_chunks_with_status_update(entry_id, emp_id, api_key, provider,
         raise
 
 
-def kb_entry_create(title, content, category, created_by, scope='global', team_id='', group_ids=None, emp_id='', agent_config=None, category_id=None, project_id=None):
-    """创建新版知识条目，自动分段+向量化"""
+def kb_entry_create(title, content, category, created_by, scope='global', team_id='', group_ids=None, emp_id='', agent_config=None, category_id=None, project_id=None, tier='manual', source='manual'):
+    """创建新版知识条目，自动分段+向量化
+
+    ★ tier/source（老大 2026-10-23 两档口径）：界面人工新建 ⇒ manual 档。
+      调用方显式传 tier/source 可覆盖（供将来 agent 侧直建用）。"""
     entry_id = _gen_id('kbe')
     now = _now_ms()
     scope = scope or 'global'
@@ -2491,9 +2507,9 @@ def kb_entry_create(title, content, category, created_by, scope='global', team_i
     conn = _db_conn()
     try:
         conn.execute('''
-            INSERT INTO kb_entries (id, title, content, category, category_id, project_id, scope, team_id, group_ids, emp_id, status, chunk_count, created_by, created_at, updated_at, domain)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 0, ?, ?, ?, ?)
-        ''', (entry_id, title, content, category or '', category_id, project_id, scope, team_id or '', group_ids_json, emp_id or '', created_by or '', now, now, KB_DEFAULT_DOMAIN))
+            INSERT INTO kb_entries (id, title, content, category, category_id, project_id, scope, team_id, group_ids, emp_id, status, chunk_count, created_by, created_at, updated_at, domain, tier, source)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 0, ?, ?, ?, ?, ?, ?)
+        ''', (entry_id, title, content, category or '', category_id, project_id, scope, team_id or '', group_ids_json, emp_id or '', created_by or '', now, now, KB_DEFAULT_DOMAIN, tier or 'manual', source or 'manual'))
         conn.commit()
     finally:
         conn.close()
