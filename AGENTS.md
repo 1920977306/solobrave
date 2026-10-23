@@ -579,3 +579,52 @@ GET /ecom/captain/operate_analysis/coop_diagnosis/overview?period_type=&ewid=<�
 **穷举可用态**。本轮教训:只看浏览态(只读容器)就下了
 「改名/拖拽/删块 UI 也做不到」,进编辑态后**全部推翻**。
 跟「cookie 在 ≠ session 有效」同型 —— **一个态的证据不能推全局**。
+
+## 13. 飞书机器人多账号绑定(2026-10-23 新增)
+
+**架构**:飞书应用 → OpenClaw `channels.feishu.accounts.<id>` →
+`bindings[{agentId, match:{channel:"feishu", accountId}}]` → SoloBrave AI 员工 →
+会话落 `memory_conversations`(知识库 L0)。
+
+### ⚠️ 加新账号**不能**走 `POST /api/openclaw/channels/feishu`
+
+那个接口以 **`tenant_id` 当 account_id** 写入。本项目**只有一个租户 `t_default`**,
+且 `t_default` 已经被「租户Bot → Ray」占用 ⇒ 走那个接口会
+**覆盖现有账号凭据 + binding**,把线上租户Bot搞坏。
+⇒ 加新账号走 `openclaw config patch`（脚本:`bind_feishu_mumu.py`）:
+**新增** account_id,`bindings` 全量读-改-写(先删同 accountId 旧 binding 再加新的)⇒ 幂等。
+
+### 密钥一律进 secret store,配置里只放引用
+
+既有 3 个账号的 `appSecret` 都是引用式:
+```json
+{"source":"store","provider":"default","id":"FEISHU_APPSECRET_<ACCOUNT_ID大写>"}
+```
+⇒ 新账号也要 `openclaw secrets store set FEISHU_APPSECRET_XXX --kind secret --value-file <文件>`,
+配置里写引用。**明文写进 `openclaw.json` 会被 `openclaw secrets audit` 报
+`PLAINTEXT_FOUND`**,与本项目存储模型不一致。
+- `--value-file` 走文件,**不要 `--value` 走命令行**(会进 shell 历史 / ps)。
+- 存完要 `openclaw secrets reload` + `openclaw daemon restart` 才生效。
+
+### 生效判据(别只看配置写成功)
+
+```bash
+tail -n +$((BEFORE+1)) /tmp/openclaw/openclaw-$(date +%Y-%m-%d).log \
+  | grep -oE "feishu\[<id>\]: (bot open_id resolved: ou_[a-z0-9]+|WebSocket client started)"
+```
+- `bot open_id resolved` ⇒ 应用凭据有效、机器人身份解析成功
+- `WebSocket client started` ⇒ **长连接已建立**（事件订阅走长连接，不是 webhook）
+- 出现这两行才算**真绑好**;`config patch` 成功**不等于**连上了。
+- ⚠️ 日志里那条 `SECRETS_REF_IGNORED_INACTIVE_SURFACE` 告警是**既有的**
+  (顶层 `channels.feishu.appSecret` 没有账号继承),与新增账号无关。
+
+### 可见性:新增账号在系统里原本**看不见**
+
+`GET /api/openclaw/channels/feishu/status` 原本只返回 `default` 一个账号 ⇒
+多账号场景没法在系统里确认绑定。已加 `accounts[]` 字段(纯增量,不改原有键),
+列出所有账号的 `id/name/appId/boundAgentId`(密钥脱敏)。
+
+### 群策略
+
+新增测试账号:`allowFrom:["*"]`(私聊放开)但 `groupPolicy:"allowlist"` +
+`groupAllowFrom:[]` ⇒ **不会被拉进任何群**。

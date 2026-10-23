@@ -31736,6 +31736,42 @@ def _handle_feishu_status(self):
     # 检查连接状态 - 通过 openclaw channels status 判断
     connected = feishu.get('enabled', False)
 
+    # ★ 账号清单（2026-10-23 新增）：这个接口原本只显示 default 一个账号，
+    #   多飞书账号（如新增的测试号）**在系统里完全看不见**，没法确认是否绑好。
+    #   现在把 openclaw config 里所有 feishu 账号 + 各自 binding 一起列出。
+    #   ⚠️ 纯增量字段，不改原有键 ⇒ 现有消费方不受影响。
+    bindings = []
+    try:
+        bp = subprocess.run(['openclaw', 'config', 'get', 'bindings'],
+                            capture_output=True, text=True, timeout=10)
+        if bp.returncode == 0:
+            parsed = json.loads(bp.stdout)
+            if isinstance(parsed, list):
+                bindings = parsed
+    except Exception:
+        bindings = []
+    bound_agent = {}
+    for b in bindings:
+        if isinstance(b, dict):
+            m = b.get('match') or {}
+            if m.get('channel') == 'feishu' and m.get('accountId'):
+                bound_agent[m['accountId']] = b.get('agentId', '')
+
+    account_list = []
+    for acc_id, acc in accounts.items():
+        if not isinstance(acc, dict):
+            continue
+        sec = acc.get('appSecret') or ''
+        account_list.append({
+            'id': acc_id,
+            'name': acc.get('name', ''),
+            'appId': acc.get('appId', ''),
+            'appSecretMasked': (sec[:4] + '*' * (len(sec) - 4)) if len(sec) > 4 else '',
+            'groupPolicy': acc.get('groupPolicy', ''),
+            'allowFrom': acc.get('allowFrom', []),
+            'boundAgentId': bound_agent.get(acc_id, ''),
+        })
+
     self._send_json(200, {
         'appId': app_id,
         'appSecret': masked_secret,
@@ -31744,7 +31780,9 @@ def _handle_feishu_status(self):
         'domain': feishu.get('domain', 'feishu'),
         'enabled': feishu.get('enabled', False),
         'connected': connected,
-        'paired': True  # 如果有 enabled=true 且配置完整就认为已配对
+        'paired': True,  # 如果有 enabled=true 且配置完整就认为已配对
+        # 新增：所有飞书账号 + 各自绑定的 agent（原来只暴露 default 一个）
+        'accounts': account_list,
     })
 
 def _handle_feishu_config(self):
