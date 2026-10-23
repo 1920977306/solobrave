@@ -631,6 +631,39 @@ tail -n +$((BEFORE+1)) /tmp/openclaw/openclaw-$(date +%Y-%m-%d).log \
 
 ## 14. 知识库分层与 L0 回填(2026-10-23 新增)
 
+### ★★ 语义(embedding)用智谱 —— 老大买的资源包(2026-10-23)
+
+**老大原话:「语义是智谱, 我买的资源包」—— 这条被强调过很多遍, 别再查错。**
+
+| 项 | 生产真实值 |
+|---|---|
+| provider | **zhipu** |
+| model | `embedding-2` |
+| baseUrl | `https://open.bigmodel.cn/api/paas/v4/embeddings` |
+| 配置位置 | **`.env`** 的 `SOLOBRAVE_EMBEDDING_PROVIDER/API_KEY/BASE_URL/MODEL` |
+
+- **`get_embedding_config()` 优先级 = 环境变量 > settings.json > 员工自身 AI 配置**
+  ⇒ 生产走 `.env` 里的智谱; `data/settings.json` 里那个 `embedding.provider=siliconflow`
+  是**备用配置**, `.env` 一旦加载就轮不到它。
+- ⚠️ **在 server 进程外跑脚本时必须自己加载 `.env`**, 否则会读到 settings.json 的
+  siliconflow ⇒ 报 `402 Payment Required` ⇒ **误判成「生产的语义服务挂了」**。
+  实测: 我据此报过一次「siliconflow 频繁报错」, 生产日志里 `HTTP 402 from` 实际 **0 次**。
+  ⇒ **apply when**:任何「调 embedding 失败」的排查, 先确认进程有没有加载 `.env`。
+- **智谱的错误码习惯**: 余额/资源包不可用返回 **HTTP 429** 且 body 是
+  `{"error":{"code":"1113","message":"余额不足或无可用资源包,请充值。"}}`
+  ⇒ **别按状态码猜原因**(429 通常被当成限流), 必须读 body。
+- 存量健康度(2026-10-23): **345/345 有效条目 + 790/790 chunk** 全有 `embedding-2` 向量。
+
+**★ 缺向量的坑(已修)**:
+- RAG 召回条件 = `e.status='ok' AND c.embedding IS NOT NULL AND c.embedding_model=<模型>`
+  ⇒ 无向量的条目**完全不被召回**(不是「召回差」, 是「召不回」)。
+- 向量化失败必须留痕: `_vectorize_kb_entry` 失败时写 `kb_operation_log` 'embedding_failed'
+  ⇒ **不要改 `status`** —— status 是审核闸语义(仅 ok/pending), 管理员审核会覆盖,
+  覆盖后成「假绿灯」条目(看着正常但永远补不回向量), 比不改更坏。
+- 补齐入口: `scripts/backfill_missing_embeddings.py`
+  按「**有 chunk 但 embedding IS NULL**」扫(与 `kb_entry_stats.pendingChunks` 同口径),
+  **不靠 entry.status**。默认 dry-run, `--apply` 才写; 带连通性探测, 探测失败主动早退。
+
 **两条独立的整理链**,别混:
 
 ### 链 A:记忆分层(`memory_pipeline.py`,agent 级,**自动**)
