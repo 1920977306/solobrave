@@ -199,3 +199,79 @@ def test_talent_rows_dedupes_platform_duplicate_rows():
     rows = cs.talent_rows(dup, "2026-10-21", "s", "e")
     assert len(rows) == 1
     assert rows[0]["douyin_id"] == "1635706331203293"
+
+
+# ───────────── 商品维度 ─────────────
+
+PRODUCT_FIXTURE = [{
+    "name": "Coolchap嘭嘭爱心系列2026沙滩度假女士平底拖鞋人字拖CCF1001",
+    "id": "3729610176878215476",
+    "avatar": "https://x/y.jpg",
+    "order_daren_count": 11, "order_second_colonel_count": 0,
+    "order_pay_num": 15, "pay_gmv": "193500", "settle_gmv": "0",
+}]
+
+
+def test_product_rows_maps_and_converts():
+    rows = cs.product_rows(PRODUCT_FIXTURE, "2026-10-23", "s", "e")
+    assert len(rows) == 1
+    r = rows[0]
+    assert r["platform_product_id"] == "3729610176878215476"
+    assert r["order_daren_count"] == 11
+    assert r["order_pay_num"] == 15
+    assert r["pay_gmv"] == 1935.00
+    assert r["settle_gmv"] == 0.0
+
+
+def test_product_rows_dedupes():
+    rows = cs.product_rows([PRODUCT_FIXTURE[0], dict(PRODUCT_FIXTURE[0])], "d", "s", "e")
+    assert len(rows) == 1
+
+
+def test_product_rows_drops_without_id():
+    assert cs.product_rows([{"name": "x", "id": ""}], "d", "s", "e") == []
+
+
+# ───────────── 名字覆盖率匹配 ─────────────
+
+def test_name_coverage_exact_is_one():
+    assert cs.name_coverage("Coolchap凉鞋", "Coolchap凉鞋") == 1.0
+
+
+def test_name_coverage_abbr_vs_fullname():
+    """简称不是全名的连续子串 —— 纯 `in` 会判 False，覆盖率要能认出来。"""
+    ours = "嘭嘭爱心系列人字拖"
+    theirs = "Coolchap嘭嘭爱心系列2026沙滩度假女士平底拖鞋人字拖CCF1001"
+    cov = cs.name_coverage(ours, theirs)
+    assert cov >= 0.6
+    assert ours not in theirs      # 证明纯包含判断会漏
+
+
+def test_name_coverage_unrelated_is_low():
+    assert cs.name_coverage("嘭嘭爱心系列人字拖", "一双雪地靴男款加绒防滑") < 0.3
+
+
+def test_name_coverage_empty():
+    assert cs.name_coverage("", "x") == 0.0
+    assert cs.name_coverage("x", "") == 0.0
+
+
+def test_match_products_splits_hit_missing_cold():
+    our = [("prod_1", "嘭嘭爱心系列人字拖", "COOLCHAP"),
+           ("prod_2", "厚底松糕拖鞋", "COOLCHAP")]
+    plat = [dict(cs.product_rows(PRODUCT_FIXTURE, "d", "s", "e")[0]),
+            {"platform_product_id": "999", "name": "厚底松糕拖鞋新款", "pay_gmv": 100.0}]
+    m = cs.match_products(plat, our, threshold=0.6)
+    assert len(m["pairs"]) == 2
+    assert {p[2][0] for p in m["pairs"]} == {"prod_1", "prod_2"}
+    assert m["missing"] == []
+    assert m["ours_cold"] == []
+
+
+def test_match_products_reports_missing_and_cold():
+    our = [("prod_1", "嘭嘭爱心系列人字拖", "COOLCHAP")]
+    plat = [{"platform_product_id": "888", "name": "完全不相干的商品", "pay_gmv": 1.0}]
+    m = cs.match_products(plat, our, threshold=0.6)
+    assert m["pairs"] == []
+    assert len(m["missing"]) == 1
+    assert len(m["ours_cold"]) == 1

@@ -241,12 +241,20 @@ GET /ecom/captain/institution/statistics/overview?start_time=&end_time=&date_typ
 GET /ecom/captain/institution/statistics/promoter/list?...&sort_type=0
     &sort_field=order_product_count&page=&page_size=20&promoter_type=0
     &author_query=&colonel_query=&date_type=1
+GET /ecom/captain/institution/statistics/product/list?product_id=&date_type=1
+    ← **商品维度**出单明细，`id` = **平台商品ID**（可 `product_id=` 精确查）
 GET /ecom/captain/operate_analysis/coop_diagnosis/overview?period_type=&ewid=<机构id>
 ```
 
 - `captain`=团长 / `institution`=机构 ⇒ 路径名自证是团长视角;我们 `ewid=4e29de4e35955d8ebdfbfffde0354882`。
 - **金额单位是「分」**(同 `material_list`),落库换算成元。
-- 采集器:`daren_cockpit/tools/captain_stats.py`;表:`platform_inst_stats` / `platform_talent_stats`。
+- 采集器:`daren_cockpit/tools/captain_stats.py`;
+  表:`platform_inst_stats` / `platform_talent_stats` / `platform_product_stats`。
+- ⚠️ **平台商品名是全名、我们库里是简称**(`嘭嘭爱心系列人字拖` ⊄
+  `Coolchap嘭嘭爱心系列2026沙滩度假女士平底拖鞋人字拖CCF1001`) ⇒ 纯 `in` 判断恒 False,
+  必须用 **n-gram 覆盖率**(`name_coverage()`),否则会把「明明同一个商品」判成「没这批人」。
+- ⚠️ **`products.id` 是内部 id**(`prod_coolchap_1_4452c0`),**库里没有平台商品ID** ⇒
+  现在只能靠名字对拍(实测 46 个出单商品只对上 2 个,44 个在出单的商品没建档)。
 - ⚠️ `promoter/list` 少传 `promoter_type/author_query/colonel_query/date_type`
   **不报错、直接返回空数组**;⚠️ 平台会返回**完全重复的行** ⇒ 必须显式去重。
 - ⚠️⚠️ **`talents.douyin_id` 字段名骗人** —— 它实际存的是**平台达人 id**

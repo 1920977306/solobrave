@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import shutil
 import sqlite3
 import subprocess
@@ -41,6 +42,7 @@ DATA_PARK_URL = "https://buyin.jinritemai.com/dashboard/data-table/manage-overvi
 
 OVERVIEW_API = "/ecom/captain/institution/statistics/overview"
 PROMOTER_API = "/ecom/captain/institution/statistics/promoter/list"
+PRODUCT_API = "/ecom/captain/institution/statistics/product/list"
 
 PAGE_SIZE = 20
 MAX_PAGES = 60          # 1200 个达人，够用；别无限翻
@@ -172,6 +174,90 @@ def talent_rows(items: list, stat_date: str, period_start: str, period_end: str)
     return out
 
 
+# ───────────────────────────── 商品维度（出单商品明细） ─────────────────────────────
+
+def product_rows(items: list, stat_date: str, period_start: str, period_end: str) -> list[dict]:
+    """product/list 的 product_order_infos[] → 落库行。**`id` 是平台商品ID**（可精确对拍）。"""
+    out = []
+    seen: set = set()
+    for it in items or []:
+        pid = str(it.get("id") or "").strip()
+        if not pid:
+            continue
+        if pid in seen:
+            continue          # 平台重复行
+        seen.add(pid)
+        out.append({
+            "platform_product_id": pid,
+            "name": it.get("name") or "",
+            "avatar": it.get("avatar") or "",
+            "order_daren_count": to_int(it.get("order_daren_count")),
+            "order_second_colonel_count": to_int(it.get("order_second_colonel_count")),
+            "order_pay_num": to_int(it.get("order_pay_num")),
+            "pay_gmv": cents_to_yuan(it.get("pay_gmv")),
+            "settle_gmv": cents_to_yuan(it.get("settle_gmv")),
+            "stat_date": stat_date,
+            "period_start": period_start,
+            "period_end": period_end,
+        })
+    return out
+
+
+def _norm(s: str) -> str:
+    s = (s or "").strip().lower()
+    s = re.sub(r"[\s\u3000]+", "", s)
+    return re.sub(r"[^0-9a-z\u4e00-\u9fa5]", "", s)
+
+
+def _grams(s: str, n: int = 2) -> set:
+    s = _norm(s)
+    if not s:
+        return set()
+    if len(s) < n:
+        return {s}
+    return {s[i:i + n] for i in range(len(s) - n + 1)}
+
+
+def name_coverage(ours: str, theirs: str, n: int = 2) -> float:
+    """我方名（通常是简称/OCR 简称）在平台全名里的**覆盖率**。
+
+    为什么不用「包含」：平台名是全名（`Coolchap嘭嘭爱心系列2026沙滩度假女士平底拖鞋人字拖CCF1001`），
+    我方名是简称（`嘭嘭爱心系列人字拖`）—— 简称**不是**全名的连续子串，
+    纯 `in` 判断恒 False ⇒ 会把「明明是同一个商品」判成「没这批人」。
+    ⇒ 改用 n-gram 覆盖率（我方每个 2-gram 有多少出现在平台名里）。
+    """
+    a, b = _norm(ours), _norm(theirs)
+    if not a or not b:
+        return 0.0
+    if a in b:
+        return 1.0
+    ga, gb = _grams(a, n), _grams(b, n)
+    if not ga:
+        return 0.0
+    return len(ga & gb) / len(ga)
+
+
+def match_products(platform_rows_: list, our_rows: list, threshold: float = 0.6) -> dict:
+    """平台出单商品 ↔ 我们库商品 对拍（按名字覆盖率）。
+
+    返回:
+      pairs      [(coverage, platform_row, our_row)]
+      ours_hit   我们库中被对上的商品
+      missing    平台在出单、我们库里没有的（★ 该建档）
+      ours_cold  我们库里有、但平台无出单记录的
+    """
+    pairs = []
+    for pr in platform_rows_:
+        best = max(((name_coverage(o[1], pr["name"]), o) for o in our_rows), default=(0.0, None))
+        if best[1] is not None and best[0] >= threshold:
+            pairs.append((best[0], pr, best[1]))
+    ours_hit = {p[2][0] for p in pairs}
+    matched_platform = {p[1]["platform_product_id"] for p in pairs}
+    missing = [pr for pr in platform_rows_ if pr["platform_product_id"] not in matched_platform]
+    cold = [o for o in our_rows if o[0] not in ours_hit]
+    return {"pairs": pairs, "ours_hit": ours_hit, "missing": missing, "ours_cold": cold}
+
+
 # ───────────────────────────── 建表 / 落库 ─────────────────────────────
 
 def ensure_schema(conn: sqlite3.Connection) -> None:
@@ -214,8 +300,25 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
             captured_at INTEGER,
             UNIQUE(stat_date, douyin_id)
         );
+        CREATE TABLE IF NOT EXISTS platform_product_stats (
+            id TEXT PRIMARY KEY,
+            stat_date TEXT NOT NULL,
+            period_start TEXT DEFAULT '',
+            period_end TEXT DEFAULT '',
+            platform_product_id TEXT NOT NULL,
+            name TEXT DEFAULT '',
+            avatar TEXT DEFAULT '',
+            order_daren_count INTEGER DEFAULT 0,
+            order_second_colonel_count INTEGER DEFAULT 0,
+            order_pay_num INTEGER DEFAULT 0,
+            pay_gmv REAL DEFAULT 0,
+            settle_gmv REAL DEFAULT 0,
+            captured_at INTEGER,
+            UNIQUE(stat_date, platform_product_id)
+        );
         CREATE INDEX IF NOT EXISTS idx_pts_douyin ON platform_talent_stats(douyin_id);
         CREATE INDEX IF NOT EXISTS idx_pts_stat ON platform_talent_stats(stat_date);
+        CREATE INDEX IF NOT EXISTS idx_pps_pid ON platform_product_stats(platform_product_id);
         """
     )
 
@@ -268,6 +371,30 @@ def save_talent_stats(conn: sqlite3.Connection, rows: list[dict]) -> int:
         )
         n += 1
     return n
+
+
+def save_product_stats(conn: sqlite3.Connection, rows: list[dict]) -> int:
+    now = int(datetime.now().timestamp())
+    for r in rows:
+        conn.execute(
+            """INSERT INTO platform_product_stats
+               (id, stat_date, period_start, period_end, platform_product_id, name, avatar,
+                order_daren_count, order_second_colonel_count, order_pay_num, pay_gmv,
+                settle_gmv, captured_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+               ON CONFLICT(stat_date, platform_product_id) DO UPDATE SET
+                 period_start=excluded.period_start, period_end=excluded.period_end,
+                 name=excluded.name, avatar=excluded.avatar,
+                 order_daren_count=excluded.order_daren_count,
+                 order_second_colonel_count=excluded.order_second_colonel_count,
+                 order_pay_num=excluded.order_pay_num, pay_gmv=excluded.pay_gmv,
+                 settle_gmv=excluded.settle_gmv, captured_at=excluded.captured_at""",
+            (f"pps_{r['stat_date']}_{r['platform_product_id']}", r["stat_date"],
+             r["period_start"], r["period_end"], r["platform_product_id"], r["name"],
+             r["avatar"], r["order_daren_count"], r["order_second_colonel_count"],
+             r["order_pay_num"], r["pay_gmv"], r["settle_gmv"], now),
+        )
+    return len(rows)
 
 
 # ───────────────────────────── 采集 ─────────────────────────────
@@ -333,13 +460,33 @@ def collect(days: int, profile: Path, dry_run: bool) -> dict:
             if len(batch) < PAGE_SIZE:
                 break
             pg.wait_for_timeout(400)
+
+        # 商品维度出单明细（product_order_infos）
+        pitems = []
+        for page in range(1, MAX_PAGES + 1):
+            pq = (f"{PRODUCT_API}?{q}&sort_type=0&sort_field=order_daren_count"
+                  f"&page={page}&page_size={PAGE_SIZE}&product_id=&date_type=1")
+            r = pg.evaluate(FETCH_JS, [pq])[0]
+            if not r["json"] or r["json"].get("code") not in (0, None):
+                print(f"  商品第 {page} 页拉取失败：{str(r['raw'])[:120]}")
+                break
+            batch = ((r["json"].get("data") or {}).get("product_order_infos")) or []
+            if not batch:
+                break
+            pitems.extend(batch)
+            if len(batch) < PAGE_SIZE:
+                break
+            pg.wait_for_timeout(400)
         ctx.close()
 
     rows = talent_rows(items, stat_date, start_time, end_time)
+    prows = product_rows(pitems, stat_date, start_time, end_time)
     result = {
         "stat_date": stat_date, "period": [start_time, end_time],
         "inst": inst, "raw_count": len(items), "talent_count": len(rows),
         "talent_rows": rows,
+        "product_raw_count": len(pitems), "product_count": len(prows),
+        "product_rows": prows,
     }
     if dry_run:
         return result
@@ -349,10 +496,12 @@ def collect(days: int, profile: Path, dry_run: bool) -> dict:
         ensure_schema(conn)
         save_inst_stats(conn, inst, stat_date)
         saved = save_talent_stats(conn, rows)
+        saved_p = save_product_stats(conn, result["product_rows"])
         conn.commit()
     finally:
         conn.close()
     result["saved"] = saved
+    result["saved_product"] = saved_p
     return result
 
 
@@ -436,10 +585,43 @@ def main() -> int:
     print(f"  按 user_source_id（真抖音号）  命中 {m['by_douyin']}"
           f"  ← 恒 0：talents.douyin_id 实际存的是平台达人id")
     print(f"  按名字精确匹配                 命中 {m['by_name']}")
+
+    # ── 商品维度 + 与我们推的商品对拍 ──
+    prows = result["product_rows"]
+    print(f"\n=== 商品维度出单明细 ===")
+    print(f"平台原始 {result['product_raw_count']} 条 → 去重 {result['product_count']} 个商品")
+    for r in sorted(prows, key=lambda x: -x["pay_gmv"])[:5]:
+        print(f"  {r['platform_product_id']:<20} {r['name'][:34]:<36} 达人{r['order_daren_count']:>3} "
+              f"单{r['order_pay_num']:>6} GMV {r['pay_gmv']:>14,.2f}")
+
+    our_rows = []
+    if DB_PATH.exists():
+        conn = sqlite3.connect(str(DB_PATH), timeout=15)
+        try:
+            our_rows = conn.execute(
+                "SELECT id,name,brand FROM products WHERE status!='deleted'").fetchall()
+        finally:
+            conn.close()
+    if our_rows and prows:
+        mt = match_products(prows, our_rows)
+        print(f"\n=== 与我们推的商品对拍（我们 {len(our_rows)} 个 / 平台出单 {len(prows)} 个）===")
+        print(f"  对上 {len(mt['pairs'])} 个：")
+        for cov, pr, o in sorted(mt["pairs"], key=lambda x: -x[0]):
+            print(f"    {cov:.2f} [{o[1][:16]:<18}] ← 平台[{pr['name'][:36]}] "
+                  f"GMV {pr['pay_gmv']:>12,.2f}")
+        print(f"  ★ 平台在出单、我们库里没有（该建档）：{len(mt['missing'])} 个")
+        for pr in sorted(mt["missing"], key=lambda x: -x["pay_gmv"])[:10]:
+            print(f"    {pr['platform_product_id']:<20} {pr['name'][:40]:<42} "
+                  f"达人{pr['order_daren_count']:>3} 单{pr['order_pay_num']:>6} "
+                  f"GMV {pr['pay_gmv']:>12,.2f}")
+        print(f"  我们库里有、平台无出单记录：{len(mt['ours_cold'])} 个")
+
     if not args.dry_run:
-        print(f"已落库：platform_inst_stats 1 行 + platform_talent_stats {result.get('saved', 0)} 行")
+        print(f"\n已落库：platform_inst_stats 1 行 + platform_talent_stats "
+              f"{result.get('saved', 0)} 行 + platform_product_stats "
+              f"{result.get('saved_product', 0)} 行")
     else:
-        print("（dry-run，未落库）")
+        print("\n（dry-run，未落库）")
     return 0
 
 

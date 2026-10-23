@@ -482,17 +482,24 @@ Content-Type: application/json
 ```
 GET /ecom/captain/institution/statistics/overview?start_time=&end_time=&date_type=
 GET /ecom/captain/institution/statistics/promoter/list?...&promoter_type=0&date_type=1
+GET /ecom/captain/institution/statistics/product/list?product_id=&date_type=1
+    ← 商品维度出单明细，`id` = 平台商品ID
 GET /ecom/captain/operate_analysis/coop_diagnosis/overview?period_type=&ewid=<机构id>
 ```
 
 - 采集器：`daren_cockpit/tools/captain_stats.py`（团长端 profile **APFS 克隆**后跑，
   不与常驻 worker 抢同一 profile；`--dry-run` 只看不入库）
 - 表：`platform_inst_stats`（机构经营概览）/ `platform_talent_stats`（达人出单明细）
+  / `platform_product_stats`（商品出单明细，含平台商品ID）
 - **金额单位是「分」**（同 `material_list`），落库统一换算成元。
 - ⚠️ `promoter/list` 少传 `promoter_type/author_query/colonel_query/date_type`
   **不报错、直接返回空数组**；平台还会返回**完全重复的行** ⇒ 必须显式去重。
 - ⚠️ **`talents.douyin_id` 实际存的是平台达人 id**（`Wgg292`/`hlb725`），不是抖音号 ——
   拿平台 `user_source_id` 对拍**恒为 0 命中**，能对上的是 `platform_talent_id`。
+- ⚠️ **平台商品名是全名、我们库里是简称** ⇒ 对拍要用 **n-gram 覆盖率**
+  （`captain_stats.name_coverage()`），纯 `in` 判断恒 False。
+- ⚠️ **`products.id` 是内部 id**（`prod_coolchap_1_4452c0`），库里**没有平台商品ID** ⇒
+  目前只能靠名字对拍；把平台商品ID 存进 `products` 后就能用 `product_id=` 精确查。
 
 ## 视觉：与飞书 App 同源（2026-10-22）
 
