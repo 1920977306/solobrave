@@ -638,7 +638,7 @@ tail -n +$((BEFORE+1)) /tmp/openclaw/openclaw-$(date +%Y-%m-%d).log \
 | 项 | 生产真实值 |
 |---|---|
 | provider | **zhipu** |
-| model | `embedding-2` |
+| model | **`embedding-3`**(2048 维) |
 | baseUrl | `https://open.bigmodel.cn/api/paas/v4/embeddings` |
 | 配置位置 | **`.env`** 的 `SOLOBRAVE_EMBEDDING_PROVIDER/API_KEY/BASE_URL/MODEL` |
 
@@ -649,10 +649,24 @@ tail -n +$((BEFORE+1)) /tmp/openclaw/openclaw-$(date +%Y-%m-%d).log \
   siliconflow ⇒ 报 `402 Payment Required` ⇒ **误判成「生产的语义服务挂了」**。
   实测: 我据此报过一次「siliconflow 频繁报错」, 生产日志里 `HTTP 402 from` 实际 **0 次**。
   ⇒ **apply when**:任何「调 embedding 失败」的排查, 先确认进程有没有加载 `.env`。
+- ⚠️ **改完 `.env` 必须重启 server**(launchd 只设 PATH, 进程启动时 load 一次 .env)
+  ⇒ 不重启的话服务端**还在用旧模型**, 症状是「重算完了但检索仍报 429」。
 - **智谱的错误码习惯**: 余额/资源包不可用返回 **HTTP 429** 且 body 是
   `{"error":{"code":"1113","message":"余额不足或无可用资源包,请充值。"}}`
   ⇒ **别按状态码猜原因**(429 通常被当成限流), 必须读 body。
-- 存量健康度(2026-10-23): **345/345 有效条目 + 790/790 chunk** 全有 `embedding-2` 向量。
+- ⚠️⚠️ **`1113` 文案有误导性**: 老大资源包明明有余额、也没动过, 但 `embedding-2`
+  就是报「余额不足或无可用资源包」—— 实测该资源包**覆盖 `embedding-3`, 不覆盖
+  `embedding-2`**。⇒ **同一 key 同���时刻, `embedding-3`/`embedding-3-pro`/`glm-4-flash`
+  全通, 只有 `embedding-2`/`text_embedding` 报 1113** ⇒ **按「逐模型探测」定位, 别信文案**。
+- 存量健康度(2026-10-23): **790/790 chunk 全部 `embedding-3` / 2048 维**。
+
+**★ 换语义模型必须连存量一起重算**:
+- RAG 召回 SQL 硬条件 = `c.embedding_model = <query模型>`
+  ⇒ 存量是旧模型时, **静默不召回**(不报错, 只是搜不到 —— 最隐蔽的失效)。
+- 切换流程: ①备份 db ②改 `.env` 的 `SOLOBRAVE_EMBEDDING_MODEL` ③跑
+  `scripts/reembed_kb_chunks.py --apply`(直调 `get_embedding` **绕开 cache**) ④**重启 server** ⑤验召回。
+  实测 790 chunk / 279s / 0 失败。
+- `embedding_cache` 主键 = `(content_hash, model)` ⇒ 按模型隔离, 不会串味(但重算仍显式绕开 cache 更保险)。
 
 **★ 缺向量的坑(已修)**:
 - RAG 召回条件 = `e.status='ok' AND c.embedding IS NOT NULL AND c.embedding_model=<模型>`
