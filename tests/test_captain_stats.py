@@ -257,21 +257,56 @@ def test_name_coverage_empty():
 
 
 def test_match_products_splits_hit_missing_cold():
-    our = [("prod_1", "嘭嘭爱心系列人字拖", "COOLCHAP"),
-           ("prod_2", "厚底松糕拖鞋", "COOLCHAP")]
+    our = [{"id": "prod_1", "name": "嘭嘭爱心系列人字拖", "platform_product_id": ""},
+           {"id": "prod_2", "name": "厚底松糕拖鞋", "platform_product_id": ""}]
     plat = [dict(cs.product_rows(PRODUCT_FIXTURE, "d", "s", "e")[0]),
             {"platform_product_id": "999", "name": "厚底松糕拖鞋新款", "pay_gmv": 100.0}]
     m = cs.match_products(plat, our, threshold=0.6)
     assert len(m["pairs"]) == 2
-    assert {p[2][0] for p in m["pairs"]} == {"prod_1", "prod_2"}
+    assert {p[2]["id"] for p in m["pairs"]} == {"prod_1", "prod_2"}
     assert m["missing"] == []
     assert m["ours_cold"] == []
 
 
 def test_match_products_reports_missing_and_cold():
-    our = [("prod_1", "嘭嘭爱心系列人字拖", "COOLCHAP")]
+    our = [{"id": "prod_1", "name": "嘭嘭爱心系列人字拖", "platform_product_id": ""}]
     plat = [{"platform_product_id": "888", "name": "完全不相干的商品", "pay_gmv": 1.0}]
     m = cs.match_products(plat, our, threshold=0.6)
     assert m["pairs"] == []
     assert len(m["missing"]) == 1
     assert len(m["ours_cold"]) == 1
+
+
+# ───────────── 商品对拍：平台ID 精确命中优先 ─────────────
+
+def test_match_products_prefers_exact_platform_id():
+    """★ 已挂 platform_product_id 的商品 ⇒ 精确命中，**不再靠名字猜**。
+
+    背景：平台名是全名、我们库是 OCR 简称，n-gram 会把「同一个商品」判成「两个」，
+    也会把「两个不同商品」判成「同一个」。平台ID 是唯一可靠主键。
+    """
+    our = [{"id": "prod_x", "name": "完全不一样的名字", "platform_product_id": "P123"}]
+    plat = [{"platform_product_id": "P123", "name": "Coolchap骑士靴6201s", "pay_gmv": 10.0}]
+    m = cs.match_products(plat, our, threshold=0.6)
+    assert len(m["pairs"]) == 1
+    assert m["pairs"][0][0] == 1.0          # 精确命中覆盖率记 1.0
+    assert m["pairs"][0][2]["id"] == "prod_x"
+    assert m["missing"] == []
+
+
+def test_match_products_exact_id_beats_name_collision():
+    """同一个平台商品，名字可能撞上另一条记录 ⇒ 平台ID 优先，不能被名字覆盖。"""
+    our = [{"id": "prod_byid", "name": "别的名字", "platform_product_id": "P9"},
+           {"id": "prod_byname", "name": "Coolchap骑士靴6201s", "platform_product_id": ""}]
+    plat = [{"platform_product_id": "P9", "name": "Coolchap骑士靴6201s", "pay_gmv": 10.0}]
+    m = cs.match_products(plat, our, threshold=0.6)
+    assert len(m["pairs"]) == 1
+    assert m["pairs"][0][2]["id"] == "prod_byid"
+
+
+def test_match_products_ours_cold_excludes_matched():
+    our = [{"id": "p1", "name": "A", "platform_product_id": "X"},
+           {"id": "p2", "name": "B", "platform_product_id": ""}]
+    plat = [{"platform_product_id": "X", "name": "A", "pay_gmv": 1.0}]
+    m = cs.match_products(plat, our, threshold=0.6)
+    assert [o["id"] for o in m["ours_cold"]] == ["p2"]

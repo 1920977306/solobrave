@@ -501,12 +501,19 @@ GET /ecom/captain/operate_analysis/coop_diagnosis/overview?period_type=&ewid=<�
 - **金额单位是「分」**（同 `material_list`），落库统一换算成元。
 - ⚠️ `promoter/list` 少传 `promoter_type/author_query/colonel_query/date_type`
   **不报错、直接返回空数组**；平台还会返回**完全重复的行** ⇒ 必须显式去重。
-- ⚠️ **`talents.douyin_id` 实际存的是平台达人 id**（`Wgg292`/`hlb725`），不是抖音号 ——
-  拿平台 `user_source_id` 对拍**恒为 0 命中**，能对上的是 `platform_talent_id`。
+- ⚠️ **`talents.douyin_id` 混装三类值**（2026-10-23 实证，推翻了上一轮「它只是字段名骗人」的说法）：
+  ① 平台达人 id（`Wgg292`/`hlb725`/`372168571`/`69097875157`）
+  ② 真抖音号（`31693707031`/`372443191`）③ 脏值（`@limantou200w`/`原来是安娜`）
+  ⚠️ **靠格式无法判别** —— 平台达人 id 也可能是纯数字 ⇒ 只能对着平台真值 join。
+  ⇒ 已整改（`tools/fix_talent_ids.py`）：加 `platform_talent_id` + `douyin_uid` 两列，
+  **`douyin_id` 原样不动**（对外契约：创建查重 / `accountId` / 飞书统计卡筛选 / 租户绑定），
+  三路 join 回填 7 行 + 删 1 条确认空壳重复档案。
 - ⚠️ **平台商品名是全名、我们库里是简称** ⇒ 对拍要用 **n-gram 覆盖率**
   （`captain_stats.name_coverage()`），纯 `in` 判断恒 False。
-- ⚠️ **`products.id` 是内部 id**（`prod_coolchap_1_4452c0`），库里**没有平台商品ID** ⇒
-  目前只能靠名字对拍；把平台商品ID 存进 `products` 后就能用 `product_id=` 精确查。
+  ✅ 但**已升级为平台ID 精确匹配优先**（`products.platform_product_id` 已加）：
+  已挂平台ID 的商品精确命中，只有没挂的才退回 n-gram。
+- ✅ **`products` 已有平台商品ID**（`platform_product_id` 列，2026-10-23 加）⇒
+  46 个出单商品**全部挂上**，商品对拍不再靠名字猜。
 - **商品维度接口（团长端）只回答「我们推的商品卖了多少」**，不回答「这个商品谁能带、有什么视频」
   —— 后者必须走**达人端**。
 - **达人端商品接口**（⚠️ 裸 fetch 会被风控 `code=10001010A` / `code=11001`，

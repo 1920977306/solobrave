@@ -238,23 +238,49 @@ def name_coverage(ours: str, theirs: str, n: int = 2) -> float:
 
 
 def match_products(platform_rows_: list, our_rows: list, threshold: float = 0.6) -> dict:
-    """平台出单商品 ↔ 我们库商品 对拍（按名字覆盖率）。
+    """平台出单商品 ↔ 我们库商品 对拍。
+
+    **主键优先**：我们库已挂 `platform_product_id` 的 ⇒ **精确命中**（不再靠猜名字）。
+    只有没挂平台ID的行才退回 n-gram 覆盖率匹配（平台名是全名、我们库是 OCR 简称，
+    纯 `in` 判断恒 False）。
+
+    ★ `our_rows` 用 **dict**（`{"id","name","platform_product_id"}`）而不是元组 ——
+      元组靠下标取字段，改一次列顺序就会静默错位（位置约定漂移）。
 
     返回:
       pairs      [(coverage, platform_row, our_row)]
-      ours_hit   我们库中被对上的商品
+      ours_hit   我们库中被对上的商品 id 集合
       missing    平台在出单、我们库里没有的（★ 该建档）
       ours_cold  我们库里有、但平台无出单记录的
     """
+    by_pid = {}
+    for o in our_rows:
+        pid = (o.get("platform_product_id") or "").strip()
+        if pid:
+            by_pid[pid] = o
+
     pairs = []
+    used = set()
     for pr in platform_rows_:
-        best = max(((name_coverage(o[1], pr["name"]), o) for o in our_rows), default=(0.0, None))
+        pid = (pr.get("platform_product_id") or "").strip()
+        if pid and pid in by_pid:
+            pairs.append((1.0, pr, by_pid[pid]))
+            used.add(by_pid[pid]["id"])
+
+    for pr in platform_rows_:
+        if any(p[1] is pr for p in pairs):
+            continue
+        cand = [o for o in our_rows if o["id"] not in used]
+        best = max(((name_coverage(o["name"], pr["name"]), o) for o in cand),
+                   key=lambda t: t[0], default=(0.0, None))
         if best[1] is not None and best[0] >= threshold:
             pairs.append((best[0], pr, best[1]))
-    ours_hit = {p[2][0] for p in pairs}
+            used.add(best[1]["id"])
+
+    ours_hit = {p[2]["id"] for p in pairs}
     matched_platform = {p[1]["platform_product_id"] for p in pairs}
     missing = [pr for pr in platform_rows_ if pr["platform_product_id"] not in matched_platform]
-    cold = [o for o in our_rows if o[0] not in ours_hit]
+    cold = [o for o in our_rows if o["id"] not in ours_hit]
     return {"pairs": pairs, "ours_hit": ours_hit, "missing": missing, "ours_cold": cold}
 
 
@@ -506,36 +532,44 @@ def collect(days: int, profile: Path, dry_run: bool) -> dict:
 
 
 def match_local_talents(rows: list[dict]) -> dict:
-    """跟本地 talents 对拍，**双口径**都试。
+    """跟本地 talents 对拍，**四口径**都试。
 
-    ⚠️ 口径坑：`talents.douyin_id` 这个字段名有误导性 —— 它实际存的是
-    **平台达人 id**（`Wgg292` / `hlb725` / `69097875157`），不是抖音号。
-    所以拿平台的 `user_source_id`（真抖音号）去比，**恒为 0 命中**；
-    真正能对上的是 `platform_talent_id`。
+    ⚠️ 口径坑（2026-10-23 更正）：`talents.douyin_id` 这一列**混装了三类值** ——
+    ① 平台达人 id（`Wgg292`/`hlb725`/`372168571`/`69097875157`）
+    ② 真抖音号（`31693707031`/`372443191`）
+    ③ 脏值（`@limantou200w`/`原来是安娜`/`__speedtest__`）
+    **不能靠格式判别** —— 平台达人 id 也可能是纯数字。
+
+    ⇒ 所以对拍要按**四个键**分别试，命中哪个算哪个：
+      - `by_platform_id` : `talents.platform_talent_id` == 平台 `platform_talent_id`（**最准**）
+      - `by_douyin`      : `talents.douyin_uid` == 平台 `user_source_id`（真抖音号）
+      - `by_legacy_dy`   : `talents.douyin_id` == 平台 `platform_talent_id`（历史口径）
+      - `by_name`        : 昵称精确匹配
     """
-    out = {"total": 0, "by_douyin": 0, "by_platform_id": 0, "by_name": 0}
+    out = {"total": 0, "by_douyin": 0, "by_platform_id": 0,
+           "by_legacy_dy": 0, "by_name": 0}
     if not rows or not DB_PATH.exists():
         return out
     conn = sqlite3.connect(str(DB_PATH), timeout=15)
     try:
         dy = [r["douyin_id"] for r in rows if r.get("douyin_id")]
         pid = [r["platform_talent_id"] for r in rows if r.get("platform_talent_id")]
-        if dy:
-            q = ",".join("?" * len(dy))
-            out["by_douyin"] = conn.execute(
-                f"SELECT COUNT(*) FROM (SELECT DISTINCT douyin_id FROM talents "
-                f"WHERE douyin_id IN ({q}))", dy).fetchone()[0]
-        if pid:
-            q = ",".join("?" * len(pid))
-            out["by_platform_id"] = conn.execute(
-                f"SELECT COUNT(*) FROM (SELECT DISTINCT douyin_id FROM talents "
-                f"WHERE douyin_id IN ({q}))", pid).fetchone()[0]
+
+        def count(col, vals):
+            if not vals:
+                return 0
+            q = ",".join("?" * len(vals))
+            return conn.execute(
+                f"SELECT COUNT(*) FROM (SELECT DISTINCT {col} FROM talents "
+                f"WHERE {col} IN ({q}))", vals).fetchone()[0]
+
+        out["by_platform_id"] = count("platform_talent_id", pid)
+        out["by_legacy_dy"] = count("douyin_id", pid)
         names = [r["name"] for r in rows if r.get("name")]
-        if names:
-            q = ",".join("?" * len(names))
-            out["by_name"] = conn.execute(
-                f"SELECT COUNT(*) FROM (SELECT DISTINCT name FROM talents "
-                f"WHERE name IN ({q}))", names).fetchone()[0]
+        out["by_name"] = count("name", names)
+        # 真抖音号口径：用平台 user_source_id 对我们的 douyin_uid
+        real = [r["douyin_id"] for r in rows if r.get("douyin_id")]
+        out["by_douyin"] = count("douyin_uid", real)
         out["total"] = len(rows)
     finally:
         conn.close()
@@ -581,10 +615,10 @@ def main() -> int:
 
     m = match_local_talents(result["talent_rows"])
     print(f"\n与本地 talents 对拍（{m['total']} 个平台达人）：")
-    print(f"  按 platform_talent_id（平台达人id）命中 {m['by_platform_id']}")
-    print(f"  按 user_source_id（真抖音号）  命中 {m['by_douyin']}"
-          f"  ← 恒 0：talents.douyin_id 实际存的是平台达人id")
-    print(f"  按名字精确匹配                 命中 {m['by_name']}")
+    print(f"  按 platform_talent_id 命中 {m['by_platform_id']}   ← 最准（新列）")
+    print(f"  按历史 douyin_id      命中 {m['by_legacy_dy']}")
+    print(f"  按真抖音号 douyin_uid 命中 {m['by_douyin']}")
+    print(f"  按名字精确匹配         命中 {m['by_name']}")
 
     # ── 商品维度 + 与我们推的商品对拍 ──
     prows = result["product_rows"]
@@ -597,9 +631,11 @@ def main() -> int:
     our_rows = []
     if DB_PATH.exists():
         conn = sqlite3.connect(str(DB_PATH), timeout=15)
+        conn.row_factory = sqlite3.Row
         try:
-            our_rows = conn.execute(
-                "SELECT id,name,brand FROM products WHERE status!='deleted'").fetchall()
+            our_rows = [dict(r) for r in conn.execute(
+                "SELECT id,name,brand,platform_product_id FROM products "
+                "WHERE status!='deleted'")]
         finally:
             conn.close()
     if our_rows and prows:
@@ -607,7 +643,7 @@ def main() -> int:
         print(f"\n=== 与我们推的商品对拍（我们 {len(our_rows)} 个 / 平台出单 {len(prows)} 个）===")
         print(f"  对上 {len(mt['pairs'])} 个：")
         for cov, pr, o in sorted(mt["pairs"], key=lambda x: -x[0]):
-            print(f"    {cov:.2f} [{o[1][:16]:<18}] ← 平台[{pr['name'][:36]}] "
+            print(f"    {cov:.2f} [{o['name'][:16]:<18}] ← 平台[{pr['name'][:36]}] "
                   f"GMV {pr['pay_gmv']:>12,.2f}")
         print(f"  ★ 平台在出单、我们库里没有（该建档）：{len(mt['missing'])} 个")
         for pr in sorted(mt["missing"], key=lambda x: -x["pay_gmv"])[:10]:
