@@ -33344,7 +33344,8 @@ def _proxy_chain_forward(body_json, *, request_format, is_streaming, write_head,
     usage 统一 {'input_tokens','output_tokens'}，调用方据此一次性扣积分。"""
     timeout = timeout or PROXY_READ_TIMEOUT
     result = {'ok': False, 'provider': None, 'model': '', 'fallback_from': None,
-              'usage': {'input_tokens': 0, 'output_tokens': 0}, 'attempts': []}
+              'usage': {'input_tokens': 0, 'output_tokens': 0}, 'attempts': [],
+              'text': ''}
 
     if not isinstance(body_json, dict):
         status, ct, payload = padapters.normalize_error_payload(
@@ -33513,6 +33514,8 @@ def _proxy_chain_forward(body_json, *, request_format, is_streaming, write_head,
                 result['usage'] = parser.usage
                 if parser.parse_errors:
                     logger.warning(f'  [{log_prefix}] SSE 解析异常 {parser.parse_errors} 次（透传未受影响）')
+                # ★ 2026-10-23: 流式也要把文本带出去（知识库 L0 回填要用）
+                result['text'] = getattr(parser, 'text', '') or ''
             else:
                 try:
                     resp_body = resp.read()
@@ -33525,6 +33528,8 @@ def _proxy_chain_forward(body_json, *, request_format, is_streaming, write_head,
                         _mark_provider_failed(name)
                     break
                 result['usage'] = usage
+                # ★ 2026-10-23: 把 assistant 文本带出去（知识库 L0 回填要用）
+                result['text'] = text
                 if is_streaming:
                     # 兜底 provider 非流式结果 → 包装成 request_format 的 SSE
                     payload = adapter.wrap_sse(text, upstream_body.get('model', ''), request_format, usage)
@@ -34234,6 +34239,7 @@ def _handle_proxy_kimi(self):
 
     # 4.5 Memory Pipeline：召回记忆注入 system prompt + 保存 L0 对话记录
     #     （失败不阻断代理转发）
+    _l0_turn_id = 0
     if agent_id and user_message:
         _t = time.perf_counter()
         conn = _db_conn()
@@ -34247,10 +34253,14 @@ def _handle_proxy_kimi(self):
             if memory_ctx:
                 _prepend_system_context(body, memory_ctx)
             # 保存 L0 结构化对话记录
+            # ★ 记下 turn_id：下面拿到上游回复后要**回填** assistant_content
+            #   （见 _backfill_l0_assistant）。之前只写 user_content ⇒
+            #   知识库 L0 只有「问」没有「答」，L1 事实提取拿不到回复。
+            _l0_turn_id = int(time.time())
             memory_pipeline.save_conversation(
                 conn, agent_id,
                 session_id=agent_id,
-                turn_id=int(time.time()),
+                turn_id=_l0_turn_id,
                 user_content=user_message)
         except Exception as e:
             print(f'  [MemoryPipeline] recall/save failed: {e}', flush=True)
@@ -34492,7 +34502,7 @@ def _handle_proxy_kimi(self):
             return
         path_suffix_chain = path_chain[len('/api/proxy/kimi'):] or '/v1/messages'
         _handle_proxy_kimi_chain(self, body, agent_id, agent_api_key,
-                                 path_suffix_chain, _t_start, _timing)
+                                 path_suffix_chain, _t_start, _timing, _l0_turn_id)
         return
 
     # 5. 构造转发请求到真实Kimi API
@@ -34821,6 +34831,8 @@ def _handle_proxy_kimi(self):
         buffer = b''
         _chunk_count = 0
         _first_chunk_logged = False
+        # ★ 流式也要攒 assistant 文本：结束后回填 L0（见 _backfill_l0_assistant）
+        _sse_text_parts = []
 
         _t = time.perf_counter()
         for chunk in iter(lambda: resp.read(4096), b''):
@@ -34859,12 +34871,31 @@ def _handle_proxy_kimi(self):
                                 pass
                             else:
                                 print(f'  [KimiProxy] SSE未识别事件type={evt_type!r} keys={list(data_json.keys())}', flush=True)
+                            # ★ 攒文本（兼容 Anthropic content_block_delta 与 OpenAI choices 两种形态）
+                            _d = data_json.get('delta') or {}
+                            if isinstance(_d, dict):
+                                _t_txt = _d.get('text') or _d.get('content') or ''
+                                if isinstance(_t_txt, str) and _t_txt:
+                                    _sse_text_parts.append(_t_txt)
+                            for _ch in (data_json.get('choices') or []):
+                                if isinstance(_ch, dict):
+                                    _cd = _ch.get('delta') or {}
+                                    _ct = _cd.get('content') if isinstance(_cd, dict) else None
+                                    if isinstance(_ct, str) and _ct:
+                                        _sse_text_parts.append(_ct)
                 except Exception as sse_err:
                     print(f'  [KimiProxy] SSE解析异常: {sse_err}', flush=True)
 
         # 9. 扣减积分（响应完成后扣减，不阻塞响应）
         _timing('stream_transfer', _t)
         print(f'  [KimiProxy] 流式结束: agent_id={agent_id} input_tokens={input_tokens} output_tokens={output_tokens} chunks={_chunk_count}', flush=True)
+        # ★ 回填 L0 的 assistant_content（流式路径）
+        if agent_id and _l0_turn_id and _sse_text_parts:
+            try:
+                if _backfill_l0_assistant(agent_id, agent_id, _l0_turn_id, ''.join(_sse_text_parts)):
+                    logger.info(f'[MemoryPipeline] assistant 回填成功(流式) agent={agent_id} turn={_l0_turn_id}')
+            except Exception as bf_err:
+                logger.warning(f'[MemoryPipeline] assistant 回填异常(流式,不阻断): {bf_err}')
         if agent_id and (input_tokens or output_tokens):
             conn = _db_conn()
             try:
@@ -34953,6 +34984,18 @@ def _handle_proxy_kimi(self):
         self.send_header('Content-Length', str(len(output_body)))
         self.end_headers()
         self.wfile.write(output_body)
+
+        # ★ 回填 L0 的 assistant_content（知识库 L0 要有「问」也有「答」）
+        if agent_id and _l0_turn_id:
+            try:
+                _txt = _extract_assistant_text_any(resp_json)
+                if _backfill_l0_assistant(agent_id, agent_id, _l0_turn_id, _txt):
+                    logger.info(f'[MemoryPipeline] assistant 回填成功 agent={agent_id} turn={_l0_turn_id}')
+                else:
+                    logger.info(f'[MemoryPipeline] assistant 回填未命中(文本为空或行已存在) '
+                                f'agent={agent_id} turn={_l0_turn_id} text_len={len(_txt)}')
+            except Exception as bf_err:
+                logger.warning(f'[MemoryPipeline] assistant 回填异常(不阻断): {bf_err}')
 
         # 解析usage (即使降级也尝试, 默认 0)
         try:
@@ -35187,10 +35230,16 @@ def _call_kimiproxy_chat(agent_id, messages, model=None, max_tokens=None):
         return False, '', '模型响应解析失败'
 
 
-def _handle_proxy_kimi_chain(self, body, agent_id, agent_api_key, path_suffix, _t_start, _timing):
+def _handle_proxy_kimi_chain(self, body, agent_id, agent_api_key, path_suffix, _t_start, _timing,
+                             _l0_turn_id=0):
     """_handle_proxy_kimi 的 chain 引擎转发段（PROXY_ENGINE=chain）。
     业务前置（积分检查/记忆召回/达人预搜索/tool 修补/裁剪）在 legacy 前半段
-    已共用执行；这里只负责转发、降级、流式、扣费、记忆 pipeline 收尾。"""
+    已共用执行；这里只负责转发、降级、流式、扣费、记忆 pipeline 收尾。
+
+    ★ `_l0_turn_id` 是前半段落 L0 时记下的 turn_id —— 转发拿到响应后要**回填**
+      assistant_content（知识库 L0 要有「问」也有「答」）。
+      ⚠️ **真正跑的是 chain 路径**（PROXY_ENGINE=chain，2026-10-23 实测确认），
+         所以回填必须挂在这里；只挂 legacy 路径 = 改在旁支上，永远不生效。"""
     is_streaming = bool(body.get('stream', False))
 
     def _write_head(status, content_type, extra):
@@ -35229,6 +35278,19 @@ def _handle_proxy_kimi_chain(self, body, agent_id, agent_api_key, path_suffix, _
     print(f'  [KimiProxy] chain结束: agent_id={agent_id} ok={result["ok"]} '
           f'provider={result.get("provider")} fallback_from={result.get("fallback_from")} '
           f'input_tokens={in_tok} output_tokens={out_tok}', flush=True)
+
+    # ★ 回填 L0 的 assistant_content（chain 路径 = 真正在跑的那条）
+    if agent_id and _l0_turn_id and result.get('ok'):
+        try:
+            _txt = result.get('text') or ''
+            if _backfill_l0_assistant(agent_id, agent_id, _l0_turn_id, _txt):
+                logger.info(f'[MemoryPipeline] assistant 回填成功(chain) agent={agent_id} '
+                            f'turn={_l0_turn_id} text_len={len(_txt)}')
+            else:
+                logger.info(f'[MemoryPipeline] assistant 回填未命中(chain) agent={agent_id} '
+                            f'turn={_l0_turn_id} text_len={len(_txt)}')
+        except Exception as bf_err:
+            logger.warning(f'[MemoryPipeline] assistant 回填异常(chain,不阻断): {bf_err}')
     if result['ok'] and agent_id and (in_tok or out_tok):
         conn = _db_conn()
         try:
@@ -35258,6 +35320,99 @@ def _handle_proxy_kimi_chain(self, body, agent_id, agent_api_key, path_suffix, _
 # ★ fix/kimi-response-format: Kimi 响应格式防御性加固
 # 加固 1 + 3 配套 helper: 兼容字段名变化 + 纯文本 fallback
 # 9cbcc04 (gateway 错误兜底) 只覆盖前端 fetch 层, server 端 Kimi 代理无现成 handler 可 reuse
+def _extract_assistant_text_any(data):
+    """从上游响应里抠出 assistant 文本 —— **兼容 OpenAI / Anthropic 两种形态**。
+
+    ★ 为什么要另写一个（2026-10-23 实测踩坑）：
+      `_extract_kimi_message_content` **只认 OpenAI 形态**
+      （`choices[0].message.content`），遇到 Anthropic 形态
+      （`{"type":"message","content":[{"type":"text","text":"好"}]}`）
+      直接返回 `('', '')`。
+      而代理链**降级到 MiniMax 后返回的就是 Anthropic 形态** ⇒
+      回填拿到的文本恒为空 ⇒ 知识库 L0 永远只有「问」没有「答」。
+
+    ⇒ 所以这里独立实现，**不改** `_extract_kimi_message_content`
+      （它在降级健康检查里有别的用途，动它会改降级行为）。
+    """
+    if not isinstance(data, dict):
+        return ''
+    # ① Anthropic 形态: content 是 [{'type':'text','text':...}] 数组
+    cont = data.get('content')
+    if isinstance(cont, list):
+        parts = []
+        for blk in cont:
+            if isinstance(blk, dict) and blk.get('type') in ('text', 'output_text'):
+                t = blk.get('text')
+                if isinstance(t, str) and t:
+                    parts.append(t)
+        if parts:
+            return ''.join(parts)
+    # ② Anthropic 形态: content 直接是字符串
+    if isinstance(cont, str) and cont.strip():
+        return cont
+    # ③ OpenAI 形态: choices[0].message.content / .text
+    choices = data.get('choices')
+    if isinstance(choices, list) and choices and isinstance(choices[0], dict):
+        msg = choices[0].get('message')
+        if isinstance(msg, dict):
+            for k in ('content', 'text'):
+                v = msg.get(k)
+                if isinstance(v, str) and v.strip():
+                    return v
+                if isinstance(v, list):
+                    parts = []
+                    for blk in v:
+                        if isinstance(blk, dict):
+                            t = blk.get('text')
+                            if isinstance(t, str) and t:
+                                parts.append(t)
+                    if parts:
+                        return ''.join(parts)
+        # ④ OpenAI 形态: choices[0].text
+        t = choices[0].get('text')
+        if isinstance(t, str) and t.strip():
+            return t
+    # ⑤ 兜底: 顶层 text
+    t = data.get('text')
+    if isinstance(t, str) and t.strip():
+        return t
+    return ''
+
+
+def _backfill_l0_assistant(agent_id, session_id, turn_id, text):
+    """把上游回复**回填**到刚落库的 L0 记录。
+
+    ★ 为什么必须有这一步（2026-10-23 实测）：
+      代理链在**转发请求之前**就把 L0 落库了（`save_conversation`），
+      那时还没拿到 LLM 回复 ⇒ 只能写 `user_content`，
+      `assistant_content` 用了默认值 `''`。
+      ⇒ 实测 Ray 的 316 条飞书对话 `assistant_content` **100% 为空**：
+      **知识库 L0 只有「问」没有「答」**，
+      而 L1 事实原子提取（`extract_l1_atoms`）依赖问答对
+      ⇒ 提炼不出结论/事实，记忆召回也喂不完整上下文。
+
+    ⇒ 拿到响应后按 (agent_id, session_id, turn_id) 定位那一行回填。
+      失败不阻断主流程（记忆沉淀本来就是 best-effort）。
+    """
+    if not (agent_id and turn_id and text and str(text).strip()):
+        return False
+    try:
+        conn = _db_conn()
+        try:
+            cur = conn.execute(
+                "UPDATE memory_conversations SET assistant_content=? "
+                "WHERE agent_id=? AND session_id=? AND turn_id=? "
+                "AND (assistant_content IS NULL OR assistant_content='')",
+                (str(text), agent_id, session_id, turn_id))
+            conn.commit()
+            return cur.rowcount > 0
+        finally:
+            conn.close()
+    except Exception as e:
+        logger.warning(f'[MemoryPipeline] assistant 回填失败(不阻断): {e}')
+        return False
+
+
 def _extract_kimi_message_content(data):
     """★ fix/kimi-response-format: 字段名兼容 (新 content / 旧 text / reasoning_content 思维链)
 

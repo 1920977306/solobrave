@@ -628,3 +628,47 @@ tail -n +$((BEFORE+1)) /tmp/openclaw/openclaw-$(date +%Y-%m-%d).log \
 
 新增测试账号:`allowFrom:["*"]`(私聊放开)但 `groupPolicy:"allowlist"` +
 `groupAllowFrom:[]` ⇒ **不会被拉进任何群**。
+
+## 14. 知识库分层与 L0 回填(2026-10-23 新增)
+
+**两条独立的整理链**,别混:
+
+### 链 A:记忆分层(`memory_pipeline.py`,agent 级,**自动**)
+
+| 层 | 表 | 2026-10-23 实测行数 | 触发 |
+|---|---|---|---|
+| L0 结构化对话 | `memory_conversations` | **2780** | 每次对话结束 |
+| L1 事实原子 | `memory_atoms` | 254 | **每 5 轮** + 价值闸 |
+| L2 场景聚合 | `memory_scenes` | 19 | L1 后延迟 10s,间隔 ≥15min |
+| L3 长期画像 | `memory_personas` | 1 | 每 50 条新原子 |
+
+- **价值闸**(`value_classify_batch`):规则预过滤(<1ms,无 LLM) + LLM 批分类
+  ⇒ 闲聊/废话**不进** L1(整批无价值时连提取 LLM 都不调)。
+- 召回时 `recall_with_budget` 按 token 预算把 L3/L2/L1 注入 system prompt。
+
+### 链 B:主题知识沉淀(`brain_knowledge_service.py`,按主题触发)
+
+`induct_topic_to_knowledge(topic_id)` → LLM 把同一主题的记忆归纳成 1-3 条结构化知识
+→ `knowledge_base_new`;另有 `detect_conflicts` 做知识冲突检测。
+⚠️ **实测 `knowledge_base` / `knowledge_base_new` 都是 0 行** —— 这条链目前没跑起来,
+不是「数据都在」。
+
+### ★ L0 必须有「答」—— 2026-10-23 修的真问题
+
+- **症状**:Ray 的 **316 条飞书对话 `assistant_content` 100% 为空**
+  ⇒ 知识库 L0 只有「问」没有「答」,L1 事实提取拿不到回复,提炼不出结论。
+- **根因**:代理链在**转发请求之前**就落了 L0(`save_conversation`),
+  那时还没拿到 LLM 回复 ⇒ `assistant_content` 用了默认值 `''`。
+- **修法**:拿到上游响应后按 `(agent_id, session_id, turn_id)` 回填
+  (`_backfill_l0_assistant`)。
+- ⚠️⚠️ **两个坑,都是「声明端 ≠ 使用端」**:
+  1. **真正跑的是 chain 路径**(`PROXY_ENGINE=chain` → `_handle_proxy_kimi_chain`),
+     legacy 路径只是备选 ⇒ 回填**只挂 legacy = 改在旁支上,永远不生效**。
+     **挂之前先看 `server.log` 确认走的是哪条**(日志有 `chain结束:` / `provider=xxx`)。
+  2. **上游响应格式会变**:Kimi 是 OpenAI 形态(`choices[0].message.content`),
+     但降级到 MiniMax 后是 **Anthropic 形态**(`content:[{type:text,text}]`)
+     ⇒ `_extract_kimi_message_content` 认不出来(返回空)⇒ 必须用
+     `_extract_assistant_text_any` 兼容两种形态(**别改前者**,它在降级健康检查里另有用途)。
+  3. 流式路径的 SSE parser 原来**只抽 usage 不抽文本** ⇒ 已加 `.text` 累积
+     (`AnthropicSSEParser` / `OpenAISSEParser`)。
+- **历史 316 条补不回来** —— 回复从未落库,源头就没了(除非从 openclaw 会话日志反挖)。

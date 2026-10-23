@@ -409,6 +409,10 @@ class AnthropicSSEParser:
         self.output_tokens = 0
         self.events_seen = 0
         self.parse_errors = 0
+        # ★ 2026-10-23: 顺带攒 assistant 文本 ——
+        #   知识库 L0 回填需要「答」，而流式路径此前只抽 usage 不抽文本
+        #   ⇒ 代理链路回填拿不到内容（见 solobrave-server._backfill_l0_assistant）
+        self._text_parts = []
 
     def feed(self, chunk):
         self._buffer += chunk
@@ -435,12 +439,23 @@ class AnthropicSSEParser:
             elif evt_type == 'message_delta':
                 usage = data_json.get('usage', {})
                 self.output_tokens = usage.get('output_tokens', self.output_tokens)
+            elif evt_type == 'content_block_delta':
+                delta = data_json.get('delta') or {}
+                if isinstance(delta, dict):
+                    t = delta.get('text') or delta.get('content') or ''
+                    if isinstance(t, str) and t:
+                        self._text_parts.append(t)
         except Exception:
             self.parse_errors += 1
 
     @property
     def usage(self):
         return {'input_tokens': self.input_tokens, 'output_tokens': self.output_tokens}
+
+    @property
+    def text(self):
+        """流式累积的 assistant 文本（给知识库 L0 回填用）。"""
+        return ''.join(self._text_parts)
 
 
 class OpenAISSEParser:
@@ -452,6 +467,8 @@ class OpenAISSEParser:
         self.output_tokens = 0
         self.events_seen = 0
         self.parse_errors = 0
+        # ★ 2026-10-23: 顺带攒 assistant 文本（知识库 L0 回填用）
+        self._text_parts = []
 
     def feed(self, chunk):
         self._buffer += chunk
@@ -474,12 +491,25 @@ class OpenAISSEParser:
                 if usage:
                     self.input_tokens = usage.get('prompt_tokens', self.input_tokens)
                     self.output_tokens = usage.get('completion_tokens', self.output_tokens)
+                # ★ 攒文本：OpenAI 形态 choices[].delta.content
+                for ch in (data_json.get('choices') or []):
+                    if isinstance(ch, dict):
+                        delta = ch.get('delta') or {}
+                        if isinstance(delta, dict):
+                            t = delta.get('content')
+                            if isinstance(t, str) and t:
+                                self._text_parts.append(t)
         except Exception:
             self.parse_errors += 1
 
     @property
     def usage(self):
         return {'input_tokens': self.input_tokens, 'output_tokens': self.output_tokens}
+
+    @property
+    def text(self):
+        """流式累积的 assistant 文本（给知识库 L0 回填用）。"""
+        return ''.join(self._text_parts)
 
 
 # ═══════════════════════════════════════════════════
