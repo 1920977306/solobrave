@@ -76,7 +76,11 @@ unset PAT_VALUE
 if [ -f "$PAT_FILE" ]; then
     rm -f "$PAT_FILE"
     echo ""
-    echo "✓ 已删除 $PAT_FILE（PAT 用完即焚）"
+    # ⚠️ 必须用 ${PAT_FILE} 花括号收尾 —— 直接写 `$PAT_FILE（` 的话，
+    #    非 UTF-8 locale 下 bash 会把后面的多字节字符当成变量名的一部分
+    #    ⇒ `set -u` 报 "PAT_FILE?: unbound variable"（2026-10-24 踩过，
+    #    后果是脚本在「推送成功」这一行之前就退出，看不到结论）
+    echo "✓ 已删除 ${PAT_FILE}（PAT 用完即焚）"
 fi
 
 # ── 4. 结果 ────────────────────────────────────────────────────────
