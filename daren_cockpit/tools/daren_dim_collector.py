@@ -277,6 +277,8 @@ def build_dims(daren: dict, board_hit: dict | None) -> dict:
         "board_reason": d.get("recommend_reason") or "",
         "sale_axis_json": json.dumps(sale_axis, ensure_ascii=False) if sale_axis else None,
         "category_ids": cat_ids or None,
+        # 佣金率：不是新列，是**回填已有 commission_rates 列**用的（见 main()）
+        "_commission_rate": d.get("commission_rate") or "",
     }
 
 
@@ -405,6 +407,7 @@ def main() -> int:
     now = int(time.time() * 1000)
     cols = [c[0] for c in NEW_COLUMNS]
     upd = 0
+    comm_fixed = 0
     for pid, d in dims_by_pid.items():
         d = dict(d)
         d["daren_synced_at"] = now
@@ -413,8 +416,32 @@ def main() -> int:
         conn.execute(f"UPDATE products SET {sets} WHERE platform_product_id=?",
                      vals + [pid])
         upd += 1
+        # ── 佣金率回填：DB 里为空、缓存有真值 ⇒ 补上（**已有值不覆盖**）──
+        #   排品的收益维度就靠它，缺了等于「这个品白接」。
+        comm = (d.get("_commission_rate") or "").strip()
+        if comm:
+            try:
+                rate = float(str(comm).replace("%", ""))
+            except (TypeError, ValueError):
+                rate = 0.0
+            if rate > 0:
+                row = conn.execute(
+                    "SELECT id, commission_rates FROM products WHERE platform_product_id=?",
+                    (pid,)).fetchone()
+                if row:
+                    try:
+                        cur = json.loads(row[1] or "{}")
+                    except (TypeError, ValueError, json.JSONDecodeError):
+                        cur = {}
+                    if not isinstance(cur, dict):
+                        cur = {}
+                    if not cur.get("default"):
+                        cur["default"] = rate
+                        conn.execute("UPDATE products SET commission_rates=? WHERE id=?",
+                                     (json.dumps(cur, ensure_ascii=False), row[0]))
+                        comm_fixed += 1
     conn.commit()
-    print(f"[写入] 更新 {upd} 行")
+    print(f"[写入] 更新 {upd} 行" + (f"，回填佣金率 {comm_fixed} 行" if comm_fixed else ""))
 
     # 复核：写进去的覆盖率
     check = conn.execute(

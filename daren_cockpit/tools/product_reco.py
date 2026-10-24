@@ -51,6 +51,20 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Iterable, Optional
 
+# ★ 商品事实解析（佣金率/到手价）的**单一真源** ——
+#   和 `product_plan` 共用一份口径，避免两个评分器对同一商品读出不同佣金
+#   （分档佣金结构曾导致 5/58 个商品的收益维度被静默丢弃）。
+#   ⚠️ 用绝对导入 + sys.path 兜底：本模块既被当包内模块导入
+#   （服务端 `from daren_cockpit.tools import product_reco`），
+#   也被测试按**文件路径**直接加载（spec_from_file_location）—— 相对导入会炸。
+import os as _os
+import sys as _sys
+
+_ROOT = _os.path.dirname(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
+if _ROOT not in _sys.path:
+    _sys.path.insert(0, _ROOT)
+from daren_cockpit.tools import product_facts as facts  # noqa: E402
+
 __all__ = [
     "Profile", "Strategy", "Dim", "Recommendation", "DimSpec",
     "build_profile", "build_strategies", "score_products", "recommend",
@@ -127,19 +141,11 @@ class Profile:
 
 
 def parse_price_range(text: Any) -> tuple[float, float]:
-    """'300-600' / '¥300~600' / '0-100元' → (300.0, 600.0)；解析不出 → (0, 0)。"""
-    if not text:
-        return 0.0, 0.0
-    s = str(text).replace("，", ",").replace("~", "-").replace("—", "-")
-    s = re.sub(r"[¥￥元\s]", "", s)
-    nums = re.findall(r"\d+(?:\.\d+)?", s)
-    if len(nums) >= 2:
-        lo, hi = float(nums[0]), float(nums[1])
-        return (lo, hi) if hi >= lo else (hi, lo)
-    if len(nums) == 1:
-        v = float(nums[0])
-        return v, v
-    return 0.0, 0.0
+    """'300-600' / '¥300~600' / '0-100元' → (300.0, 600.0)；解析不出 → (0, 0)。
+
+    ★ 实现见 `product_facts.parse_price_range`（和排品器共用同一份口径）。
+    """
+    return facts.parse_price_range(text)
 
 
 def _as_json(value: Any, default: Any) -> Any:
@@ -457,18 +463,13 @@ def _missing(value: Any) -> bool:
 def _commission_rate(product: dict) -> float:
     """佣金率（%）。
 
-    来源两种：`commission_rate` 列（采集器落的），或存量 `commission_rates` JSON
-    （`{"default": 5}`）。都取不到 → 缺失。
+    ★ 解析规则见 `product_facts.commission_rate_of`（单一真源，和排品器共用）：
+      · 独立列 `commission_rate`
+      · `commission_rates` JSON 的标量键（default/rate/commission_rate）
+      · **分档结构**（{"投放期": 10, "常规活动期": 5, "其他": 5}）→ 取最高档
+    都取不到 → 0.0（**缺失**，调用方据此退出加权，不拿 0 当真值）。
     """
-    v = product.get("commission_rate")
-    if not _missing(v):
-        return float(v)
-    rates = _as_json(product.get("commission_rates"), {})
-    if isinstance(rates, dict):
-        for key in ("default", "rate", "commission_rate"):
-            if key in rates and not _missing(rates[key]):
-                return float(rates[key])
-    return 0.0
+    return facts.commission_rate_of(product)
 
 
 def _tags_of(product: dict) -> list[str]:
@@ -484,15 +485,8 @@ def _tags_of(product: dict) -> list[str]:
 
 
 def _price_of(product: dict) -> float:
-    v = product.get("price")
-    if not _missing(v):
-        return float(v)
-    rng = product.get("price_range")
-    if isinstance(rng, str) and rng.strip():
-        lo, hi = parse_price_range(rng)
-        if lo or hi:
-            return (lo + hi) / 2.0
-    return 0.0
+    """到手价（★ 口径见 `product_facts.price_of`，和排品器共用一份）。"""
+    return facts.price_of(product)
 
 
 def _num_or_zero(value: Any) -> float:
