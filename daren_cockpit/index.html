@@ -53,6 +53,15 @@
   .st-已合作{background:var(--green-bg);color:var(--green-dk)}
   .st-不合适{background:#f2f2f2;color:#999}
   .empty{border:1px dashed #ddd;border-radius:12px;padding:18px;text-align:center}
+  /* AI 选品建议（2026-10-24）：推理链三段式 —— 画像 / 策略 / 推荐 */
+  .reco-profile{background:var(--green-bg);color:var(--green-dk);border-radius:10px;
+    padding:9px 12px;font-size:13px;line-height:1.6;margin-bottom:10px}
+  .reco-strats{display:grid;grid-template-columns:1fr;gap:8px;margin-bottom:10px}
+  @media(min-width:640px){.reco-strats{grid-template-columns:1fr 1fr 1fr}}
+  .reco-strat{background:#fafafa;border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+  .reco-items{display:grid;grid-template-columns:1fr;gap:8px}
+  @media(min-width:640px){.reco-items{grid-template-columns:1fr 1fr}}
+  .reco-item{border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:var(--card)}
   .spinner{width:26px;height:26px;border:3px solid #e6e6e6;border-top-color:#07c160;border-radius:50%;margin:6px auto;animation:kc-spin .8s linear infinite}
   @keyframes kc-spin{to{transform:rotate(360deg)}}
   /* 图表行布局不依赖 Tailwind CDN（避免与 echarts 初始化竞态），写死自带样式 */
@@ -486,6 +495,58 @@ function switchProductBatch(delta){
   if(_lastData) drawProducts(_lastData);
 }
 
+/* ── AI 选品建议：粉丝画像 → 类目策略 → 商品推荐（推荐指数★） ──
+   ★ 达人端那个 ★ 是 AI 助手自己算的；这里是我方评分器算的（口径写在 notes 里）。 */
+function starsHtml(n){
+  const s = Math.max(1, Math.min(5, n||0));
+  return `<span style="color:var(--amber);letter-spacing:1px;white-space:nowrap">${'★'.repeat(s)}<span style="color:#dcdcdc">${'☆'.repeat(5-s)}</span></span>`;
+}
+function recoSection(d){
+  const r = (d && d.reco) || {};
+  const p = r.profile || {};
+  const recs = r.recommendations || [];
+  if(!p.name && !recs.length) return '';
+  const bits = [];
+  const gd = p.gender_dist || {};
+  const topG = Object.entries(gd).sort((a,b)=>b[1]-a[1])[0];
+  if(topG) bits.push('粉丝' + esc(topG[0]) + ' ' + Math.round(topG[1]) + '%');
+  const ad = p.age_dist || {};
+  const topA = Object.entries(ad).sort((a,b)=>b[1]-a[1])[0];
+  if(topA) bits.push(esc(topA[0]) + '岁为主');
+  if(p.price_center) bits.push('客单价约 ¥' + esc(p.price_center));
+  if((p.categories||[]).length) bits.push('类目 ' + esc(p.categories.slice(0,2).join('、')));
+  const strat = (r.strategies||[]).map(s => `
+    <div class="reco-strat">
+      <div class="flex items-center justify-between gap-2 flex-wrap">
+        <span class="font-semibold text-sm">${esc(s.name)}</span>
+        <span class="sub">价带 ¥${esc(s.price_lo)}~¥${esc(s.price_hi)}</span>
+      </div>
+      <div class="sub mt-1">${esc(s.rationale||'')}</div>
+    </div>`).join('');
+  const items = recs.map(x => `
+    <div class="reco-item">
+      <div class="flex items-start justify-between gap-2">
+        <span class="pn text-sm">${esc(x.name)}</span>
+        <span class="shrink-0">${starsHtml(x.stars)}</span>
+      </div>
+      <div class="sub mt-1">¥${esc(x.price)} · ${esc(x.score)}分 · ${esc(x.strategy)}</div>
+      ${(x.reasons||[]).length ? `<div class="sub mt-1">${esc(x.reasons.slice(0,2).join(' · '))}</div>` : ''}
+      ${(x.missing_dims||[]).length ? `<div class="sub mt-1">缺：${esc(x.missing_dims.join('、'))}</div>` : ''}
+    </div>`).join('');
+  const notes = (r.notes||[]).map(n => `<div class="sub mt-1">· ${esc(n)}</div>`).join('');
+  return `
+  <div class="card p-5">
+    <div class="flex items-baseline justify-between mb-1 flex-wrap gap-1">
+      <div class="sec-title">AI 选品建议</div>
+      <div class="sub">画像 → 策略 → 商品 · 推荐指数我方自算</div>
+    </div>
+    <div class="reco-profile">${bits.length ? bits.join(' · ') : '画像数据不足，暂不生成策略'}</div>
+    ${strat ? `<div class="reco-strats">${strat}</div>` : ''}
+    ${items ? `<div class="reco-items">${items}</div>` : '<div class="empty sub">没有匹配到可推商品</div>'}
+    ${notes}
+  </div>`;
+}
+
 function render(d){
   document.title = '达人经营驾驶舱';
   const delta = d.fans_delta === null || d.fans_delta === undefined ? '<span class="sub">攒数据中 · 采满 2 次算环比</span>'
@@ -592,6 +653,9 @@ function render(d){
     </div>
     <div id="prodZone"></div>
   </div>
+
+  <!-- AI 选品建议（推理链） -->
+  ${recoSection(d)}
 
   <!-- 合作 -->
   <div class="card p-5">

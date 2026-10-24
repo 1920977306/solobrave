@@ -335,6 +335,82 @@ GET /ecom/captain/operate_analysis/coop_diagnosis/overview?period_type=&ewid=<�
    （`visible_ids = {uid} | 该用户的 AI 员工 id`）⇒ 空归属的行**租户端完全看不见**，
    建档等于白做 ⇒ 取存量里最常见的非空 `created_by` 作归属，**不写死 ID**。
 
+### 8.3 商品维度补齐 + 选品推理链 + 推荐指数（2026-10-24 新增）
+
+**起因**:老大给了抖音达人「选品AI助手」的推荐截图,拍板「**两边都要**」——
+补商品维度 + 搬推理链 + 自己算推荐指数。
+
+#### 达人端真值接口（本轮实测定位,别再猜）
+
+| 用途 | 接口 | 关键字段 |
+|---|---|---|
+| 商品基础维度 | `POST /pc/selection/common/material_list` | 到手价/佣金/月销/**日销量轴**/**店铺体验分**/**好评率**/**带货达人数**/类目三级(+id)/平台标签 |
+| **榜单排名** | 同上 → `custom_model.selection_square_model.recommend_reason` | `extra.rank` + `rank_type`/`date_type`/`genre_type`/`leaderboard_name` + 展示原文（如「露趾凉鞋橱窗带货常销榜·第5名」） |
+| **近7日短视频销量** | `POST /pc/leaderboard_26/board_pmt` | `custom_model...board_data.rank` + `board_sale.sale_num`（`date_type=7d, genre_type=video`） |
+| 榜单筛选字典 | `GET /pc/selection_square/get_filter` + `POST /pc/leaderboard_26/get_board_default_info` | 榜单类型/售价/佣金/体验分/周期/体裁 + **类目树(含 cate_id)** |
+
+⚠️ **四条坑**（都是这轮踩的）:
+1. **页面路由不能直接 goto** —— `/merch-picking-hall/rank` 直接跳会显示
+   「链接失效啦」；**必须进 SPA 后点导航**（左导航无 `<a href>`，是 JS 路由）。
+2. **响应体大小会腰斩 JSON** —— `board_pmt` `count=100` 单页 ≈ 440KB；
+   worker 里的切片上限必须 ≥ 2MB，否则 `code=None`、解析失败（先踩 20KB、再踩 400KB）。
+3. **`board_pmt` 不认 `search_text`** —— 传了也返回默认总榜；只能按类目拉榜。
+4. **`get_board_default_info` 的类目树是嵌套的** —— 一级类目在
+   `industry_list[].child_cate_list[]` 里（`cate_level=0`），别只看顶层。
+
+#### 没有平台真值的维度（如实留空，别造）
+
+- **转化率**：❌ 平台**没有通用商品转化率接口**。
+  `/api/anchor/product_diagnose/search|detail` 只诊断**我们自己达人账号**的商品
+  （实测 `total=0`）；`/pc/diagnose/get_total` 返回风控码 `11001`。
+  ⇒ `products.conversion_rate` 保持 NULL，评分器把它当「缺失维度」。
+- **推荐指数★★★★★**：❌ 平台**没有这个接口** —— 达人端那个是 **AI 助手自己算的**。
+  ⇒ **我们自己算**（见下）。
+
+#### 工具
+
+- `daren_cockpit/tools/daren_dim_collector.py` —— 达人端商品维度采集 → `products` 新列。
+  `--dry-run`（默认）/ `--apply`（自动备份 CSV）。缓存 `data/daren-dim-cache.json`。
+- `daren_cockpit/tools/product_reco.py` —— **选品推理链 + 推荐指数评分器**（纯函数，无网络无 DB）。
+- API：`GET /api/products/recommend?talent_id=xxx&top_n=6`
+  → `{profile, strategies, recommendations, strategy_match, notes}`。
+
+#### products 新增列（全部 **NULL = 没有真值**，0 = 平台真给 0）
+
+| 列 | 含义 | 来源 |
+|---|---|---|
+| `shop_score` | 店铺体验分 0-100 | material_list |
+| `good_ratio` | 好评率 % | material_list |
+| `sales_7d` | 近7日**总**销量（sale_axis 自算） | material_list |
+| `video_sales_7d` | 近7日**短视频**销量（榜单口径） | board_pmt |
+| `board_rank` / `board_rank_type` / `board_date_type` / `board_genre_type` / `board_name` / `board_reason` | 榜单排名 + 口径 + 平台原文 | recommend_reason |
+| `sale_axis_json` / `category_ids` / `daren_synced_at` | 原始轴/类目id/采集时间 | — |
+
+⚠️ **两个「近7日销量」口径不同，必须分列**：`sales_7d`（总销量，覆盖全部商品）
+vs `video_sales_7d`（短视频口径，**只覆盖榜内商品**）。混用必错。
+
+#### 评分器铁律（`product_reco.py`，改之前先读）
+
+1. **缺失维度不当 0 分** —— 没采到的维度**退出加权 + 重新归一化**，
+   输出带 `missing_dims` / `dropped_dims` / `completeness`。
+   （把「没采到」当 0 分 = 用数据的缺失惩罚商品。）
+2. **池内覆盖率闸门** —— 任一维度在池内覆盖率 < 60% ⇒ **整个池**都不用它
+   （口径才可比；且要如实报 `dropped_dims`）。
+3. **星级 = min(绝对分星级, 池内分位星级)** —— 绝对分做**地板**（防假绿灯），
+   分位做**区分度**（绝对分挤在一起时「清一色 5★」没意义）。
+   ⚠️ 绝对阈值**按真实分布校准过**（92 样本：min 12 / p25 68.9 / median 74.3 /
+   p90 85.4 / max 91.3 ⇒ 5★≥85 / 4★≥78 / 3★≥68 / 2★≥50），
+   改阈值要重跑 `tests/test_product_reco.py` 的校准用例。
+4. **候选池 < 3 ⇒ 星级封顶 3★** —— 池内没区分度时别给假绿灯。
+5. **策略类目要落到商品池真实写法** —— 画像写「鞋靴/凉鞋」、商品写「鞋靴/靴子」、
+   平台一级类目叫「鞋靴箱包」⇒ 只比全等会**候选数归零**（踩过）。
+6. **只丢不造** —— 画像缺客单价/偏好类目 ⇒ 明说「画像不足」，不编粉丝画像。
+
+#### 铁律延续（§8.1）
+
+- 商品维度**只走达人端**；**绝不把我方出单数据带进给达人看的推荐里**。
+- `/api/products/recommend` 的商品池**按 owner 过滤**，口径与 `/api/products` 一致
+  （数据隔离优先级最高）；H5 驾驶舱 `daren_cockpit/server.py` 是**直读 DB**，不受此限。
 
 
 ## 9. 复用层:抓一次存下来,下次直接读(2026-10-21 新增)

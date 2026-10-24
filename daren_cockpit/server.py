@@ -26,6 +26,9 @@ sys.path.insert(0, str(ROOT.parent))  # 引入 daren_bot
 from daren_bot import config, db as botdb  # noqa: E402
 from daren_bot import verdict_ui  # noqa: E402  结论/状态视觉映射的唯一事实来源
 from daren_cockpit import apply as apply_mod  # noqa: E402
+# 选品推理链 + 推荐指数评分器（2026-10-24）—— 对齐抖音达人「选品AI助手」
+# ★ 达人端那个 ★★★★★ 是 AI 助手自己算的（平台无此真值）⇒ 这套是我方评分器。
+from daren_cockpit.tools import product_reco as reco  # noqa: E402
 
 SOLOBRAVE_DB = config.ROOT / "data" / "solobrave.db"
 
@@ -301,6 +304,36 @@ def _clean_reason(v, limit=110):
 
 # ---------- 数据组装 ----------
 
+def _build_reco_chain(talent_row, top_n: int = 6) -> dict:
+    """达人 → 选品推理链（画像 → 类目策略 → 商品推荐 → 推荐指数★）。
+
+    ⚠️ 只读 DB、只吃达人端来的商品维度（店铺分/好评率/榜单/7日销量），
+       **不把我方出单数据带进给达人看的推荐里**（AGENTS.md §8.1）。
+    ⚠️ 拿不到画像就返回空 dict —— **不编粉丝画像**。
+    """
+    if not talent_row:
+        return {}
+    try:
+        con = sqlite3.connect(str(SOLOBRAVE_DB))
+        con.execute("PRAGMA query_only=ON")
+        con.row_factory = sqlite3.Row
+        cols = {r[1] for r in con.execute("PRAGMA table_info(products)")}
+        want = ["id", "name", "price", "price_range", "category", "commission_rates",
+                "tags", "platform_order_daren_count", "conversion_rate"]
+        for c in ("shop_score", "good_ratio", "video_sales_7d", "sales_7d", "board_rank"):
+            if c in cols:
+                want.append(c)
+        rows = con.execute(
+            f"SELECT {','.join(want)} FROM products WHERE status!='archived'"
+        ).fetchall()
+        products = [dict(r) for r in rows]
+        con.close()
+        return reco.recommend(dict(talent_row), products, top_n=top_n)
+    except Exception as e:  # noqa: BLE001
+        logging.warning("reco chain failed: %s", e)
+        return {}
+
+
 def load_cockpit(tenant_key: str):
     tenant = botdb.get_tenant(tenant_key)
     if not tenant:
@@ -458,6 +491,7 @@ def load_cockpit(tenant_key: str):
         "cards": cards,
         "interact": interact,
         "coop": coop,
+        "reco": _build_reco_chain(talent),
         "updated": time.strftime("%Y-%m-%d %H:%M"),
     }
 

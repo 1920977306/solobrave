@@ -2512,7 +2512,9 @@ def _browser_loop():
                         }
                         const r = await fetch(args.path, opt);
                         const t = await r.text();
-                        return {status: r.status, text: t.slice(0, 20000)};
+                        // 2MB：榜单接口(board_pmt) count=100 单页 ≈ 440KB，
+                        // 400KB 会把响应腰斩成非法 JSON（code=None）
+                        return {status: r.status, text: t.slice(0, 2000000)};
                     } catch (e) { return {error: String(e)}; }
                 }""", {'path': full, 'method': method, 'body': body})
                 with _job_lock:
@@ -2567,6 +2569,8 @@ def _browser_loop():
                 _run_product_url_impl(row)
             elif row.get('_daren_product'):
                 _run_daren_product_impl(row)
+            elif row.get('_daren_api'):
+                _run_daren_api_impl(row)
             else:
                 _run_collect_impl(row)
         except BrowserLoopPoisoned:
@@ -2684,6 +2688,40 @@ DAREN_PRODUCT_EXTRA = {
     'use_kol_product': '1', 'trigger_ids': '', 'feed_source': '',
     'share_return_scene': '',
 }
+# ═══════════════════════════════════════════════════════════════════════
+# 通用达人端接口采集（2026-10-24 新增）
+#
+# 为什么要做这个（老大给了抖音达人AI助手的商品推荐截图，要求对齐）：
+#   达人端推荐理由用了 9 个维度，其中「转化率」「榜单排名」「推荐指数」
+#   在 material_list 里**取不到**（该接口只有价格/佣金/销量/店铺分/好评率/类目…）。
+#   需要探别的达人端接口（/pc/diagnose/get_total 商品诊断、
+#   /pc/selection_tool/promotion/list 选品工具…），而每次探都改一次 worker 太浪费。
+#
+# ★ 原理：与 _run_daren_product_impl 同构 —— 在**达人端页面内** fetch，
+#   a_bogus 签名由页面自己带，我们只管发请求（页面外的裸 fetch 会被风控）。
+# ★ 与 material_list 同款坑：新会话冷启动第一次调用会**返回空列表而不是报错**
+#   → 空结果要当「可能没就绪」重试，不能当「资源不存在」。
+# ★ 安全：只允许 **buyin.jinritemai.com** 域下的路径（防 SSRF / 防打到别的域）。
+# ═══════════════════════════════════════════════════════════════════════
+DAREN_API_BASE = 'https://buyin.jinritemai.com'
+DAREN_API_ALLOWED_PREFIX = ('/pc/', '/mpa/')
+# 允许的通用接口白名单（防止被当成任意代理用）
+DAREN_API_ALLOWED = (
+    '/pc/diagnose/get_total',
+    '/pc/selection_tool/promotion/list',
+    '/pc/selection_tool/promotion/pools',
+    '/pc/decision/comment/list',
+    # 联盟榜单（2026-10-24 定位）：榜单排名 + 近N日销量（可按体裁筛短视频）
+    #   POST board_pmt body={rank_type,date_type,genre_type,cate_id,cate_level,cursor,count}
+    #   date_type: realtime/1d/7d/30d；genre_type: all/video/live/window/artc
+    #   rank_type: sale(爆款榜)/trend(趋势榜)/seller(带货榜)/sales(常销榜)
+    '/pc/leaderboard_26/board_pmt',
+    '/pc/leaderboard_26/get_board_default_info',
+    '/pc/selection_square/get_filter',
+    # 菜单/权限（拿「联盟榜单 / 选品AI助手 / 热点趋势」等子页真实路径用）
+    '/api/permission/menu',
+    '/api/permission/menu/match',
+)
 # 达人端会话失效时，等老大扫码的最长秒数（登录是人工动作，系统只负责等）
 DAREN_LOGIN_WAIT = 300
 
@@ -2726,9 +2764,14 @@ def _parse_daren_product(item):
     def cname(lv):
         return (cat.get(lv) or {}).get('category_name') or ''
 
+    def cid(lv):
+        return str((cat.get(lv) or {}).get('category_id') or '')
+
     cos = ((promo.get('cos_info') or {}).get('cos') or {})
+    ad_cos = ((promo.get('cos_info') or {}).get('ad_cos') or {})
     price_node = (mk.get('price_desc') or {}).get('price')
     ratio = _dnum(cos.get('cos_ratio'))
+    ad_ratio = _dnum(ad_cos.get('cos_ratio'))
     good = _dnum(pi.get('good_ratio'))
     sale = _dnum(pi.get('month_sale'))
     authors = _dnum(promo.get('cooper_author_num'))
@@ -2753,6 +2796,26 @@ def _parse_daren_product(item):
     except Exception:
         pass
 
+    # ★ 榜单推荐理由（2026-10-24 定位）：平台**只在商品上榜时**才给这段，
+    #   形如「露趾凉鞋橱窗带货常销榜·第5名」，extra 里带完整榜单元数据
+    #   (rank / rank_type / date_type / genre_type / leaderboard_name)。
+    #   ⇒ 这是「榜单排名」的**平台真值**，且覆盖榜外商品（我们自己的抓榜抓不到）。
+    _rr = (((item.get('custom_model') or {}).get('selection_square_model') or {})
+           .get('recommend_reason') or {})
+    _rr = _rr.get('recommend_reason') or {}
+    board = {}
+    if isinstance(_rr, dict):
+        ex = _rr.get('extra') or {}
+        board = {
+            'rank': ex.get('rank') or ex.get('cur_rank') or '',
+            'rank_type': ex.get('rank_type') or '',
+            'date_type': ex.get('date_type') or '',
+            'genre_type': ex.get('genre_type') or '',
+            'leaderboard_name': ex.get('leaderboard_name') or '',
+            'industry_id': ex.get('industry_id') or '',
+            'rank_id': ex.get('rank_id') or '',
+        }
+
     return {
         'product_id': str(item.get('product_id') or ''),
         'promotion_id': str(item.get('promotion_id') or ''),
@@ -2760,6 +2823,9 @@ def _parse_daren_product(item):
         'price': _dmoney(price_node),
         'commission': _dmoney(cos.get('cos_fee')),
         'commission_rate': (f'{ratio:g}%' if ratio is not None else ''),
+        # 广告佣金（投千川）单列 —— 达人端同时看得到自然佣金和广告佣金
+        'ad_commission_rate': (f'{ad_ratio:g}%' if ad_ratio is not None else ''),
+        'commission_label': (promo.get('cos_info') or {}).get('cos_ratio_text') or '',
         'sales': (str(int(sale)) if sale is not None else ''),
         'shop': shop.get('shop_name') or '',
         # ★ category 给**一级类目**：达人侧的「带货类目分布」用的就是平台一级类目
@@ -2769,6 +2835,9 @@ def _parse_daren_product(item):
         'category_first': cname('first_category'),
         'category_second': cname('second_category'),
         'category_third': cname('third_category'),
+        'category_first_id': cid('first_category'),
+        'category_second_id': cid('second_category'),
+        'category_third_id': cid('third_category'),
         'shop_score': (str(int(score)) if score is not None else ''),
         'main_img': img,
         'resolved_url': pi.get('detail_url') or '',
@@ -2777,6 +2846,8 @@ def _parse_daren_product(item):
         'sale_axis': sale_axis,
         'tags': tags,
         'coupon': ('消费券' if '消费券' in tags else ''),
+        'recommend_reason': (_rr.get('text') or ''),
+        'board': board,
         'highlights': '',
         'target_crowd': '',
         'source': '平台商品接口',
@@ -2919,6 +2990,123 @@ def _enter_daren_workspace(page):
             return page.url or ''
     # 还没登录（页面上只有「登录」按钮）→ 保持现状，等老大扫码
     return page.url or ''
+
+
+def _run_daren_api_impl(row):
+    """通用达人端接口采集：在达人端页面内 fetch（签名天然具备）→ 原样返回 JSON。
+
+    入参 row: {id, path, method='GET'|'POST', body={}, query={}}
+    出参 job.result: JSON 字符串（接口原始响应，便于调用方自己看字段）
+
+    ★ 与 _run_daren_product_impl 同款坑：会话未就绪时接口**返回空列表而不报错**
+      → 空结果当「可能没就绪」重试，最多 3 次。
+    ★ 白名单：只允许 DAREN_API_ALLOWED 里的路径 ⇒ 不会被当成任意代理。
+    """
+    cid = row['id']
+    path = str(row.get('path') or '').strip()
+    method = str(row.get('method') or 'GET').upper()
+    body = row.get('body') or {}
+    query = row.get('query') or {}
+
+    if path not in DAREN_API_ALLOWED:
+        raise ValueError(f'path 不在白名单: {path}')
+    if method not in ('GET', 'POST'):
+        raise ValueError(f'method 不支持: {method}')
+
+    _job_set(cid, status='collecting', stage='启动达人端浏览器', started=time.time())
+    log(f'[DarenAPI] {cid} {method} {path}')
+    try:
+        page = _switch_to(DAREN_BROWSER, BROWSER)
+        full_url = DAREN_API_BASE + path
+        if query:
+            from urllib.parse import urlencode
+            full_url += '?' + urlencode(query)
+
+        err = ''
+        attempt = 0
+        code = None
+        payload = None
+        login_prompted = False
+        login_deadline = time.time() + DAREN_LOGIN_WAIT
+        while True:
+            attempt += 1
+            _ensure_buyin_page(page)
+            if 'buyin.jinritemai.com' not in (page.url or ''):
+                if not login_prompted:
+                    login_prompted = True
+                    log(f'[DarenAPI] {cid} 未进达人工作台（{page.url}），已打开登录页，请扫码')
+                    _prompt_daren_login(page)
+                if time.time() > login_deadline:
+                    raise NeedLogin('请在弹出的浏览器里扫码登录达人工作台')
+                time.sleep(15)
+                _enter_daren_workspace(page)
+                continue
+            try:
+                out = page.evaluate("""async (args) => {
+                    try {
+                        const opt = {method: args.method, credentials: 'include',
+                                     headers: {'Content-Type': 'application/json'}};
+                        if (args.method !== 'GET') opt.body = JSON.stringify(args.body || {});
+                        const r = await fetch(args.url, opt);
+                        return {status: r.status, text: (await r.text()).slice(0, 2000000)};
+                    } catch (e) { return {error: String(e)}; }
+                }""", {'url': full_url, 'method': method, 'body': body})
+            except Exception as e:
+                out = {'error': f'页面执行失败(可能正在跳转): {e}'}
+
+            if not isinstance(out, dict) or out.get('error'):
+                err = f"接口调用失败: {(out or {}).get('error')}"
+            elif out.get('status') != 200:
+                err = f'接口返回 HTTP {out.get("status")}'
+            else:
+                try:
+                    payload = json.loads(out.get('text') or '{}')
+                except Exception as e:
+                    err = f'接口返回不是 JSON: {e}'
+                    payload = None
+                code = (payload or {}).get('code')
+                if code in (0, '0'):
+                    # 成功；但可能返回空 data（会话未就绪）⇒ 也当未就绪重试
+                    if (payload or {}).get('data'):
+                        break
+                    err = '接口返回空 data（会话可能未就绪）'
+                elif code == -2:
+                    err = '会话失效(code=-2 用户未登录)'
+                    if not login_prompted:
+                        login_prompted = True
+                        log(f'[DarenAPI] {cid} {err}，已打开登录页，请扫码')
+                        _prompt_daren_login(page)
+                    if time.time() > login_deadline:
+                        raise NeedLogin('达人端会话已失效，请在弹出的浏览器里扫码重登')
+                    time.sleep(15)
+                    _enter_daren_workspace(page)
+                    continue
+                else:
+                    err = (f'接口返回 code={code} '
+                           f'msg={(payload or {}).get("msg") or (payload or {}).get("message") or ""}')
+                    # ★ 非 0 且非 -2 的 code（如风控码 11001）是**失败**，不是成功
+                    #   ⇒ payload 置空，让循环外的 payload is None 分支抛错
+                    payload = None
+            if attempt >= 3:
+                break
+            log(f'[DarenAPI] {cid} 第{attempt}次未拿到数据({err})，刷新会话后重试')
+            try:
+                page.reload(timeout=60000)
+            except Exception as e:
+                log(f'[DarenAPI] {cid} 刷新页面失败: {e}')
+            _ensure_buyin_page(page)
+
+        if payload is None:
+            raise RuntimeError(f'接口采集失败：{err or "未知"}')
+        _job_set(cid, status='done', stage='完成',
+                 result=json.dumps(payload, ensure_ascii=False))
+        log(f'[DarenAPI] {cid} 完成 code={code} url={full_url}')
+    except NeedLogin as e:
+        _job_set(cid, status='failed', stage='需要登录', error=str(e))
+    except ProductNotFound as e:
+        _job_set(cid, status='not_found', stage='未找到', error=str(e))
+    except Exception as e:
+        _job_set(cid, status='failed', stage='异常', error=f'{type(e).__name__}: {e}')
 
 
 def _run_daren_product_impl(row):
@@ -3427,6 +3615,24 @@ class ControlHandler(BaseHTTPRequestHandler):
                        'click_text': click_text, 'click_seq': click_seq,
                        'search_text': search_text})
             self._json(200, {'ok': True, 'msg': '探测已入队，结果见 GET /health 的 daren_api_probe'})
+            return
+        if self.path == '/collect-daren-api':
+            # 通用达人端接口采集（2026-10-24）：{path, method?, body?, query?}
+            # 只允许白名单路径 —— 不是任意代理
+            path = str(body.get('path') or '').strip()
+            if not path:
+                self._json(400, {'error': 'missing path'})
+                return
+            if path not in DAREN_API_ALLOWED:
+                self._json(403, {'error': f'path 不在白名单: {path}',
+                                 'allowed': list(DAREN_API_ALLOWED)})
+                return
+            cid = f"dapi_{int(time.time()*1000)}_{secrets.token_hex(3)}"
+            submit_collect({'_daren_api': True, 'id': cid, 'path': path,
+                            'method': str(body.get('method') or 'GET').upper(),
+                            'body': body.get('body') or {},
+                            'query': body.get('query') or {}})
+            self._json(200, {'ok': True, 'collect_id': cid})
             return
         if self.path == '/collect-product-id':
             # 商品ID → 达人端选品广场接口 → 结构化商品数据（不走 LLM）

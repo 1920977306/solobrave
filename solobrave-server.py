@@ -88,6 +88,10 @@ import memory_pipeline
 # 知识库入库分档整理层（老大 2026-10-23 两档口径：分析类完全提取 / 平常类整理后）
 import knowledge_intake as ki
 
+# 选品推理链 + 推荐指数评分器（2026-10-24：粉丝画像 → 类目策略 → 商品推荐 → ★★★★★）
+# ★ 达人端那个 ★★★★★ 是 AI 助手自算的（平台无此真值）⇒ 这套是我方自己的评分器。
+from daren_cockpit.tools import product_reco as reco
+
 # 统一 Provider 适配层（Anthropic/OpenAI 双向转换 + SSE + 错误规范化 + 冷却半开）
 import provider_adapters as padapters
 
@@ -8860,6 +8864,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             return
         if path == '/api/products/sync-feishu':
             self._handle_sync_feishu_products()
+            return
+        # ★ 选品推荐（推理链）：粉丝画像 → 类目策略 → 商品推荐 → 推荐指数
+        #   必须排在 startswith('/api/products/') 前面，否则会被当成 product_id='recommend'
+        if path == '/api/products/recommend':
+            self._handle_get_product_recommendations()
             return
         if path == '/api/dashboard/linkage':
             self._handle_get_dashboard_linkage()
@@ -18802,6 +18811,71 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             '品牌类型': d.get('brand_type') or d.get('品牌类型') or '白牌/无品牌',
             '月销量': float(d.get('monthly_sales') or 0),
         }
+
+    def _handle_get_product_recommendations(self):
+        """GET /api/products/recommend?talent_id=xxx&top_n=6
+           选品推荐推理链：粉丝画像 → 类目策略 → 商品推荐 → 推荐指数(★)
+
+        ★ 三条纪律：
+          1. **商品维度只走达人端**（店铺分/好评率/榜单/7日销量）——
+             绝不把我方出单数据带进给达人看的推荐里（AGENTS.md §8.1）。
+          2. **推荐指数是我方自算的**：达人端那个 ★★★★★ 是 AI 助手自己给的，
+             平台没有这个真值 ⇒ 我们用 `product_reco` 算自己的一套。
+          3. **缺失维度不当 0 分**：没采到的维度退出加权并重新归一化，
+             输出里带 `missing_dims` / `dropped_dims` / `completeness`。
+        """
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'products'): return
+        qs = parse_qs(urlparse(self.path).query)
+        talent_id = (qs.get('talent_id', [''])[0] or '').strip()
+        if not talent_id:
+            self._send_json_error(400, 'missing talent_id')
+            return
+        try:
+            top_n = max(1, min(20, int(qs.get('top_n', ['6'])[0])))
+        except (TypeError, ValueError):
+            top_n = 6
+
+        # 商品池：owner 过滤口径与 /api/products 完全一致
+        pool = self._load_products().get('products', [])
+        if not auth.is_admin or getattr(auth, 'localhost_agent_id', None):
+            uid = _resolve_talent_owner_id(auth)
+            visible_ids = {uid} | set(_get_user_emp_ids(uid))
+            pool = [p for p in pool
+                    if (p.get('created_by') or p.get('createdBy') or '') in visible_ids]
+        ids = [p.get('id') for p in pool if p.get('id')]
+
+        conn = _db_conn()
+        try:
+            trow = conn.execute('SELECT * FROM talents WHERE id = ?',
+                                (talent_id,)).fetchone()
+            products = []
+            if ids:
+                have = {r[1] for r in conn.execute('PRAGMA table_info(products)')}
+                want = ['id', 'name', 'price', 'price_range', 'category',
+                        'commission_rates', 'tags', 'platform_order_daren_count',
+                        'conversion_rate', 'main_image', 'subtitle']
+                # 新维度列可能还没迁移（旧库）⇒ 有才取，缺了评分器会自动当「缺失」
+                for col in ('shop_score', 'good_ratio', 'video_sales_7d',
+                            'sales_7d', 'board_rank'):
+                    if col in have:
+                        want.append(col)
+                marks = ','.join('?' * len(ids))
+                rows = conn.execute(
+                    f"SELECT {','.join(want)} FROM products WHERE id IN ({marks})",
+                    ids).fetchall()
+                products = [dict(r) for r in rows]
+        finally:
+            conn.close()
+
+        if not trow:
+            self._send_json_error(404, 'Talent not found')
+            return
+        chain = reco.recommend(dict(trow), products, top_n=top_n)
+        self._send_json(200, chain)
 
     def _handle_get_product_score(self, product_id):
         """GET /api/products/:id/score — 用 V3 模型给已录入商品打分"""
