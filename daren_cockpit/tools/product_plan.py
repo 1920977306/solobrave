@@ -767,6 +767,32 @@ def build_schedule(talent_row: dict, deal_rows: list[dict], product_rows: list[d
     return out
 
 
+def display_name(talent_row: dict) -> str:
+    """给达人看的名字 —— **优先平台昵称**。
+
+    ★ 库里的 `name` 是运营随手写的（实测「我的小号发给你跟我分析一下名称一百」），
+      直接当标题没法看。平台昵称来自 `/index/getUser` 的 `user_name`，
+      存在 `talents.platform_nickname`。
+
+    ★ 服务端 `GET/POST /api/deals/plan` 和机器人 `plan_notify` 必须用**同一份** ——
+      同一个算法两个消费者，显示口径也分叉 ⇒ 运营看到的和达人看到的不一样。
+    """
+    row = talent_row or {}
+    return (str(row.get("platform_nickname") or "").strip()
+            or str(row.get("name") or "").strip())
+
+
+def future_slots(slots: list[PlanSlot], today: str = "") -> list[PlanSlot]:
+    """只保留**今天及以后**的 slot（历史不是待办）。
+
+    排期落库后 `build_schedule` 会把过去的排期原样带回来（那是历史），
+    展示层不滤掉 ⇒ 「我的排品表」第一条永远是昨天，达人会以为系统没在排。
+    """
+    import datetime
+    today = today or datetime.datetime.now().strftime("%Y-%m-%d")
+    return [s for s in slots if s.date >= today]
+
+
 def plan_text(slots: list[PlanSlot], talent_name: str = "") -> str:
     """排期表 → 达人看得懂的一段话（飞书推送 / H5 都用这个）。"""
     lines: list[str] = []

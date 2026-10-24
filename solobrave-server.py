@@ -17337,13 +17337,16 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             return
         slots = plan.build_schedule(talent, deals, products,
                                     days=days, per_day=per_day)
+        # ★ 只展示今天及以后（排期落库后过去的排期会被带回来，历史不是待办）
+        # ★ 显示名与机器人侧共用一份口径（优先平台昵称，别用运营随手写的 name）
+        slots = plan.future_slots(slots)
         self._send_json(200, {
             'talent_id': talent_id,
             'talent_name': talent.get('name') or '',
             'days': days, 'per_day': per_day,
             'deal_pool': len(deals),
             'slots': [s.to_dict() for s in slots],
-            'text': plan.plan_text(slots, talent.get('name') or ''),
+            'text': plan.plan_text(slots, plan.display_name(talent)),
         })
 
     def _handle_post_deal_plan(self):
@@ -17387,8 +17390,12 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             conn.close()
         self._send_json(200, {
             'ok': True, 'talent_id': talent_id, 'applied': applied,
-            'slots': [s.to_dict() for s in slots],
-            'text': plan.plan_text(slots, talent.get('name') or ''),
+            # ⚠️ 落库写的是**全部** slots（含历史排期，它们在库里本就有
+            #   scheduled_at）；但**回显**给页面的是今天及以后 ——
+            #   历史是历史，不是待办。
+            'slots': [s.to_dict() for s in plan.future_slots(slots)],
+            'text': plan.plan_text(plan.future_slots(slots),
+                                   plan.display_name(talent)),
         })
 
     def _handle_get_deals(self):

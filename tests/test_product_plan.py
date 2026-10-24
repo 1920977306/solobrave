@@ -335,6 +335,33 @@ def test_new_item_is_not_scheduled_into_a_past_day():
     assert old_it and old_it[0].scheduled_at == ts, "老品要保留原位"
 
 
+def test_display_name_prefers_platform_nickname():
+    """★ 显示名优先平台昵称 —— 库里运营随手写的 name 没法看。
+
+    实测库名「我的小号发给你跟我分析一下名称一百」，
+    直接当提醒标题达人根本认不出这是自己。
+    """
+    assert pp.display_name({"name": "我的小号发给你跟我分析一下名称一百",
+                            "platform_nickname": "一百"}) == "一百"
+    # 没有平台昵称时回退库名
+    assert pp.display_name({"name": "洁洁爱户外"}) == "洁洁爱户外"
+    assert pp.display_name({"name": "x", "platform_nickname": "  "}) == "x"
+
+
+def test_future_slots_drops_past_days():
+    """★ 只展示今天及以后 —— 历史是历史，不是待办。"""
+    import datetime
+    today = datetime.datetime.now().strftime("%Y-%m-%d")
+    yesterday = (datetime.datetime.now() - datetime.timedelta(days=1)).strftime("%Y-%m-%d")
+    tomorrow = (datetime.datetime.now() + datetime.timedelta(days=1)).strftime("%Y-%m-%d")
+    slots = [pp.PlanSlot(date=yesterday), pp.PlanSlot(date=today),
+             pp.PlanSlot(date=tomorrow)]
+    got = [s.date for s in pp.future_slots(slots)]
+    assert yesterday not in got
+    assert today in got, "今天必须留着"
+    assert tomorrow in got
+
+
 def test_scheduled_at_is_in_seconds():
     """★ 单位锁点：`scheduled_at` 是**秒**（前端按秒读，差 1000 倍就是差 50000 年）。"""
     import datetime

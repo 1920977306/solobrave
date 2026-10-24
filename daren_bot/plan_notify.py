@@ -152,8 +152,7 @@ def plan_text(douyin_id: str, talent_id: str = "") -> str:
     #   排期落库后（见 persist_plan），`build_schedule` 会把过去的排期
     #   原样带回来（那是历史，不是待办）。给达人看表时把过去的日子滤掉，
     #   否则「我的排品表」第一条永远是昨天，达人会以为系统没在排。
-    today = datetime.datetime.now().strftime("%Y-%m-%d")
-    future = [s for s in slots if s.date >= today]
+    future = plan.future_slots(slots)
     if not future or not any(s.items for s in future):
         return ("你名下这批品都排完/推过了。\n"
                 "在达人端选品车加新品（或发「接了 <商品ID>」），"
@@ -372,9 +371,10 @@ def _display_name(talent: dict) -> str:
     ★ 优先用**平台昵称**（`/index/getUser` 的 `user_name`）——
       库里的 `name` 可能是运营随手写的（实测「我的小号发给你跟我分析一下名称一百」），
       直接用在提醒标题里很难看。
+    ★ 口径与服务端 `/api/deals/plan` **共用一份**（`product_plan.display_name`）——
+      同一个算法两个消费者，显示口径也分叉 ⇒ 运营看到的和达人看到的不一样。
     """
-    return (str(talent.get("platform_nickname") or "").strip()
-            or str(talent.get("name") or "").strip())
+    return plan.display_name(talent)
 
 
 def _already_reminded(deal_id: str, day_key: str) -> bool:
