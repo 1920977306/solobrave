@@ -313,16 +313,23 @@ def test_scan_persists_schedule_to_db(dbfile):
 
 
 def test_dry_run_writes_nothing(dbfile):
-    """★ 探针（dry_run）不能有任何副作用 —— 写库了就等于真推了。"""
+    """★ 探针（dry_run）不能有任何副作用 —— 写库了就等于真推了。
+
+    ⚠️ 基准是「**调用前**的状态」：登记接品本身会当场落排期
+      （那句「帮你排进这周的品表」要成真），所以不能断言「整个流程都没写过」。
+    """
     plan_notify.register_deal("dy_888", "3668788850777522321")
+    before = _deals_rows(dbfile)[0]
+    snapshot = (before["scheduled_at"], before["priority"], before["plan_slot"],
+                before["remind_state"])
     restore = _gray_one(None)
     try:
         plan_notify.scan_and_push(None, dry_run=True)
     finally:
         restore()
-    rows = _deals_rows(dbfile)
-    assert rows[0]["scheduled_at"] == 0, "dry_run 不许写排期"
-    assert not rows[0]["remind_state"], "dry_run 不许标记已提醒"
+    after = _deals_rows(dbfile)[0]
+    assert (after["scheduled_at"], after["priority"], after["plan_slot"],
+            after["remind_state"]) == snapshot, "dry_run 改动了库"
 
 
 def test_schedule_is_stable_across_days(dbfile):
@@ -421,3 +428,35 @@ def test_build_reminder_empty_when_no_plan(dbfile):
     text, todo = plan_notify.build_reminder("dy_888")
     assert text == ""
     assert todo == []
+
+
+# ─────────────── 文案必须跟着实际坑位数走（2026-10-24 实测） ───────────────
+
+def test_reminder_title_matches_actual_count(dbfile):
+    """★ 「今天推这两件」不能硬编码 —— 只有 1 个品时要说「这件」。
+
+    实测：排品池只有 1 个品，提醒却写「今天推这两件」⇒ 达人一数就露馅。
+    """
+    plan_notify.register_deal("dy_888", "3668788850777522321")
+    text, _ = plan_notify.build_reminder("dy_888")
+    assert "今天推这件" in text, text
+    assert "两件" not in text, text
+
+
+def test_reminder_title_two_items(dbfile):
+    plan_notify.register_deal("dy_888", "3668788850777522321")
+    plan_notify.register_deal("dy_888", "prod_b")
+    text, _ = plan_notify.build_reminder("dy_888")
+    assert "今天推这两件" in text, text
+
+
+def test_register_deal_persists_plan_immediately(dbfile):
+    """★ 登记接品时那句「帮你排进这周的品表」必须**当场成真**。
+
+    否则达人/运营马上查排品表是空的（排期要等下一次调度器扫描），
+    声明端 ≠ 使用端。
+    """
+    plan_notify.register_deal("dy_888", "3668788850777522321")
+    rows = _deals_rows(dbfile)
+    assert rows[0]["scheduled_at"], "登记后应立刻把排期落库"
+    assert rows[0]["plan_slot"] in (1, 2), rows[0]

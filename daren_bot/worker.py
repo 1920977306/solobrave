@@ -127,7 +127,8 @@ class Worker(threading.Thread):
                 except Exception:
                     title, _, md = (result_summary or "").partition("\n")
                 executors.notify_product_card(self.wm.get_sender(tk), task["chat_id"],
-                                              title, md, tk, stats, source)
+                                              title, md, tk, stats, source,
+                                              product_id=str(task.get("target") or ""))
                 log.info("push ok: type=%s task=%s chat=%s cache_hit=%s",
                          task["type"], task["id"], task["chat_id"],
                          task.get("cache_hit"))

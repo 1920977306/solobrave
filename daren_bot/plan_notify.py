@@ -293,9 +293,21 @@ def register_deal(douyin_id: str, product_id: str, talent_id: str = "",
              "video", comm, "approved", 0, deal_source, "daren_bot",
              now, now))
         conn.commit()
+        # ★ 当场把排期算出来落库 ——
+        #   否则回达人那句「我现在帮你排进这周的品表」是**空头承诺**：
+        #   排期要等下一次调度器扫描（最多 5 分钟）才落，
+        #   达人和运营马上查排品表会看到空的。
+        #   （声明端 ≠ 使用端：说了要做，就得当场做。）
+        try:
+            slots, _t = plan_for_talent(douyin_id, talent["id"])
+            if slots:
+                persist_plan(slots, talent_id=talent["id"])
+        except Exception:
+            # 落库失败**不阻断登记**（品已经接了，排期明天补上）
+            log.exception("[plan] 登记后落排期失败（不阻断）")
         return True, (f"收到，已登记：{prow['name'][:24]}\n"
-                      f"（佣金率 {comm:g}%｜我现在帮你排进这周的品表，"
-                      f"明天早上会推「今天推哪两个」给你）")
+                      f"（佣金率 {comm:g}%｜我已经帮你排进这周的品表，"
+                      f"每天早上会推「今天推哪个」给你）")
     finally:
         conn.close()
 
@@ -410,7 +422,11 @@ def build_reminder(douyin_id: str, talent_id: str = "") -> tuple[str, list[str]]
         # 今天该推的都推过了 ⇒ 不重复推（重启也守住）
         return "", []
     name = _display_name(talent)
-    lines = [f"【{name} 今天推这两件】"] if name else ["【今天推这两件】"]
+    # ⚠️ 数量必须**跟着实际坑位数走** —— 原来硬编码「今天推这两件」，
+    #   排品池里只有 1 个品也照样说「两件」，达人一数就发现不对（2026-10-24 实测）。
+    n = len(items)
+    cnt = {1: "这件", 2: "这两件"}.get(n, f"这{n}件")
+    lines = [f"【{name} 今天推{cnt}】"] if name else [f"【今天推{cnt}】"]
     for i, it in enumerate(items, 1):
         lc = it.lifecycle.label if it.lifecycle else ""
         meta = " · ".join(x for x in (

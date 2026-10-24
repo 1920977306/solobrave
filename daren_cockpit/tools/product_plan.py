@@ -70,7 +70,11 @@ LIFECYCLE_UNKNOWN = "unknown"    # 没有销量轴，判不了
 
 LIFECYCLE_LABEL = {
     LIFECYCLE_RAMP: "爬坡期",
-    LIFECYCLE_PEAK: "爆款期",
+    # ⚠️ 别叫「爆款期」—— 它会和 note 里的「和前7天基本持平」打架，
+    #   读起来像自相矛盾（实测：同一个品标签「爆款期」+ 理由「基本持平」）。
+    #   这一档的真实含义是「**高位稳定**」：绝对量高、相对前7天没怎么跌
+    #   ⇒ 时机分 0.85（比爬坡期 1.0 低，比衰退/尾货高）。
+    LIFECYCLE_PEAK: "稳定出货期",
     LIFECYCLE_DECLINE: "衰退期",
     LIFECYCLE_TAIL: "尾货期",
     LIFECYCLE_UNKNOWN: "销量未知",
@@ -194,8 +198,8 @@ def product_lifecycle(sale_axis: Any) -> Lifecycle:
                        f" —— 还在跌，能推要快")
     else:
         lc.stage = LIFECYCLE_PEAK
-        lc.note = (f"近7天日均 {r_avg:.0f}，和前7天基本持平"
-                   f"（{change:+.0f}%）—— 稳定出货期")
+        # ⚠️ 尾部不重复「稳定出货期」—— 那已经是 label 了（同一句说两遍像 bug）
+        lc.note = (f"近7天日均 {r_avg:.0f}，和前7天基本持平（{change:+.0f}%）")
     return lc
 
 

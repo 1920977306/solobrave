@@ -1928,11 +1928,35 @@ def execute_video(task: dict) -> str:
     raise RuntimeError("拆解超时（>15分钟），任务还在后台跑，过会儿问运营老师要结果")
 
 
+def _send_accept_hint(sender, chat_id: str, product_id: str = "") -> None:
+    """商品分析后补一句**接品引导**（2026-10-24）。
+
+    达人发**裸商品ID** 的语义是「这商品怎么样」（查），
+    但他很可能也想要「把它接进排品表」（接）——
+    两条链路长得一模一样，不给引导，达人永远不知道「接了 xxx」这个入口存在。
+    """
+    if sender is None or not product_id:
+        return
+    try:
+        sender.send_text(
+            chat_id,
+            f"想把它接进排品表（AI 帮你排哪天推、每天早上提醒你），"
+            f"回我一句「接了 {product_id}」就行～")
+    except Exception:
+        log.exception("send accept hint failed: chat=%s", chat_id)
+
+
 def notify_product_card(sender, chat_id: str, title: str, report: str,
                         tenant_key: str, stats: dict = None,
-                        source: str = "") -> None:
+                        source: str = "", product_id: str = "") -> None:
     """商品分析推送：分节卡片长图（复用拆解渲染器）+ 标题 + 文字版
-    + 多维表格「商品推荐记录」（结论列单选带色）。"""
+    + 多维表格「商品推荐记录」（结论列单选带色）。
+
+    ★ 末尾带**接品引导**（2026-10-24）：
+      达人发**裸商品ID** 的语义是「这商品怎么样」（查），
+      但他很可能也想要「把它接进排品表」（接）——
+      两条链路长得一样，不给引导，达人永远不知道「接了 xxx」这个入口存在。
+    """
     if sender is None:
         log.info("[notify-no-sender] product tenant=%s", tenant_key)
         return
@@ -1948,6 +1972,7 @@ def notify_product_card(sender, chat_id: str, title: str, report: str,
         sender.send_text(chat_id, f"🛒 商品分析完成：{title}")
         _send_text_quiet(sender, chat_id,
                          f"🛒 {title}\n{_md_to_text(report)}")
+        _send_accept_hint(sender, chat_id, product_id)
         try:
             from . import bitable_sync
             bitable_sync.sync_product(
@@ -1959,6 +1984,7 @@ def notify_product_card(sender, chat_id: str, title: str, report: str,
     except Exception:
         log.exception("render product card failed, fallback to text: tenant=%s", tenant_key)
     sender.send_text(chat_id, f"🛒 {title}\n\n{_md_to_text(report)}")
+    _send_accept_hint(sender, chat_id, product_id)
 
 
 def notify_video_card(sender, chat_id: str, result_text: str, tenant_key: str) -> None:
