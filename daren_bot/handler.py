@@ -6,6 +6,7 @@ handler 只做：免费路由判定 → 图片落盘 → 余额/限频检查 →
 意图分类（glm-4-flash 走 OpenClaw 网关）未接入前，未命中免费路由的文本
 一律走零成本软话术（fail-closed 兜底，spec 4.4），不产生任何模型/浏览器调用。
 """
+import datetime
 import json
 import logging
 import re

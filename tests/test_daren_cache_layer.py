@@ -260,7 +260,7 @@ class TestExecutorConsumesCache:
             raise AssertionError("结论缓存命中时不应该再采集/调 LLM")
 
         monkeypatch.setattr(ex, "collect_product_by_url", _boom)
-        monkeypatch.setattr(ex, "_product_verdict", _boom)
+        monkeypatch.setattr(ex, "_llm_product_verdict", _boom)
         out = ex.execute_product_collect({
             "tenant_key": TK, "target": "pk_1",
             "payload": json.dumps({"cached_verdict": {
@@ -300,7 +300,7 @@ class TestExecutorConsumesCache:
                               "commission": "50%", "category": "居家日用"})
         monkeypatch.setattr(ex, "_talent_context", lambda *a, **kw: "【数据】服饰内衣 92.56%")
         monkeypatch.setattr(
-            ex, "_product_verdict",
+            ex, "_llm_product_verdict",
             lambda *a, **kw: "## 结论\n🟢 能带\n类目一致且价格带匹配")
         ex.execute_product_collect({"tenant_key": TK, "target": "pk_1"})
         hit = db.verdict_cache_get(TK, "pk_1")

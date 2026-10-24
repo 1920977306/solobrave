@@ -683,6 +683,81 @@ vs `video_sales_7d`（短视频口径，**只覆盖榜内商品**）。混用必
 并清掉仓库自己的 `__pycache__`（别去清 venv 的，慢）。
 ⇒ 否则会得出「修复无效」的错误结论（本例真的被骗了一轮）。
 
+### 8.6 卡片化带出的 3 个真 bug：同名遮蔽 / 漏 import / 结论口径漂移（2026-10-24 新增）
+
+卡片化（`56bdf96`）之后一次跑通老大会话，抓到 **3 个真 bug**，
+其中 2 个是**上线后才生效**的（改共享模块 ⇒ 重启进程 ⇒ 冷路径被激活）。
+
+#### ① 同名函数定义 = 静默遮蔽（最贵的一个）
+
+`executors.py` 里同时有两个 `_product_verdict`：
+
+```python
+def _product_verdict(tenant_key, stats) -> str:   # LLM 出结论（933/1252 行调用）
+def _product_verdict(report) -> (label, tpl):     # 卡片取结论（后定义）
+```
+
+Python「后 def 覆盖先 def」⇒ 卡片那个把 LLM 那个**整个遮蔽**了 ⇒
+`execute_product_collect`（商品链接/商品ID 分析）和 `execute_image_vision`（截图识别）
+里的两参调用直接 `TypeError`：
+
+```
+TypeError: _product_verdict() takes 1 positional argument but 2 were given
+```
+
+⇒ **达人发任何没缓存过的商品 ID、或发一张截图，商品分析 100% 失败。**
+
+**为什么一直没被发现（两条，都要记住）**：
+- 缓存命中的路径走早返回，压根碰不到被遮蔽的函数；
+- 现有单测用 `monkeypatch.setattr(ex, "_product_verdict", lambda *a, **kw: ...)`
+  —— **把自己的被测对象整个替掉了**，替身接受任意参数 ⇒ 遮蔽被完美掩盖。
+  ⇒ **探针必须能失败的前提是「探针不能被替身顶掉」**。
+
+**修法**：改名消歧（`_llm_product_verdict` / `_card_verdict`）+ 加自动闸门：
+- `tests/test_no_duplicate_defs.py` —— AST 扫 `daren_bot/` + `daren_cockpit/`
+  所有模块，**模块级作用域不得有同名函数/类定义两次**（含 `if/try` 里的 def）。
+- 同文件还锁「卡片结论 == 档案结论」（见下面 ③）。
+
+#### ② 漏 import：NameError 藏在从没被测过的冷路径里
+
+`handler.py::_card_view_plan()` 用了 `datetime.datetime.now()`，
+但该模块**没 import datetime** ⇒ 点「看我的排品表」按钮必然 `NameError`
+⇒ 回调返回「排品表算不出来」。
+
+⚠️ IDE 不报、`py_compile` 不报、`pytest` 也不报 —— **因为那条路径从来没被测过**。
+
+**修法**：`tests/test_no_undefined_names.py` —— 用 `symtable` 静态扫
+「函数里引用了、但模块作用域没定义、也不是内置/dunder」的全局名 ⇒ 直接判红。
+（顺带扫出 `executors._anthropic_messages` 薄壳引用了未导入的
+`_anthropic_messages_impl` —— 那是个没人调的**死壳**，谁碰谁炸，已补 import。）
+
+#### ③ 结论口径漂移：卡片说「能带」，档案说「慎带」
+
+同一份 LLM 报告，卡片和结论档案用了**两套解析**：
+
+| | 旧实现 | 结果 |
+|---|---|---|
+| 卡片 `_card_verdict` | 全文档扫词，固定顺序先判「能带」 | 理由句里「未达到8%的**能带**标准」命中 ⇒ 真结论「🟡 慎带」被标成「🟢 能带」+ 绿色 |
+| 卡片 `_card_summary` | 按 `"▎结论"` 切分 | 真实报告标题是 `## 结论`，`▎结论` 全仓只出现在它自己的 docstring 里 ⇒ **摘要恒为空** |
+
+⇒ **达人看到的结论是反的**（该慎带的品标成能带）。
+
+**修法（单一真源）**：卡片一律复用档案口径
+（`_verdict_label` / `_verdict_lines` / `_verdict_reason`）。
+`_verdict_label` 本身也加固成「**先认 emoji，再认整词**」——
+prompt 锁死了「🟢 能带」「🟡 慎带」「🔴 别带」三选一，emoji 是唯一无歧义锚点；
+整词判定还能挡住「**不能带**」被当成「能带」。
+
+#### 配套铁律
+
+- **改共享模块后必须跑一遍它的所有入口**，不能只跑自己这次改的那条。
+  本次就是「下线选品车采集线」时重启了 daren-bot ⇒ 把一条**从未被执行过的路径**激活了。
+- **卡片/档案/多维表格读同一个字段 ⇒ 解析规则只写一份**，
+  多处复用同一个函数（别再各写一套）。
+- **写调用方和被调方同名 ⇒ 等于给自己埋雷**，命名必须能区分职责
+  （`_llm_xxx` / `_card_xxx` / `_archive_xxx`）。
+
+
 
 ## 9. 复用层:抓一次存下来,下次直接读(2026-10-21 新增)
 

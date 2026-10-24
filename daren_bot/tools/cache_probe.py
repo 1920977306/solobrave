@@ -222,13 +222,13 @@ def mode_probe_product(_args) -> int:
 
     # ---- 消费者：采集 + LLM 都换成「一调用就炸」→ 证明真的没调 ----
     orig_collect = executors.collect_product_by_url
-    orig_verdict = executors._product_verdict
+    orig_verdict = executors._llm_product_verdict
 
     def _boom(*a, **kw):
         raise AssertionError("结论缓存命中时不应该再采集/调 LLM")
 
     executors.collect_product_by_url = _boom
-    executors._product_verdict = _boom
+    executors._llm_product_verdict = _boom
     try:
         out2 = executors.execute_product_collect(task)
     except AssertionError as e:
@@ -236,7 +236,7 @@ def mode_probe_product(_args) -> int:
         fails.append(str(e))
     finally:
         executors.collect_product_by_url = orig_collect
-        executors._product_verdict = orig_verdict
+        executors._llm_product_verdict = orig_verdict
     if out2:
         d2 = json.loads(out2)
         print(f"[probe-product]   ✓ 消费者直接返回缓存结论"

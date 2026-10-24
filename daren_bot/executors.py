@@ -29,6 +29,10 @@ from .llm_channels import (
     text_rings as _text_rings_impl,
     vision_rings as _vision_rings_impl,
 )
+# ★ `_anthropic_messages` 薄壳要转发给 llm_channels 里的实现 ——
+#   之前**漏了这个 import**，薄壳一被调用就 NameError
+#   （静态扫描 tests/test_no_undefined_names.py 抓到的，2026-10-24）。
+from .llm_channels import _anthropic_messages as _anthropic_messages_impl
 from .product_link import extract_product_id
 from . import product_intent
 
@@ -930,7 +934,7 @@ def execute_product_collect(task: dict) -> str:
         except Exception:
             log.exception("product cache_put failed: key=%s", product_key)
 
-    verdict = _product_verdict(task.get("tenant_key", ""), stats)
+    verdict = _llm_product_verdict(task.get("tenant_key", ""), stats)
     title = stats.get("name") or "商品分析"
     # ★ 写结论缓存（7 天）：同租户同商品直接复用，不重复调 LLM
     try:
@@ -967,11 +971,29 @@ def _verdict_lines(md: str):
     return concl, reason
 
 
+# 结论 emoji ↔ 标签的唯一映射（prompt 锁死了这三个写法，见 PRODUCT_VERDICT_PROMPT）
+_VERDICT_EMOJI = {"🟢": "能带", "🟡": "慎带", "🔴": "别带"}
+
+
 def _verdict_label(md: str) -> str:
-    """从结论行里取「能带/慎带/别带」标签。"""
+    """从结论行里取「能带/慎带/别带」标签。
+
+    ★ **先认 emoji，再认整词** ——
+      emoji 是唯一无歧义的锚点（prompt 要求结论行只写「🟢 能带」三选一）；
+      旧实现是「按固定顺序在结论行里 in 匹配」，会被
+      「不能带」「未达到8%的能带标准」这类词带偏
+      （实测踩过：真结论「🟡 慎带」被判成「能带」）。
+      整词判定还能挡住「不能带」被当成「能带」。
+    """
     concl, _ = _verdict_lines(md)
-    for v in ("能带", "慎带", "别带"):
-        if v in concl:
+    if not concl:
+        return ""
+    for e, v in _VERDICT_EMOJI.items():
+        if e in concl:
+            return v
+    tokens = _re.split(r"[\s,，。;；:：、/|()（）\[\]【】\-—·•]+", concl)
+    for v in ("别带", "慎带", "能带"):
+        if v in tokens:
             return v
     return ""
 
@@ -1012,8 +1034,16 @@ PRODUCT_VERDICT_PROMPT = '''你是抖音电商达人的AI选品顾问。根据�
    优先于性别/年龄这类单点分布。类目主场命中时，不要仅凭"男性粉丝偏多"就否决。'''
 
 
-def _product_verdict(tenant_key: str, stats: dict) -> str:
+def _llm_product_verdict(tenant_key: str, stats: dict) -> str:
     """商品 + 达人画像 → 「能带/慎带/别带」结论。
+
+    ★ 函数名带 `_llm_` 前缀是有原因的（2026-10-24 实测事故）：
+      这个模块里**曾经**还有一个同名 `_product_verdict(report)`（卡片取结论用的），
+      Python「后定义覆盖先定义」⇒ 后者把本函数**整个遮蔽**了，
+      于是 933/1252 两行 `_llm_product_verdict(tenant_key, stats)` 调用
+      直接 TypeError ⇒ **达人发任何没缓存过的商品 ID 或截图，商品分析 100% 失败**
+      （而缓存命中的路径走早返回，所以一直没被发现）。
+      ⇒ 同名函数必须改名；并有 `tests/test_no_duplicate_defs.py` 兜底。
 
     ⚠️ 2026-10-21 三处修正（老大质疑「AI 判断能力到底是不是对的」的产物）：
       ① **模型名**：原来写死 `model='glm-4-flash'` —— 智谱 2026-10-18 就被摘除了，
@@ -1231,7 +1261,7 @@ def execute_image_vision(task: dict) -> str:
         raise RuntimeError("截图文件没找到，重新发一下")
     b64 = base64.b64encode(path.read_bytes()).decode()
     stats = _vision_extract_product(b64)
-    verdict = _product_verdict(task.get("tenant_key", ""), stats)
+    verdict = _llm_product_verdict(task.get("tenant_key", ""), stats)
     # 结构化信封：worker 拆包后通知（截图来源标记为「截图」）
     return json.dumps({"title": stats.get("name") or "商品分析",
                        "stats": stats, "md": verdict,
@@ -1946,37 +1976,29 @@ def _send_accept_hint(sender, chat_id: str, product_id: str = "") -> None:
         log.exception("send accept hint failed: chat=%s", chat_id)
 
 
-def _product_verdict(report: str):
+def _card_verdict(report: str):
     """从长报告里抽「结论」（能带/慎带/别带）→ (文案, 卡片配色)。
 
-    报告是 LLM 生成的 markdown，结构大致是：
-        ▎结论
-        🟡 慎带
-        价格偏高且佣金率仅5%
+    ★ **必须复用档案口径 `_verdict_label`**（同一份事实解析只有一个真源）：
+      旧实现自己扫一遍「能带/慎带/别带」三个词，且固定顺序先判「能带」，
+      于是报告理由句里的「未达到8%的能带标准」会把真结论「🟡 慎带」
+      误标成「🟢 能带」+ 绿色 ⇒ **达人看到的结论是反的**（该慎带的品标成能带）。
     """
-    r = report or ""
-    v = ""
-    for key in ("能带", "慎带", "别带"):
-        if key in r:
-            v = key
-            break
+    v = _verdict_label(report)
     tpl = {"能带": "green", "慎带": "orange", "别带": "red"}.get(v, "grey")
     emoji = {"能带": "🟢", "慎带": "🟡", "别带": "🔴"}.get(v, "⚪")
     return (f"{emoji} {v}" if v else ""), tpl
 
 
-def _product_summary(report: str) -> str:
-    """结论下面那一句话（价格偏高且佣金率仅5% 之类）。"""
-    r = report or ""
-    if "▎结论" in r:
-        seg = r.split("▎结论", 1)[1]
-        # 结论段里：跳过结论词本身，取第一句非空行
-        for line in seg.splitlines():
-            s = line.strip().lstrip("🟢🟡🔴⚪").strip()
-            if not s or s in ("能带", "慎带", "别带"):
-                continue
-            return s[:60]
-    return ""
+def _card_summary(report: str) -> str:
+    """结论下面那一句话（价格偏高且佣金率仅5% 之类）。
+
+    ★ 取「## 结论」标题下的**理由行**（`_verdict_lines` 已是唯一真源）。
+      旧实现按 `"▎结论"` 切分 —— 但真实报告的标题是 `## 结论`，
+      `▎结论` 这个串全仓只出现在它自己的 docstring 里
+      ⇒ 摘要**恒为空**，卡片只能显示「（点上方长图看完整分析）」。
+    """
+    return _verdict_reason(report)[:60]
 
 
 def _send_product_card(sender, chat_id: str, title: str, report: str,
@@ -1984,8 +2006,8 @@ def _send_product_card(sender, chat_id: str, title: str, report: str,
     """发商品分析卡（结论 + 关键数字 + 按钮）。成功返回 True。"""
     try:
         from . import feishu_card as fc
-        verdict, tpl = _product_verdict(report)
-        summary = _product_summary(report)
+        verdict, tpl = _card_verdict(report)
+        summary = _card_summary(report)
         # 详细匹配分析在**长图**里；卡片只留「结论 + 一句话 + 按钮」，
         # 不要再把摘要重复一遍（重复 = 啰嗦 = 不好看）。
         card = fc.product_card(

@@ -156,7 +156,7 @@ def audit(tenant_key: str, repeat: int, limit: int, mode: str) -> dict:
     for s in samples:
         verdicts = []
         for _ in range(repeat):
-            out = executors._product_verdict(tenant_key, s["stats"])
+            out = executors._llm_product_verdict(tenant_key, s["stats"])
             m = VERDICT_RE.search(out)
             verdicts.append(m.group(1) if m else "未出结果")
         s["verdicts"] = verdicts
