@@ -371,6 +371,38 @@ GET /ecom/captain/operate_analysis/coop_diagnosis/overview?period_type=&ewid=<�
 4. **`get_board_default_info` 的类目树是嵌套的** —— 一级类目在
    `industry_list[].child_cate_list[]` 里（`cate_level=0`），别只看顶层。
 
+#### ★★ 页面实证：达人端**能**用商品ID搜到商品（2026-10-24 老大要截图核对）
+
+> 老大原话：「商品ID是否可以搜索到商品，你把搜索之后的页面截图给我，我需要知道是否准确」。
+
+**结论：能，而且精确命中唯一商品。** 3 个真实平台ID 实测（页面实拍，非接口推断）：
+
+| 商品ID | 页面搜到的商品 | 到手价 | 佣金 | 店铺分 |
+|---|---|---|---|---|
+| `3668788850777522321` | Coolchap【迪丽热巴同款】夏季加密印章系列小香风沙滩凉鞋CCF2006 | ¥179 | 20%（投放期8%） | 92 |
+| `3679179617945649473` | 夏季新款百搭欧式女款海边软底编织麻花度假沙滩人字拖CAF1021 | ¥159 | 5% | 92 |
+| `3684758647369498887` | 哟酷酷（夏日度假）美式AA杯垫刺绣露脐百搭运动内搭美背吊带背心 | ¥55 | 10% | 89 |
+
+**平台是真拿 ID 去查的**（不是关键词模糊匹配撞出来的）—— 搜索时浏览器实际发出：
+- `GET /pc/selection/search/sug?query=<商品ID>&ewid=...`（联想建议）
+- `POST /pc/selection/common/material_list` body 含
+  `{"scene":"PCSquareSearch","size":30,"search_text":"<商品ID>","cursor":0,...}`
+  ⇒ `search_text` **就是商品ID本身**。
+
+**页面数据 vs 我们库：100% 一致**（到手价 / 佣金率 / 店铺分逐项对得上）
+⇒ 「达人把商品ID发给我们 → 我们查到对应商品」这条链路**前提成立**。
+
+**入口**（踩坑记录）：
+- 达人工作台根路由 `https://buyin.jinritemai.com/` 会**重定向回官网** `www.douyinec.com`；
+  官网落地页**没有任何输入框**（`inputs: []`），别在那儿找搜索框。
+- 真正带搜索框的是 **`https://buyin.jinritemai.com/dashboard/merch-picking-library`**
+  （落地后就是「选品广场」页，顶部有搜索框）。
+  ⚠️ 直达 `selection-square` / `daren-square` / `exclusive-selection-square/rank`
+  三个路由都**没有可见输入框**。
+- 复现工具：`POST http://127.0.0.1:8095/daren-search` body `{pid, tag, url?}`
+  ⇒ 真·页面输入 + 回车 + 截图（`darensearch_<tag>_输入.png` / `_结果.png`），
+  结果看 `GET /daren-search`（含 body 正文 + 本次触发的接口列表）。
+
 #### 没有平台真值的维度（如实留空，别造）
 
 - **转化率**：❌ 平台**没有通用商品转化率接口**。

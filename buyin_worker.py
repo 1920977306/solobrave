@@ -2487,6 +2487,171 @@ def _browser_loop():
                     STATE['daren_shot'] = {'error': str(e)}
                 log(f'[Control] 达人端截图失败: {e}')
             continue
+        if row.get('_daren_search'):
+            # ★★ 达人端「按商品ID 能不能搜到商品」实证（2026-10-24 老大要的）
+            #   真·页面操作：在**达人端页面的搜索框**里输入商品ID → 回车 → 截图。
+            #   ⚠️ 为什么必须页面实证（不能用接口结论代替）：
+            #      我们的链路前提是「达人把商品ID发给我们，我们能查到对应商品」。
+            #      如果平台搜索框**只认关键词不认ID**，整条链路的前提就是错的，
+            #      而接口层 `search_text=ID` 能返回数据**不代表页面能搜到**。
+            #   产出：① 搜索前后截图 ② 结果页正文 ③ 本次搜索触发的接口
+            #      （含请求体，用来证明平台是不是真拿 ID 去查的）
+            pid = str(row.get('pid') or '').strip()
+            tag = re.sub(r'[^\w]+', '_', str(row.get('tag') or 'pid'))[:40]
+            target_url = str(row.get('url') or '').strip()
+            out = {'pid': pid, 'ok': False}
+            try:
+                page = _switch_to(DAREN_BROWSER, BROWSER)
+                # ① 回到达人端工作台（全局搜索框在那儿）
+                if 'douyinec' not in (page.url or ''):
+                    page.goto(DAREN_HOME, timeout=60000)
+                    page.wait_for_load_state('domcontentloaded')
+                    _human_sleep(3, 5)
+                out['start_url'] = page.url
+                # ①-b 可指定目标页（直达不行就退回点导航）
+                #     支持一次给多个候选 URL，逐个试，谁有搜索框就用谁
+                cand_urls = row.get('urls') or ([target_url] if target_url else [])
+                tried = []
+                for cu in cand_urls:
+                    cu = str(cu or '').strip()
+                    if not cu:
+                        continue
+                    rec = {'url': cu}
+                    try:
+                        page.goto(cu, timeout=45000)
+                        page.wait_for_load_state('domcontentloaded')
+                        _human_sleep(3, 5)
+                        rec['final'] = page.url
+                        rec['title'] = page.title()[:80]
+                        try:
+                            rec['inputs'] = page.evaluate("""() => {
+                                const rs = [];
+                                document.querySelectorAll('input, textarea').forEach(el => {
+                                    const r = el.getBoundingClientRect();
+                                    rs.push({ph: el.placeholder || '', type: el.type || '',
+                                             vis: r.width > 0 && r.height > 0});
+                                });
+                                return rs;
+                            }""")
+                        except Exception:
+                            rec['inputs'] = []
+                        vis = [i for i in (rec.get('inputs') or []) if i.get('vis')]
+                        rec['visible_inputs'] = len(vis)
+                        if vis:
+                            rec['hit'] = True
+                    except Exception as e:
+                        rec['error'] = str(e)[:140]
+                    tried.append(rec)
+                    if rec.get('hit'):
+                        break
+                out['tried'] = tried
+                out['goto_url'] = page.url
+                out['goto_title'] = page.title()[:80]
+                # ② 先把页面上所有可见输入框 + 导航链接摸出来（认 placeholder，别猜）
+                try:
+                    out['inputs'] = page.evaluate("""() => {
+                        const rs = [];
+                        document.querySelectorAll('input, textarea').forEach(el => {
+                            const r = el.getBoundingClientRect();
+                            rs.push({
+                                tag: el.tagName, type: el.type || '',
+                                ph: el.placeholder || '',
+                                val: el.value || '',
+                                visible: r.width > 0 && r.height > 0
+                            });
+                        });
+                        return rs;
+                    }""")
+                except Exception as e:
+                    out['inputs_error'] = str(e)[:120]
+                try:
+                    out['links'] = page.evaluate("""() => {
+                        const seen = new Set(); const rs = [];
+                        document.querySelectorAll('a, [role=menuitem], [class*=menu] *').forEach(el => {
+                            const t = (el.innerText || '').trim();
+                            if (!t || t.length > 18) return;
+                            const k = t + '|' + (el.getAttribute('href') || '');
+                            if (seen.has(k)) return;
+                            seen.add(k);
+                            const r = el.getBoundingClientRect();
+                            rs.push({t: t, href: (el.getAttribute('href') || '').slice(0, 90),
+                                     vis: r.width > 0 && r.height > 0});
+                        });
+                        return rs.slice(0, 60);
+                    }""")
+                except Exception as e:
+                    out['links_error'] = str(e)[:120]
+                # ③ 清空网络日志：证明「这次搜索到底调了哪个接口」
+                with _job_lock:
+                    DAREN_BROWSER.net_log.clear()
+                # ④ 找搜索框（优先 placeholder 含「搜索/商品/搜」）
+                box = None
+                try:
+                    cands = page.locator('input[type="text"], input:not([type])')
+                    n = min(cands.count(), 12)
+                    scored = []
+                    for i in range(n):
+                        c = cands.nth(i)
+                        try:
+                            if not c.is_visible():
+                                continue
+                            ph = (c.get_attribute('placeholder') or '')
+                            rank = 0 if any(k in ph for k in ('搜索', '商品', '搜')) else 1
+                            scored.append((rank, i, c, ph))
+                        except Exception:
+                            continue
+                    if scored:
+                        scored.sort(key=lambda t: (t[0], t[1]))
+                        box = scored[0][2]
+                        out['placeholder'] = scored[0][3][:60]
+                except Exception as e:
+                    out['box_error'] = str(e)[:120]
+                if box is None:
+                    out['error'] = '页面上没找到可用的输入框'
+                    log(f'[Control] 达人端搜索失败({pid}): {out["error"]}')
+                else:
+                    try:
+                        box.click(timeout=10000)
+                        _human_sleep(0.4, 0.9)
+                        box.fill(pid)
+                        _human_sleep(0.8, 1.5)
+                        shot_in = SHOTS_DIR / f'darensearch_{tag}_输入.png'
+                        page.screenshot(path=str(shot_in))
+                        out['shot_input'] = str(shot_in)
+                        box.press('Enter')
+                        _human_sleep(4.0, 6.5)
+                        # 结果页截图：首屏 + 整页
+                        shot1 = SHOTS_DIR / f'darensearch_{tag}_结果.png'
+                        page.screenshot(path=str(shot1))
+                        out['shot_result'] = str(shot1)
+                        try:
+                            shot2 = SHOTS_DIR / f'darensearch_{tag}_结果_整页.png'
+                            page.screenshot(path=str(shot2), full_page=True)
+                            out['shot_full'] = str(shot2)
+                        except Exception:
+                            pass
+                        out['result_url'] = page.url
+                        out['title'] = page.title()[:80]
+                        try:
+                            out['body'] = page.evaluate(
+                                "() => (document.body ? document.body.innerText : '').slice(0, 2500)")
+                        except Exception:
+                            out['body'] = ''
+                        # 本次搜索触发的接口（证明平台怎么查的）
+                        with _job_lock:
+                            out['net'] = [dict(r) for r in DAREN_BROWSER.net_log[-25:]]
+                        out['ok'] = True
+                        log(f'[Control] 达人端搜索完成 pid={pid} url={out["result_url"]} '
+                            f'接口数={len(out["net"])}')
+                    except Exception as e:
+                        out['error'] = str(e)[:200]
+                        log(f'[Control] 达人端搜索异常({pid}): {e}')
+            except Exception as e:
+                out['error'] = str(e)[:200]
+                log(f'[Control] 达人端搜索失败({pid}): {e}')
+            with _job_lock:
+                STATE['daren_search'] = out
+            continue
         if row.get('_daren_fetch'):
             # 在达人端页面上下文里 fetch 任意接口（自带登录 cookie）。
             # 用途：抓到接口路径后直接调用取结构化数据；也用于盲探候选路径。
@@ -3530,6 +3695,11 @@ class ControlHandler(BaseHTTPRequestHandler):
                 out = STATE.get('daren_fetch')
             self._json(200, out or {'error': 'not run yet'})
             return
+        if self.path == '/daren-search':
+            with _job_lock:
+                out = STATE.get('daren_search')
+            self._json(200, out or {'error': 'not run yet'})
+            return
         if self.path.startswith('/jobs/'):
             cid = self.path[len('/jobs/'):]
             with _job_lock:
@@ -3582,6 +3752,21 @@ class ControlHandler(BaseHTTPRequestHandler):
         if self.path == '/daren-shot':
             JOB_Q.put({'_daren_shot': True, 'name': str(body.get('name') or 'daren')})
             self._json(200, {'ok': True, 'msg': '截图已入队，结果见 GET /daren-shot'})
+            return
+        if self.path == '/daren-search':
+            # ★ 达人端「按商品ID 搜商品」页面实证（2026-10-24 老大要的截图）
+            #   body: {pid: 商品ID, tag: 标签}
+            pid = str(body.get('pid') or '').strip()
+            target_url = str(body.get('url') or '').strip()
+            cand = [str(u) for u in (body.get('urls') or []) if str(u or '').strip()]
+            if not pid and not target_url and not cand:
+                self._json(400, {'error': 'missing pid'})
+                return
+            JOB_Q.put({'_daren_search': True, 'pid': pid,
+                       'tag': str(body.get('tag') or 'pid'),
+                       'url': target_url,
+                       'urls': cand})
+            self._json(200, {'ok': True, 'msg': '搜索已入队，结果见 GET /daren-search'})
             return
         if self.path == '/daren-fetch':
             # 在达人端页面上下文里 fetch 任意接口（带登录 cookie）
