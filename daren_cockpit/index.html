@@ -100,6 +100,29 @@
   .swatch{font-size:12px;padding:3px 10px;border-radius:8px;font-weight:500;white-space:nowrap}
   /* 长文本（合作说明/商品名）必须能断行，否则手机端把整页撑出横向滚动条 */
   .break{overflow-wrap:anywhere;word-break:break-word;min-width:0}
+  /* 排品表（2026-10-24）：日期条 + 坑位卡
+     ⚠️ 网格列用 minmax(0,1fr) —— 同 .pgrid 的坑，商品名一长就横向溢出 */
+  .plan-day{display:grid;grid-template-columns:64px minmax(0,1fr);gap:10px;
+    padding:10px 0;border-top:1px solid var(--line)}
+  .plan-day:first-child{border-top:0}
+  .plan-date{text-align:center;border-radius:10px;background:#fafafa;border:1px solid var(--line);
+    padding:6px 2px;align-self:start}
+  .plan-date .pd-d{font-size:17px;font-weight:700;line-height:1.1;font-variant-numeric:tabular-nums}
+  .plan-date .pd-w{font-size:10px;color:var(--sub);margin-top:1px}
+  .plan-today .plan-date{background:var(--green-bg);border-color:rgba(7,193,96,.35)}
+  .plan-today .plan-date .pd-d{color:var(--green-dk)}
+  .plan-today .plan-date .pd-w{color:var(--green-dk);font-weight:600}
+  .plan-slot{border:1px solid var(--line);border-radius:10px;padding:9px 11px;background:#fafafa;margin-bottom:7px}
+  .plan-slot:last-child{margin-bottom:0}
+  .plan-today .plan-slot{background:var(--card);border-color:rgba(7,193,96,.3)}
+  .plan-top{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+  .plan-no{font-size:10px;font-weight:700;color:#fff;background:var(--green);border-radius:5px;padding:1px 6px;flex:none}
+  .plan-name{font-size:13.5px;font-weight:600;flex:1;min-width:0;overflow-wrap:anywhere}
+  .plan-prio{font-size:12px;color:var(--amber);flex:none;font-variant-numeric:tabular-nums;white-space:nowrap}
+  .plan-meta{font-size:11.5px;color:var(--sub);margin-top:4px}
+  .plan-why{margin:5px 0 0;padding-left:16px;font-size:11.5px;color:var(--sub)}
+  .plan-why li{margin:1px 0}
+  .plan-empty{text-align:center;color:var(--sub);font-size:12.5px;padding:10px 0 2px}
 </style>
 </head>
 <body>
@@ -321,7 +344,10 @@ function renderAdmin(d){
       <span class="brand-name">达人经营驾驶舱</span>
       <span class="sub">· 运营视图</span>
     </div>
-    <a href="/" class="sub shrink-0" style="text-decoration:none">‹ 换身份</a>
+    <div class="flex items-center gap-3 shrink-0">
+      <a href="/plan" class="sub" style="text-decoration:none">排品表</a>
+      <a href="/" class="sub" style="text-decoration:none">‹ 换身份</a>
+    </div>
   </div>
   <div class="card p-5">
     <div class="text-xl font-bold">运营工作台</div>
@@ -547,6 +573,63 @@ function recoSection(d){
   </div>`;
 }
 
+function planSection(d){
+  /* 排品表（2026-10-24）
+     ★ 数据来自 /api/cockpit 里的 plan 字段（后端算好，和机器人侧同一份算法）
+     ★ 排品池 = 我们系统里的合作单（运营建单 / 达人「接了 xxx」/ 合作申请通过）
+  */
+  const p = d.plan || {};
+  const slots = p.slots || [];
+  if(!slots.length){
+    return `<div class="card p-5">
+      <div class="sec-title mb-1">排品表</div>
+      <div class="sub mb-3">AI 按「匹配度 + 佣金 + 时机」排好哪天推哪个</div>
+      <div class="empty sub">还没有接品 · 运营在后台建合作单、或达人发「接了 &lt;商品ID&gt;」后，这里会出现 7 天安排</div>
+    </div>`;
+  }
+  const today = new Date().toISOString().slice(0,10);
+  const WD = ['周日','周一','周二','周三','周四','周五','周六'];
+  const body = slots.map(s => {
+    const isToday = s.date === today;
+    const dstr = new Date(s.date + 'T00:00:00');
+    const wd = isNaN(dstr) ? '' : (WD[dstr.getDay()] || '');
+    const items = (s.items || []).map(it => {
+      const stars = '★'.repeat(Math.max(1, Math.round((it.priority||0)/20)));
+      const meta = [
+        it.price ? '¥' + Number(it.price).toFixed(0) : '',
+        it.commission_rate ? '佣金' + Number(it.commission_rate).toFixed(0) + '%' : '',
+        it.lifecycle && it.lifecycle.label ? it.lifecycle.label : '',
+      ].filter(Boolean).join(' · ');
+      const why = (it.reasons || []).slice(0,2).map(r => `<li>${esc(r)}</li>`).join('');
+      return `<div class="plan-slot">
+        <div class="plan-top">
+          <span class="plan-no">坑位 ${it.plan_slot}</span>
+          <span class="plan-name">${esc(it.product_name || '')}</span>
+          <span class="plan-prio">${stars} ${(it.priority||0).toFixed(1)}</span>
+        </div>
+        <div class="plan-meta">${esc(meta)}</div>
+        ${why ? `<ul class="plan-why">${why}</ul>` : ''}
+      </div>`;
+    }).join('') || `<div class="plan-empty">空坑位 · 等新商品进来自动补上</div>`;
+    return `<div class="plan-day ${isToday ? 'plan-today' : ''}">
+      <div class="plan-date">
+        <div class="pd-d">${esc(s.date.slice(5))}</div>
+        <div class="pd-w">${esc(isToday ? '今天' : wd)}</div>
+      </div>
+      <div>${items}</div>
+    </div>`;
+  }).join('');
+  const filled = slots.reduce((n,s) => n + (s.items||[]).length, 0);
+  return `<div class="card p-5">
+    <div class="flex items-baseline justify-between mb-1 flex-wrap gap-1">
+      <div class="sec-title">排品表</div>
+      <div class="sub">${filled} 个品 · ${slots.length} 天 · 每天 ${p.per_day || 2} 坑</div>
+    </div>
+    <div class="sub mb-3">AI 排好哪天推哪个 · 同品类不排相邻两天 · 每天 09:37 在飞书提醒达人</div>
+    ${body}
+  </div>`;
+}
+
 function render(d){
   document.title = '达人经营驾驶舱';
   const delta = d.fans_delta === null || d.fans_delta === undefined ? '<span class="sub">攒数据中 · 采满 2 次算环比</span>'
@@ -656,6 +739,9 @@ function render(d){
 
   <!-- AI 选品建议（推理链） -->
   ${recoSection(d)}
+
+  <!-- 排品表（AI 排好哪天推哪个） -->
+  ${planSection(d)}
 
   <!-- 合作 -->
   <div class="card p-5">

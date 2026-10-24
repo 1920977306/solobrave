@@ -272,6 +272,8 @@ GET /ecom/captain/operate_analysis/coop_diagnosis/overview?period_type=&ewid=<�
     页面入口 `https://buyin.jinritemai.com/dashboard/product-diagnosis/home`（商品质量诊断）
   - `/pc/selection_tool/promotion/list` + `/pc/selection_tool/promotion/pools`
     （**我的橱窗 / 最近带货 / 选品车** —— 达人端的商品来源池）
+    ⚠️ **只作接口参考，我们不用它扒达人数据**（2026-10-24 老大纠正：
+    达人端只做「按商品ID搜商品」）。
   - `/api/authorStatData/productRelatedLives`（商品相关直播）、
     `/api/authorStatData/salesAnalyseV2`（带货分析）、
     `/api/authorStatData/authorRepresentWorksList`（达人代表作品/视频）、
@@ -511,34 +513,59 @@ vs `video_sales_7d`（短视频口径，**只覆盖榜内商品**）。混用必
   - 「今天推啥 / 排品表 / 我的排品」→ 直接回表（`PLAN_QUERY_RE`）。
   - 每日 09:37 自动推「今天推哪两个 + 哪个该清了」（灰度 `daren_boss`/`daren_test2`）。
 
-#### 排品池的真源是**达人选品车**，不是「达人发口令」（2026-10-24 老大反馈后修正）
+#### 排品池的真源 = **我们自己系统里的合作单**（`deals` 表）
 
-> 老大原话：「达人1 没有做到我说的那个功能：达人手里每天都要接很多的品，那这些品就需要 AI 帮忙安排、提醒」。
+> 老大原话（2026-10-24 20:26）：**「选品车？我说了达人端只是一个搜索商品的功能才会用到，
+> 其他的不要碰」**。
 
-⚠️ **第一版入口从根上就错了**：靠「达人发一句魔法口令（接了 xxx）」登记接品，
-**现实中没人会发这条口令** —— 实测飞书两个租户 200+ 条消息里，
-`接了`/`今天推啥` 触发数 = **0** ⇒ 排品池永远是空的 ⇒ 调度器一直 `skipped=2`。
+排品池 = `deals` 表里状态为 `negotiating`/`sample_sent`/`approved` 的合作单，
+来源三条，全部在我们自己的系统里：
 
-**平台自己给的真源契约**（2026-10-24 实测）：
+| 来源 | 入口 |
+|---|---|
+| 运营/团长建单 | `POST /api/deals`（后台） |
+| 达人在飞书说「接了 `<商品ID>`」 | `plan_notify.register_deal()` |
+| 达人提合作意向 → 运营通过 | 合作申请管道 |
+
+⚠️ **不要用达人选品车当真源**（曾走错，已下线）：
+- 选品车是达人在**平台侧**的私事，不是我们的业务数据；
+- 达人端只有一个登录账号 ⇒ 采到的只会是**那一个人**的选品车，归属直接串掉；
+- 属于「拿达人端当数据源乱扒」，越界。
+
+⇒ 已下线：`daren_cockpit/tools/cart_collector.py`（可恢复删除）、
+`plan_notify.sync_cart_pool()`、调度器的自动同步、`scan_and_push(sync_first=…)` 参数。
+⇒ 库里的采集残留（2 商品 + 2 合作单）已清理，回退到 products 137 / deals 5。
+
+**达人端浏览器（`buyin_worker`）的边界**：**只做「按商品ID搜商品」**
+（`/daren-search` + `/daren-fetch` 抓该商品维度用于建档/推荐）。
+**别的都不碰** —— 不爬选品车、不扒达人业务数据。
+
+<details>
+<summary>（已废弃，仅留档）当年实测的平台选品车契约 —— 不要照着做</summary>
 
 | 用途 | 接口 | 关键字段 |
 |---|---|---|
-| **当前登录达人身份** | `GET /index/getUser` | `user_name`(昵称) / `origin_uid`(抖音uid) / `shop_id` / `user_id` |
-| **选品车商品（= 达人接的品）** | `POST /selection_cart_pc_api/card/m_get_card` | body `{page,page_size,key_word,view_type,common_filter,version}`；`data.cart_view_card[].cards[].product_card` |
-| 选品车角标 | `POST /selection_cart_pc_api/comm/m_get_cart_sum` | body `{sum_scene:[0]}`；`sum_type=1` 全部 / `2` 未加橱窗 |
+| 当前登录达人身份 | `GET /index/getUser` | `user_name` / `origin_uid` / `shop_id` / `user_id` |
+| 选品车商品 | `POST /selection_cart_pc_api/card/m_get_card` | `data.cart_view_card[].cards[].product_card` |
+| 选品车角标 | `POST /selection_cart_pc_api/comm/m_get_cart_sum` | `data.cart_sums[]` |
 
-商品卡口径（★ **单位坑**）：
+商品卡口径（★ **单位坑**，搜商品建档时仍要用）：
 - `base_product_info.price` = **分**（6800 ⇒ ¥68.00）
 - `business_operation_info.cos_ratio` = 佣金率**万分比**（1000 ⇒ 10%）
-- `business_operation_info.ad_cos_ratio` = 投放期佣金万分比（600 ⇒ 6%）
-- `business_operation_info.monthly_sale` / `good_ratio` / `is_in_window`
+- `ad_cos_ratio` = 投放期佣金万分比（600 ⇒ 6%）
 - `base_shop_info.exp_score`（店铺体验分）/ `shop_name`
 - `base_product_info.new_category_id` = 一级/二级/三级类目 + 类目id
 
-**工具**：`daren_cockpit/tools/cart_collector.py`
-（`--apply` 真写库；默认只看不写）。
-落两处：① `products` 按 `platform_product_id` **补建档**（选品车的品经常不在我们库里）
-② `deals` 登记成排品池合作单（`deal_source='选品车'`，`status='approved'`）。
+</details>
+
+#### 排品表 H5 页面（2026-10-24 老大要「拍品表做成 h5」）
+
+- 独立页 `daren_cockpit/plan.html` → `http://127.0.0.1:7188/plan`（运营口令保护）
+- 数据源 `GET /api/plan?talent_id=`（运营口令和 `x-ops-key` 头）
+- 达人视图（`/?t=<tenant>`）里也内嵌「排品表」区块（`load_cockpit` 返回的 `plan` 字段）
+- 运营工作台右上角有「排品表」入口
+- ★ **按达人列，不按租户列**：运营后台建的合作单，达人不一定绑了飞书租户
+  （实测：七月姐姐有 5 单但没租户 ⇒ 按租户列就看不到她）
 
 #### ⚠️ 租户↔达人身份会错位（同一个坑，第二次踩）
 

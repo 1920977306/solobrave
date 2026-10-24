@@ -155,7 +155,7 @@ def plan_text(douyin_id: str, talent_id: str = "") -> str:
     future = plan.future_slots(slots)
     if not future or not any(s.items for s in future):
         return ("你名下这批品都排完/推过了。\n"
-                "在达人端选品车加新品（或发「接了 <商品ID>」），"
+                "运营给你派新品、或者你发「接了 <商品ID>」，"
                 "我马上帮你排进这周的品表。")
     return plan.plan_text(future, _display_name(talent))
 
@@ -300,44 +300,21 @@ def register_deal(douyin_id: str, product_id: str, talent_id: str = "",
         conn.close()
 
 
-# ────────────────────────── 排品池自动同步 ──────────────────────────
-
-# 选品车同步缓存：{"at": 时间戳, "ok": bool, "count": int}
-_cart_sync: dict = {}
-
-
-def sync_cart_pool(force: bool = False, max_age: int = 6 * 3600) -> dict:
-    """把达人选品车同步进排品池（`deals`）。
-
-    ★ 这才是「达人接了哪些品」的真源 —— 达人在选品广场点「加选品车」就是接了。
-      靠「达人发魔法口令」登记在现实里行不通（实测 200+ 条消息触发数 = 0）。
-
-    同步有成本（要走达人端浏览器，3 个接口 ≈ 30~60s）⇒ 带缓存：
-      · 每天首次扫描时同步一次
-      · 达人主动问「今天推啥」时，超过 `max_age` 才补同步
-    """
-    now = int(time.time())
-    if not force and _cart_sync.get("at") and \
-            (now - int(_cart_sync["at"])) < max_age:
-        return dict(_cart_sync)
-    try:
-        sys.path.insert(0, str(_ROOT))
-        from daren_cockpit.tools import cart_collector
-        res = cart_collector.sync(apply=True)
-    except Exception as e:
-        log.exception("[plan] 选品车同步失败")
-        res = {"ok": False, "error": str(e)[:160]}
-    _cart_sync.clear()
-    _cart_sync.update({
-        "at": now,
-        "ok": bool(res.get("ok")),
-        "count": int(res.get("deal_count") or 0),
-        "talent": (res.get("talent") or {}).get("name", ""),
-        "error": res.get("error", ""),
-    })
-    log.info("[plan] 选品车同步: %s", {k: v for k, v in _cart_sync.items()
-                                       if k != "at"})
-    return dict(_cart_sync)
+# ────────────────────────── 排品池的真源 ──────────────────────────
+#
+# ★ 排品池 = **我们自己系统里的合作单**（`deals` 表，状态 negotiating /
+#   sample_sent / approved）。来源有两条：
+#     ① 达人在飞书说「接了 <商品ID>」→ `register_deal()`
+#     ② 运营/团长在后台建合作单
+#
+# ⚠️ **不要用达人选品车当真源**（2026-10-24 老大明确纠正）：
+#   「达人端只是一个搜索商品的功能才会用到，其他的不用碰」。
+#   选品车是达人在**平台侧**的私事，不是我们的业务数据；
+#   拿它当排品真源 = 越界采集 + 归属错（只有一个登录账号时只会串到那一个人）。
+#   ⇒ 采集器已下线，本模块不再有任何自动同步。
+#
+# 达人端浏览器（`buyin_worker`）的**唯一**用途：**按商品ID搜商品**，
+#   顺带抓该商品的维度用于建档/推荐。别的都不碰。
 
 
 # ────────────────────────── 每日提醒 ──────────────────────────
@@ -471,7 +448,7 @@ def _tail_pending(douyin_id: str, talent_id: str, today_items) -> list:
     return out
 
 
-def scan_and_push(ws=None, dry_run: bool = False, sync_first: bool = True) -> dict:
+def scan_and_push(ws=None, dry_run: bool = False) -> dict:
     """扫一遍灰度租户，把「今天推哪两个」推给有排期的达人。
 
     ★ 签名与 `coop_notify.scan_and_push` **保持一致**（收 `ws` 对象 + `dry_run`）——
@@ -479,13 +456,8 @@ def scan_and_push(ws=None, dry_run: bool = False, sync_first: bool = True) -> di
       （`'WsManager' object is not callable`，2026-10-24 踩过）。
 
     返回统计（和 coop_notify.scan_and_push 同样的形状，方便运维看）。
-    ★ `sync_first`：扫描前先把**选品车**同步进排品池 ——
-      否则达人新加的品不会进表（排品池只增不减要靠这个）。
     """
     stat = {"scanned": 0, "pushed": 0, "skipped": 0, "details": []}
-    if sync_first:
-        st = sync_cart_pool()
-        stat["cart_sync"] = {k: v for k, v in st.items() if k != "at"}
     gray = _gray_map()
     if not gray:
         log.info("[plan] 灰度名单内没有已绑定抖音号的租户 → 本轮不推")
@@ -595,12 +567,9 @@ class PlanScheduler(threading.Thread):
         today = now.strftime("%Y-%m-%d")
         if self._last_day == today:
             return          # 一天只主动推一次
-        # ★ 当天第一次推之前，强制把选品车同步一遍
-        #   （达人昨天/今天新加的品要进今天的排品表）
-        try:
-            sync_cart_pool(force=True)
-        except Exception:
-            log.exception("[plan] 扫描前同步选品车失败（不阻断推送）")
-        stat = scan_and_push(self.wm, sync_first=False)
+        # ⚠️ 这里**不**做任何自动采集 ——
+        #   排品池 = 我们自己系统里的合作单（达人说「接了 xxx」/ 运营建单）；
+        #   达人端只用于「按商品ID搜商品」，不碰达人的其他数据（2026-10-24 老大纠正）。
+        stat = scan_and_push(self.wm)
         if stat.get("pushed"):
             self._last_day = today

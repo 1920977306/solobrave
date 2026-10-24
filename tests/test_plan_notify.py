@@ -193,11 +193,10 @@ def test_reminder_is_idempotent(dbfile):
     monkey.db.get_latest_chat_id = lambda tk: "oc_test"
     try:
         # ★ 签名与 coop 一致：收 ws 对象（内部 get_sender）+ dry_run
-        #   sync_first=False：测试**不能**触发真采集（会连 prod 库/达人端）
-        st1 = monkey.scan_and_push(_Ws(_Sender), dry_run=False, sync_first=False)
+        st1 = monkey.scan_and_push(_Ws(_Sender), dry_run=False)
         assert st1["pushed"] == 1, st1
         assert len(sent) == 1
-        st2 = monkey.scan_and_push(_Ws(_Sender), dry_run=False, sync_first=False)
+        st2 = monkey.scan_and_push(_Ws(_Sender), dry_run=False)
         assert st2["pushed"] == 0, "同一天不能重复推送"
         assert len(sent) == 1, "同一天同一品只能提醒一次"
     finally:
@@ -223,10 +222,10 @@ def test_reminder_idempotency_survives_restart(dbfile):
     plan_notify._gray_map = lambda: {"daren_boss": "dy_888"}
     plan_notify.db.get_latest_chat_id = lambda tk: "oc_test"
     try:
-        plan_notify.scan_and_push(_Ws(_Sender), dry_run=False, sync_first=False)
+        plan_notify.scan_and_push(_Ws(_Sender), dry_run=False)
         assert len(sent) == 1
         # 「重启」= 新进程，内存状态全丢
-        plan_notify.scan_and_push(_Ws(_Sender), dry_run=False, sync_first=False)
+        plan_notify.scan_and_push(_Ws(_Sender), dry_run=False)
         assert len(sent) == 1, "重启后不能把今天的提醒重推一遍"
     finally:
         plan_notify._gray_map = orig_gray
@@ -297,7 +296,7 @@ def test_scan_persists_schedule_to_db(dbfile):
     restore = _gray_one(None)
     try:
         plan_notify.scan_and_push(_Ws(lambda: _Rec(sent)),
-                                  dry_run=False, sync_first=False)
+                                  dry_run=False)
     finally:
         restore()
     assert sent, "应该推了今天这一条"
@@ -318,7 +317,7 @@ def test_dry_run_writes_nothing(dbfile):
     plan_notify.register_deal("dy_888", "3668788850777522321")
     restore = _gray_one(None)
     try:
-        plan_notify.scan_and_push(None, dry_run=True, sync_first=False)
+        plan_notify.scan_and_push(None, dry_run=True)
     finally:
         restore()
     rows = _deals_rows(dbfile)
@@ -338,7 +337,7 @@ def test_schedule_is_stable_across_days(dbfile):
     restore = _gray_one(None)
     try:
         plan_notify.scan_and_push(_Ws(lambda: _Rec(sent)),
-                                  dry_run=False, sync_first=False)
+                                  dry_run=False)
     finally:
         restore()
     assert len(sent) == 1
@@ -370,7 +369,7 @@ def test_overdue_unpushed_item_is_requeued(dbfile):
     restore = _gray_one(None)
     try:
         plan_notify.scan_and_push(_Ws(lambda: _Rec(sent)),
-                                  dry_run=False, sync_first=False)
+                                  dry_run=False)
     finally:
         restore()
     assert len(sent) == 1, "排期过期且从没推过的品，应该今天补推一次"
@@ -397,7 +396,7 @@ def test_pushed_item_is_not_requeued(dbfile):
     restore = _gray_one(None)
     try:
         plan_notify.scan_and_push(_Ws(lambda: _Rec(sent)),
-                                  dry_run=False, sync_first=False)
+                                  dry_run=False)
     finally:
         restore()
     assert not sent, "昨天已经推过了，不该再推一遍"

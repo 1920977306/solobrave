@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>排品表 · 达人经营驾驶舱</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#07c160">
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  :root{
+    --bg:#ededed; --card:#ffffff; --line:#f0f0f0;
+    --txt:#191919; --sub:#888888;
+    --green:#07c160; --green-dk:#05914d; --green-bg:#e8f8ef;
+    --amber:#fa9d3b; --red:#fa5151;
+  }
+  *{box-sizing:border-box}
+  body{background:var(--bg);color:var(--txt);font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;margin:0}
+  .card{background:var(--card);border-radius:16px}
+  .kpi-num{font-size:30px;font-weight:700;letter-spacing:.3px;font-variant-numeric:tabular-nums}
+  .sec-title{font-size:16px;font-weight:600}
+  .sub{color:var(--sub);font-size:12px}
+  .btn-green{display:inline-flex;align-items:center;gap:6px;background:var(--green);color:#fff;font-size:13px;font-weight:600;padding:9px 18px;border-radius:999px;box-shadow:0 2px 8px rgba(7,193,96,.3);text-decoration:none;border:0;cursor:pointer}
+  .hairline{height:1px;background:var(--line)}
+  .brand-dot{width:8px;height:8px;border-radius:99px;background:var(--green);flex:0 0 auto;
+    box-shadow:0 0 0 3px rgba(7,193,96,.16)}
+  .brand-name{font-size:14px;font-weight:700;color:var(--txt);letter-spacing:.2px;white-space:nowrap}
+  .empty{border:1px dashed #ddd;border-radius:12px;padding:18px;text-align:center}
+  .break{overflow-wrap:anywhere;word-break:break-word;min-width:0}
+  .spinner{width:26px;height:26px;border:3px solid #e6e6e6;border-top-color:#07c160;border-radius:50%;margin:6px auto;animation:kc-spin .8s linear infinite}
+  @keyframes kc-spin{to{transform:rotate(360deg)}}
+
+  /* 排品表：日期条 + 坑位卡
+     ⚠️ 网格列用 minmax(0,1fr) —— 商品名一长就横向溢出（手机端） */
+  .plan-day{display:grid;grid-template-columns:64px minmax(0,1fr);gap:10px;
+    padding:10px 0;border-top:1px solid var(--line)}
+  .plan-day:first-child{border-top:0}
+  .plan-date{text-align:center;border-radius:10px;background:#fafafa;border:1px solid var(--line);
+    padding:6px 2px;align-self:start}
+  .plan-date .pd-d{font-size:17px;font-weight:700;line-height:1.1;font-variant-numeric:tabular-nums}
+  .plan-date .pd-w{font-size:10px;color:var(--sub);margin-top:1px}
+  .plan-today .plan-date{background:var(--green-bg);border-color:rgba(7,193,96,.35)}
+  .plan-today .plan-date .pd-d{color:var(--green-dk)}
+  .plan-today .plan-date .pd-w{color:var(--green-dk);font-weight:600}
+  .plan-slot{border:1px solid var(--line);border-radius:10px;padding:9px 11px;background:#fafafa;margin-bottom:7px}
+  .plan-slot:last-child{margin-bottom:0}
+  .plan-today .plan-slot{background:var(--card);border-color:rgba(7,193,96,.3)}
+  .plan-top{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+  .plan-no{font-size:10px;font-weight:700;color:#fff;background:var(--green);border-radius:5px;padding:1px 6px;flex:none}
+  .plan-name{font-size:13.5px;font-weight:600;flex:1;min-width:0;overflow-wrap:anywhere}
+  .plan-prio{font-size:12px;color:var(--amber);flex:none;font-variant-numeric:tabular-nums;white-space:nowrap}
+  .plan-meta{font-size:11.5px;color:var(--sub);margin-top:4px}
+  .plan-why{margin:5px 0 0;padding-left:16px;font-size:11.5px;color:var(--sub)}
+  .plan-why li{margin:1px 0}
+  .plan-empty{text-align:center;color:var(--sub);font-size:12.5px;padding:10px 0 2px}
+  .picker{width:100%;border:1px solid var(--line);border-radius:10px;padding:10px 12px;
+    background:#fff;font-size:14px;color:var(--txt)}
+  .pill{display:inline-block;font-size:11px;padding:2px 8px;border-radius:999px;background:var(--green-bg);color:var(--green-dk);font-weight:600}
+</style>
+</head>
+<body>
+<div class="max-w-[760px] mx-auto p-3 space-y-3 pb-8" id="app">
+  <div class="card p-6 text-center"><div class="spinner"></div><div class="sub mt-2">加载排品表…</div></div>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c =>
+  ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const getOpsKey = () => sessionStorage.getItem('opskey') || '';
+function opsHeaders(){ const h = {}; if(getOpsKey()) h['x-ops-key'] = getOpsKey(); return h; }
+
+function planBody(slots, perDay){
+  const today = new Date().toISOString().slice(0,10);
+  const WD = ['周日','周一','周二','周三','周四','周五','周六'];
+  return slots.map(s => {
+    const isToday = s.date === today;
+    const dstr = new Date(s.date + 'T00:00:00');
+    const wd = isNaN(dstr) ? '' : (WD[dstr.getDay()] || '');
+    const items = (s.items || []).map(it => {
+      const stars = '★'.repeat(Math.max(1, Math.round((it.priority||0)/20)));
+      const meta = [
+        it.price ? '¥' + Number(it.price).toFixed(0) : '',
+        it.commission_rate ? '佣金' + Number(it.commission_rate).toFixed(0) + '%' : '',
+        it.lifecycle && it.lifecycle.label ? it.lifecycle.label : '',
+        it.completeness ? '完整度 ' + Math.round(it.completeness*100) + '%' : '',
+      ].filter(Boolean).join(' · ');
+      const why = (it.reasons || []).slice(0,2).map(r => `<li>${esc(r)}</li>`).join('');
+      return `<div class="plan-slot">
+        <div class="plan-top">
+          <span class="plan-no">坑位 ${it.plan_slot}</span>
+          <span class="plan-name">${esc(it.product_name || '')}</span>
+          <span class="plan-prio">${stars} ${(it.priority||0).toFixed(1)}</span>
+        </div>
+        <div class="plan-meta">${esc(meta)}</div>
+        ${why ? `<ul class="plan-why">${why}</ul>` : ''}
+      </div>`;
+    }).join('') || `<div class="plan-empty">空坑位 · 等新商品进来自动补上</div>`;
+    return `<div class="plan-day ${isToday ? 'plan-today' : ''}">
+      <div class="plan-date">
+        <div class="pd-d">${esc(s.date.slice(5))}</div>
+        <div class="pd-w">${esc(isToday ? '今天' : wd)}</div>
+      </div>
+      <div>${items}</div>
+    </div>`;
+  }).join('');
+}
+
+let _roster = [];
+function renderPlan(d){
+  const p = d.plan || {};
+  const slots = p.slots || [];
+  _roster = d.roster || [];
+  const opts = _roster.map(t => {
+    const nm = t.platform_nickname || t.name || t.id;
+    return `<option value="${esc(t.id)}"${t.id === p.talent_id ? ' selected' : ''}>${esc(nm)}（接品 ${t.pool}）</option>`;
+  }).join('');
+  const filled = slots.reduce((n,s) => n + (s.items||[]).length, 0);
+  const body = slots.length ? planBody(slots, p.per_day)
+    : `<div class="empty sub">还没有排品 · 运营在后台建合作单、或达人发「接了 &lt;商品ID&gt;」后，这里会出现 7 天安排</div>`;
+  $('#app').innerHTML = `
+  <div class="flex items-center justify-between pt-1 gap-2">
+    <div class="flex items-center gap-2 min-w-0">
+      <span class="brand-dot"></span>
+      <span class="brand-name">达人经营驾驶舱</span>
+      <span class="sub">· 排品表</span>
+    </div>
+    <a href="/" class="sub shrink-0" style="text-decoration:none">‹ 返回</a>
+  </div>
+
+  <div class="card p-5">
+    <div class="text-xl font-bold">排品表</div>
+    <div class="sub mt-1">AI 按「匹配度 + 佣金 + 时机」把达人的接品排到具体日子</div>
+    <div class="hairline my-4"></div>
+    <div class="sub mb-1">选择达人</div>
+    <select class="picker" onchange="switchTalent(this.value)">${opts || '<option>暂无有排品池的达人</option>'}</select>
+    <div class="grid grid-cols-3 gap-2 mt-4 text-center">
+      <div><div class="kpi-num" style="font-size:22px">${filled}</div><div class="sub">已排品</div></div>
+      <div><div class="kpi-num" style="font-size:22px">${slots.length}</div><div class="sub">天数</div></div>
+      <div><div class="kpi-num" style="font-size:22px">${p.per_day || 2}</div><div class="sub">每天坑位</div></div>
+    </div>
+  </div>
+
+  <div class="card p-5">
+    <div class="flex items-baseline justify-between mb-1 flex-wrap gap-1">
+      <div class="sec-title">${esc(p.talent_name || '排品表')}</div>
+      <div class="sub">同品类不排相邻两天 · 每天 09:37 在飞书提醒达人</div>
+    </div>
+    <div class="hairline my-3"></div>
+    ${body}
+  </div>
+
+  <div class="sub text-center pt-1">
+    口径：排品池 = 我们系统里的合作单（运营建单 / 达人发「接了 商品ID」/ 合作申请通过）；<br>
+    评分 = 匹配度 40% + 收益 35% + 时机 25%，缺失维度退出加权（不当 0 分）。
+  </div>`;
+}
+
+async function switchTalent(tid){
+  try{
+    const r = await fetch('/api/plan?talent_id=' + encodeURIComponent(tid), {headers: opsHeaders()});
+    const d = await r.json();
+    if(!r.ok) throw new Error(d.error || r.status);
+    renderPlan(d);
+  }catch(e){
+    $('#app').innerHTML = `<div class="card p-6 text-center"><div class="font-bold mb-1">加载失败</div><div class="sub">${esc(e.message)}</div></div>`;
+  }
+}
+
+function renderOpsGate(){
+  $('#app').innerHTML = `
+  <div class="card p-6 text-center">
+    <div class="brand-dot" style="margin:0 auto 10px"></div>
+    <div class="font-bold mb-1">运营口令</div>
+    <div class="sub mb-3">排品表是运营视图，需要口令</div>
+    <input id="opskey-in" class="picker" placeholder="ops key" onkeydown="if(event.key==='Enter')saveOpsKey()">
+    <div class="mt-3"><button class="btn-green" onclick="saveOpsKey()">进入</button></div>
+  </div>`;
+}
+function saveOpsKey(){
+  sessionStorage.setItem('opskey', $('#opskey-in').value.trim());
+  bootPlan();
+}
+
+async function bootPlan(){
+  if(!getOpsKey()) return renderOpsGate();
+  try{
+    const r = await fetch('/api/plan', {headers: opsHeaders()});
+    const d = await r.json();
+    if(!r.ok) throw new Error(d.error || r.status);
+    renderPlan(d);
+  }catch(e){
+    if(e.message === 'unauthorized'){ sessionStorage.removeItem('opskey'); return renderOpsGate(); }
+    $('#app').innerHTML = `<div class="card p-6 text-center"><div class="font-bold mb-1">加载失败</div><div class="sub">${esc(e.message)}</div></div>`;
+  }
+}
+bootPlan();
+</script>
+</body>
+</html>

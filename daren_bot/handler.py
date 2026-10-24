@@ -275,17 +275,14 @@ class Router:
         """「今天推啥 / 排品表」→ 把排期表直接回给达人。
 
         **零成本**：纯查库 + 纯函数算排期，不调 LLM、不扣积分。
-        ★ 先补同步一次选品车（达人刚加的品要能立刻看到）——
-          同步有缓存，6 小时内不会重复走达人端。
+        ⚠️ 这里**不做任何自动采集** —— 排品池就是我们系统里的合作单；
+          达人端只用于「按商品ID搜商品」，不碰达人的其他数据
+          （2026-10-24 老大纠正：达人端只做搜商品这一件事）。
         """
         from . import plan_notify
         tk = tenant["tenant_key"]
         dyid = (db.get_latest_douyin_id(tk) or
                 tenant.get("bind_douyin_id") or "").strip()
-        try:
-            plan_notify.sync_cart_pool()
-        except Exception:
-            log.exception("plan cart sync failed")
         try:
             text = plan_notify.plan_text(dyid)
         except Exception as e:

@@ -29,6 +29,9 @@ from daren_cockpit import apply as apply_mod  # noqa: E402
 # 选品推理链 + 推荐指数评分器（2026-10-24）—— 对齐抖音达人「选品AI助手」
 # ★ 达人端那个 ★★★★★ 是 AI 助手自己算的（平台无此真值）⇒ 这套是我方评分器。
 from daren_cockpit.tools import product_reco as reco  # noqa: E402
+# 排品表算法（纯函数）—— 和机器人侧 / 服务端 API **同一份**，
+# 避免「同一套排品，三个地方三种算出来」。
+from daren_cockpit.tools import product_plan as plan  # noqa: E402
 
 SOLOBRAVE_DB = config.ROOT / "data" / "solobrave.db"
 
@@ -334,6 +337,100 @@ def _build_reco_chain(talent_row, top_n: int = 6) -> dict:
         return {}
 
 
+def load_plan(talent_row, days: int = 7, per_day: int = 2) -> dict:
+    """这个达人的排品表（7 天安排）—— 运营侧看「AI 怎么给他排的」。
+
+    ★ 和机器人侧 `plan_notify`、服务端 `/api/deals/plan` **共用同一份算法**
+      （`daren_cockpit/tools/product_plan.py`）——
+      同一套排品，三个地方必须算出一样的东西，否则运营看到的和达人收到的不一样。
+
+    ★ 排品池 = **我们系统里的合作单**（`deals`）——
+      运营建单 / 达人说「接了 xxx」/ 合作申请通过，都在 `deals` 里。
+      ⚠️ 不碰达人选品车（2026-10-24 老大纠正：达人端只做「按商品ID搜商品」）。
+    """
+    if not talent_row:
+        return {}
+    tid = talent_row["id"]
+    try:
+        con = sqlite3.connect(str(SOLOBRAVE_DB))
+        con.execute("PRAGMA query_only=ON")
+        con.row_factory = sqlite3.Row
+        deals = [dict(r) for r in con.execute(
+            "SELECT * FROM deals WHERE talent_id=? AND status IN "
+            "('negotiating','sample_sent','approved') "
+            "ORDER BY COALESCE(scheduled_at,0) ASC, created_at ASC", (tid,))]
+        have = {r[1] for r in con.execute("PRAGMA table_info(products)")}
+        want = ['id', 'name', 'price', 'price_range', 'category',
+                'commission_rates', 'tags']
+        for c in ('shop_score', 'good_ratio', 'video_sales_7d', 'sales_7d',
+                  'board_rank', 'sale_axis_json'):
+            if c in have:
+                want.append(c)
+        products = [dict(r) for r in con.execute(
+            f"SELECT {','.join(want)} FROM products WHERE status!='archived'")]
+        con.close()
+    except Exception:
+        return {}
+
+    try:
+        slots = plan.build_schedule(dict(talent_row), deals, products,
+                                    days=days, per_day=per_day)
+    except Exception:
+        return {}
+    # 只展示今天及以后（历史是历史，不是待办）
+    slots = plan.future_slots(slots)
+    return {
+        "talent_id": tid,
+        "talent_name": plan.display_name(dict(talent_row)),
+        "days": days, "per_day": per_day,
+        "pool": len(deals),
+        "slots": [s.to_dict() for s in slots],
+        "text": plan.plan_text(slots, plan.display_name(dict(talent_row))),
+    }
+
+
+def load_plan_roster() -> list:
+    """有排品池（合作单）的达人列表 —— 运营在排品表页自选达人看。
+
+    ★ 按 `deals` 反查达人，**不按租户** ——
+      运营后台建的合作单，达人不一定绑了飞书租户
+      （实测：七月姐姐有 5 单，但没租户 ⇒ 按租户列就看不到她）。
+    """
+    try:
+        con = sqlite3.connect(str(SOLOBRAVE_DB))
+        con.execute("PRAGMA query_only=ON")
+        con.row_factory = sqlite3.Row
+        rows = con.execute(
+            "SELECT t.id, t.name, t.platform_nickname, "
+            "       COUNT(d.id) AS pool, "
+            "       SUM(CASE WHEN d.scheduled_at > 0 THEN 1 ELSE 0 END) AS scheduled "
+            "FROM deals d JOIN talents t ON t.id = d.talent_id "
+            "WHERE d.status IN ('negotiating','sample_sent','approved') "
+            "GROUP BY d.talent_id ORDER BY pool DESC, t.name ASC").fetchall()
+        con.close()
+        return [dict(r) for r in rows]
+    except Exception:
+        return []
+
+
+def load_plan_for_talent(talent_id: str) -> dict:
+    """某个达人的排品表（运营按 talent_id 直查，不依赖租户绑定）。"""
+    if not talent_id:
+        return {}
+    try:
+        con = sqlite3.connect(str(SOLOBRAVE_DB))
+        con.execute("PRAGMA query_only=ON")
+        con.row_factory = sqlite3.Row
+        trow = con.execute("SELECT * FROM talents WHERE id=?",
+                           (talent_id,)).fetchone()
+        con.close()
+    except Exception:
+        return {}
+    if not trow:
+        return {}
+    return load_plan(trow)
+
+
 def load_cockpit(tenant_key: str):
     tenant = botdb.get_tenant(tenant_key)
     if not tenant:
@@ -492,6 +589,7 @@ def load_cockpit(tenant_key: str):
         "interact": interact,
         "coop": coop,
         "reco": _build_reco_chain(talent),
+        "plan": load_plan(talent),
         "updated": time.strftime("%Y-%m-%d %H:%M"),
     }
 
@@ -628,6 +726,8 @@ class Handler(BaseHTTPRequestHandler):
         u = urlparse(self.path)
         if u.path in ("/", "/index.html"):
             self._send(200, _load_tpl(ROOT / "index.html"))
+        elif u.path == "/plan":
+            self._send(200, _load_tpl(ROOT / "plan.html"))
         elif u.path == "/apply":
             self._send(200, _load_tpl(ROOT / "apply.html"))
         elif u.path == "/api/apply/status":
@@ -682,6 +782,26 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as e:
                 self._send(500, json.dumps({"error": str(e)}),
                            "application/json")
+                return
+            self._send(200, json.dumps(data, ensure_ascii=False),
+                       "application/json; charset=utf-8")
+        elif u.path == "/api/plan":
+            # 排品表 H5 的数据源（运营口令保护）
+            if not _is_ops(self):
+                self._send(403, json.dumps({"error": "unauthorized"}),
+                           "application/json; charset=utf-8")
+                return
+            tid = parse_qs(u.query).get("talent_id", [""])[0].strip()
+            try:
+                roster = load_plan_roster()
+                data = {"roster": roster}
+                if tid:
+                    data["plan"] = load_plan_for_talent(tid)
+                elif roster:
+                    data["plan"] = load_plan_for_talent(roster[0]["id"])
+            except Exception as e:
+                self._send(500, json.dumps({"error": str(e)}),
+                           "application/json; charset=utf-8")
                 return
             self._send(200, json.dumps(data, ensure_ascii=False),
                        "application/json; charset=utf-8")
