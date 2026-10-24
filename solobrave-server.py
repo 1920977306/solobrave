@@ -92,6 +92,25 @@ import knowledge_intake as ki
 # ★ 达人端那个 ★★★★★ 是 AI 助手自算的（平台无此真值）⇒ 这套是我方自己的评分器。
 from daren_cockpit.tools import product_reco as reco
 
+# 排品表 + 提醒（2026-10-24：达人接很多品，要 AI 帮忙排 + 提醒）
+from daren_cockpit.tools import product_plan as plan
+# 商品事实解析（佣金率/到手价口径）—— 和推荐器、排品器共用同一份（单一真源）
+from daren_cockpit.tools import product_facts as facts
+
+# 进排品池的合作单状态：已接/在谈的都算「达人手里接的品」
+# ⚠️ 不含 pending（刚提还没答应）和 live/completed（已推过）
+PLAN_DEAL_STATUSES = ('negotiating', 'sample_sent', 'approved')
+
+
+def _safe_int(value, default=0):
+    """尽量转 int，转不了就用默认值（不抛异常）。"""
+    try:
+        if value is None or value == '':
+            return default
+        return int(float(value))
+    except (TypeError, ValueError):
+        return default
+
 # 统一 Provider 适配层（Anthropic/OpenAI 双向转换 + SSE + 错误规范化 + 冷却半开）
 import provider_adapters as padapters
 
@@ -3938,6 +3957,17 @@ def init_db():
         _add_column_if_not_exists(conn, 'deals', 'win_loss_category', "TEXT DEFAULT ''")
         _add_column_if_not_exists(conn, 'deals', 'key_moment', "TEXT DEFAULT ''")
         _add_column_if_not_exists(conn, 'deals', 'decision_maker_feedback', "TEXT DEFAULT ''")
+        # ── 排品字段（2026-10-24 老大：达人接很多品，要 AI 帮忙排 + 提醒）──
+        #   priority   : 排品优先级分 0-100（佣金×粉丝匹配×时机×商品质量）
+        #   plan_slot  : 当天第几个坑位
+        #   plan_reason: 排品理由（留痕，便于复盘「为什么那天推它」）
+        #   deal_source: 品从哪来（达人自选/商家推品/AI推荐/链接咨询）
+        #   remind_state: 提醒幂等标记（当天同一品只提醒一次）
+        _add_column_if_not_exists(conn, 'deals', 'priority', 'REAL DEFAULT 0')
+        _add_column_if_not_exists(conn, 'deals', 'plan_slot', 'INTEGER DEFAULT 0')
+        _add_column_if_not_exists(conn, 'deals', 'plan_reason', "TEXT DEFAULT ''")
+        _add_column_if_not_exists(conn, 'deals', 'deal_source', "TEXT DEFAULT ''")
+        _add_column_if_not_exists(conn, 'deals', 'remind_state', "TEXT DEFAULT ''")
 
         # FIXME: 新增记忆三级沉淀表（二级归纳、三级知识库），保持原有 knowledge/products 表不变
         conn.execute('''
@@ -5462,7 +5492,12 @@ def _add_talent_foreign_keys():
         updated_at INTEGER,
         win_loss_category TEXT DEFAULT '',
         key_moment TEXT DEFAULT '',
-        decision_maker_feedback TEXT DEFAULT ''
+        decision_maker_feedback TEXT DEFAULT '',
+        priority REAL DEFAULT 0,
+        plan_slot INTEGER DEFAULT 0,
+        plan_reason TEXT DEFAULT '',
+        deal_source TEXT DEFAULT '',
+        remind_state TEXT DEFAULT ''
     )'''
 
     plan = [
@@ -8708,6 +8743,12 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if path == '/api/deals':
             self._handle_get_deals()
             return
+        if path == '/api/deals/plan':
+            # ★ 排品表预览（GET）/ 落库（POST）
+            #   必须排在 startswith('/api/deals/') 前面，否则会被当成 deal_id='plan'
+            if self.command == 'GET':
+                self._handle_get_deal_plan()
+                return
         if path.startswith('/api/deals/'):
             sub = path[len('/api/deals/'):]
             if sub and '/' not in sub:
@@ -9400,6 +9441,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         # 合作单：创建
         if path == '/api/deals':
             self._handle_post_deal()
+            return
+
+        # 合作单：排品表落库
+        if path == '/api/deals/plan':
+            self._handle_post_deal_plan()
             return
 
         # Knowledge API
@@ -17187,17 +17233,50 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                     return
                 deal_id = 'deal_' + uuid.uuid4().hex[:12]
                 now = int(time.time())
+                # 商品名/佣金率：请求体没给就**回填商品库真值**（不造数）
+                product_id = body.get('product_id') or ''
+                product_name = body.get('product_name') or ''
+                commission_rate = body.get('commission_rate') or 0
+                if product_id:
+                    prow = conn.execute(
+                        'SELECT name, commission_rates FROM products WHERE id = ?',
+                        (product_id,)).fetchone()
+                    if prow:
+                        if not product_name:
+                            product_name = prow['name'] or ''
+                        if not commission_rate:
+                            # ★ 口径见 product_facts（分档佣金结构也能读出来）
+                            commission_rate = facts.commission_rate_of({
+                                'commission_rates': prow['commission_rates']})
+                # ★ 幂等：同一个达人 + 同一个品，只在排品池里存在一条时，
+                #   直接返回那条，不再新建 —— 否则重复品会把排品坑位占满
+                #   （2026-10-24 实测踩过：同一品被登记两次，排品表两个坑推同一个品）。
+                if product_id:
+                    dup = conn.execute(
+                        f"SELECT * FROM deals WHERE talent_id=? AND product_id=? "
+                        f"AND status IN ({','.join('?' * len(PLAN_DEAL_STATUSES))}) "
+                        f"ORDER BY created_at ASC LIMIT 1",
+                        (talent_id, product_id) + tuple(PLAN_DEAL_STATUSES)
+                    ).fetchone()
+                    if dup:
+                        self._send_json(200, {
+                            'ok': True, 'duplicate': True,
+                            'deal': _deal_row_to_dict(dup),
+                            'message': '该达人已登记过这个品（沿用原合作单）',
+                        })
+                        return
                 conn.execute('''
                     INSERT INTO deals
                     (id, talent_id, product_id, product_name, deal_type, commission_rate,
                      status, scheduled_at, predicted_conclusion, predicted_event_id,
-                     created_by, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     deal_source, created_by, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ''', (deal_id, talent_id,
-                      body.get('product_id') or '', body.get('product_name') or '',
-                      body.get('deal_type') or '', body.get('commission_rate') or 0,
+                      product_id, product_name,
+                      body.get('deal_type') or '', commission_rate,
                       status, body.get('scheduled_at') or 0,
                       body.get('predicted_conclusion') or '', body.get('predicted_event_id') or '',
+                      (body.get('deal_source') or '').strip(),
                       _resolve_talent_owner_id(auth), now, now))
                 conn.commit()
                 row = conn.execute('SELECT * FROM deals WHERE id = ?', (deal_id,)).fetchone()
@@ -17207,6 +17286,110 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         except Exception as e:
             logger.error(f'  [Deals] create failed: {e}')
             self._send_json_error(500, 'Create failed')
+
+    # ─── 排品表（2026-10-24：达人接很多品，要 AI 帮忙排 + 提醒）───────────
+    def _load_plan_inputs(self, talent_id):
+        """达人 + 待排品的合作单 + 商品维度 → 排期算法要的三份数据。"""
+        conn = _db_conn()
+        try:
+            trow = conn.execute('SELECT * FROM talents WHERE id = ?',
+                                (talent_id,)).fetchone()
+            if not trow:
+                return None, None, None
+            deals = conn.execute(
+                f"SELECT * FROM deals WHERE talent_id=? AND status IN "
+                f"({','.join('?' * len(PLAN_DEAL_STATUSES))}) "
+                f"ORDER BY COALESCE(scheduled_at, 0) ASC, created_at ASC",
+                (talent_id,) + tuple(PLAN_DEAL_STATUSES)).fetchall()
+            have = {r[1] for r in conn.execute("PRAGMA table_info(products)")}
+            want = ['id', 'name', 'price', 'price_range', 'category',
+                    'commission_rates', 'tags']
+            for c in ('commission_rate', 'shop_score', 'good_ratio',
+                      'video_sales_7d', 'sales_7d', 'board_rank',
+                      'sale_axis_json'):
+                if c in have:
+                    want.append(c)
+            prows = conn.execute(
+                f"SELECT {','.join(want)} FROM products WHERE status!='archived'"
+            ).fetchall()
+            return dict(trow), [dict(r) for r in deals], [dict(r) for r in prows]
+        finally:
+            conn.close()
+
+    def _handle_get_deal_plan(self):
+        """GET /api/deals/plan?talent_id=&days=&per_day=
+           排品表**预览**（只算不写）—— 达人/运营先看安排，再决定要不要落库。"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'products'): return
+        qs = parse_qs(urlparse(self.path).query)
+        talent_id = (qs.get('talent_id', [''])[0] or '').strip()
+        if not talent_id:
+            self._send_json_error(400, 'missing talent_id')
+            return
+        days = max(1, min(30, _safe_int(qs.get('days', ['7'])[0], 7)))
+        per_day = max(1, min(6, _safe_int(qs.get('per_day', ['2'])[0], 2)))
+        talent, deals, products = self._load_plan_inputs(talent_id)
+        if not talent:
+            self._send_json_error(404, 'Talent not found')
+            return
+        slots = plan.build_schedule(talent, deals, products,
+                                    days=days, per_day=per_day)
+        self._send_json(200, {
+            'talent_id': talent_id,
+            'talent_name': talent.get('name') or '',
+            'days': days, 'per_day': per_day,
+            'deal_pool': len(deals),
+            'slots': [s.to_dict() for s in slots],
+            'text': plan.plan_text(slots, talent.get('name') or ''),
+        })
+
+    def _handle_post_deal_plan(self):
+        """POST /api/deals/plan — **落库**排期（把排期写回 deals）。
+        body: {talent_id, days?, per_day?, apply?}"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'products'): return
+        body = self._read_body() or {}
+        talent_id = str(body.get('talent_id') or '').strip()
+        if not talent_id:
+            self._send_json_error(400, 'missing talent_id')
+            return
+        days = max(1, min(30, _safe_int(body.get('days', 7), 7)))
+        per_day = max(1, min(6, _safe_int(body.get('per_day', 2), 2)))
+        talent, deals, products = self._load_plan_inputs(talent_id)
+        if not talent:
+            self._send_json_error(404, 'Talent not found')
+            return
+        slots = plan.build_schedule(talent, deals, products,
+                                    days=days, per_day=per_day)
+        now = int(time.time())
+        applied = 0
+        conn = _db_conn()
+        try:
+            for slot in slots:
+                for item in slot.items:
+                    if not item.deal_id:
+                        continue
+                    conn.execute(
+                        "UPDATE deals SET scheduled_at=?, priority=?, plan_slot=?, "
+                        "plan_reason=?, updated_at=? WHERE id=? AND talent_id=?",
+                        (item.scheduled_at, item.priority, item.plan_slot,
+                         " | ".join(item.reasons or [])[:500], now,
+                         item.deal_id, talent_id))
+                    applied += 1
+            conn.commit()
+        finally:
+            conn.close()
+        self._send_json(200, {
+            'ok': True, 'talent_id': talent_id, 'applied': applied,
+            'slots': [s.to_dict() for s in slots],
+            'text': plan.plan_text(slots, talent.get('name') or ''),
+        })
 
     def _handle_get_deals(self):
         """GET /api/deals?talent_id=&status=&limit=&offset= — 合作单列表（子账号隔离）"""
@@ -30026,6 +30209,7 @@ _DEAL_KEY_MOMENTS = ('first_contact', 'negotiating', 'sample_sent',
 
 def _deal_row_to_dict(r):
     """deals 行 -> dict"""
+    keys = r.keys()
     return {
         'id': r['id'],
         'talent_id': r['talent_id'],
@@ -30042,9 +30226,15 @@ def _deal_row_to_dict(r):
         'predicted_conclusion': r['predicted_conclusion'],
         'predicted_event_id': r['predicted_event_id'],
         'verification': r['verification'],
-        'win_loss_category': r['win_loss_category'] if 'win_loss_category' in r.keys() else '',
-        'key_moment': r['key_moment'] if 'key_moment' in r.keys() else '',
-        'decision_maker_feedback': r['decision_maker_feedback'] if 'decision_maker_feedback' in r.keys() else '',
+        'win_loss_category': r['win_loss_category'] if 'win_loss_category' in keys else '',
+        'key_moment': r['key_moment'] if 'key_moment' in keys else '',
+        'decision_maker_feedback': r['decision_maker_feedback'] if 'decision_maker_feedback' in keys else '',
+        # 排品字段（2026-10-24）
+        'priority': r['priority'] if 'priority' in keys else 0,
+        'plan_slot': r['plan_slot'] if 'plan_slot' in keys else 0,
+        'plan_reason': r['plan_reason'] if 'plan_reason' in keys else '',
+        'deal_source': r['deal_source'] if 'deal_source' in keys else '',
+        'remind_state': r['remind_state'] if 'remind_state' in keys else '',
         'created_by': r['created_by'],
         'created_at': r['created_at'],
         'updated_at': r['updated_at'],

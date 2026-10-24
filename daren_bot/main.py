@@ -77,6 +77,11 @@ def cmd_serve(_args):
     coop_scheduler = CoopScheduler(ws)
     coop_scheduler.start()
 
+    # 排品表每日提醒（2026-10-24 老大：达人接很多品，要 AI 帮忙排 + 提醒）
+    from .plan_notify import PlanScheduler
+    plan_scheduler = PlanScheduler(ws)
+    plan_scheduler.start()
+
     # 绑 0.0.0.0：运营后台要局域网访问（/admin?token=…），healthz 同端口保留
     handler = admin.make_handler(_STATE)
     httpd = ThreadingHTTPServer(("0.0.0.0", config.HTTP_PORT), handler)
@@ -97,6 +102,10 @@ def cmd_serve(_args):
         worker.stop()
         weekly_scheduler.stop()
         coop_scheduler.stop()
+        try:
+            plan_scheduler.stop()
+        except Exception:
+            pass
         httpd.shutdown()
 
 

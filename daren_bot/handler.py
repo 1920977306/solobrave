@@ -37,6 +37,17 @@ WEEKLY_STATUS_RE = re.compile(r"^周报(状态|订阅)?[?？!！~～\s]*$")
 # 管理员后门：主动推送类功能的验收/排查通道（灰度规矩：不等周日、不推达人只回管理员）
 TRIAL_WEEKLY_RE = re.compile(
     r"^立即试跑周报(?:\s*[@＠]?(?P<tk>[A-Za-z0-9_]+))?[?？!！~～\s]*$")
+# ── 排品表（2026-10-24 老大：达人接很多品，要 AI 帮忙排 + 提醒）──
+# 「今天推啥 / 排品表 / 我的排品」→ 把排期表直接回给达人（零成本，不扣积分）
+PLAN_QUERY_RE = re.compile(
+    r"^(今天(推|发|上|播)(什么|啥|哪几个|哪些)?|排品表|排品|我的排品|"
+    r"这周(推|发)什么|下周(推|发)什么)[呀啊哦哇~～!！\s]*$")
+# 「接了 <商品ID>」→ 登记合作单（进排品池）
+# ⚠️ 路由顺序：**必须在裸商品ID 之前** —— 否则「接了 3668...」里的 19 位数字
+#    会被当成「查这个商品」抢走，达人想登记的意图就丢了（2026-10-24 踩过）。
+ACCEPT_DEAL_RE = re.compile(
+    r"^(?:我?接(了|下|了它|了这个品|了这单)|加进排品|排品加|要接|推这个)"
+    r"[\s:：,，]*(?P<pid>[0-9]{15,22}|[A-Za-z0-9_-]{6,40})\s*$")
 GREETING_REPLY = ("你好呀，我是你的带货选品助手。发我你的抖音号可以做账号分析，"
                   "直接问选品、带货、粉丝画像的问题我也都能答～")
 
@@ -114,9 +125,13 @@ class Router:
             dy_in_text = DOUYIN_IN_TEXT_RE.search(text)
             dy_only = DOUYIN_RE.match(text)
             bare_pid = self._bare_product_id(tenant, text, dy_only)
+            accept = ACCEPT_DEAL_RE.match(text.strip())
             if cockpit_link.is_cockpit_url(text):
                 # 达人把自己收到的驾驶舱链接发回来 → 回入口，别当成商品链接扣 20 分
                 self._route_cockpit_link(tenant, chat_id, text, sender)
+            elif accept:
+                # ★「接了 <商品ID>」→ 登记进排品池（必须在裸商品ID 分支之前！）
+                self._route_accept_deal(tenant, chat_id, accept.group('pid'), sender)
             elif dy_in_text:
                 self._route_douyin(tenant, chat_id, dy_in_text.group(1), sender,
                                    name_hint=_extract_name_hint(text, dy_in_text.group(1)))
@@ -154,6 +169,9 @@ class Router:
                     chat_id,
                     ("周报订阅：已开启 ✅ 每周一上午自动推送"
                      if sub else "周报订阅：已关闭。发「订阅周报」可恢复"))
+            elif PLAN_QUERY_RE.match(text.strip()):
+                # 排品表查询（零成本）
+                self._route_plan_query(tenant, chat_id, sender)
             elif TRIAL_WEEKLY_RE.match(text.strip()):
                 self._route_trial_weekly(tenant, chat_id, text, sender)
             elif len(text.strip()) <= 8 and GREETING_RE.search(text):
@@ -231,6 +249,41 @@ class Router:
             chat_id,
             f"这是你的专属经营驾驶舱 👇\n{link}\n"
             "（一人一链接，只给你自己；里面是账号数据、选品建议和合作机会）")
+
+    # ---------- 排品表（2026-10-24 老大：达人接很多品，要 AI 帮忙排 + 提醒）----------
+    def _route_accept_deal(self, tenant, chat_id, product_id, sender):
+        """「接了 <商品ID>」→ 登记成合作单（进排品池）。
+
+        **零成本**：不调 LLM、不扣积分 —— 只是一次登记。
+        ⚠️ 幂等：同一个达人同一个品不重复登记（避免刷一排重复品把坑位占满）。
+        """
+        from . import plan_notify
+        tk = tenant["tenant_key"]
+        dyid = (tenant.get("bind_douyin_id") or "").strip()
+        try:
+            ok, msg = plan_notify.register_deal(dyid, str(product_id or "").strip())
+        except Exception as e:
+            log.exception("register deal failed: %s", e)
+            sender.send_text(chat_id, "登记失败，我这边查一下再回你～")
+            return
+        log.info("accept deal: tenant=%s product=%s ok=%s", tk, product_id, ok)
+        sender.send_text(chat_id, msg)
+
+    def _route_plan_query(self, tenant, chat_id, sender):
+        """「今天推啥 / 排品表」→ 把排期表直接回给达人。
+
+        **零成本**：纯查库 + 纯函数算排期，不调 LLM、不扣积分。
+        """
+        from . import plan_notify
+        tk = tenant["tenant_key"]
+        dyid = (tenant.get("bind_douyin_id") or "").strip()
+        try:
+            text = plan_notify.plan_text(dyid)
+        except Exception as e:
+            log.exception("plan query failed: %s", e)
+            text = "排品表我这边算不出来，稍后再问我一次～"
+        log.info("plan query: tenant=%s", tk)
+        sender.send_text(chat_id, text)
 
     def _route_trial_weekly(self, tenant, chat_id, text, sender):
         tk = tenant["tenant_key"]
