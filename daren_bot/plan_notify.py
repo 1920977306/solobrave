@@ -148,7 +148,102 @@ def plan_text(douyin_id: str, talent_id: str = "") -> str:
         return ("你名下还没有登记待推的品。\n"
                 "接了品之后发我「接了 <商品ID或商品链接>」，"
                 "我就能帮你排哪天推哪个、哪个该清了。")
-    return plan.plan_text(slots, _display_name(talent))
+    # ★ 只展示**今天及以后**的排期 ——
+    #   排期落库后（见 persist_plan），`build_schedule` 会把过去的排期
+    #   原样带回来（那是历史，不是待办）。给达人看表时把过去的日子滤掉，
+    #   否则「我的排品表」第一条永远是昨天，达人会以为系统没在排。
+    today = datetime.datetime.now().strftime("%Y-%m-%d")
+    future = [s for s in slots if s.date >= today]
+    if not future or not any(s.items for s in future):
+        return ("你名下这批品都排完/推过了。\n"
+                "在达人端选品车加新品（或发「接了 <商品ID>」），"
+                "我马上帮你排进这周的品表。")
+    return plan.plan_text(future, _display_name(talent))
+
+
+# ────────────────────────── 排期落库 ──────────────────────────
+
+def persist_plan(slots, talent_id: str = "", dry_run: bool = False) -> int:
+    """把算出来的排期**写回** `deals`（scheduled_at / plan_slot / priority / plan_reason）。
+
+    ★ 为什么必须有这一步（2026-10-24 实测根因）：
+      排品算法有**两个消费者** ——
+        ① 服务端 `POST /api/deals/plan`：**落库**
+        ② 机器人 `scan_and_push`：**只算不写**
+      只有 ① 落库 ⇒ 达人侧的 `deals.scheduled_at` 永远是 0
+      ⇒ `build_schedule` 里「已有排期的保持原位」这条规则**从来没生效过**
+      ⇒ 每天从头现算 ⇒ **明天会再推一遍一模一样的两个品**
+      （实测探针：`今天算出来的今天` == `明天算出来的明天` ⇒ True）
+
+      排品表要成立，**算出来的安排必须落到 DB** —— 否则「安排」等于没做，
+      达人每天收到的都是同一批品，AI 排期这件事在产品上就等于不存在。
+
+    `dry_run=True` 时**一个字都不写**（探针必须无副作用）。
+    """
+    if dry_run:
+        return 0
+    now = int(time.time())
+    rows = []
+    for slot in slots:
+        for item in slot.items:
+            if not item.deal_id or not item.scheduled_at:
+                continue        # 排不进本周的品保持 scheduled_at=0，等下一轮
+            rows.append((int(item.scheduled_at), float(item.priority or 0),
+                         int(item.plan_slot or 0),
+                         " | ".join(item.reasons or [])[:500],
+                         now, item.deal_id))
+    if not rows:
+        return 0
+    conn = sqlite3.connect(str(SOLOBRAVE_DB), timeout=10)
+    try:
+        if talent_id:
+            conn.executemany(
+                "UPDATE deals SET scheduled_at=?, priority=?, plan_slot=?, "
+                "plan_reason=?, updated_at=? WHERE id=? AND talent_id=?",
+                [r + (talent_id,) for r in rows])
+        else:
+            conn.executemany(
+                "UPDATE deals SET scheduled_at=?, priority=?, plan_slot=?, "
+                "plan_reason=?, updated_at=? WHERE id=?", rows)
+        conn.commit()
+    finally:
+        conn.close()
+    return len(rows)
+
+
+def requeue_overdue(talent_id: str, day_key: str = "") -> list[str]:
+    """把「排期已经过去、但**从来没推成功过**」的品退回排品池重新排。
+
+    ★ 不能丢品 —— 达人接了品就该被推到：
+      如果某天整批推送失败（网络/权限），那个品的排期就停在过去那天；
+      而「今天该推哪两个」只看**当天** ⇒ 这个品**再也不会被推出去**
+      ⇒ 达人白接了。所以这里把这类品的 `scheduled_at` 清零，
+      让它重新进 pending，被排到今天或下一个空坑。
+
+    ⚠️ 只认 `remind_state` **为空**才补 —— 已经推过的（哪怕推晚了）不重复推。
+      这是「错挂比漏挂贵」的对偶：宁可晚推，不可重复骚扰达人。
+    """
+    if not SOLOBRAVE_DB.is_file() or not talent_id:
+        return []
+    day_key = day_key or datetime.datetime.now().strftime("%Y-%m-%d")
+    today_ts = int(datetime.datetime.strptime(day_key, "%Y-%m-%d").timestamp())
+    conn = sqlite3.connect(str(SOLOBRAVE_DB), timeout=10)
+    try:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            "SELECT id FROM deals WHERE talent_id=? AND scheduled_at > 0 "
+            "AND scheduled_at < ? "
+            "AND (remind_state IS NULL OR remind_state='')",
+            (talent_id, today_ts)).fetchall()
+        ids = [r["id"] for r in rows]
+        if ids:
+            conn.execute(
+                "UPDATE deals SET scheduled_at=0, plan_slot=0 WHERE id IN (%s)"
+                % ",".join("?" * len(ids)), ids)
+            conn.commit()
+        return ids
+    finally:
+        conn.close()
 
 
 def register_deal(douyin_id: str, product_id: str, talent_id: str = "",
@@ -404,6 +499,31 @@ def scan_and_push(ws=None, dry_run: bool = False, sync_first: bool = True) -> di
                 stat["skipped"] += 1
                 stat["details"].append({"tenant": tk, "why": "没有 chat_id"})
                 continue
+            # ★ 先落库、再推送（2026-10-24 实测根因修复）：
+            #   算出来的排期不落库 ⇒ `deals.scheduled_at` 永远是 0
+            #   ⇒ 「已有排期保持原位」这条规则从来没生效过
+            #   ⇒ 每天从头现算 ⇒ 明天会再推一遍一模一样的两个品。
+            #   顺序也很重要：**先落库后推送** —— 推送失败时排期已经在，
+            #   下一轮扫描还会扫到这个品（remind_state 没标）⇒ 能重试；
+            #   反过来先推后落库，中间崩了就白推一次。
+            #   `dry_run` 是探针，**一个字都不写**。
+            if not dry_run:
+                try:
+                    talent_id = ""
+                    trow = _read_talent(dyid)
+                    talent_id = (trow or {}).get("id", "")
+                    requeued = requeue_overdue(talent_id, day_key) if talent_id else []
+                    if requeued:
+                        log.info("[plan] %s 有 %d 个品排期已过且没推过，退回重排",
+                                 tk, len(requeued))
+                    slots, _t = plan_for_talent(dyid, talent_id)
+                    if slots:
+                        n = persist_plan(slots, talent_id=talent_id)
+                        stat["persisted"] = stat.get("persisted", 0) + n
+                except Exception:
+                    # 落库失败**不阻断推送**：先让达人今天收到提醒，
+                    # 排期明天再补（宁可少一次安排，也不能今天不推）。
+                    log.exception("[plan] 排期落库失败（不阻断推送）")
             text, todo = build_reminder(dyid)
             if not text:
                 stat["skipped"] += 1

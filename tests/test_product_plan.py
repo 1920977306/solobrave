@@ -311,6 +311,30 @@ def test_schedule_keeps_already_scheduled_slot():
     assert got and got[0].scheduled_at == ts, "已排期的单不能被改写"
 
 
+def test_new_item_is_not_scheduled_into_a_past_day():
+    """★ 排期落库后会有「过去的 slot」——新品不能被排进过去那天。
+
+    落库后 `build_schedule` 会把过去的排期原样带回来（那是历史，不是待办），
+    生成一个过去的 slot。如果不拦，新品会被排到**已经过去**的那天
+    ⇒ 那个品**永远推不出去**（提醒只看当天）⇒ 达人就白接了。
+    """
+    import datetime
+    yesterday = datetime.datetime.now() - datetime.timedelta(days=1)
+    ts = int(datetime.datetime.combine(yesterday, datetime.time.min).timestamp())
+    deals = [{"id": "d_old", "product_id": "p0", "product_name": "老品",
+              "scheduled_at": ts},
+             {"id": "d_new", "product_id": "p1", "product_name": "新品",
+              "scheduled_at": 0}]
+    slots = pp.build_schedule(_talent(), deals, _products(2), days=7, per_day=2)
+    today = datetime.datetime.now().strftime("%Y-%m-%d")
+    new_it = [it for s in slots for it in s.items if it.product_id == "p1"]
+    assert new_it, "新品应该被排进表里"
+    assert new_it[0].date >= today, \
+        f"新品被排到过去那天（{new_it[0].date}）⇒ 永远推不出去"
+    old_it = [it for s in slots for it in s.items if it.product_id == "p0"]
+    assert old_it and old_it[0].scheduled_at == ts, "老品要保留原位"
+
+
 def test_scheduled_at_is_in_seconds():
     """★ 单位锁点：`scheduled_at` 是**秒**（前端按秒读，差 1000 倍就是差 50000 年）。"""
     import datetime

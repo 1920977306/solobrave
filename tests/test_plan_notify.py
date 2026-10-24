@@ -248,6 +248,176 @@ def test_register_deal_reads_phase_commission(dbfile):
     assert rate == 25
 
 
+# ─────────────── 排期落库（2026-10-24 实测根因） ───────────────
+
+class _Rec:
+    """记录推送内容的 sender。"""
+
+    def __init__(self, sink):
+        self._sink = sink
+
+    def send_text(self, chat_id, text):
+        self._sink.append((chat_id, text))
+
+
+def _gray_one(monkey_holder, dyid="dy_888"):
+    """把灰度名单临时改成只有一个租户，返回 (还原函数)。"""
+    orig_gray = plan_notify._gray_map
+    orig_chat = plan_notify.db.get_latest_chat_id
+    plan_notify._gray_map = lambda: {"daren_boss": dyid}
+    plan_notify.db.get_latest_chat_id = lambda tk: "oc_test"
+
+    def _restore():
+        plan_notify._gray_map = orig_gray
+        plan_notify.db.get_latest_chat_id = orig_chat
+    return _restore
+
+
+def _deals_rows(dbfile):
+    conn = sqlite3.connect(str(dbfile))
+    conn.row_factory = sqlite3.Row
+    rows = [dict(r) for r in conn.execute(
+        "SELECT * FROM deals ORDER BY created_at, id")]
+    conn.close()
+    return rows
+
+
+def test_scan_persists_schedule_to_db(dbfile):
+    """★ 排期必须**落库**（否则「安排」等于没做）。
+
+    实测根因（2026-10-24）：排品算法有**两个消费者** ——
+      ① 服务端 `POST /api/deals/plan`：落库
+      ② 机器人 `scan_and_push`：只算不写
+    只有 ① 落库 ⇒ 达人侧 `deals.scheduled_at` 永远是 0
+    ⇒ 「已有排期保持原位」这条规则从来没生效过
+    ⇒ 每天从头现算 ⇒ **明天会再推一遍一模一样的两个品**。
+    """
+    plan_notify.register_deal("dy_888", "3668788850777522321")
+    sent = []
+    restore = _gray_one(None)
+    try:
+        plan_notify.scan_and_push(_Ws(lambda: _Rec(sent)),
+                                  dry_run=False, sync_first=False)
+    finally:
+        restore()
+    assert sent, "应该推了今天这一条"
+    rows = _deals_rows(dbfile)
+    assert rows[0]["scheduled_at"], \
+        "排期必须写回 deals.scheduled_at（不落库 ⇒ 明天重复推同样的品）"
+    assert rows[0]["scheduled_at"] < 4_000_000_000, "scheduled_at 单位是秒"
+    # ★ 列序锁点：`priority` 和 `plan_slot` 是两列，写反了不会报错，
+    #   只会让「坑位号」变成 58.6 这种分数（前端「第几个坑」直接显示错）。
+    assert rows[0]["plan_slot"] in (1, 2), \
+        f"plan_slot 应是坑位号(1/2)，实际 {rows[0]['plan_slot']}"
+    assert rows[0]["priority"] and rows[0]["priority"] > 1, \
+        f"priority 应是优先级分数，实际 {rows[0]['priority']}"
+
+
+def test_dry_run_writes_nothing(dbfile):
+    """★ 探针（dry_run）不能有任何副作用 —— 写库了就等于真推了。"""
+    plan_notify.register_deal("dy_888", "3668788850777522321")
+    restore = _gray_one(None)
+    try:
+        plan_notify.scan_and_push(None, dry_run=True, sync_first=False)
+    finally:
+        restore()
+    rows = _deals_rows(dbfile)
+    assert rows[0]["scheduled_at"] == 0, "dry_run 不许写排期"
+    assert not rows[0]["remind_state"], "dry_run 不许标记已提醒"
+
+
+def test_schedule_is_stable_across_days(dbfile):
+    """★ 核心回归：**明天不该再推今天推过的品**。
+
+    这是老大手上「达人每天要接很多品 ⇒ AI 帮忙安排、提醒」的底线 ——
+    安排必须固定，否则达人每天收到一模一样的两条推送，AI 排期等于没做。
+    """
+    import datetime
+    plan_notify.register_deal("dy_888", "3668788850777522321")
+    sent = []
+    restore = _gray_one(None)
+    try:
+        plan_notify.scan_and_push(_Ws(lambda: _Rec(sent)),
+                                  dry_run=False, sync_first=False)
+    finally:
+        restore()
+    assert len(sent) == 1
+
+    # 明天再算一次排期
+    tomorrow = datetime.date.today() + datetime.timedelta(days=1)
+    ms = int(datetime.datetime.combine(
+        tomorrow, datetime.time.min).timestamp() * 1000)
+    slots, _ = plan_notify.plan_for_talent("dy_888", start_at=ms)
+    tstr = tomorrow.isoformat()
+    again = [it for s in slots if s.date == tstr for it in s.items]
+    assert not again, (
+        "明天又排了同样的品 "
+        f"{[i.product_name for i in again]} ⇒ 排期没落库，AI 安排是假的")
+
+
+def test_overdue_unpushed_item_is_requeued(dbfile):
+    """★ 漏推的品不能丢：排期已过 + 从没推过 ⇒ 退回重排（今天补推）。"""
+    import datetime
+    plan_notify.register_deal("dy_888", "3668788850777522321")
+    yesterday = datetime.datetime.now() - datetime.timedelta(days=1)
+    ts = int(datetime.datetime.combine(yesterday, datetime.time.min).timestamp())
+    conn = sqlite3.connect(str(dbfile))
+    conn.execute("UPDATE deals SET scheduled_at=? WHERE talent_id='tal_x'", (ts,))
+    conn.commit()
+    conn.close()
+
+    sent = []
+    restore = _gray_one(None)
+    try:
+        plan_notify.scan_and_push(_Ws(lambda: _Rec(sent)),
+                                  dry_run=False, sync_first=False)
+    finally:
+        restore()
+    assert len(sent) == 1, "排期过期且从没推过的品，应该今天补推一次"
+    today_ts = int(datetime.datetime.combine(
+        datetime.date.today(), datetime.time.min).timestamp())
+    assert _deals_rows(dbfile)[0]["scheduled_at"] >= today_ts, \
+        "补排后应排到今天（或之后的空坑），不能停在过去"
+
+
+def test_pushed_item_is_not_requeued(dbfile):
+    """★ 已经推过的（哪怕排期在昨天）**不重复推** —— 错挂比漏挂贵。"""
+    import datetime
+    plan_notify.register_deal("dy_888", "3668788850777522321")
+    yesterday = datetime.datetime.now() - datetime.timedelta(days=1)
+    ystr = yesterday.strftime("%Y-%m-%d")
+    ts = int(datetime.datetime.combine(yesterday, datetime.time.min).timestamp())
+    conn = sqlite3.connect(str(dbfile))
+    conn.execute("UPDATE deals SET scheduled_at=?, remind_state=? "
+                 "WHERE talent_id='tal_x'", (ts, ystr))
+    conn.commit()
+    conn.close()
+
+    sent = []
+    restore = _gray_one(None)
+    try:
+        plan_notify.scan_and_push(_Ws(lambda: _Rec(sent)),
+                                  dry_run=False, sync_first=False)
+    finally:
+        restore()
+    assert not sent, "昨天已经推过了，不该再推一遍"
+
+
+def test_plan_text_hides_past_days(dbfile):
+    """★ 排品表不展示过去的日子（那是历史，不是待办）。"""
+    import datetime
+    plan_notify.register_deal("dy_888", "3668788850777522321")
+    yesterday = datetime.datetime.now() - datetime.timedelta(days=1)
+    ystr = yesterday.strftime("%Y-%m-%d")
+    ts = int(datetime.datetime.combine(yesterday, datetime.time.min).timestamp())
+    conn = sqlite3.connect(str(dbfile))
+    conn.execute("UPDATE deals SET scheduled_at=? WHERE talent_id='tal_x'", (ts,))
+    conn.commit()
+    conn.close()
+    text = plan_notify.plan_text("dy_888")
+    assert ystr not in text, f"排品表里不该出现过去的日子 {ystr}"
+
+
 def test_build_reminder_empty_when_no_plan(dbfile):
     text, todo = plan_notify.build_reminder("dy_888")
     assert text == ""

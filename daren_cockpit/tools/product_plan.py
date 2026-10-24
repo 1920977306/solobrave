@@ -666,7 +666,14 @@ def build_schedule(talent_row: dict, deal_rows: list[dict], product_rows: list[d
         item.scheduled_at = int(datetime.datetime.strptime(
             dstr, "%Y-%m-%d").timestamp())
 
+    today_str = _fmt_date(base)
     for dstr in sorted(slots):
+        # ⚠️ 过去日期的 slot 只保留原样（已排期的品不改写），**不接收新品**。
+        #   这条只有「排期真的落库」之后才会被触发：落库后 `scheduled` 里
+        #   会带出昨天的排期，生成一个昨天的 slot —— 如果不拦，
+        #   新品会被排到已经过去的那天，等于这个品**永远推不出去**。
+        if dstr < today_str:
+            continue
         slot = slots[dstr]
         capacity = max(1, per_day)
         # ★ 同品类不连推 —— 口径是「**相邻两个日历日**」
@@ -712,6 +719,8 @@ def build_schedule(talent_row: dict, deal_rows: list[dict], product_rows: list[d
 
     # ── 补位阶段：严格规则排完还有剩 ⇒ 往空着的坑位里补 ──
     for dstr in sorted(slots):
+        if dstr < today_str:
+            continue          # 同上：过去的日子不补位
         slot = slots[dstr]
         capacity = max(1, per_day)
         if len(slot.items) >= capacity:
