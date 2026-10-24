@@ -320,6 +320,19 @@ GET /ecom/captain/operate_analysis/coop_diagnosis/overview?period_type=&ewid=<�
 **工具**：`daren_cockpit/tools/filing_products.py`（`--dry-run` 默认 / `--apply` 才写库，
 自动备份 products 表 + 整库副本；达人端补数据落 `data/filing-enrich-cache.json`）。
 
+#### ⚠️ `buyin_worker` 运维：两个浏览器**互斥** + 重启会掉登录态（2026-10-24 实测）
+
+- **团长端**（`profile`）和**达人端**（`profile_daren`）**同一时刻只能开一个**：
+  切换时日志会打 `[BrowserLoop] 切换浏览器：先关闭 达人端（profile_daren）`。
+  ⇒ `/health` 里 `browser_up` 和 `daren_browser_up` **不会同时为 true，这是设计不是故障**；
+  发对应端的任务会自动切换过去。
+- **重启 worker 会掉浏览器**（`launchctl kickstart -k` ⇒ 浏览器进程被杀）。
+  ⚠️ **正确姿势**：重启前先 `POST http://127.0.0.1:8095/graceful-daren`
+  （优雅关闭达人端浏览器，触发 cookie 落盘），再 kickstart；
+  重启后按需 `POST /open`（团长端）或 `POST /open-daren`（达人端）拉起。
+  ⇒ 实测：直接 kickstart 后 `daren_logged_in=false`，
+  但**盘上 cookie 还在**，重新 `open-daren` 后自动恢复 `daren_logged_in=true`（无需扫码）。
+
 **三条铁律**：
 1. **三个「达人数」必须分列** ——
    `influencer_count`(平台全商品带货达人数, 达人端) /
