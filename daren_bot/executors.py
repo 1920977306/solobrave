@@ -1946,6 +1946,60 @@ def _send_accept_hint(sender, chat_id: str, product_id: str = "") -> None:
         log.exception("send accept hint failed: chat=%s", chat_id)
 
 
+def _product_verdict(report: str):
+    """从长报告里抽「结论」（能带/慎带/别带）→ (文案, 卡片配色)。
+
+    报告是 LLM 生成的 markdown，结构大致是：
+        ▎结论
+        🟡 慎带
+        价格偏高且佣金率仅5%
+    """
+    r = report or ""
+    v = ""
+    for key in ("能带", "慎带", "别带"):
+        if key in r:
+            v = key
+            break
+    tpl = {"能带": "green", "慎带": "orange", "别带": "red"}.get(v, "grey")
+    emoji = {"能带": "🟢", "慎带": "🟡", "别带": "🔴"}.get(v, "⚪")
+    return (f"{emoji} {v}" if v else ""), tpl
+
+
+def _product_summary(report: str) -> str:
+    """结论下面那一句话（价格偏高且佣金率仅5% 之类）。"""
+    r = report or ""
+    if "▎结论" in r:
+        seg = r.split("▎结论", 1)[1]
+        # 结论段里：跳过结论词本身，取第一句非空行
+        for line in seg.splitlines():
+            s = line.strip().lstrip("🟢🟡🔴⚪").strip()
+            if not s or s in ("能带", "慎带", "别带"):
+                continue
+            return s[:60]
+    return ""
+
+
+def _send_product_card(sender, chat_id: str, title: str, report: str,
+                        product_id: str = "") -> bool:
+    """发商品分析卡（结论 + 关键数字 + 按钮）。成功返回 True。"""
+    try:
+        from . import feishu_card as fc
+        verdict, tpl = _product_verdict(report)
+        summary = _product_summary(report)
+        # 详细匹配分析在**长图**里；卡片只留「结论 + 一句话 + 按钮」，
+        # 不要再把摘要重复一遍（重复 = 啰嗦 = 不好看）。
+        card = fc.product_card(
+            title[:40], verdict, tpl, summary or "（点上方长图看完整分析）",
+            detail_lines=[],
+            product_id=product_id,
+            plan_hint="接了之后 AI 帮你排哪天推、每天早上提醒你")
+        sender.send_card(chat_id, card)
+        return True
+    except Exception:
+        log.exception("send product card failed: chat=%s", chat_id)
+        return False
+
+
 def notify_product_card(sender, chat_id: str, title: str, report: str,
                         tenant_key: str, stats: dict = None,
                         source: str = "", product_id: str = "") -> None:
@@ -1969,10 +2023,15 @@ def notify_product_card(sender, chat_id: str, title: str, report: str,
                              kicker="商品分析",
                              chip="能带 · 慎带 · 别带")
         sender.send_image_path(chat_id, str(tmp))
-        sender.send_text(chat_id, f"🛒 商品分析完成：{title}")
-        _send_text_quiet(sender, chat_id,
-                         f"🛒 {title}\n{_md_to_text(report)}")
-        _send_accept_hint(sender, chat_id, product_id)
+        # ★ 详细分析在**长图**里 ⇒ 聊天里**不再铺一整段文字**
+        #   （老大 2026-10-24：「文字版可以收起来就好了，有点不好看」）。
+        #   换成一张**短卡片**：结论 + 关键数字 + 按钮。
+        if not _send_product_card(sender, chat_id, title, report, product_id):
+            # 发卡片失败 → 回退文字版（宁可丑一点，也不能不推）
+            sender.send_text(chat_id, f"🛒 商品分析完成：{title}")
+            _send_text_quiet(sender, chat_id,
+                             f"🛒 {title}\n{_md_to_text(report)}")
+            _send_accept_hint(sender, chat_id, product_id)
         try:
             from . import bitable_sync
             bitable_sync.sync_product(

@@ -91,6 +91,44 @@ class Sender:
         if not resp.success():
             raise RuntimeError(f"message.create(image) failed code={resp.code} msg={resp.msg}")
 
+    def send_card(self, chat_id: str, card: dict) -> str:
+        """发一张飞书交互卡片（卡片 1.0）。返回 message_id（失败抛异常）。
+
+        ★ 只支持**卡片 1.0**（2.0 的 action/behaviour 这个应用不认），
+          约束见 `daren_bot/feishu_card.py` 文件头。
+        """
+        from lark_oapi.api.im.v1 import (CreateMessageRequest,
+                                         CreateMessageRequestBody)
+        import json as _json
+        req = (CreateMessageRequest.builder()
+               .receive_id_type("chat_id")
+               .request_body(CreateMessageRequestBody.builder()
+                             .receive_id(chat_id)
+                             .msg_type("interactive")
+                             .content(_json.dumps(card, ensure_ascii=False))
+                             .build())
+               .build())
+        resp = self.client.im.v1.message.create(req)
+        if not resp.success():
+            raise RuntimeError(f"message.create(card) failed code={resp.code} msg={resp.msg}")
+        return getattr(resp, "message_id", "") or ""
+
+    def update_card(self, message_id: str, card: dict) -> str:
+        """更新已发出的卡片（点按钮后展开详情用）。"""
+        from lark_oapi.api.im.v1 import (PatchMessageRequest,
+                                         PatchMessageRequestBody)
+        import json as _json
+        req = (PatchMessageRequest.builder()
+               .message_id(message_id)
+               .request_body(PatchMessageRequestBody.builder()
+                             .content(_json.dumps(card, ensure_ascii=False))
+                             .build())
+               .build())
+        resp = self.client.im.v1.message.patch(req)
+        if not resp.success():
+            raise RuntimeError(f"message.patch(card) failed code={resp.code} msg={resp.msg}")
+        return message_id
+
     def download_image(self, message_id: str, image_key: str) -> bytes:
         """用本租户凭证下载消息图片（handler 3 秒约束内落盘用）。"""
         from lark_oapi.api.im.v1 import GetMessageResourceRequest
@@ -141,13 +179,23 @@ class Sender:
 
 
 class TenantConnection:
-    def __init__(self, tenant: dict, app_secret: str, p2_handler_factory):
+    def __init__(self, tenant: dict, app_secret: str, p2_handler_factory,
+                 card_action_factory=None):
         self.tenant = tenant
         self.tenant_key = tenant["tenant_key"]
-        dispatcher = (lark.EventDispatcherHandler.builder("", "")
-                      .register_p2_im_message_receive_v1(
-                          p2_handler_factory(tenant))
-                      .build())
+        builder = (lark.EventDispatcherHandler.builder("", "")
+                   .register_p2_im_message_receive_v1(
+                       p2_handler_factory(tenant)))
+        # ★ 卡片动作回调（card.action.trigger）——
+        #   走**长连接** ⇒ 不需要公网地址，也不用在飞书后台填「卡片请求网址」。
+        if card_action_factory is not None:
+            try:
+                builder = builder.register_p2_card_action_trigger(
+                    card_action_factory(tenant))
+            except Exception:
+                log.exception("register card action handler failed tenant=%s",
+                              self.tenant_key)
+        dispatcher = builder.build()
         self._client = lark.ws.Client(app_id=tenant["app_id"],
                                       app_secret=app_secret,
                                       event_handler=dispatcher,
@@ -174,9 +222,11 @@ class TenantConnection:
 class WsManager:
     """按 bot_tenants 表维持长连接集合，支持运行期 reload 新增租户。"""
 
-    def __init__(self, master_key: bytes, p2_handler_factory):
+    def __init__(self, master_key: bytes, p2_handler_factory,
+                 card_action_factory=None):
         self._master_key = master_key
         self._p2_factory = p2_handler_factory
+        self._card_action_factory = card_action_factory
         self._conns: dict[str, TenantConnection] = {}  # app_id -> conn
         self._lock = threading.Lock()
 
@@ -193,7 +243,8 @@ class WsManager:
                 except Exception:
                     log.exception("decrypt secret failed tenant=%s", t["tenant_key"])
                     continue
-                conn = TenantConnection(t, secret, self._p2_factory)
+                conn = TenantConnection(t, secret, self._p2_factory,
+                                       self._card_action_factory)
                 self._conns[t["app_id"]] = conn
                 conn.start()
                 log.info("tenant online requested: %s", t["tenant_key"])

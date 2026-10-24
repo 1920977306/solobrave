@@ -409,18 +409,24 @@ def build_reminder(douyin_id: str, talent_id: str = "") -> tuple[str, list[str]]
       所以这里先看「今天该推的是不是都已经推过了」：
       全部推过 ⇒ 直接返回空（不重复推）。
     """
+    text, todo, _items = _reminder_parts(douyin_id, talent_id)
+    return text, todo
+
+
+def _reminder_parts(douyin_id: str, talent_id: str = ""):
+    """提醒的三个产物：文字版 / 待标记 deal / 今天的品。"""
     items, talent = _today_slots(douyin_id, talent_id)
     if not talent:
-        return "", []
+        return "", [], []
     if not items:
-        return "", []
+        return "", [], []
     day_key = datetime.datetime.now().strftime("%Y-%m-%d")
     markable = [it for it in items if it.deal_id]
     todo = [it.deal_id for it in markable
             if not _already_reminded(it.deal_id, day_key)]
     if markable and not todo:
         # 今天该推的都推过了 ⇒ 不重复推（重启也守住）
-        return "", []
+        return "", [], items
     name = _display_name(talent)
     # ⚠️ 数量必须**跟着实际坑位数走** —— 原来硬编码「今天推这两件」，
     #   排品池里只有 1 个品也照样说「两件」，达人一数就发现不对（2026-10-24 实测）。
@@ -445,7 +451,41 @@ def build_reminder(douyin_id: str, talent_id: str = "") -> tuple[str, list[str]]
         for it in tail_left[:3]:
             lines.append(f"   · {it.product_name[:26]}"
                          f"（{it.lifecycle.note if it.lifecycle else ''}）")
-    return "\n".join(lines), todo
+    return "\n".join(lines), todo, items
+
+
+def build_reminder_card(douyin_id: str, talent_id: str = ""):
+    """今日提醒的**卡片版**（文字版太长，聊天里铺开很难看）。
+
+    ★ 飞书这个应用**不支持任何折叠组件**（collapsible / post.fold 都被拒），
+      所以「把内容收起来」只能靠**卡片本身短**：标题 + 坑位 + 按钮。
+      详细理由不进卡片（要看就在 H5 排品表页看）。
+    """
+    from . import feishu_card as fc
+    _text, todo, items = _reminder_parts(douyin_id, talent_id)
+    if not todo or not items:
+        return None, []
+    slots, talent = plan_for_talent(douyin_id, talent_id)
+    name = _display_name(talent) if talent else ""
+    n = len(items)
+    cnt = {1: "这件", 2: "这两件"}.get(n, f"这{n}件")
+    lines = []
+    for it in items:
+        meta = " · ".join(x for x in (
+            (f"¥{it.price:g}" if it.price else ""),
+            (f"佣金{it.commission_rate:g}%" if it.commission_rate else ""),
+            (it.lifecycle.label if it.lifecycle else "")) if x)
+        lines.append(f"**坑位 {it.plan_slot}** {it.product_name[:26]}\n"
+                     f"{meta}")
+    tail_left = _tail_pending(douyin_id, talent_id, items)
+    note = f"每天 09:37 我会推「今天推哪个」给你"
+    if tail_left:
+        note = f"⏰ 还有 {len(tail_left)} 个品是尾货期，再不推就过期了"
+    card = fc.plan_card(
+        name, f"📦 今天推{cnt}", lines,
+        actions=[fc._button("看我的排品表", {"action": "view_plan"}, "default")],
+        note=note)
+    return card, todo
 
 
 def _tail_pending(douyin_id: str, talent_id: str, today_items) -> list:
@@ -513,6 +553,7 @@ def scan_and_push(ws=None, dry_run: bool = False) -> dict:
                     # 排期明天再补（宁可少一次安排，也不能今天不推）。
                     log.exception("[plan] 排期落库失败（不阻断推送）")
             text, todo = build_reminder(dyid)
+            card, card_todo = build_reminder_card(dyid)
             if not text:
                 stat["skipped"] += 1
                 stat["details"].append({"tenant": tk, "why": "今天没有要推的品（没排期/已推过）"})
@@ -531,8 +572,21 @@ def scan_and_push(ws=None, dry_run: bool = False) -> dict:
                 stat["skipped"] += 1
                 stat["details"].append({"tenant": tk, "why": "拿不到 sender"})
                 continue
-            sender.send_text(chat_id, text)
+            # ★ 优先发**卡片**（标题+坑位+按钮，聊天里不铺长文）；
+            #   发卡片失败就回退文字版（宁可丑一点，也不能不推）。
+            sent_as = "card"
+            if card:
+                try:
+                    sender.send_card(chat_id, card)
+                except Exception:
+                    log.exception("[plan] 卡片推送失败，回退文字版")
+                    sender.send_text(chat_id, text)
+                    sent_as = "text"
+            else:
+                sender.send_text(chat_id, text)
+                sent_as = "text"
             stat["pushed"] += 1
+            stat["sent_as"] = sent_as
             stat["details"].append({"tenant": tk, "deals": todo})
             for did in todo:
                 try:

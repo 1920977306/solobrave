@@ -88,6 +88,91 @@ class Router:
                 log.exception("dispatch failed tenant=%s", tenant["tenant_key"])
         return do_p2_im_message_receive_v1
 
+    # ---------- 卡片动作回调（card.action.trigger） ----------
+
+    def make_card_action_handler(self, tenant: dict):
+        """卡片按钮点击 → 干活（接品 / 看排品表）。
+
+        ★ 走**长连接**（`register_p2_card_action_trigger`）⇒
+          不需要公网地址，也不用在飞书后台填「卡片请求网址」。
+        ★ 卡片只支持 1.0，按钮回传的是 `value` 里的自定义字段。
+        ⚠️ `action.value` 是 **dict**（不是 JSON 字符串）——
+           按字符串解会直接炸（2026-10-24 查 SDK 源码确认）。
+        """
+        tk = tenant["tenant_key"]
+
+        def on_card_action(data) -> dict:
+            try:
+                ev = data.event
+                action = getattr(ev, "action", None)
+                ctx = getattr(ev, "context", None)
+                value = {}
+                if action is not None and isinstance(action.value, dict):
+                    value = action.value
+                act = str(value.get("action") or "")
+                chat_id = str(getattr(ctx, "open_chat_id", "") or "")
+                log.info("card action: tenant=%s act=%s chat=%s value=%s",
+                         tk, act, chat_id, value)
+                if act == "accept_deal":
+                    return self._card_accept_deal(tk, value)
+                if act == "view_plan":
+                    return self._card_view_plan(tk, chat_id)
+                return {"toast": {"type": "info", "content": "这个按钮还没接上"}}
+            except Exception:
+                log.exception("card action failed tenant=%s", tk)
+                return {"toast": {"type": "error", "content": "处理失败，稍后再试"}}
+        return on_card_action
+
+    def _card_accept_deal(self, tk: str, value: dict) -> dict:
+        """卡片按钮「接这个品」→ 登记进排品池（和飞书说「接了 xxx」同一条路径）。"""
+        from . import plan_notify
+        pid = str(value.get("product_id") or "").strip()
+        if not pid:
+            return {"toast": {"type": "error", "content": "没拿到商品ID"}}
+        try:
+            dyid = (db.get_latest_douyin_id(tk)
+                    or (db.get_tenant(tk) or {}).get("bind_douyin_id") or "").strip()
+            ok, msg = plan_notify.register_deal(dyid, pid)
+            tip = "已接进排品表 ✅" if ok else msg
+            return {"toast": {"type": "success" if ok else "info", "content": tip[:60]}}
+        except Exception:
+            log.exception("card accept deal failed tenant=%s", tk)
+            return {"toast": {"type": "error", "content": "接品失败，稍后再试"}}
+
+    def _card_view_plan(self, tk: str, chat_id: str) -> dict:
+        """卡片按钮「看我的排品表」→ 直接回一张排品卡。
+
+        ★ 用回调响应里的 `card` 字段**替换原卡片**（飞书原生「点开替换」），
+          不用再发一条新消息 ⇒ 聊天里不会越堆越多。
+        """
+        from . import plan_notify
+        from . import feishu_card as fc
+        try:
+            dyid = (db.get_latest_douyin_id(tk)
+                    or (db.get_tenant(tk) or {}).get("bind_douyin_id") or "").strip()
+            slots, talent = plan_notify.plan_for_talent(dyid)
+            if not talent or not slots:
+                return {"toast": {"type": "info", "content": "还没有排品，先接几个品吧"}}
+            today = datetime.datetime.now().strftime("%Y-%m-%d")
+            lines = []
+            for s in slots:
+                if s.date != today:
+                    continue
+                for it in s.items:
+                    lines.append(f"**坑位 {it.plan_slot}** {it.product_name[:28]}\n"
+                                 f"¥{it.price:g} · 佣金{it.commission_rate:g}% · "
+                                 f"{(it.lifecycle.label if it.lifecycle else '')}")
+            if not lines:
+                return {"toast": {"type": "info", "content": "今天没有排品，明天再来"}}
+            new_card = fc.plan_card(
+                plan_notify._display_name(talent), "📋 我的排品表", lines,
+                actions=[fc._button("看明天推什么", {"action": "view_plan"}, "default")],
+                note="每天 09:37 我会推「今天推哪个」给你")
+            return {"card": {"type": "raw", "data": new_card}}
+        except Exception:
+            log.exception("card view plan failed tenant=%s", tk)
+            return {"toast": {"type": "error", "content": "排品表算不出来"}}
+
     # ---------- 主路由 ----------
 
     def _dispatch(self, tenant: dict, data) -> None:

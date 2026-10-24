@@ -60,7 +60,11 @@ def cmd_serve(_args):
     def p2_factory(tenant: dict):
         return holder["router"].make_p2_handler(tenant)
 
-    ws = WsManager(master_key, p2_factory)
+    # ★ 卡片动作回调（card.action.trigger）——走长连接，不需要公网地址
+    def card_action_factory(tenant: dict):
+        return holder["router"].make_card_action_handler(tenant)
+
+    ws = WsManager(master_key, p2_factory, card_action_factory)
     holder["router"] = Router(ws)
     _STATE["ws"] = ws
     ws.reload()
