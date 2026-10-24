@@ -85,6 +85,14 @@ def _read_talent(douyin_id: str, talent_id: str = "") -> dict | None:
                 "ORDER BY created_at DESC LIMIT 1", (douyin_id,)).fetchone()
             if r:
                 return dict(r)
+            # 达人可能报过「抖音号：xxx」但库里 `douyin_id` 存的是另一个形态
+            # （实测：库里的 `douyin_id` 有时是 `platform_talent_id`，有时是原始号）
+            r = conn.execute(
+                "SELECT * FROM talents WHERE platform_talent_id=? "
+                "OR douyin_uid=? ORDER BY created_at DESC LIMIT 1",
+                (douyin_id, douyin_id)).fetchone()
+            if r:
+                return dict(r)
         return None
     finally:
         conn.close()
@@ -140,7 +148,7 @@ def plan_text(douyin_id: str, talent_id: str = "") -> str:
         return ("你名下还没有登记待推的品。\n"
                 "接了品之后发我「接了 <商品ID或商品链接>」，"
                 "我就能帮你排哪天推哪个、哪个该清了。")
-    return plan.plan_text(slots, talent.get("name") or "")
+    return plan.plan_text(slots, _display_name(talent))
 
 
 def register_deal(douyin_id: str, product_id: str, talent_id: str = "",
@@ -198,10 +206,56 @@ def register_deal(douyin_id: str, product_id: str, talent_id: str = "",
         conn.close()
 
 
+# ────────────────────────── 排品池自动同步 ──────────────────────────
+
+# 选品车同步缓存：{"at": 时间戳, "ok": bool, "count": int}
+_cart_sync: dict = {}
+
+
+def sync_cart_pool(force: bool = False, max_age: int = 6 * 3600) -> dict:
+    """把达人选品车同步进排品池（`deals`）。
+
+    ★ 这才是「达人接了哪些品」的真源 —— 达人在选品广场点「加选品车」就是接了。
+      靠「达人发魔法口令」登记在现实里行不通（实测 200+ 条消息触发数 = 0）。
+
+    同步有成本（要走达人端浏览器，3 个接口 ≈ 30~60s）⇒ 带缓存：
+      · 每天首次扫描时同步一次
+      · 达人主动问「今天推啥」时，超过 `max_age` 才补同步
+    """
+    now = int(time.time())
+    if not force and _cart_sync.get("at") and \
+            (now - int(_cart_sync["at"])) < max_age:
+        return dict(_cart_sync)
+    try:
+        sys.path.insert(0, str(_ROOT))
+        from daren_cockpit.tools import cart_collector
+        res = cart_collector.sync(apply=True)
+    except Exception as e:
+        log.exception("[plan] 选品车同步失败")
+        res = {"ok": False, "error": str(e)[:160]}
+    _cart_sync.clear()
+    _cart_sync.update({
+        "at": now,
+        "ok": bool(res.get("ok")),
+        "count": int(res.get("deal_count") or 0),
+        "talent": (res.get("talent") or {}).get("name", ""),
+        "error": res.get("error", ""),
+    })
+    log.info("[plan] 选品车同步: %s", {k: v for k, v in _cart_sync.items()
+                                       if k != "at"})
+    return dict(_cart_sync)
+
+
 # ────────────────────────── 每日提醒 ──────────────────────────
 
 def _gray_map() -> dict:
-    """灰度租户 → 抖音号。"""
+    """灰度租户 → **最近活跃的**抖音号。
+
+    ⚠️ 不用 `bind_douyin_id` —— 实测错位过（2026-10-24）：
+       `daren_test2` 配的是 324733241（萌萌超会买），
+       但老大实际在飞书聊的是 Ayn11930（一百）。
+       查错人 ⇒ 排品表/提醒落到别人的数据上 = 看起来「这功能没做」。
+    """
     out = {}
     for tk in PLAN_GRAY_TENANTS:
         try:
@@ -210,10 +264,22 @@ def _gray_map() -> dict:
             t = None
         if not t:
             continue
-        dyid = (t.get("bind_douyin_id") or "").strip()
+        dyid = (db.get_latest_douyin_id(tk) or
+                t.get("bind_douyin_id") or "").strip()
         if dyid:
             out[tk] = dyid
     return out
+
+
+def _display_name(talent: dict) -> str:
+    """给达人看的名字。
+
+    ★ 优先用**平台昵称**（`/index/getUser` 的 `user_name`）——
+      库里的 `name` 可能是运营随手写的（实测「我的小号发给你跟我分析一下名称一百」），
+      直接用在提醒标题里很难看。
+    """
+    return (str(talent.get("platform_nickname") or "").strip()
+            or str(talent.get("name") or "").strip())
 
 
 def _already_reminded(deal_id: str, day_key: str) -> bool:
@@ -271,7 +337,7 @@ def build_reminder(douyin_id: str, talent_id: str = "") -> tuple[str, list[str]]
     if markable and not todo:
         # 今天该推的都推过了 ⇒ 不重复推（重启也守住）
         return "", []
-    name = talent.get("name") or ""
+    name = _display_name(talent)
     lines = [f"【{name} 今天推这两件】"] if name else ["【今天推这两件】"]
     for i, it in enumerate(items, 1):
         lc = it.lifecycle.label if it.lifecycle else ""
@@ -310,12 +376,21 @@ def _tail_pending(douyin_id: str, talent_id: str, today_items) -> list:
     return out
 
 
-def scan_and_push(sender_factory) -> dict:
+def scan_and_push(ws=None, dry_run: bool = False, sync_first: bool = True) -> dict:
     """扫一遍灰度租户，把「今天推哪两个」推给有排期的达人。
 
+    ★ 签名与 `coop_notify.scan_and_push` **保持一致**（收 `ws` 对象 + `dry_run`）——
+      之前这里收的是「sender 工厂函数」，两边不一致 ⇒ 调用方直接传 ws 就炸
+      （`'WsManager' object is not callable`，2026-10-24 踩过）。
+
     返回统计（和 coop_notify.scan_and_push 同样的形状，方便运维看）。
+    ★ `sync_first`：扫描前先把**选品车**同步进排品池 ——
+      否则达人新加的品不会进表（排品池只增不减要靠这个）。
     """
     stat = {"scanned": 0, "pushed": 0, "skipped": 0, "details": []}
+    if sync_first:
+        st = sync_cart_pool()
+        stat["cart_sync"] = {k: v for k, v in st.items() if k != "at"}
     gray = _gray_map()
     if not gray:
         log.info("[plan] 灰度名单内没有已绑定抖音号的租户 → 本轮不推")
@@ -334,7 +409,16 @@ def scan_and_push(sender_factory) -> dict:
                 stat["skipped"] += 1
                 stat["details"].append({"tenant": tk, "why": "今天没有要推的品（没排期/已推过）"})
                 continue
-            sender = sender_factory(tk)
+            if dry_run:
+                stat["details"].append({"tenant": tk, "deals": todo,
+                                        "text": text, "dry_run": True})
+                continue
+            sender = None
+            if ws is not None:
+                try:
+                    sender = ws.get_sender(tk)
+                except Exception:
+                    sender = None
             if sender is None:
                 stat["skipped"] += 1
                 stat["details"].append({"tenant": tk, "why": "拿不到 sender"})
@@ -391,6 +475,12 @@ class PlanScheduler(threading.Thread):
         today = now.strftime("%Y-%m-%d")
         if self._last_day == today:
             return          # 一天只主动推一次
-        stat = scan_and_push(self._sender_factory)
+        # ★ 当天第一次推之前，强制把选品车同步一遍
+        #   （达人昨天/今天新加的品要进今天的排品表）
+        try:
+            sync_cart_pool(force=True)
+        except Exception:
+            log.exception("[plan] 扫描前同步选品车失败（不阻断推送）")
+        stat = scan_and_push(self.wm, sync_first=False)
         if stat.get("pushed"):
             self._last_day = today

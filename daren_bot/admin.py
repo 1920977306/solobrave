@@ -252,7 +252,8 @@ def make_handler(state: dict):
             u = urlparse(self.path)
             q = parse_qs(u.query)
             if u.path not in ("/admin/api/grant", "/admin/api/bind",
-                              "/admin/api/coop-scan"):
+                              "/admin/api/coop-scan",
+                              "/admin/api/plan-scan"):
                 return self._json(404, {"ok": False, "error": "not found"})
             if not self._auth(q):
                 return self._json(403, {"ok": False, "error": "token 无效"})
@@ -274,6 +275,20 @@ def make_handler(state: dict):
                     log.exception("coop scan failed")
                     return self._json(500, {"ok": False, "error": str(e)})
                 log.info("admin coop-scan dry_run=%s -> %s", dry,
+                         {k: v for k, v in stat.items() if k != "details"})
+                return self._json(200, {"ok": True, "dry_run": dry, **stat})
+            if u.path == "/admin/api/plan-scan":
+                # 排品扫描：达人加了新品想立刻看排品表 / 验收提醒用。
+                # ⚠️ 默认 dry_run=true（只决策不推送），真推要显式传 dry_run=false。
+                from . import plan_notify
+                dry = body.get("dry_run", True)
+                dry = True if dry is None else bool(dry)
+                try:
+                    stat = plan_notify.scan_and_push(state["ws"], dry_run=dry)
+                except Exception as e:  # noqa: BLE001
+                    log.exception("plan scan failed")
+                    return self._json(500, {"ok": False, "error": str(e)})
+                log.info("admin plan-scan dry_run=%s -> %s", dry,
                          {k: v for k, v in stat.items() if k != "details"})
                 return self._json(200, {"ok": True, "dry_run": dry, **stat})
             tk = str(body.get("tenant_key") or "").strip()

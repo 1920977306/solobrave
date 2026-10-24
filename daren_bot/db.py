@@ -299,6 +299,33 @@ def get_tenant_by_douyin(douyin_id: str):
         return dict(r) if r else None
 
 
+def get_latest_douyin_id(tenant_key: str) -> str:
+    """这个租户**最近活跃**的达人抖音号（达人自己报过的那个）。
+
+    ★ 为什么不能只信 `bind_douyin_id`（2026-10-24 踩过）：
+      实测 `daren_test2` 配的 `bind_douyin_id=324733241`（萌萌超会买），
+      但老大实际在飞书聊的是 `Ayn11930`（一百）——
+      查错人 ⇒ 排品表/提醒全落到别人的数据上，看起来就是「这功能没做」。
+      ⇒ 优先取该租户**最近一次抖音号分析**请求里的号（那是达人自己报的，最真），
+        没有才回退到 `bind_douyin_id`。
+    """
+    with db_ctx() as conn:
+        try:
+            r = conn.execute(
+                "SELECT target FROM bot_collect_tasks "
+                "WHERE tenant_key=? AND type='douyin' AND target!='' "
+                "ORDER BY created_at DESC LIMIT 1", (tenant_key,)).fetchone()
+            if r and (r[0] or '').strip():
+                return r[0].strip()
+        except Exception:
+            pass
+    try:
+        t = get_tenant(tenant_key) or {}
+    except Exception:
+        t = {}
+    return (t.get('bind_douyin_id') or '').strip()
+
+
 def set_owner_open_id(tenant_key: str, open_id: str) -> None:
     """记住达人本人的 open_id（首次消息时写入；建多维表格后授权可见）。"""
     if not open_id:

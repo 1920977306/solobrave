@@ -511,7 +511,50 @@ vs `video_sales_7d`（短视频口径，**只覆盖榜内商品**）。混用必
   - 「今天推啥 / 排品表 / 我的排品」→ 直接回表（`PLAN_QUERY_RE`）。
   - 每日 09:37 自动推「今天推哪两个 + 哪个该清了」（灰度 `daren_boss`/`daren_test2`）。
 
-#### 排品算法铁律（`product_plan.py`，改之前先读）
+#### 排品池的真源是**达人选品车**，不是「达人发口令」（2026-10-24 老大反馈后修正）
+
+> 老大原话：「达人1 没有做到我说的那个功能：达人手里每天都要接很多的品，那这些品就需要 AI 帮忙安排、提醒」。
+
+⚠️ **第一版入口从根上就错了**：靠「达人发一句魔法口令（接了 xxx）」登记接品，
+**现实中没人会发这条口令** —— 实测飞书两个租户 200+ 条消息里，
+`接了`/`今天推啥` 触发数 = **0** ⇒ 排品池永远是空的 ⇒ 调度器一直 `skipped=2`。
+
+**平台自己给的真源契约**（2026-10-24 实测）：
+
+| 用途 | 接口 | 关键字段 |
+|---|---|---|
+| **当前登录达人身份** | `GET /index/getUser` | `user_name`(昵称) / `origin_uid`(抖音uid) / `shop_id` / `user_id` |
+| **选品车商品（= 达人接的品）** | `POST /selection_cart_pc_api/card/m_get_card` | body `{page,page_size,key_word,view_type,common_filter,version}`；`data.cart_view_card[].cards[].product_card` |
+| 选品车角标 | `POST /selection_cart_pc_api/comm/m_get_cart_sum` | body `{sum_scene:[0]}`；`sum_type=1` 全部 / `2` 未加橱窗 |
+
+商品卡口径（★ **单位坑**）：
+- `base_product_info.price` = **分**（6800 ⇒ ¥68.00）
+- `business_operation_info.cos_ratio` = 佣金率**万分比**（1000 ⇒ 10%）
+- `business_operation_info.ad_cos_ratio` = 投放期佣金万分比（600 ⇒ 6%）
+- `business_operation_info.monthly_sale` / `good_ratio` / `is_in_window`
+- `base_shop_info.exp_score`（店铺体验分）/ `shop_name`
+- `base_product_info.new_category_id` = 一级/二级/三级类目 + 类目id
+
+**工具**：`daren_cockpit/tools/cart_collector.py`
+（`--apply` 真写库；默认只看不写）。
+落两处：① `products` 按 `platform_product_id` **补建档**（选品车的品经常不在我们库里）
+② `deals` 登记成排品池合作单（`deal_source='选品车'`，`status='approved'`）。
+
+#### ⚠️ 租户↔达人身份会错位（同一个坑，第二次踩）
+
+实测：`daren_test2` 配的 `bind_douyin_id=324733241`（萌萌超会买），
+但老大实际在飞书聊的是 `Ayn11930`（一百）——
+**查错人 ⇒ 排品表/提醒全落到别人的数据上，看起来就是「这功能没做」**。
+
+⇒ **判据顺序**（`db.get_latest_douyin_id()`）：
+1. 该租户**最近一次抖音号分析**请求里的号（达人自己报的，最真）
+2. 回退 `bot_tenants.bind_douyin_id`
+
+⇒ 另加 `talents.platform_nickname`（达人端昵称），
+提醒标题用昵称而不是库里的 `name`（实测库名是「我的小号发给你跟我分析一下名称一百」，
+直接用在标题里没法看）。
+
+#### 排品表 + 提醒铁律（`product_plan.py`，改之前先读）
 
 1. **优先级 = 匹配度40% + 收益35% + 时机25%**，质量只做**扣分项**（差品压后）。
 2. **匹配度三态** —— 无类目数据 =「不知道」（该半权重退出，重新归一化）；

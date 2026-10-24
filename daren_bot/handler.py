@@ -259,7 +259,9 @@ class Router:
         """
         from . import plan_notify
         tk = tenant["tenant_key"]
-        dyid = (tenant.get("bind_douyin_id") or "").strip()
+        # ★ 用「最近活跃的抖音号」找达人，别只信 bind_douyin_id（实测错位过）
+        dyid = (db.get_latest_douyin_id(tk) or
+                tenant.get("bind_douyin_id") or "").strip()
         try:
             ok, msg = plan_notify.register_deal(dyid, str(product_id or "").strip())
         except Exception as e:
@@ -273,10 +275,17 @@ class Router:
         """「今天推啥 / 排品表」→ 把排期表直接回给达人。
 
         **零成本**：纯查库 + 纯函数算排期，不调 LLM、不扣积分。
+        ★ 先补同步一次选品车（达人刚加的品要能立刻看到）——
+          同步有缓存，6 小时内不会重复走达人端。
         """
         from . import plan_notify
         tk = tenant["tenant_key"]
-        dyid = (tenant.get("bind_douyin_id") or "").strip()
+        dyid = (db.get_latest_douyin_id(tk) or
+                tenant.get("bind_douyin_id") or "").strip()
+        try:
+            plan_notify.sync_cart_pool()
+        except Exception:
+            log.exception("plan cart sync failed")
         try:
             text = plan_notify.plan_text(dyid)
         except Exception as e:

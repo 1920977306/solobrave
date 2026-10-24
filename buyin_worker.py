@@ -2487,6 +2487,57 @@ def _browser_loop():
                     STATE['daren_shot'] = {'error': str(e)}
                 log(f'[Control] 达人端截图失败: {e}')
             continue
+        if row.get('_daren_click'):
+            # ★ 达人端「按文字点元素 + 抓它触发的接口」（2026-10-24）
+            #   用途：平台 UI 里的真数据入口（如「选品车」）靠猜路径不靠谱，
+            #   直接点一下看它调什么接口，拿到**平台自己的契约**。
+            #   body: {text: 元素文字, nth: 第几个(默认0), tag: 标签, wait: 等待秒}
+            ctext = str(row.get('text') or '').strip()
+            cnth = int(row.get('nth') or 0)
+            ctag = re.sub(r'[^\w]+', '_', str(row.get('tag') or 'click'))[:40]
+            cwait = float(row.get('wait') or 4.0)
+            curl_ = str(row.get('url') or '').strip()
+            out = {'text': ctext, 'nth': cnth, 'ok': False}
+            try:
+                page = _switch_to(DAREN_BROWSER, BROWSER)
+                # 先导航到目标页（否则新开的浏览器停在空白页，点不到任何东西）
+                if curl_:
+                    page.goto(curl_, timeout=45000)
+                    page.wait_for_load_state('domcontentloaded')
+                    _human_sleep(3, 5)
+                out['start_url'] = page.url
+                with _job_lock:
+                    DAREN_BROWSER.net_log.clear()
+                loc = page.get_by_text(ctext, exact=False)
+                cnt = loc.count()
+                out['matched'] = cnt
+                if cnt == 0:
+                    out['error'] = f'页面上找不到文字「{ctext}」'
+                else:
+                    idx = min(cnth, cnt - 1)
+                    out['clicked'] = idx
+                    loc.nth(idx).click(timeout=12000)
+                    _human_sleep(cwait, cwait + 2.0)
+                    shot = SHOTS_DIR / f'darenclick_{ctag}_{int(time.time())}.png'
+                    page.screenshot(path=str(shot))
+                    out['shot'] = str(shot)
+                    out['url'] = page.url
+                    try:
+                        out['body'] = page.evaluate(
+                            "() => (document.body ? document.body.innerText : '').slice(0, 2000)")
+                    except Exception:
+                        out['body'] = ''
+                    with _job_lock:
+                        out['net'] = [dict(r) for r in DAREN_BROWSER.net_log[-30:]]
+                    out['ok'] = True
+                    log(f'[Control] 达人端点击「{ctext}」完成 url={out["url"]} '
+                        f'接口数={len(out["net"])}')
+            except Exception as e:
+                out['error'] = str(e)[:200]
+                log(f'[Control] 达人端点击「{ctext}」失败: {e}')
+            with _job_lock:
+                STATE['daren_click'] = out
+            continue
         if row.get('_daren_search'):
             # ★★ 达人端「按商品ID 能不能搜到商品」实证（2026-10-24 老大要的）
             #   真·页面操作：在**达人端页面的搜索框**里输入商品ID → 回车 → 截图。
@@ -2658,6 +2709,9 @@ def _browser_loop():
             path = str(row.get('path') or '').strip()
             method = str(row.get('method') or 'GET').upper()
             body = row.get('body')
+            # ★ tag：让并发/连续的多次 fetch 各自留结果，不再互相覆盖
+            #   （2026-10-24 踩过：连发 identity+cart 两次，取到的都是第一次的结果）
+            ftag = str(row.get('tag') or '').strip()
             try:
                 page = _switch_to(DAREN_BROWSER, BROWSER)
                 # ★ 必须在 buyin 域内才能 fetch（跨域 CORS 拦；about:blank 没有 base URL）
@@ -2682,13 +2736,19 @@ def _browser_loop():
                         return {status: r.status, text: t.slice(0, 2000000)};
                     } catch (e) { return {error: String(e)}; }
                 }""", {'path': full, 'method': method, 'body': body})
+                rec = {'path': full, 'method': method,
+                       'at': time.strftime('%H:%M:%S'), 'out': out}
                 with _job_lock:
-                    STATE['daren_fetch'] = {'path': full, 'method': method,
-                                           'at': time.strftime('%H:%M:%S'), 'out': out}
+                    STATE['daren_fetch'] = rec
+                    if ftag:
+                        STATE.setdefault('daren_fetch_tags', {})[ftag] = rec
                 log(f'[Control] 达人端 fetch {method} {full} → {str(out)[:200]}')
             except Exception as e:
+                rec = {'path': path, 'error': str(e)}
                 with _job_lock:
-                    STATE['daren_fetch'] = {'path': path, 'error': str(e)}
+                    STATE['daren_fetch'] = rec
+                    if ftag:
+                        STATE.setdefault('daren_fetch_tags', {})[ftag] = rec
                 log(f'[Control] 达人端 fetch 失败: {e}')
             continue
         if row.get('_probe_daren'):
@@ -3649,7 +3709,13 @@ class ControlHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self):
-        if self.path == '/health':
+        # ⚠️ 路径归一：路由匹配用**去掉 query** 的路径，
+        #   query 单独存 self._qs（否则 `/daren-fetch?tag=xxx` 匹配不上 ⇒ 404，
+        #   而 `/daren-net?limit=200` 的 limit 也读不到）
+        _raw = self.path
+        self._qs = _raw.split('?', 1)[1] if '?' in _raw else ''
+        self._path = _raw.split('?', 1)[0]
+        if self._path == '/health':
             with _job_lock:
                 up, logged_in = STATE.get('browser_up'), STATE.get('logged_in')
                 dup, dlogged = STATE.get('daren_browser_up'), STATE.get('daren_logged_in')
@@ -3664,9 +3730,9 @@ class ControlHandler(BaseHTTPRequestHandler):
                 'jobs': jobs,
             })
             return
-        if self.path.startswith('/daren-net'):
+        if self._path.startswith('/daren-net'):
             # 常驻流量日志（人工手动操作也能抓到接口）
-            qs = self.path.split('?', 1)[1] if '?' in self.path else ''
+            qs = self._qs
             limit = 120
             q = ''
             for kv in qs.split('&'):
@@ -3685,29 +3751,38 @@ class ControlHandler(BaseHTTPRequestHandler):
             self._json(200, {'ok': True, 'enabled': enabled, 'total': len(net),
                              'log': net[-limit:]})
             return
-        if self.path == '/daren-shot':
+        if self._path == '/daren-shot':
             with _job_lock:
                 out = STATE.get('daren_shot')
             self._json(200, out or {'error': 'not run yet'})
             return
-        if self.path == '/daren-fetch':
+        if self._path == '/daren-fetch':
             with _job_lock:
-                out = STATE.get('daren_fetch')
+                tags = STATE.get('daren_fetch_tags') or {}
+                qtag = ''
+                from urllib.parse import parse_qs
+                qtag = (parse_qs(self._qs).get('tag') or [''])[0]
+                out = tags.get(qtag) if qtag else STATE.get('daren_fetch')
             self._json(200, out or {'error': 'not run yet'})
             return
-        if self.path == '/daren-search':
+        if self._path == '/daren-search':
             with _job_lock:
                 out = STATE.get('daren_search')
             self._json(200, out or {'error': 'not run yet'})
             return
-        if self.path.startswith('/jobs/'):
-            cid = self.path[len('/jobs/'):]
+        if self._path == '/daren-click':
+            with _job_lock:
+                out = STATE.get('daren_click')
+            self._json(200, out or {'error': 'not run yet'})
+            return
+        if self._path.startswith('/jobs/'):
+            cid = self._path[len('/jobs/'):]
             with _job_lock:
                 job = dict(JOBS.get(cid) or {})
             self._json(200, job or {'error': 'not found'})
             return
-        if self.path.startswith('/shots/'):
-            fname = os.path.basename(self.path[len('/shots/'):])
+        if self._path.startswith('/shots/'):
+            fname = os.path.basename(self._path[len('/shots/'):])
             fpath = SHOTS_DIR / fname
             if fpath.is_file():
                 data = fpath.read_bytes()
@@ -3768,6 +3843,20 @@ class ControlHandler(BaseHTTPRequestHandler):
                        'urls': cand})
             self._json(200, {'ok': True, 'msg': '搜索已入队，结果见 GET /daren-search'})
             return
+        if self.path == '/daren-click':
+            # ★ 达人端「按文字点元素 + 抓它触发的接口」
+            #   body: {text, nth?, tag?, wait?}
+            ctext = str(body.get('text') or '').strip()
+            if not ctext:
+                self._json(400, {'error': 'missing text'})
+                return
+            JOB_Q.put({'_daren_click': True, 'text': ctext,
+                       'nth': int(body.get('nth') or 0),
+                       'tag': str(body.get('tag') or 'click'),
+                       'wait': float(body.get('wait') or 4.0),
+                       'url': str(body.get('url') or '').strip()})
+            self._json(200, {'ok': True, 'msg': '点击已入队，结果见 GET /daren-click'})
+            return
         if self.path == '/daren-fetch':
             # 在达人端页面上下文里 fetch 任意接口（带登录 cookie）
             path = str(body.get('path') or '').strip()
@@ -3776,7 +3865,8 @@ class ControlHandler(BaseHTTPRequestHandler):
                 self._json(400, {'error': 'missing path'})
                 return
             JOB_Q.put({'_daren_fetch': True, 'path': path, 'method': method,
-                       'body': body.get('body')})
+                       'body': body.get('body'),
+                       'tag': str(body.get('tag') or '').strip()})
             self._json(200, {'ok': True, 'msg': 'fetch 已入队，结果见 GET /daren-fetch'})
             return
         if self.path == '/daren-net':

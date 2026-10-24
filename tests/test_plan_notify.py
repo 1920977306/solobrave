@@ -28,7 +28,8 @@ CREATE TABLE talents (
     id TEXT PRIMARY KEY, name TEXT, douyin_id TEXT,
     category_distribution TEXT, price_distribution TEXT,
     average_price REAL, video_avg_price TEXT,
-    total_products INTEGER, total_gmv REAL, created_at INTEGER
+    total_products INTEGER, total_gmv REAL, created_at INTEGER,
+    platform_talent_id TEXT, douyin_uid TEXT
 );
 CREATE TABLE products (
     id TEXT PRIMARY KEY, name TEXT, price REAL, price_range TEXT,
@@ -84,6 +85,16 @@ def dbfile(tmp_path, monkeypatch):
     conn.close()
     monkeypatch.setattr(plan_notify, "SOLOBRAVE_DB", path)
     return path
+
+
+class _Ws:
+    """假 WsManager（签名与真实 ws 一致：有 get_sender）。"""
+
+    def __init__(self, sender_cls):
+        self._sender_cls = sender_cls
+
+    def get_sender(self, tenant_key):
+        return self._sender_cls()
 
 
 # ─────────────── 登记接品 ───────────────
@@ -181,10 +192,12 @@ def test_reminder_is_idempotent(dbfile):
     monkey._gray_map = lambda: {"daren_boss": "dy_888"}
     monkey.db.get_latest_chat_id = lambda tk: "oc_test"
     try:
-        st1 = monkey.scan_and_push(lambda tk: _Sender())
+        # ★ 签名与 coop 一致：收 ws 对象（内部 get_sender）+ dry_run
+        #   sync_first=False：测试**不能**触发真采集（会连 prod 库/达人端）
+        st1 = monkey.scan_and_push(_Ws(_Sender), dry_run=False, sync_first=False)
         assert st1["pushed"] == 1, st1
         assert len(sent) == 1
-        st2 = monkey.scan_and_push(lambda tk: _Sender())
+        st2 = monkey.scan_and_push(_Ws(_Sender), dry_run=False, sync_first=False)
         assert st2["pushed"] == 0, "同一天不能重复推送"
         assert len(sent) == 1, "同一天同一品只能提醒一次"
     finally:
@@ -210,10 +223,10 @@ def test_reminder_idempotency_survives_restart(dbfile):
     plan_notify._gray_map = lambda: {"daren_boss": "dy_888"}
     plan_notify.db.get_latest_chat_id = lambda tk: "oc_test"
     try:
-        plan_notify.scan_and_push(lambda tk: _Sender())
+        plan_notify.scan_and_push(_Ws(_Sender), dry_run=False, sync_first=False)
         assert len(sent) == 1
         # 「重启」= 新进程，内存状态全丢
-        plan_notify.scan_and_push(lambda tk: _Sender())
+        plan_notify.scan_and_push(_Ws(_Sender), dry_run=False, sync_first=False)
         assert len(sent) == 1, "重启后不能把今天的提醒重推一遍"
     finally:
         plan_notify._gray_map = orig_gray
