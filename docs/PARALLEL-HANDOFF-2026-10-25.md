@@ -157,3 +157,87 @@ curl -s -X POST "http://127.0.0.1:8092/admin/api/plan-scan?token=$TOKEN" \
 - **2026-10-25 17:30 A 边**：积分闸门收完并推 `origin/dev`（`c8e849a`）；
   建好 B 边 worktree `sb-dev/parallel-handoff-1025`（基点 `c8e849a`）；
   本交接单首版。**B 边开工前请先读本文件。**
+
+---
+
+## 7. ★ 合并配方：A 边 × B 边（`origin/dev` × `origin/feat/parallel-handoff-1025`）
+
+> 2026-10-25 19:58 A 边算清并已通过 `session send` 告知 B 边。
+> **本节以文件为准**（会话消息可能来不及看 / 上下文丢了）。
+
+### 7.1 冲突面精确到 3 个文件
+
+```
+git diff --name-status db1e9cc origin/dev                          # A 边
+git diff --name-status db1e9cc origin/feat/parallel-handoff-1025   # B 边
+comm -12 <(上两者 --name-only | sort)                              # 交集 = 冲突面
+```
+
+| 文件 | A 边改了什么 | B 边改了什么 | 怎么合 |
+|---|---|---|---|
+| `daren_bot/worker.py` | `_fail(task, reason, exc=None)`：达人看人话（`failure_text`）+ 运营收告警（`ops_alert`）；`_process` 传 `exc=e` | `_fail(task, reason)`：改走 `db.fail_task_and_refund()`（原子 + 幂等退款） | **⚠️ 真冲突，同一个函数 ⇒ 必须合起来**（配方见 7.2）|
+| `daren_bot/config.py` | 顶部 `_load_env_file()`（读 `.env`）+ 底部运营告警配置 | `COST_TABLE` 上方的计费口径注释 | 三个区域互不重叠 ⇒ **一般能自动合**；若报冲突是行号位移造成的假冲突，**两边都留** |
+| `docs/PARALLEL-HANDOFF-2026-10-25.md` | 占用登记 + §8.12/§8.13 更新 | 占用登记 + 对抗审查结论 | 文本冲突，**两段都留** |
+
+**只有 B 边改、A 边没碰** ⇒ 无冲突：
+`daren_bot/db.py`、`scripts/secret_scan.py`、`scripts/mutate_gate_adversarial.py`、
+`tests/test_credits_gate_adversarial.py`、`docs/ADVERSARIAL-REVIEW-2026-10-25.md`。
+
+### 7.2 `worker.py::_fail` 合并版（两边特性都保住）
+
+```python
+    def _fail(self, task: dict, reason: str, exc: BaseException | None = None) -> None:
+        """任务失败：B 边「原子+幂等退款」+ A 边「达人看人话 / 运营收告警」。"""
+        cost = int(task.get("credits_cost") or 0)
+        refunded, _balance = db.fail_task_and_refund(task["id"], reason)   # ← B 边的原子退款
+        product_scene = task.get("type") in ("product", "image")
+        if exc is not None:
+            user_text = failure_text.user_text_for(exc, product=product_scene)
+            ops_text = failure_text.ops_text_for(exc)
+        else:
+            user_text = failure_text.user_text_for(RuntimeError(reason), product=product_scene)
+            ops_text = reason
+        log.warning("[task-failed] id=%s type=%s refunded=%s cost=%s ops=%s",
+                    task["id"], task.get("type"), refunded, cost, ops_text)
+        if exc is not None and failure_text.is_login_failure(exc):
+            ops_alert.alert(
+                "⚠️ 达人端采集通道掉登录了",
+                failure_text.ops_alert_body(
+                    exc, context=f"任务 {task['id']}（{task.get('type')}）失败"),
+                kind="login_lost", dedup_key="daren_collector_need_login")
+        suffix = f"（已返还 {cost} 积分）" if cost > 0 else ""
+        self._notify(task["tenant_key"], f"{user_text}{suffix}", task.get("chat_id", ""))
+```
+
+`_process` 里两行同步恢复 `exc=e`：
+```python
+        except NotImplementedError as e:
+            self._fail(task, str(e), exc=e)
+        except Exception as e:
+            log.exception("task failed: id=%s", task["id"])
+            self._fail(task, f"{type(e).__name__}: {e}", exc=e)
+```
+
+### 7.3 ⚠️ `worker.py` 里两行**必须保住**（解冲突时最容易丢）
+
+1. **`from __future__ import annotations`** ——
+   生产跑的是 **python 3.9**（`/Library/Developer/CommandLineTools/…/python3.9`），
+   没有它，`exc: BaseException | None = None` 在**类定义时**就 `TypeError` 起不来。
+2. **`from . import failure_text` / `from . import ops_alert`** —— 少了直接 NameError。
+
+### 7.4 合并后必跑（三样缺一不可）
+
+```bash
+cd /Users/qichen/sb-dev/parallel-handoff-1025
+python3 -m pytest tests/ -q                   # 两边测试都要绿（A 38 条 + B adversarial）
+python3 scripts/mutate_failure_guards.py      # A 边 15 条变异
+python3 scripts/mutate_gate_adversarial.py    # B 边变异
+launchctl kickstart -k gui/$(id -u)/com.solobrave.daren-bot   # B 的 claimed_at 列要走迁移
+```
+
+⚠️ **间接耦合提醒**：`worker._fail` 现在带 `exc` 参数。
+B 边若在 `_fail` 里加新逻辑，**必须保留 `exc`** ——
+否则 A 边的告警链路会静默失效（`failure_text.is_login_failure(exc)` 拿不到异常对象
+⇒ 采集通道掉登录不再告警运营）。
+
+⚠️ **合并口径**：两边特性**都保住**，不做单边取舍。
