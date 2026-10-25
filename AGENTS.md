@@ -1723,3 +1723,64 @@ AI 员工却分属贺主管 / 荔枝 / 一个孤儿 user ⇒ 可见集里没有�
 ★ **边界：删「会话与工作痕迹」，留「知识资产与账本」** ——
   `credit_accounts / credit_usage_log / token_usage` 是**积分账本**（抹了毁账目留痕）；
   `knowledge_events / knowledge_patterns / proposals` 是**知识沉淀与业务提案**（出处要留）。
+
+### 8.14 登录态判定：**单一真源 + 分层优先级**（2026-10-25 新增）
+
+> 起因：老大扫码登录后 `/health` 仍报 `logged_in=false` ⇒ **被反复叫去扫码**，
+> 而登录态其实一直是好的。
+
+#### 事故现场（实测，不是推测）
+
+| 证据 | 值 |
+|---|---|
+| 盘上 cookie（团长端）| `ecom_us_lt_buyin`（过期 10-28）+ `sessionid`（过期 12-24）—— **有效** |
+| cookie 末次访问 | **12:16**（当天下午），19:42 之后没再更新 |
+| 浏览器 History 最后访问 | 11:47 `mpa/account/institution-role-select`（**登录后的角色选择页**）|
+| `/health` 当时报 | `browser_up=true, logged_in=false` |
+
+⇒ 根因：**两处判定口径分叉**，且 health 把「URL 含 login/passport」放在 cookie **之前**：
+```python
+# 旧 health()
+url = self.page.url
+if 'login' in url or 'passport' in url:
+    return True, False          # ← 先否决，cookie 根本没机会说话
+cookies = self.ctx.cookies()
+logged = 'ecom_us_lt_buyin' in names and 'sessionid' in names
+```
+⇒ 页面刚打开时 URL 还停在带 login/passport 的地址（标签页没跟上 / 跳转没走完）
+⇒ **登录态明明有效，却报「掉登录」** ⇒ 老大白扫码。
+
+⇒ 而且另一处 `_check_login_state()` 的口径**还不一样**（cookie 要**任一**即可）
+⇒ 同一个系统两个「登录态」定义 ⇒ 谁也说不清当前到底登录了没。
+
+#### 修法：`buyin_auth.py` = 唯一真源
+
+| 导出 | 作用 |
+|---|---|
+| `CAPTAIN_COOKIE` / `CAPTAIN_COOKIE_SESSION` / `DAREN_COOKIE` | 登录 cookie 名（唯一真源）|
+| `is_login_url(url)` | 登录页判据 —— **路径段匹配**，不做裸子串（`/dashboard/passport-center` 是业务页不是登录页）|
+| `cookies_logged_in(names, label)` | cookie 判据（团长端要两个都在；达人端认自己的 SSO cookie）|
+| `judge_login_state(url, names, label, prefer_page=…)` | **唯一判定入口** |
+
+#### ★ 两种用途、两种优先级 —— 是**分层**，不是分叉
+
+| 用途 | 场景 | 优先级 | 理由 |
+|---|---|---|---|
+| `prefer_page=False` | `/health`、登录态巡检、前置预检 | **cookie 为准** | 只回答「登录态还在不在」⇒ 宁可宽松 —— 误报掉登录 = 老大白扫码 + 达人白等 |
+| `prefer_page=True` | 真正发起采集前（`_check_login_state`）| **页面为准** | 只回答「这次访问通不通」⇒ 服务端会话已死时页面会跳登录页，**必须**拦住（否则把登录页正文当数据抽）|
+
+⇒ 改判据只改 `buyin_auth.py` 一处；`buyin_worker.py` 两处都调它。
+⇒ 回归用例：`tests/test_buyin_login_judge.py`（18 条），
+★ 含**今天这次假阴性本身**作为钉死用例。
+
+#### 实测效果
+
+- 重启采集器后，**两端登录态自动恢复，零扫码**：
+  团长端 `browser_up=true / logged_in=true`；达人端 `daren_browser_up=true / daren_logged_in=true`。
+- 真实商品查询照常通：`3847842537083633879` → ¥499 / 佣金 5% / 月销 21 / 店铺分 92 / 带货达人 19。
+
+⚠️ **排查登录态问题的正确姿势**（省得再白扫一次码）：
+1. 先看**盘上 cookie**（`data/buyin_browser/profile*/Default/Cookies` 的
+   `expires_utc` / `last_access_utc`）—— cookie 有效就说明登录态在；
+2. 再看浏览器 History 的最后访问（`Default/History`）—— 停在哪一页一目了然；
+3. 最后才考虑「让老大重扫」。

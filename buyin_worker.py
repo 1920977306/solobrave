@@ -39,6 +39,7 @@ from pathlib import Path
 #   商品采集 / 报告摘要链只剩套餐 key 一个活环（老大：「kimi 没额度只能你来」）。
 import sys as _sys
 _sys.path.insert(0, str(Path('/Users/qichen/solobrave-prod')))
+import buyin_auth  # noqa: E402  ★ 登录态判定的**单一真源**（见 buyin_auth.py）
 from daren_bot import llm_channels  # noqa: E402
 from daren_bot import llm_text  # noqa: E402
 
@@ -913,25 +914,25 @@ class Browser:
         self._pw = None
 
     def health(self):
-        """返回 (browser_up, logged_in)。"""
+        """返回 (browser_up, logged_in)。
+
+        ★★ 2026-10-25 修正：判定口径收拢到 `buyin_auth.judge_login_state()`（单一真源）。
+          原来的写法是「URL 里含 login/passport ⇒ **直接**判未登录」，**排在 cookie 之前**
+          ⇒ 实测假阴性：老大的登录态一直有效（cookie 有效期到 10-28 / 12-24），
+            但页面刚打开时 URL 还停在带 login/passport 的地址
+            ⇒ `/health` 报 `logged_in=false` ⇒ **老大白扫一次码**。
+          ⇒ 现在健康检查**以 cookie 为准**（cookie 在就是登录态在）。
+          ⚠️ 注意与采集前的 `_check_login_state()` **不是分叉，是分层**：
+            健康检查只回答「登录态还在不在」（要宽松，别误报）；
+            采集前只回答「这次访问通不通」（要严格，页面在登录页就得拦）。
+        """
         if not self.up():
             return False, False
         try:
-            url = self.page.url
-            if 'login' in url or 'passport' in url:
-                return True, False
-            # ★ 必须查**全部域**的 cookie：达人端的 SSO cookie
-            #   (sid_ucp_sso_v1_daren) 挂在 .buyin-daren-sso.jinritemai.com，
-            #   而 buyin.jinritemai.com 只是它的兄弟域 ——
-            #   只查 buyin 域 → 永远查不到 → 假阴性「登录态过期」。
-            #   （这正是之前 daren_logged_in 恒为 false 的原因）
             cookies = self.ctx.cookies()
-            names = {c.get('name') for c in cookies}
-            # 以登录 cookie 为准；达人端用 daren 专属标记
-            mark = DAREN_LOGIN_MARK if self.label == '达人端' else None
-            if mark:
-                return True, mark in names
-            logged = 'ecom_us_lt_buyin' in names and 'sessionid' in names
+            names = {c.get("name") for c in cookies}
+            logged, _reason = buyin_auth.judge_login_state(
+                self.page.url, names, self.label, prefer_page=False)
             return True, logged
         except Exception:
             return True, False
@@ -939,7 +940,10 @@ class Browser:
 
 BROWSER = Browser(PROFILE_DIR, '团长端')
 DAREN_BROWSER = Browser(DAREN_PROFILE_DIR, '达人端')
-DAREN_LOGIN_MARK = 'sid_ucp_sso_v1_daren'   # 达人端登录态核心 cookie（SSO daren 域）
+DAREN_LOGIN_MARK = buyin_auth.DAREN_COOKIE   # 达人端登录态核心 cookie（SSO daren 域）
+# ★ 登录 cookie 名 / URL 判据已收拢到 buyin_auth.py（单一真源）——
+#   2026-10-25 实测：两处口径不一致（一个要两个 cookie、一个要任一；一个 URL 优先、一个 cookie 优先）
+#   ⇒ 出现过假阴性「登录态明明有效却报掉登录」，害老大白扫一次码。
 
 
 # ─────────────────────────────── 采集管线 ───────────────────────────────
@@ -986,21 +990,26 @@ def _attach_sniffer(page, bucket):
 
 
 def _check_login_state(page):
-    url = page.url
-    if 'login' in url or 'passport' in url:
-        raise NeedLogin('页面跳转到了登录页')
-    # 以登录 cookie 为准（e.g. ecom_us_lt_buyin），不做 QR 元素猜测——
-    # 页面里的客服/联系二维码会造成误报
-    # ★ 查全部域：cookie 按域存放，只查单个域可能漏掉（达人端 SSO 就在兄弟域上）
+    """采集前的登录态闸门 —— **页面为准**（`prefer_page=True`）。
+
+    ★ 与 `Browser.health()` 不是分叉，是**分层**：
+      这里只回答「这次访问通不通」⇒ 页面真的停在登录页（服务端会话已死）
+      必须拦住，否则会把登录页正文当数据抽走。
+      判定口径统一在 `buyin_auth.judge_login_state()`（单一真源）。
+
+    ★ 以登录 cookie 为准（ecom_us_lt_buyin 等），不做 QR 元素猜测——
+      页面里的客服/联系二维码会造成误报。
+    ★ 查全部域：cookie 按域存放，只查单个域可能漏掉（达人端 SSO 就在兄弟域上）
+    """
     try:
         cookies = page.context.cookies()
-        names = {c.get('name') for c in cookies}
-        if 'ecom_us_lt_buyin' not in names and 'sid_ucp_sso_v1_daren' not in names:
-            raise NeedLogin('登录 cookie 缺失')
-    except NeedLogin:
-        raise
+        names = {c.get("name") for c in cookies}
     except Exception:
-        pass
+        names = set()
+    logged, reason = buyin_auth.judge_login_state(
+        page.url, names, "团长端", prefer_page=True)
+    if not logged:
+        raise NeedLogin(reason)
 
 
 def _dump_page(page, tag, cid):
