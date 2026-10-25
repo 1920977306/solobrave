@@ -17,6 +17,8 @@ from http.server import ThreadingHTTPServer
 
 from . import admin, config, crypto_util, db
 from .handler import Router
+from .login_watcher import LoginWatcher
+from . import ops_alert
 from .worker import Worker
 from .ws_manager import WsManager
 
@@ -86,6 +88,14 @@ def cmd_serve(_args):
     plan_scheduler = PlanScheduler(ws)
     plan_scheduler.start()
 
+    # ★ 运营告警通道绑定（飞书通道要用 sender；默认只有本机通道）
+    ops_alert.bind_ws(ws, sender_tenant=config.OPS_TENANT_KEY)
+
+    # ★ 登录态巡检（2026-10-25 老大：「浏览器的掉了，我也不知道」）：
+    #   达人端掉登录 → **主动**告警运营，不等达人投诉才发现。
+    login_watcher = LoginWatcher()
+    login_watcher.start()
+
     # 绑 0.0.0.0：运营后台要局域网访问（/admin?token=…），healthz 同端口保留
     handler = admin.make_handler(_STATE)
     httpd = ThreadingHTTPServer(("0.0.0.0", config.HTTP_PORT), handler)
@@ -108,6 +118,10 @@ def cmd_serve(_args):
         coop_scheduler.stop()
         try:
             plan_scheduler.stop()
+        except Exception:
+            pass
+        try:
+            login_watcher.stop()
         except Exception:
             pass
         httpd.shutdown()

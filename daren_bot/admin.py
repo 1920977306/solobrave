@@ -16,7 +16,7 @@ import secrets
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 
-from . import config, db
+from . import config, db, ops_alert
 
 log = logging.getLogger("daren-bot.admin")
 
@@ -59,7 +59,10 @@ def _get_state(ws) -> dict:
             "SELECT * FROM bot_credits_ledger ORDER BY created_at DESC LIMIT 30")]
         tasks = [dict(r) for r in conn.execute(
             "SELECT * FROM bot_collect_tasks ORDER BY created_at DESC LIMIT 30")]
+    # ★ 运营告警（2026-10-25）：采集通道掉登录这类事，**运营要一眼看到**
+    alerts = ops_alert.recent(10)
     return {"tenants": tenants, "ledger": ledger, "tasks": tasks,
+            "alerts": alerts,
             "week_no": db.current_week_no()}
 
 
@@ -134,6 +137,14 @@ _PAGE = """<!DOCTYPE html>
       <tbody></tbody>
     </table>
   </section>
+  <section>
+    <h2>运营告警（最近 10 条）</h2>
+    <table id="alerts">
+      <thead><tr><th>时间</th><th>级别</th><th>标题</th><th>详情</th></tr></thead>
+      <tbody></tbody>
+    </table>
+    <div class="hint">采集通道掉登录会出现在这里（同时弹本机通知）。扫码登录达人工作台后自动恢复。</div>
+  </section>
 </main>
 <div class="toast" id="toast"></div>
 <script>
@@ -194,6 +205,12 @@ function render(s){
     <td><span class="pill ${t.status==='done'?'on':(t.status==='failed'?'off':'')}">${esc(t.status)}</span></td>
     <td>${t.credits_cost||''}</td><td class="err">${esc(t.error)}</td></tr>`).join('') ||
     '<tr><td colspan="7" style="color:#9ca3af">暂无任务</td></tr>';
+  const al = s.alerts || [];
+  document.querySelector('#alerts tbody').innerHTML = al.map(a=>`<tr>
+    <td>${esc(a.time||'')}</td>
+    <td><span class="pill ${String(a.kind||'').indexOf('login_lost')>=0?'off':'on'}">${esc(a.kind||'')}</span></td>
+    <td>${esc(a.title)}</td><td class="err">${esc(a.body)}</td></tr>`).join('') ||
+    '<tr><td colspan="4" style="color:#9ca3af">暂无告警</td></tr>';
 }
 async function load(){
   try { render(await api('/admin/api/state')); }

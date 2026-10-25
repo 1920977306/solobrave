@@ -124,10 +124,26 @@ curl -s -X POST "http://127.0.0.1:8092/admin/api/plan-scan?token=$TOKEN" \
 
 | 文件 | 持有方 | 开始时间 | 预计完成 | 备注 |
 |---|---|---|---|---|
-| （暂无）| | | | |
+| `daren_bot/failure_text.py`（新）| A 边 | 2026-10-25 17:40 | ✅ 18:10 已交 | 失败话术翻译层 |
+| `daren_bot/ops_alert.py`（新）| A 边 | 2026-10-25 18:00 | ✅ 18:10 已交 | 运营告警出口（多通道降级）|
+| `daren_bot/login_watcher.py`（新）| A 边 | 2026-10-25 18:00 | ✅ 18:10 已交 | 登录态巡检线程 |
+| `daren_bot/worker.py` | A 边 | 2026-10-25 17:40 | ✅ 18:10 已交 | 只改 `_fail` 展示层 |
+| `daren_bot/executors.py` | A 边 | 2026-10-25 17:40 | ✅ 18:10 已交 | `NeedLogin` 异常 + 不回退 + 通道探活 |
+| `daren_bot/handler.py` | A 边 | 2026-10-25 18:05 | ✅ 18:10 已交 | 只在 `_route_product` 加前置预检 |
+| `daren_bot/config.py` / `main.py` / `admin.py` | A 边 | 2026-10-25 18:05 | ✅ 18:10 已交 | 告警配置 / 启动巡检 / 后台告警区 |
+
+> ⚠️ **B 边注意**：以上 7 个文件本轮被 A 边占用过。
+> 若 B 边也要改 `executors.py` / `handler.py` / `worker.py`，**先看本表 + `git log`**，
+> 合并时注意这几处都有改动。
 
 ### 最近更新
 
+- **2026-10-25 18:10 A 边**：商品链接 bug + 登录态无感知 修完并推 `origin/dev`。
+  新增 `failure_text.py` / `ops_alert.py` / `login_watcher.py`；
+  改 `executors.py`（登录态类错误不许回退）、`worker.py`（达人看人话 + 运营收告警）、
+  `handler.py`（前置预检）、`config.py` / `main.py` / `admin.py`。
+  新增 `tests/test_failure_text.py`（38 条）+ `scripts/mutate_failure_guards.py`（15 条变异）。
+  详细口径见 `AGENTS.md §8.12`。
 - **2026-10-25 17:30 A 边**：积分闸门收完并推 `origin/dev`（`c8e849a`）；
   建好 B 边 worktree `sb-dev/parallel-handoff-1025`（基点 `c8e849a`）；
   本交接单首版。**B 边开工前请先读本文件。**

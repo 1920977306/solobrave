@@ -735,6 +735,29 @@ class Router:
                 f"收到{label}（缓存命中，秒出结果）～（积分余额 {bal}）")
             return
 
+        # ★ 2026-10-25 前置预检：达人端**确实**掉登录时，直接回人话 ——
+        #   不入队、不扣分（省得达人等一轮、再收到一条失败通知）。
+        #   ⚠️ 只放在**需要开浏览器采集**的路径上（上面两个缓存命中不用浏览器）。
+        #   ⚠️ 判定口径：只有「浏览器开着 + 没登录」才是掉登录
+        #     （浏览器没开 = 切到团长端了，是设计不是故障）。
+        #   ⚠️ 3 秒硬约束：探活超时 2s，拿不到就照常走任务（不阻塞达人）。
+        from . import executors as _exec
+        if _exec.daren_channel_state() == "logged_out":
+            from . import failure_text as _ft
+            from . import ops_alert as _oa
+            exc = _exec.NeedLogin(
+                "达人端采集账号登录态过期了，需要重新扫码登录", side="达人端")
+            sender.send_text(
+                chat_id,
+                _ft.user_text_for(exc, product=True) + "（这次没有扣积分）")
+            _oa.alert(
+                "⚠️ 达人端采集通道掉登录了",
+                _ft.ops_alert_body(
+                    exc, context="达人发商品链接时前置预检命中（未入队、未扣分）"),
+                kind="login_lost",
+                dedup_key="daren_collector_need_login")
+            return
+
         if db.get_balance(tk) < config.COST_COLLECT_PRODUCT:
             sender.send_text(
                 chat_id,

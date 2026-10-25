@@ -719,6 +719,32 @@ class ProductNotFound(RuntimeError):
     """
 
 
+class NeedLogin(RuntimeError):
+    """采集账号登录态失效（达人端或团长端）。
+
+    ★ 单独一类，理由和 `ProductNotFound` 同源但更硬：
+      **换链路也救不了** —— 登录态掉了，走哪条链路都会撞同一堵墙。
+      2026-10-25 实测踩过：达人端掉登录 → ID 通路抛错 → **被 `except RuntimeError`
+      吞掉并回退到「页面解析链路」** → 而那条链路查的是**团长端**（违反 §8.1
+      「商品数据只走达人端」）→ 团长端也没登录 ⇒ 达人看到的却是
+      「采集账号登录态过期了，跟运营老师说一声扫码重登就好」——
+      **真实原因（达人端掉登录）被掩盖了**，而且话术是写给运营的，达人看不懂。
+
+    ⇒ 语义：**登录态类错误一律不���退**，直接冒到最上层，
+      由展示层翻译成「达人看得懂 + 运营知道该干嘛」的话术。
+    """
+
+    def __init__(self, message: str, side: str = "采集账号"):
+        super().__init__(message)
+        self.side = side   # "达人端" / "团长端" —— 用于定位是谁掉登录
+
+
+def _raise_need_login(side: str) -> None:
+    """统一抛登录态失效（话术统一在这里，不各处乱写）。"""
+    raise NeedLogin(
+        f"{side}采集账号登录态过期了，需要重新扫码登录", side=side)
+
+
 def _buyin_logged_in() -> tuple:
     """采集器健康检查 → (可达, 团长端浏览器已启动, 团长端已登录)。
 
@@ -748,6 +774,25 @@ def _daren_collect_state() -> tuple:
         return False, False, False
 
 
+def daren_channel_state() -> str:
+    """达人端采集通道状态 → 'ready' / 'logged_out' / 'unknown'。
+
+    ★ 只看**达人端**（商品数据只走达人端，AGENTS §8.1；团长端登录态与达人链路无关）。
+    ★ 'logged_out' 的判定**必须同时看 `daren_browser_up`** ——
+      两个浏览器互斥，切到团长端时达人端浏览器会被关掉（§8.2），
+      「浏览器没开」≠「登录过期」，否则会把设计当故障、天天误报。
+    ★ 超短超时（2s）：这个函数在**达人对话的 3 秒硬约束**里调，
+      采集器不在线时不能把达人的回复卡住 ⇒ 拿不到就返回 'unknown'（照常走任务）。
+    """
+    try:
+        d = _http_json("GET", f"{BUYIN_CONTROL}/health", None, timeout=2)
+    except Exception:
+        return "unknown"
+    if not bool(d.get("daren_browser_up")):
+        return "unknown"          # 浏览器没开（可能是切到团长端了）
+    return "ready" if bool(d.get("daren_logged_in")) else "logged_out"
+
+
 def collect_product_by_id(product_id: str, timeout: int = 150) -> dict:
     """商品ID → 结构化商品数据。失败抛 RuntimeError（错误信息可读）。
 
@@ -767,7 +812,7 @@ def collect_product_by_id(product_id: str, timeout: int = 150) -> dict:
     if not reachable:
         raise RuntimeError(f"采集器未启动或不可达({BUYIN_CONTROL})，请稍后再试")
     if up and not logged:
-        raise RuntimeError("达人端采集账号登录态过期了，跟运营老师说一声扫码重登就好")
+        _raise_need_login("达人端")
     try:
         res = _http_json("POST", f"{BUYIN_CONTROL}/collect-product-id",
                          {"product_id": pid, "size": 5})
@@ -789,8 +834,7 @@ def collect_product_by_id(product_id: str, timeout: int = 150) -> dict:
             break
     st = (job or {}).get("status") or ""
     if st == "need_login":
-        raise RuntimeError((job or {}).get("error")
-                           or "达人端采集账号登录态过期了，跟运营老师说一声扫码重登就好")
+        _raise_need_login("达人端")
     if st == "not_found":
         raise ProductNotFound((job or {}).get("error")
                               or "平台查不到这个商品（可能已下架，或不在当前推广池）")
@@ -843,9 +887,12 @@ def collect_product_by_url(url: str, timeout: int = 240) -> dict:
             stats = collect_product_by_id(pid)
             stats.setdefault('resolved_url', url)
             return stats
-        except ProductNotFound:
-            # 平台没有这个商品（下架/不在推广池）→ 回退也没用，
-            # 直接把可读错误抛上去，让上层指路到「发商品截图」。
+        except (ProductNotFound, NeedLogin):
+            # ★ 这两类**都不许回退**：
+            #   - ProductNotFound：平台确实没这个商品 ⇒ 回退也没用。
+            #   - NeedLogin：登录态掉了 ⇒ **换链路也救不了**（走哪条都撞同一堵墙），
+            #     而回退链路查的是**团长端**（违反 §8.1「商品数据只走达人端」），
+            #     更会把「达人端掉登录」掩盖成「团长端掉登录」（2026-10-25 实测踩过）。
             raise
         except RuntimeError as e:
             logging.getLogger(__name__).warning(
@@ -856,7 +903,7 @@ def collect_product_by_url(url: str, timeout: int = 240) -> dict:
     if not reachable:
         raise RuntimeError(f"采集器未启动或不可达({BUYIN_CONTROL})，请稍后再试或改用商品图片")
     if up and not logged_in:
-        raise RuntimeError("采集账号登录态过期了，跟运营老师说一声扫码重登就好")
+        _raise_need_login("团长端")
     try:
         res = _http_json("POST", f"{BUYIN_CONTROL}/collect-product-url", {"url": url})
     except Exception as e:
@@ -877,7 +924,7 @@ def collect_product_by_url(url: str, timeout: int = 240) -> dict:
             break
     st = (job or {}).get("status") or ""
     if st == "need_login":
-        raise RuntimeError("采集账号登录态过期了，跟运营老师说一声扫码重登就好")
+        _raise_need_login("团长端")
     if st != "done":
         raise RuntimeError((job or {}).get("error") or "商品采集超时，过会儿再试")
     try:

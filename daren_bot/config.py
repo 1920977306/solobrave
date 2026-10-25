@@ -49,3 +49,20 @@ COST_TABLE = {
 
 # 对标分析：内测期每个达人最多同时跟踪的对标号数量
 MAX_PEER_IDS = int(os.environ.get("DAREN_MAX_PEER_IDS", "5"))
+
+# ── 运营告警（2026-10-25）──────────────────────────────────────────
+# 飞书运营会话：**默认空 = 不发飞书**。
+# ★ 为什么默认不发（实测结论，不是猜的）：
+#   ① 老大私聊是**另一个 app** 的会话，达人 bot 发不进去
+#      （实测 `code=230002 Bot/User can NOT be out of the chat`）；
+#   ② 既有 daren_boss 告警通道是**达人**的聊天 —— 把内部细节发过去
+#      = 泄漏给第三方达人。
+#   ⇒ 默认只走「本机弹窗 + 日志 + 落盘 + admin 页面」四条本机通道。
+#   ⇒ 老大要飞书推送时，在 .env 里显式配 DAREN_OPS_CHAT_ID（他自己指定的会话）。
+OPS_CHAT_ID = os.environ.get("DAREN_OPS_CHAT_ID", "")
+OPS_TENANT_KEY = os.environ.get("DAREN_OPS_TENANT", "daren_boss")
+OPS_ALERT_FILE = Path(os.environ.get("DAREN_OPS_ALERT_FILE",
+                                    str(DATA_DIR / "ops_alerts.jsonl")))
+
+# 采集通道登录态巡检间隔（秒）
+LOGIN_WATCH_INTERVAL = int(os.environ.get("DAREN_LOGIN_WATCH_INTERVAL", "60"))
