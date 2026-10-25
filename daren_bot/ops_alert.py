@@ -11,11 +11,11 @@
   | macOS 本地通知 | ✅ 可用 | `osascript display notification`，老大本机直接弹窗 |
   | 日志 `[OPS-ALERT]` | ✅ 可用 | launchd 服务日志，`grep OPS-ALERT` 就能捞 |
   | 落盘 jsonl | ✅ 可用 | admin 后台读它展示待处理告警 |
-  | 飞书私聊（老大） | ❌ 不可用 | `code=230002 Bot/User can NOT be out of the chat` —— 老大私聊是**另一个 app** 的会话，达人 bot 进不去 |
-  | 飞书（既有 daren_boss 通道） | ⚠️ 默认不启用 | 那是**达人**的聊天，塞内部细节 = 泄漏给第三方 |
+  | 飞书（运营租户最近会话）| ✅ **启用** | 老大确认「我看得见」⇒ 走 `daren_boss` 那条（跟 weekly 运营告警同一条通道）|
+  | 飞书（老大私聊 `oc_c086…`）| ❌ 不可用 | `code=230002 Bot/User can NOT be out of the chat` —— 老大私聊是**另一个 app** 的会话，达人 bot 进不去 ⇒ **别配成 OPS_CHAT_ID** |
 
-★ ⇒ 飞书通道**默认关闭**，只有显式配 `DAREN_OPS_CHAT_ID` 才发（老大自己指定一个
-  他在的群/会话）。别拿达人会话当运营通道。
+★ ⇒ 飞书走「运营租户的最近会话」，**老大不用手填 chat id**；
+  要固定到别的会话，在 `.env` 里配 `DAREN_OPS_CHAT_ID`。
 
 ★ 这一层**永不抛异常**：告警失败不能拖垮采集主链路。
 """
@@ -87,13 +87,27 @@ def _append_file(title: str, body: str, kind: str) -> bool:
 
 
 def _feishu_notify(title: str, body: str) -> bool:
-    """飞书（**仅当**显式配置了运营会话才发）。
+    """飞书（走**运营租户的最近会话** —— 跟 weekly 运营告警同一条通道）。
 
-    ★ 默认不发 —— 详见文件头「通道实测结论」：
-      运营会话配错 = 把内部细节发给达人。
+    ★ 会话来源有两级：
+      ① `DAREN_OPS_CHAT_ID` 显式配置 → 用它（要固定到别的会话时才需要）
+      ② 没配置 → 自动取 `db.get_latest_chat_id(OPS_TENANT_KEY)`
+        ⇒ 老大不用手填 chat id，换了会话也不会失效。
+    ★ 实测边界（2026-10-25）：
+      老大自己的私聊 `oc_c086…` **发不进去**
+      （`code=230002 Bot/User can NOT be out of the chat` —— 那是另一个 app 的会话，
+      达人 bot 不在里面）⇒ 别把它配成 OPS_CHAT_ID。
     """
     chat_id = (config.OPS_CHAT_ID or "").strip()
     if not chat_id:
+        try:
+            from . import db
+            chat_id = (db.get_latest_chat_id(config.OPS_TENANT_KEY) or "").strip()
+        except Exception as e:
+            log.warning("ops alert: resolve ops chat failed: %s", e)
+            chat_id = ""
+    if not chat_id:
+        log.warning("ops alert: no ops chat resolved, skip feishu")
         return False
     if _ws is None:
         log.warning("ops alert: ws not bound, skip feishu")

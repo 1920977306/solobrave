@@ -1632,11 +1632,18 @@ AI 员工却分属贺主管 / 荔枝 / 一个孤儿 user ⇒ 可见集里没有�
 | **macOS 本地通知** | ✅ 可用 | `osascript display notification`，老大本机直接弹窗 |
 | **日志 `[OPS-ALERT]`** | ✅ 可用 | launchd 日志，`grep OPS-ALERT` |
 | **落盘 jsonl** | ✅ 可用 | `data/daren-bot/ops_alerts.jsonl` → admin 后台展示 |
-| 飞书（老大私聊 `oc_c086…`）| ❌ **不可用** | `code=230002 Bot/User can NOT be out of the chat` —— 老大私聊是**另一个 app** 的会话，达人 bot 进不去 |
-| 飞书（既有 `daren_boss` 通道）| ⚠️ **默认不启用** | 那是**达人**的聊天 ⇒ 塞内部细节 = **泄漏给第三方达人** |
+| **飞书（运营租户最近会话）** | ✅ **启用** | 老大确认「我看得见」⇒ 走 `daren_boss` 那条（`oc_13194fab6699f98c81492927277b849d`），跟 weekly 运营告警**同一条通道** |
+| 飞书（老大私聊 `oc_c086…`）| ❌ **不可用** | `code=230002 Bot/User can NOT be out of the chat` —— 老大私聊是**另一个 app** 的会话，达人 bot 进不去 ⇒ **别配成 `DAREN_OPS_CHAT_ID`** |
 
-⇒ 飞书告警通道**默认关闭**，只有显式配 `DAREN_OPS_CHAT_ID`（老大自己指定的会话）才发。
+⇒ 飞书告警**默认启用**，会话来源两级：
+  ① `DAREN_OPS_CHAT_ID` 显式配置 → 用它（要固定到别的会话时才需要）；
+  ② 没配置 → **自动取** `db.get_latest_chat_id(OPS_TENANT_KEY)`
+     ⇒ **老大不用手填 chat id**，换了会话也不会失效。
 ⇒ **告警是旁路**：任何通道挂了都不许冒到主链路（`ops_alert.alert` 逐通道 try/except）。
+
+⚠️ **daren_bot 也要读 `.env`**（launchd 起的服务没有 shell 环境）：
+  `daren_bot/config.py` 顶部有 `_load_env_file()`（绝对路径读 `ROOT/.env`，
+  **只在 `os.environ` 里没有该键时才补** ⇒ 真实环境变量优先）。
 
 #### 四、登录态巡检（主动叫醒运营，不等达人投诉）
 
@@ -1670,3 +1677,49 @@ AI 员工却分属贺主管 / 荔枝 / 一个孤儿 user ⇒ 可见集里没有�
 
 ⇒ 规律：**闸门要盯「行为」，不只盯「内容」**；
      **用例用的输入必须真的走到被保护的那条分支**。
+
+### 8.13 「没用的 AI 员工」的判定口径（2026-10-25 老大：「没什么用的ai就删除掉」新增）
+
+> ⚠️ **「owner 失效」≠「没用」** —— 这是本轮差点删错的地方。
+
+#### 判定必须看**真实用量**，不是看归属字段
+
+2026-10-25 实测（`data/agents.json` 8 个 AI 员工 × 主库引用统计）：
+
+| AI 员工 | 最后活跃 | 关联记录 | 结论 |
+|---|---|---|---|
+| **Ray** | **2026-10-25 03:00（当天）** | 3890（1815 会话 / 1910 积分流水）| **在用 ❌ 绝不能删** |
+| **孔明** | **2026-10-23 16:04（2 天前）** | 325 | **在用 ❌ 绝不能删** |
+| 上官婉儿 / Helen / 木木 | 10-14 / 10-20 / 10-14 | 195 / 2751 / 424 | 在用 ❌ |
+| **知识库管理员** | 从未 | 1 | ⚠️ **系统角色**：知识库写入通道的 `X-Agent-Id`，`visibility=all` ⇒ 删了知识沉淀就断 |
+| 测试1 | 10-05 | 65（全是 `ping,请回 pong` 测试流量）| ✅ 删 |
+| 子龙 | 10-05 | 65（已归档、置顶）| 归档 + 零使用 ⇒ 候选 |
+
+⇒ **`createdBy` 指向不存在的 user（Ray / 上官婉儿 / 孔明 都是 `user_5b46ceaa`）**
+  只说明「它们在 owner 过滤接口上是瞎子」，**不代表没用** ——
+  Ray 是当天还在跑的主力。**先查最后活跃时间和关联记录数，再决定删不删。**
+
+#### 删除必须走正规通道 + 备份
+
+- 入口：`DELETE /api/agents/:id?permanent=true`（**仅限已归档员工**），
+  服务端会清聊天文件 / 记忆目录 / 知识表 / 商品关联。
+- ⚠️ **归档员工在「localhost X-Agent-Id 免签通道」里查不到**
+  （`_get_agent_by_id` 走 `_load_agents()`，默认**不含归档**）⇒ 彻底删除必须用
+  **Bearer token**（admin 本地签一个短时 token 即可）。
+- 删前必备份：`data/agents.json.bak-<ts>-before-ai-cleanup` +
+  `data/solobrave-backup-<ts>-before-ai-cleanup.db`。
+
+#### ★ 服务端「彻底删除」原本**只清 4 张表**（本轮已补全）
+
+`memory_summary / knowledge_base / knowledge_base_new / memory_topics`
+⇒ **MS3 时代的会话与工作痕迹表一张都没清**：
+`memory_conversations`（会话原文，**会被记忆抽取/知识检索重新消费** ——
+员工都删了，它说过的话还在往知识库沉淀）、`pipeline_state`、
+`memory_atoms / memory_scenes / memory_personas`、
+`group_messages / tool_calls / notifications / heavy_jobs`。
+实测删「测试1」后 `memory_conversations` 还剩 64 条。
+
+⇒ 已补进 `_cleanup_agent_data`（`solobrave-server.py`）。
+★ **边界：删「会话与工作痕迹」，留「知识资产与账本」** ——
+  `credit_accounts / credit_usage_log / token_usage` 是**积分账本**（抹了毁账目留痕）；
+  `knowledge_events / knowledge_patterns / proposals` 是**知识沉淀与业务提案**（出处要留）。

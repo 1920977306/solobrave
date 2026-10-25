@@ -4,6 +4,37 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 
+
+def _load_env_file() -> None:
+    """从项目根 `.env` 补齐环境变量（**只在没设过时**补，不覆盖真实环境变量）。
+
+    ★ 为什么 daren_bot 也要读 `.env`：
+      launchd 拉起的服务**没有 shell 环境**，配置只能落在 `.env` 里
+      （`EnvironmentVariables` 只能写死几个键，改一次要 unload/load plist，太重）。
+    ★ 只补「`os.environ` 里还没有」的键 ⇒ 真实环境变量优先
+      （launchd / CI / 手工 `DAREN_XXX=... python -m daren_bot.main serve` 都能覆盖）。
+    ★ 绝对路径读 `ROOT/.env`，不依赖 CWD（2026-10-21 §7 的坑：只依赖
+      `os.environ` 会在「加载太晚」时静默失效）。
+    """
+    env_path = ROOT / ".env"
+    if not env_path.exists():
+        return
+    try:
+        for raw in env_path.read_text(encoding="utf-8").splitlines():
+            line = raw.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, val = line.partition("=")
+            key = key.strip()
+            val = val.strip().strip('"').strip("'")
+            if key and key not in os.environ:
+                os.environ[key] = val
+    except Exception:      # noqa: BLE001 —— 配置读取失败不许拖垮服务
+        pass
+
+
+_load_env_file()
+
 DATA_DIR = Path(os.environ.get("DAREN_DATA_DIR", ROOT / "data" / "daren-bot"))
 DB_PATH = Path(os.environ.get("DAREN_DB", DATA_DIR / "daren_bot.db"))
 IMAGE_DIR = Path(os.environ.get("DAREN_IMAGE_DIR", DATA_DIR / "images"))
@@ -51,15 +82,17 @@ COST_TABLE = {
 MAX_PEER_IDS = int(os.environ.get("DAREN_MAX_PEER_IDS", "5"))
 
 # ── 运营告警（2026-10-25）──────────────────────────────────────────
-# 飞书运营会话：**默认空 = 不发飞书**。
-# ★ 为什么默认不发（实测结论，不是猜的）：
-#   ① 老大私聊是**另一个 app** 的会话，达人 bot 发不进去
-#      （实测 `code=230002 Bot/User can NOT be out of the chat`）；
-#   ② 既有 daren_boss 告警通道是**达人**的聊天 —— 把内部细节发过去
-#      = 泄漏给第三方达人。
-#   ⇒ 默认只走「本机弹窗 + 日志 + 落盘 + admin 页面」四条本机通道。
-#   ⇒ 老大要飞书推送时，在 .env 里显式配 DAREN_OPS_CHAT_ID（他自己指定的会话）。
-OPS_CHAT_ID = os.environ.get("DAREN_OPS_CHAT_ID", "")
+# 运营会话：**留空 = 自动取该租户最近一次会话**
+#   （`db.get_latest_chat_id()`，跟 weekly 的运营告警**同一条通道**）
+#   ⇒ 老大不用手填 chat id，换了会话也不会失效。
+#
+# ★ 实测边界（2026-10-25，在这台机器上真跑过）：
+#   - 老大自己的私聊 `oc_c08606d042c0e149b110f4390451e6ec` **发不进去**：
+#     `code=230002 Bot/User can NOT be out of the chat` —— 那是**另一个 app** 的
+#     会话，达人 bot 不在里面 ⇒ **别把它填进来**。
+#   - `daren_boss` 那条通道老大确认「我看得见」⇒ 就是它。
+#   ⇒ 要固定到别的会话，在 .env 里显式配 DAREN_OPS_CHAT_ID。
+OPS_CHAT_ID = os.environ.get("DAREN_OPS_CHAT_ID", "")   # 空 = 自动取租户最近会话
 OPS_TENANT_KEY = os.environ.get("DAREN_OPS_TENANT", "daren_boss")
 OPS_ALERT_FILE = Path(os.environ.get("DAREN_OPS_ALERT_FILE",
                                     str(DATA_DIR / "ops_alerts.jsonl")))

@@ -131,13 +131,23 @@ curl -s -X POST "http://127.0.0.1:8092/admin/api/plan-scan?token=$TOKEN" \
 | `daren_bot/executors.py` | A 边 | 2026-10-25 17:40 | ✅ 18:10 已交 | `NeedLogin` 异常 + 不回退 + 通道探活 |
 | `daren_bot/handler.py` | A 边 | 2026-10-25 18:05 | ✅ 18:10 已交 | 只在 `_route_product` 加前置预检 |
 | `daren_bot/config.py` / `main.py` / `admin.py` | A 边 | 2026-10-25 18:05 | ✅ 18:10 已交 | 告警配置 / 启动巡检 / 后台告警区 |
+| `daren_bot/config.py` / `daren_bot/ops_alert.py` | A 边 | 2026-10-25 19:45 | ✅ 19:58 已交 | `.env` 加载 + 飞书告警走运营租户最近会话 |
+| `solobrave-server.py` | A 边 | 2026-10-25 19:50 | ✅ 19:56 已交 | 只改 `_cleanup_agent_data` 一段（逐语句容错 + 补清漏表）|
 
-> ⚠️ **B 边注意**：以上 7 个文件本轮被 A 边占用过。
-> 若 B 边也要改 `executors.py` / `handler.py` / `worker.py`，**先看本表 + `git log`**，
-> 合并时注意这几处都有改动。
+> ⚠️ **B 边注意**：A 边与 B 边**都改过** `daren_bot/worker.py`、`config.py`、
+> `executors.py`、`handler.py`、`main.py`、`admin.py` ⇒ 合 `origin/dev` 时**这几处会冲突**。
+> ⇒ 合法：把 A 边 `origin/dev`（`8f50052`+）与 B 边 `origin/feat/parallel-handoff-1025`
+>   （`58f864d`）两边都取，冲突处**人工过一遍**（A 边动的是展示层/告警层，
+>   B 边动的是积分闸门的消耗侧守卫 —— 语义不重叠，但要确认 B 边的 spy
+>   仍盯对入口：A 边把 `worker._fail` 改成收异常对象，B 边也改了 `worker.py`）。
+> ⇒ `solobrave-server.py` **两边都没动**（B 边的 `58f864d` 只碰 daren_bot/scripts/docs）⇒ 无冲突。
 
 ### 最近更新
 
+- **2026-10-25 19:58 A 边**：飞书告警切到运营租户最近会话（老大确认「我看得见」）+
+  `daren_bot/config.py` 加 `.env` 加载；清理没用的 AI 员工（删「测试1」「子龙」，
+  修「彻底删除」只清半截的老 bug）；Ray/上官婉儿/孔明 归属失效改挂 admin
+  （Ray 的商品可见数 0 → 47）。见 `AGENTS.md §8.13`。
 - **2026-10-25 18:10 A 边**：商品链接 bug + 登录态无感知 修完并推 `origin/dev`。
   新增 `failure_text.py` / `ops_alert.py` / `login_watcher.py`；
   改 `executors.py`（登录态类错误不许回退）、`worker.py`（达人看人话 + 运营收告警）、

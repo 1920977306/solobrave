@@ -13789,8 +13789,33 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         try:
             conn = _db_conn()
 
+            # ★ 2026-10-25：这段清理改成**逐语句容错**。
+            #   根因：`DELETE FROM knowledge` 用的 `knowledge` 表早被 `knowledge_base_new`
+            #   取代 ⇒ 抛 `no such table: knowledge` ⇒ 被外层 except 吞掉
+            #   ⇒ **整段 DB 清理中断** ⇒ 知识表/记忆主表/达人/商品，
+            #   以及会话原文(`memory_conversations`)、流水线状态(`pipeline_state`)
+            #   **全都没清** ⇒ 「彻底删除」其实只清了半截。
+            #   ⇒ 清理是**尽力而为的旁路**：一张表失败不许拖垮其余。
+            class _NullCursor:
+                rowcount = 0
+
+                def fetchall(self):
+                    return []
+
+                def fetchone(self):
+                    return None
+
+            def _x(sql, params=()):
+                try:
+                    return conn.execute(sql, params)
+                except Exception as _e:
+                    logger.warning(
+                        f'  [Cleanup] 跳过一条清理语句（{str(_e)[:60]}）: '
+                        f'{sql.strip()[:70]}')
+                    return _NullCursor()
+
             # 1) 收集该员工所有 memory id 与 value hash，用于后续级联清理
-            mem_rows = conn.execute(
+            mem_rows = _x(
                 "SELECT id, value FROM memory WHERE emp_id=?", (agent_id,)
             ).fetchall()
             mem_ids = [r['id'] for r in mem_rows]
@@ -13803,7 +13828,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             # 2) 清理 embedding_cache（按该员工记忆 value 的 hash）
             if content_hashes:
                 placeholders = ','.join('?' * len(content_hashes))
-                conn.execute(
+                _x(
                     f"DELETE FROM embedding_cache WHERE content_hash IN ({placeholders})",
                     tuple(content_hashes)
                 )
@@ -13812,7 +13837,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             if mem_ids:
                 mem_id_set = set(mem_ids)
                 # memory_summary：删除所有 evidence 全部来自该员工的归纳；否则移除引用
-                summary_rows = conn.execute(
+                summary_rows = _x(
                     "SELECT id, related_mem_ids, source_mem_ids FROM memory_summary WHERE emp_id=?",
                     (agent_id,)
                 ).fetchall()
@@ -13823,15 +13848,15 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                     related = [x for x in related if x not in mem_ids]
                     sources = [x for x in sources if x not in mem_ids]
                     if not related and not sources:
-                        conn.execute("DELETE FROM memory_summary WHERE id=?", (sid,))
+                        _x("DELETE FROM memory_summary WHERE id=?", (sid,))
                     else:
-                        conn.execute(
+                        _x(
                             "UPDATE memory_summary SET related_mem_ids=?, source_mem_ids=?, updated_at=? WHERE id=?",
                             (json.dumps(related, ensure_ascii=False), json.dumps(sources, ensure_ascii=False), int(time.time() * 1000), sid)
                         )
 
                 # knowledge_base：删除所有 evidence 全部来自该员工的条目；否则移除引用
-                kb_rows = conn.execute(
+                kb_rows = _x(
                     f"SELECT id, related_mem_ids FROM knowledge_base WHERE emp_id=?",
                     (agent_id,)
                 ).fetchall()
@@ -13840,15 +13865,15 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                     related = json.loads(row['related_mem_ids'] or '[]')
                     related = [x for x in related if x not in mem_id_set]
                     if not related:
-                        conn.execute("DELETE FROM knowledge_base WHERE id=?", (kid,))
+                        _x("DELETE FROM knowledge_base WHERE id=?", (kid,))
                     else:
-                        conn.execute(
+                        _x(
                             "UPDATE knowledge_base SET related_mem_ids=?, updated_at=? WHERE id=?",
                             (json.dumps(related, ensure_ascii=False), int(time.time() * 1000), kid)
                         )
 
                 # knowledge_base_new：按 evidence_mem_ids 中包含的 memory id 清理
-                kb_new_rows = conn.execute(
+                kb_new_rows = _x(
                     "SELECT id, evidence_mem_ids FROM knowledge_base_new"
                 ).fetchall()
                 for row in kb_new_rows:
@@ -13857,15 +13882,15 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                     new_evidence = [x for x in evidence if x not in mem_id_set]
                     if len(new_evidence) < len(evidence):
                         if not new_evidence:
-                            conn.execute("DELETE FROM knowledge_base_new WHERE id=?", (kid,))
+                            _x("DELETE FROM knowledge_base_new WHERE id=?", (kid,))
                         else:
-                            conn.execute(
+                            _x(
                                 "UPDATE knowledge_base_new SET evidence_mem_ids=?, updated_at=? WHERE id=?",
                                 (json.dumps(new_evidence, ensure_ascii=False), int(time.time() * 1000), kid)
                             )
 
             # 4) 清理 memory_topics：从 emp_ids 中移除该员工；若为空则删除 topic
-            topic_rows = conn.execute(
+            topic_rows = _x(
                 "SELECT id, emp_ids, mem_count FROM memory_topics WHERE emp_ids LIKE ?",
                 (f'%"{agent_id}"%',)
             ).fetchall()
@@ -13875,54 +13900,77 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 if agent_id in emp_ids:
                     emp_ids.remove(agent_id)
                 if not emp_ids:
-                    conn.execute("DELETE FROM memory_topics WHERE id=?", (tid,))
+                    _x("DELETE FROM memory_topics WHERE id=?", (tid,))
                 else:
                     # 重新统计该 topic 下剩余活跃记忆数
-                    remaining = conn.execute(
+                    remaining = _x(
                         "SELECT COUNT(*) AS cnt FROM memory WHERE status='active' AND topic_ids LIKE ?",
                         (f'%"{tid}"%',)
                     ).fetchone()['cnt']
-                    conn.execute(
+                    _x(
                         "UPDATE memory_topics SET emp_ids=?, mem_count=? WHERE id=?",
                         (json.dumps(emp_ids, ensure_ascii=False), max(0, remaining), tid)
                     )
 
             # 5) 删除员工个人知识库文档、分块、版本
-            conn.execute("DELETE FROM knowledge WHERE emp_id=?", (agent_id,))
-            conn.execute("DELETE FROM knowledge_chunks WHERE emp_id=?", (agent_id,))
-            conn.execute("DELETE FROM knowledge_versions WHERE emp_id=?", (agent_id,))
+            _x("DELETE FROM knowledge WHERE emp_id=?", (agent_id,))
+            _x("DELETE FROM knowledge_chunks WHERE emp_id=?", (agent_id,))
+            _x("DELETE FROM knowledge_versions WHERE emp_id=?", (agent_id,))
 
             # 6) 最后删除记忆主表（级联后的根数据）
-            conn.execute("DELETE FROM memory WHERE emp_id=?", (agent_id,))
+            _x("DELETE FROM memory WHERE emp_id=?", (agent_id,))
 
             # 7) 硬删除该 AI 员工通过工具创建的业务实体
             # 7.1) 达人及其关联数据
-            talent_ids = [r['id'] for r in conn.execute(
+            talent_ids = [r['id'] for r in _x(
                 "SELECT id FROM talents WHERE created_by=?", (agent_id,)
             ).fetchall()]
             if talent_ids:
                 placeholders = ','.join('?' * len(talent_ids))
-                conn.execute(f"DELETE FROM talent_follow_ups WHERE talent_id IN ({placeholders})", tuple(talent_ids))
-                conn.execute(f"DELETE FROM product_talent_match WHERE talent_id IN ({placeholders})", tuple(talent_ids))
-                conn.execute(f"DELETE FROM talents WHERE id IN ({placeholders})", tuple(talent_ids))
+                _x(f"DELETE FROM talent_follow_ups WHERE talent_id IN ({placeholders})", tuple(talent_ids))
+                _x(f"DELETE FROM product_talent_match WHERE talent_id IN ({placeholders})", tuple(talent_ids))
+                _x(f"DELETE FROM talents WHERE id IN ({placeholders})", tuple(talent_ids))
                 logger.info(f'  [Cleanup] 已硬删除 {agent_id} 创建的 {len(talent_ids)} 个达人及关联跟进/匹配记录')
 
             # 7.2) 商品及其关联匹配数据
-            product_ids = [r['id'] for r in conn.execute(
+            product_ids = [r['id'] for r in _x(
                 "SELECT id, brand_id FROM products WHERE created_by=?", (agent_id,)
             ).fetchall()]
             affected_brand_ids = set()
             if product_ids:
-                for row in conn.execute(
+                for row in _x(
                     "SELECT DISTINCT brand_id FROM products WHERE created_by=? AND brand_id != ''",
                     (agent_id,)
                 ).fetchall():
                     affected_brand_ids.add(row['brand_id'])
                 placeholders = ','.join('?' * len(product_ids))
-                conn.execute(f"DELETE FROM product_talent_match WHERE product_id IN ({placeholders})", tuple(product_ids))
-                conn.execute(f"DELETE FROM products WHERE id IN ({placeholders})", tuple(product_ids))
+                _x(f"DELETE FROM product_talent_match WHERE product_id IN ({placeholders})", tuple(product_ids))
+                _x(f"DELETE FROM products WHERE id IN ({placeholders})", tuple(product_ids))
                 logger.info(f'  [Cleanup] 已硬删除 {agent_id} 创建的 {len(product_ids)} 个商品及关联匹配记录')
 
+            # ★ 2026-10-25 补全：MS3 时代新增的**会话与工作痕迹**表，
+            #   原清理函数**一张都没清** ⇒
+            #     - memory_conversations：会话原文，**会被记忆抽取/知识检索重新消费**
+            #       （员工都删了，它说过的话还在往知识库里沉淀）；
+            #     - pipeline_state：抽取流水线状态（指向已删员工的会话计数）；
+            #     - memory_atoms / memory_scenes / memory_personas：记忆产物；
+            #     - group_messages / tool_calls / notifications / heavy_jobs：工作痕迹。
+            #   实测：删「测试1」后 memory_conversations 还剩 64 条（内容是
+            #   `ping,请回 pong 一词即可` 的测试流量）、pipeline_state 还剩 1 条。
+            for _tbl, _col in (
+                ('memory_conversations', 'agent_id'),
+                ('memory_atoms', 'agent_id'),
+                ('memory_scenes', 'agent_id'),
+                ('memory_personas', 'agent_id'),
+                ('pipeline_state', 'agent_id'),
+                ('group_messages', 'agent_id'),
+                ('tool_calls', 'agent_id'),
+                ('notifications', 'agent_id'),
+                ('heavy_jobs', 'agent_id'),
+            ):
+                _n = _x(f'DELETE FROM {_tbl} WHERE {_col}=?', (agent_id,)).rowcount
+                if _n:
+                    logger.info(f'  [Cleanup] 已删除 {_tbl} 中 {agent_id} 的 {_n} 条记录')
             conn.commit()
 
             # 7.3) 更新受影响品牌的统计
