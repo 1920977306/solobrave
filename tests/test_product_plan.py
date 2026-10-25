@@ -480,3 +480,57 @@ def test_completeness_reflects_backed_dimensions():
             "commission_rates": {}, "sale_axis": []}
     _, _, thin = pp.score_item(fit, bare)
     assert thin < full
+
+
+def test_prescheduled_item_counts_for_category_constraint():
+    """★ **已排期（保留原位）的品也要参与同品类约束**（2026-10-25 实测）。
+
+    实测场景：明天已经排好一个鞋靴（保留原位，不改写），
+    而今天新排的也是鞋靴 ⇒ 相邻两天同品类。
+
+    根因：`cat_used_days` 原来**只在主循环末尾记账**，
+    而「保留原位」的品要么落在**过去**的日子（主循环 `continue` 跳过 ⇒ 从不记账），
+    要么落在**未来**的日子（要等排到那天才记账 ⇒ 排今天时看不见明天已占位的品类）。
+    ⇒ 约束只在「当天新排出来的品」之间生效，**已排期的品完全游离在约束之外**。
+
+    正确口径：「相邻两天的**所有**品」，不论新排还是保留原位。
+    """
+    import datetime
+    now = datetime.datetime.now().replace(hour=10, minute=0, second=0,
+                                          microsecond=0)
+    tomorrow = int((now + datetime.timedelta(days=1)).timestamp())
+
+    deals = [
+        # 明天已排好（保留原位）的鞋靴
+        {"id": "d_fixed", "product_id": "p_shoe1", "product_name": "鞋A",
+         "status": "approved", "scheduled_at": tomorrow,
+         "category": "鞋靴/靴子"},
+        # 待排的另一个鞋靴 —— 不能排在今天（今天与明天相邻），也不能排明天
+        # （明天已经有固定位的鞋靴）
+        {"id": "d_shoe2", "product_id": "p_shoe2", "product_name": "鞋B",
+         "status": "approved", "scheduled_at": 0, "category": "鞋靴/靴子"},
+        # 待排的服饰 —— 可以排今天
+        {"id": "d_cloth", "product_id": "p_cloth", "product_name": "衣C",
+         "status": "approved", "scheduled_at": 0, "category": "服饰内衣/内搭"},
+    ]
+    products = [
+        _product("p_shoe1", "鞋A", 159, category="鞋靴/靴子"),
+        _product("p_shoe2", "鞋B", 129, category="鞋靴/靴子"),
+        _product("p_cloth", "衣C", 55, category="服饰内衣/内搭"),
+    ]
+    slots = pp.build_schedule(_talent(), deals, products, days=7, per_day=2)
+    by_date = {s.date: [it.product_id for it in s.items] for s in slots}
+
+    # ① 保留原位的品必须还在明天（不改写已排好的安排）
+    assert "p_shoe1" in by_date[slots[1].date], f"保留原位的品被挪走了：{by_date}"
+    # ② 相邻两天不能同品类
+    for i in range(len(slots) - 1):
+        a = {it.category for it in slots[i].items if it.category}
+        b = {it.category for it in slots[i + 1].items if it.category}
+        for x in a:
+            for y in b:
+                assert not pp._cat_overlap(x, y), \
+                    f"{slots[i].date} 与 {slots[i+1].date} 同类目连推：{x} vs {y}"
+    # ③ 约束不能把品丢掉
+    all_ids = [it.product_id for s in slots for it in s.items]
+    assert set(all_ids) == {"p_shoe1", "p_shoe2", "p_cloth"}, f"品丢了：{all_ids}"

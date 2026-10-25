@@ -210,7 +210,8 @@ def persist_plan(slots, talent_id: str = "", dry_run: bool = False) -> int:
     return len(rows)
 
 
-def requeue_overdue(talent_id: str, day_key: str = "") -> list[str]:
+def requeue_overdue(talent_id: str, day_key: str = "",
+                    dry_run: bool = False) -> list[str]:
     """把「排期已经过去、但**从来没推成功过**」的品退回排品池重新排。
 
     ★ 不能丢品 —— 达人接了品就该被推到：
@@ -235,7 +236,7 @@ def requeue_overdue(talent_id: str, day_key: str = "") -> list[str]:
             "AND (remind_state IS NULL OR remind_state='')",
             (talent_id, today_ts)).fetchall()
         ids = [r["id"] for r in rows]
-        if ids:
+        if ids and not dry_run:
             conn.execute(
                 "UPDATE deals SET scheduled_at=0, plan_slot=0 WHERE id IN (%s)"
                 % ",".join("?" * len(ids)), ids)
@@ -243,6 +244,67 @@ def requeue_overdue(talent_id: str, day_key: str = "") -> list[str]:
         return ids
     finally:
         conn.close()
+
+
+# ────────────────────── 池级排期（排品池 = 我们的合作单） ──────────────────────
+
+def pool_talent_ids() -> list[str]:
+    """排品池里**所有**有单的达人 id —— **不论有没有飞书租户**。
+
+    ★ 排品池的真源是 `deals`（我们的合作单），不是「有租户的达人」。
+      池子里的人是运营建单 / 达人接品进来的，
+      **他们不一定绑了飞书租户**（实测：七月姐姐 5 单，没租户）。
+    """
+    if not SOLOBRAVE_DB.is_file():
+        return []
+    conn = _ro_conn()
+    try:
+        rows = conn.execute(
+            "SELECT DISTINCT talent_id FROM deals "
+            "WHERE talent_id IS NOT NULL AND talent_id<>'' "
+            "AND status IN ('negotiating','sample_sent','approved') "
+            "ORDER BY talent_id").fetchall()
+        return [r["talent_id"] for r in rows]
+    finally:
+        conn.close()
+
+
+def reschedule_pool(day_key: str = "", dry_run: bool = False) -> dict:
+    """把**排品池里所有达人**的排期重算 + 落库（含过期重排）。
+
+    ★ 遍历范围必须是**排品池**，不是「有飞书租户的达人」。
+
+    【实测缺陷（2026-10-25）】
+    之前「重排 + 落库」都长在 `scan_and_push()` 里，而 `scan_and_push`
+    只遍历**灰度租户绑定的达人** ⇒ 没绑飞书租户的达人
+    （实测：七月姐姐 5 单）**排期永远停在过去**：
+      - `requeue_overdue` 够不着她 ⇒ 过期未推的品不会退回重排
+      - `persist_plan` 也不碰她 ⇒ 新排期不会落库
+    ⇒ 她的品在 H5 排品表里**直接消失**（表只显示今天及以后），
+      运营看着像「少排了」，其实是**卡在昨天**。
+    这跟「多消费者只一个落库」是同族问题：
+      **同一份事实，多个消费者，遍历范围不一致**。
+
+    ⇒ 分工：**推送给有租户的达人**（飞书侧的物理限制），
+      **排期算给池子里所有人**（排期是池子的属性，不是租户的）。
+    """
+    day_key = day_key or datetime.datetime.now().strftime("%Y-%m-%d")
+    out = {"talents": 0, "requeued": 0, "persisted": 0, "details": []}
+    for tid in pool_talent_ids():
+        try:
+            requeued = requeue_overdue(tid, day_key, dry_run=dry_run)
+            slots, talent = plan_for_talent("", tid)
+            if not slots or not talent:
+                continue
+            n = persist_plan(slots, talent_id=tid, dry_run=dry_run)
+            out["talents"] += 1
+            out["requeued"] += len(requeued)
+            out["persisted"] += n
+            out["details"].append({"talent_id": tid, "requeued": requeued,
+                                    "persisted": n})
+        except Exception:
+            log.exception("[plan] pool reschedule failed: talent=%s", tid)
+    return out
 
 
 def register_deal(douyin_id: str, product_id: str, talent_id: str = "",
@@ -514,11 +576,32 @@ def scan_and_push(ws=None, dry_run: bool = False) -> dict:
     返回统计（和 coop_notify.scan_and_push 同样的形状，方便运维看）。
     """
     stat = {"scanned": 0, "pushed": 0, "skipped": 0, "details": []}
+    day_key = datetime.datetime.now().strftime("%Y-%m-%d")
+
+    # ★★ 池级排期：**在推租户之前**先把**整个排品池**的排期重算并落库。
+    #   推送给有租户的达人（飞书侧物理限制），
+    #   但**排期是池子的属性** —— 之前只在租户循环里落库，
+    #   没绑租户的达人（实测：七月姐姐 5 单）排期永远停在过去，
+    #   过期未推的品也永远等不到 `requeue_overdue` 退回重排 ⇒ 品卡死在昨天。
+    #   `dry_run` 是探针，**一个字都不写**。
+    if not dry_run:
+        try:
+            pool = reschedule_pool(day_key)
+            stat["pool_talents"] = pool["talents"]
+            stat["pool_requeued"] = pool["requeued"]
+            stat["persisted"] = pool["persisted"]
+            if pool["requeued"]:
+                log.info("[plan] 池内有 %d 个过期未推的品退回重排（涉及 %d 个达人）",
+                         pool["requeued"], pool["talents"])
+        except Exception:
+            # 落库失败**不阻断推送**：先让达人今天收到提醒，
+            # 排期明天再补（宁可少一次安排，也不能今天不推）。
+            log.exception("[plan] 池级排期落库失败（不阻断推送）")
+
     gray = _gray_map()
     if not gray:
         log.info("[plan] 灰度名单内没有已绑定抖音号的租户 → 本轮不推")
         return stat
-    day_key = datetime.datetime.now().strftime("%Y-%m-%d")
     for tk, dyid in gray.items():
         stat["scanned"] += 1
         try:
@@ -534,24 +617,8 @@ def scan_and_push(ws=None, dry_run: bool = False) -> dict:
             #   顺序也很重要：**先落库后推送** —— 推送失败时排期已经在，
             #   下一轮扫描还会扫到这个品（remind_state 没标）⇒ 能重试；
             #   反过来先推后落库，中间崩了就白推一次。
-            #   `dry_run` 是探针，**一个字都不写**。
-            if not dry_run:
-                try:
-                    talent_id = ""
-                    trow = _read_talent(dyid)
-                    talent_id = (trow or {}).get("id", "")
-                    requeued = requeue_overdue(talent_id, day_key) if talent_id else []
-                    if requeued:
-                        log.info("[plan] %s 有 %d 个品排期已过且没推过，退回重排",
-                                 tk, len(requeued))
-                    slots, _t = plan_for_talent(dyid, talent_id)
-                    if slots:
-                        n = persist_plan(slots, talent_id=talent_id)
-                        stat["persisted"] = stat.get("persisted", 0) + n
-                except Exception:
-                    # 落库失败**不阻断推送**：先让达人今天收到提醒，
-                    # 排期明天再补（宁可少一次安排，也不能今天不推）。
-                    log.exception("[plan] 排期落库失败（不阻断推送）")
+            #   （落库已上移到**池级** `reschedule_pool()` —— 那里按排品池遍历，
+            #    覆盖所有有单的达人，不只是有租户的。）
             text, todo = build_reminder(dyid)
             card, card_todo = build_reminder_card(dyid)
             if not text:

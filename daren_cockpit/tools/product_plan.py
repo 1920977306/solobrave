@@ -544,6 +544,13 @@ def _prev_day(date_str: str) -> str:
     return (d - datetime.timedelta(days=1)).strftime("%Y-%m-%d")
 
 
+def _next_day(date_str: str) -> str:
+    """'2026-10-24' → '2026-10-25'（日历后一天）。"""
+    import datetime
+    d = datetime.datetime.strptime(date_str, "%Y-%m-%d")
+    return (d + datetime.timedelta(days=1)).strftime("%Y-%m-%d")
+
+
 def build_schedule(talent_row: dict, deal_rows: list[dict], product_rows: list[dict],
                    days: int = 7, per_day: int = 2,
                    start_at: int = 0) -> list[PlanSlot]:
@@ -661,6 +668,19 @@ def build_schedule(talent_row: dict, deal_rows: list[dict], product_rows: list[d
     # 每个类目上一次出现的日期（补位时用来把重复拉得最开）
     cat_last_day: dict[str, str] = {}
 
+    # ★★ 先把**已排期（保留原位）**的品的品类记进 `cat_used_days`。
+    #   原来只在主循环末尾记，而主循环开头有 `if dstr < today_str: continue`
+    #   —— 过去的日子整段被跳过 ⇒ **昨天（及更早）保留原位的品从不被记账**；
+    #   未来保留原位的品也要等排到那天才记 ⇒ 排 10-25 时看不见 10-26 已占位的品类。
+    #   ⇒ 结果：约束只在「当天新排出来的品」之间生效，
+    #     **已排期的品完全游离在约束之外**
+    #     （实测 2026-10-25：10-25 新排了鞋靴、10-26 保留原位的也是鞋靴 ⇒ 相邻同品类）。
+    #   约束的正确口径：「相邻两天的**所有**品」，不论新排还是保留原位。
+    for _dstr, _items in scheduled.items():
+        for _it in _items:
+            if _it.category:
+                cat_used_days.setdefault(_dstr, []).append(_it.category)
+
     def _place(slot: PlanSlot, dstr: str, item: PlanItem) -> None:
         slot.items.append(item)
         item.date = dstr
@@ -685,7 +705,15 @@ def build_schedule(talent_row: dict, deal_rows: list[dict], product_rows: list[d
         #    会让品类集中的池子死锁 —— 实测 4 个同类目的品、7 天、每天 2 坑，
         #    旧口径只排得出第 1 天，剩下的品永远「排不进本周」，
         #    而达人的诉求是「我接的这些品都要排上」）
-        prev_cats = cat_used_days.get(_prev_day(dstr), [])
+        # ★ 约束看**相邻两天（前后各一天）**的品类 ——
+        #   排 10-25 时，既要避开 10-24 已推的，也要避开 10-26 已排好占位的。
+        #   ★ 两个来源：**前一天** / **后一天**（都含「已排期保留原位」的品）。
+        #   ⚠️ **不包括当天** —— 「同一天推两个同品类」是允许的
+        #     （既有语义：达人一天接 2 个同品类品就一起推，
+        #       锁在 tests/test_plan_notify.py::test_reminder_title_two_items）。
+        #     收进「当天」会把同品两个挤到不同天 ⇒ 越界。
+        adj_cats = (cat_used_days.get(_prev_day(dstr), [])
+                    + cat_used_days.get(_next_day(dstr), []))
         # ① 先放非尾货（好品优先推，尾货不挤主推位）
         for want_tail in (False, True):
             tail_used = sum(1 for i in slot.items if _is_tail(i))
@@ -701,7 +729,7 @@ def build_schedule(talent_row: dict, deal_rows: list[dict], product_rows: list[d
                     continue
                 # 同类目不连推：和**昨天**用过的类目比
                 if item.category and any(
-                        _cat_overlap(item.category, c) for c in prev_cats):
+                        _cat_overlap(item.category, c) for c in adj_cats):
                     continue
                 _place(slot, dstr, item)
                 if want_tail:
@@ -719,7 +747,10 @@ def build_schedule(talent_row: dict, deal_rows: list[dict], product_rows: list[d
             for i in slot.items:
                 if i.category:
                     cat_last_day[i.category] = dstr
-                    cat_used_days.setdefault(dstr, []).append(i.category)
+            # 记账（去重合并）—— 保留原位的品在初始化时已记过一次
+            merged = set(cat_used_days.get(dstr, []))
+            merged.update(i.category for i in slot.items if i.category)
+            cat_used_days[dstr] = sorted(merged)
 
     # ── 补位阶段：严格规则排完还有剩 ⇒ 往空着的坑位里补 ──
     for dstr in sorted(slots):
@@ -729,7 +760,8 @@ def build_schedule(talent_row: dict, deal_rows: list[dict], product_rows: list[d
         capacity = max(1, per_day)
         if len(slot.items) >= capacity:
             continue
-        prev_cats = cat_used_days.get(_prev_day(dstr), [])
+        adj_cats = (cat_used_days.get(_prev_day(dstr), [])
+                    + cat_used_days.get(_next_day(dstr), []))
         while len(slot.items) < capacity:
             rest = [x for x in pending if x.scheduled_at <= 0]
             if not rest:
@@ -746,7 +778,7 @@ def build_schedule(talent_row: dict, deal_rows: list[dict], product_rows: list[d
 
             item = sorted(ok, key=_gap_key)[0]
             conflict = bool(item.category and any(
-                _cat_overlap(item.category, c) for c in prev_cats))
+                _cat_overlap(item.category, c) for c in adj_cats))
             _place(slot, dstr, item)
             if conflict:
                 item.reasons.append(
@@ -754,7 +786,9 @@ def build_schedule(talent_row: dict, deal_rows: list[dict], product_rows: list[d
             for i in slot.items:
                 if i.category:
                     cat_last_day[i.category] = dstr
-                    cat_used_days.setdefault(dstr, []).append(i.category)
+            merged = set(cat_used_days.get(dstr, []))
+            merged.update(i.category for i in slot.items if i.category)
+            cat_used_days[dstr] = sorted(merged)
 
     for item in pending:
         if item.scheduled_at <= 0:
