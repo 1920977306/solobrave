@@ -178,9 +178,121 @@ CASES = [
      "            products = [p for p in products "
      "if (p.get('created_by') or p.get('createdBy') or '') in visible_ids]",
      "tests/test_reco_data_source.py"),
-]
 
-before = subprocess.run(["git", "diff", "--stat"], capture_output=True, text=True).stdout
+    # ── 2026-10-25 积分闸门（老大：每一个功能都需要积分控制）新增的变异 ──
+    ("积分变异A：周报生成不扣费（白干）",
+     "daren_bot/weekly.py",
+     '    status, _task_id, bal = credits.charge_and_enqueue(\n'
+     '        tenant_key, "weekly_report", douyin_id, "weekly_report",',
+     '    status, _task_id, bal = credits.enqueue_free(\n'
+     '        tenant_key, "weekly_report", douyin_id, "weekly_report",',
+     "tests/test_credits_gate.py"),
+
+    ("积分变异B：周报自动采集不扣费（白干）",
+     "daren_bot/weekly.py",
+     '        status, _task_id, bal = credits.charge_and_enqueue(\n'
+     '            tk, "douyin", dyid, "weekly_collect", chat_id=chat_id,',
+     '        status, _task_id, bal = credits.enqueue_free(\n'
+     '            tk, "douyin", dyid, "weekly_collect", chat_id=chat_id,',
+     "tests/test_credits_gate.py"),
+
+    ("积分变异C：采集失败重采不扣费（白干）",
+     "daren_bot/executors.py",
+     '                _st, _tid, _bal = _credits.charge_and_enqueue(\n'
+     '                    task["tenant_key"], "douyin", _p[\'dyid\'], "recollect",',
+     '                _st, _tid, _bal = _credits.enqueue_free(\n'
+     '                    task["tenant_key"], "douyin", _p[\'dyid\'], "recollect",',
+     "tests/test_credits_gate.py"),
+
+    ("积分变异D：成本表里删掉一个动作（漏定价）",
+     "daren_bot/config.py",
+     '    "weekly_report": COST_WEEKLY_REPORT,\n',
+     '',
+     "tests/test_credits_gate.py"),
+
+    ("积分变异E：成本表塞进一个没人用的动作（死价）",
+     "daren_bot/config.py",
+     '    "recollect": COST_RECOLLECT,\n',
+     '    "recollect": COST_RECOLLECT,\n    "never_used_probe": 7,\n',
+     "tests/test_credits_gate.py"),
+
+    ("积分变异F：未登记动作不再报错（悄悄变成免费白干）",
+     "daren_bot/credits.py",
+     '    try:\n'
+     '        return config.COST_TABLE[action]\n'
+     '    except KeyError:\n'
+     '        raise KeyError(\n'
+     '            f"未登记的计费动作 {action!r} —— "\n'
+     '            "消耗算力的功能必须先在 config.COST_TABLE 里定价"\n'
+     '        ) from None',
+     '    return config.COST_TABLE.get(action, 0)',
+     "tests/test_credits_gate.py"),
+
+    ("积分变异G：余额不足也照样扣费（扣成负数）",
+     "daren_bot/db.py",
+     "        balance = int(br[\"balance\"]) if br else 0\n"
+     "        if balance < cost:\n"
+     "            return \"insufficient\", \"\", balance\n",
+     "        balance = int(br[\"balance\"]) if br else 0\n"
+     "        if False:\n"
+     "            return \"insufficient\", \"\", balance\n",
+     "tests/test_credits_gate.py"),
+
+    # ★ 核心：把「幂等命中也扣费」改回来 ⇒ 重复请求净多扣（2026-10-25 实测的真漏洞）
+    ("积分变异H：幂等命中也照样扣费（重复请求净多扣）",
+     "daren_bot/db.py",
+     "        r = _find_pending(conn, tenant_key, task_type, target)\n"
+     "        if r:\n"
+     "            br = conn.execute(\"SELECT balance FROM bot_credits_accounts \"\n"
+     "                              \"WHERE tenant_key=?\", (tenant_key,)).fetchone()\n"
+     "            return \"duplicate\", r[\"id\"], int(br[\"balance\"]) if br else 0\n",
+     "        r = None\n",
+     "tests/test_credits_gate.py"),
+
+    ("积分变异I：先扣费再入队（两事务 ⇒ 重复扣费只建一个任务）",
+     "daren_bot/credits.py",
+     "    cost = cost_of(action)\n"
+     "    return db.enqueue_task_charged(tenant_key, task_type, target, cost, action,\n"
+     "                                   cache_hit=cache_hit, chat_id=chat_id,\n"
+     "                                   payload=payload)",
+     "    cost = cost_of(action)\n"
+     "    db.deduct(tenant_key, cost, action, cache_hit=cache_hit)\n"
+     "    tid = db.enqueue_task(tenant_key, task_type, target, cost,\n"
+     "                          cache_hit=cache_hit, chat_id=chat_id, payload=payload)\n"
+     "    return \"ok\", tid, db.get_balance(tenant_key)",
+     "tests/test_credits_gate.py"),
+
+    ("积分变异J：扣费流水不关联任务 id（退款/查账对不上）",
+     "daren_bot/db.py",
+     "        _ledger(conn, tenant_key, action, cost, new_balance, cache_hit, task_id)\n",
+     "        _ledger(conn, tenant_key, action, cost, new_balance, cache_hit, '')\n",
+     "tests/test_credits_gate.py"),
+
+    ("积分变异K：任务上记的退款额 ≠ 实扣额",
+     "daren_bot/db.py",
+     "            (task_id, tenant_key, task_type, target, chat_id,\n"
+     "             cache_hit, cost, payload, now_ts()))",
+     "            (task_id, tenant_key, task_type, target, chat_id,\n"
+     "             cache_hit, 1, payload, now_ts()))",
+     "tests/test_credits_gate.py"),
+
+    ("积分变异L：恢复裸的 credits.charge() 入口（两事务坑的源头）",
+     "daren_bot/credits.py",
+     "def enqueue_free(tenant_key: str, task_type: str, target: str,",
+     "def charge(tenant_key: str, action: str, ref_task_id: str = '',\n"
+     "           cache_hit: int = 0) -> tuple:\n"
+     "    cost = cost_of(action)\n"
+     "    return db.deduct(tenant_key, cost, action, ref_task_id=ref_task_id,\n"
+     "                     cache_hit=cache_hit)\n"
+     "\n"
+     "\n"
+     "def enqueue_free(tenant_key: str, task_type: str, target: str,",
+     "tests/test_credits_gate.py"),
+
+    # ⚠️ 刻意**不做**的变异：`credits.charge_and_enqueue` 改叫别的名字
+    #   —— 那属于「改名」，不是「护栏失效」，会连带打红一堆无关测试，
+    #   属于噪声变异（不是等价变异，也不是缺陷）。
+]
 
 failed = []
 for name, rel, old, new, sel in CASES:
@@ -203,12 +315,25 @@ for name, rel, old, new, sel in CASES:
     finally:
         restore(rel)
 
-after = subprocess.run(["git", "diff", "--stat"], capture_output=True, text=True).stdout
-print("\n" + "=" * 60)
-if before != after:
-    print("❌ 还原后工作区与变异前不一致（改动被冲掉了）：")
-    print("--- before ---\n" + before + "--- after ---\n" + after)
+# ★ 还原校验只查**变异动过的文件**，不看全仓 diff。
+#   为什么：跑变异期间人可能同时在改别的文件（本轮就撞上了：跑变异时
+#   我在写 AGENTS.md ⇒ 全仓 diff 必然不同 ⇒ 误报「改动被冲掉了」）。
+#   ⇒ 真正要验的是「我改的那几个文件，还原回来了没有」。
+#   ⇒ 用**备份副本的内容**逐字比对（比 git diff 更直接、更可信）。
+bad_restore = []
+for rel, backup in _BACKUPS.items():
+    cur = (ROOT / rel).read_text(encoding="utf-8")
+    if cur != backup:
+        bad_restore.append(rel)
+if bad_restore:
+    print("❌ 以下文件还原后与变异前不一致（改动被冲掉了）：")
+    for r in bad_restore:
+        print("   -", r)
     failed.append("工作区还原不一致")
+else:
+    print(f"✅ 变异动过的 {len(_BACKUPS)} 个文件都已逐字还原")
+
+print("\n" + "=" * 60)
 if failed:
     print("❌ 变异验证未通过：")
     for f in failed:

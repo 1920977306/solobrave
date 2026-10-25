@@ -21,6 +21,31 @@ COST_PRODUCT_CACHED = 5
 COST_VISION = 10
 COST_QA = 1
 COST_VIDEO = 30        # 视频拆解：下载+妙记转写+vision+报告，重操作
+# ★ 2026-10-25 老大：「每一个功能都需要积分控制 毕竟是消耗算力 不消耗的就算了」
+#   —— 下面三个是体检时查出来的**漏网**（消耗算力但一直免费）：
+COST_WEEKLY_COLLECT = 100   # 周报触发的自动采集（浏览器采集，跟达人主动采集同价）
+COST_WEEKLY_REPORT = 30     # 周报生成（LLM 写经营报告，比问答重、比视频轻）
+COST_RECOLLECT = 100        # 采集失败后的重采（= 又采一次，成本同首次采集）
+
+# ★★ 计费动作总表（**单一真源**）——
+#   凡是**消耗算力**（采集 / LLM 判分 / 视觉 / 转写 / 写报告）的功能，
+#   都必须在这里登记一个动作名 + 价格，入口一律走
+#   `credits.charge_and_enqueue()`（扣费+入队**一个原子操作**）。
+#   **不消耗算力**的功能（纯查库 + 纯函数：排品表查询 / 选品推荐 / 接品登记 /
+#   余额查询 / 订阅开关）**不扣分**，也不许出现在这张表里
+#   （塞进来 = 给白干的路开闸门）。
+#   ⇒ 闸门见 `daren_bot/credits.py`；防漏测试见 `tests/test_credits_gate.py`。
+COST_TABLE = {
+    "collect_douyin": COST_COLLECT_DOUYIN,
+    "collect_product": COST_COLLECT_PRODUCT,
+    "collect_product_cached": COST_PRODUCT_CACHED,
+    "vision": COST_VISION,
+    "qa": COST_QA,
+    "video": COST_VIDEO,
+    "weekly_collect": COST_WEEKLY_COLLECT,
+    "weekly_report": COST_WEEKLY_REPORT,
+    "recollect": COST_RECOLLECT,
+}
 
 # 对标分析：内测期每个达人最多同时跟踪的对标号数量
 MAX_PEER_IDS = int(os.environ.get("DAREN_MAX_PEER_IDS", "5"))

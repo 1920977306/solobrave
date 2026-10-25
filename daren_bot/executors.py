@@ -35,6 +35,10 @@ from .llm_channels import (
 from .llm_channels import _anthropic_messages as _anthropic_messages_impl
 from .product_link import extract_product_id
 from . import product_intent
+# ★ 计费成本常量（统一用 `config.COST_*`，别用局部别名 ——
+#   防漏测试 `tests/test_credits_gate.py` 只认 `config.COST_*`，
+#   用别名会解析不出成本 ⇒ 直接判红）。
+from . import config
 
 log = logging.getLogger("daren-bot.executors")
 
@@ -1770,10 +1774,26 @@ def execute_qa(task: dict) -> str:
             _p = _empties[0]
             try:
                 from . import db as _db
-                _db.enqueue_task(task["tenant_key"], "douyin", _p['dyid'], 0,
-                                 chat_id=task["chat_id"])
+                from . import credits as _credits
+                # ★ 2026-10-25 老大：「每一个功能都需要积分控制 毕竟是消耗算力」——
+                #   重采 = 又开一次浏览器采集 ⇒ 消耗算力 ⇒ 必须过积分闸门。
+                #   （原来这里 cost=0 且话术写「已免费安排」⇒ 一直白干）
+                # ★ 扣费+入队一个原子操作 ⇒ 幂等命中不重复扣分。
+                _st, _tid, _bal = _credits.charge_and_enqueue(
+                    task["tenant_key"], "douyin", _p['dyid'], "recollect",
+                    chat_id=task["chat_id"])
+                if _st == "insufficient":
+                    return (f"你说得对，{_p['name']}（{_p['dyid']}）这次确实没采集到有效数据。"
+                            f"重新采集需要 {config.COST_RECOLLECT} 积分，"
+                            "你的余额不够了，联系运营老师补充额度我再帮你重采～")
+                if _st == "duplicate":
+                    return (f"你说得对，{_p['name']}（{_p['dyid']}）这次确实没采集到有效数据。"
+                            f"已经安排了重新采集（扣 {config.COST_RECOLLECT} 积分，余额 {_bal}），"
+                            "报告出来直接发你～")
                 return (f"你说得对，{_p['name']}（{_p['dyid']}）这次没有采集到有效数据，"
-                        "是我这边采集失误。已免费安排重新采集，报告出来直接发你～")
+                        "是我这边采集失误。已安排重新采集"
+                        f"（扣 {config.COST_RECOLLECT} 积分，余额 {_bal}），"
+                        "报告出来直接发你～")
             except Exception:
                 log.exception("enqueue recollect failed")
     # ★ fix/compare-qa (2026-10-18 实锤): "我的账号和XX、YY对比发一下" 被弱模型判无关拒答.
@@ -1835,10 +1855,23 @@ def execute_qa(task: dict) -> str:
                 if chat_id:
                     try:
                         from . import db as _db
-                        _db.enqueue_task(task["tenant_key"], "douyin", p['dyid'], 0,
-                                         chat_id=chat_id)
+                        from . import credits as _credits
+                        # ★ 同上：重采消耗算力 ⇒ 过积分闸门（扣费+入队原子）
+                        _st, _tid, _bal = _credits.charge_and_enqueue(
+                            task["tenant_key"], "douyin", p['dyid'], "recollect",
+                            chat_id=chat_id)
+                        if _st == "insufficient":
+                            return (f"你说得对，{p['name']}（{p['dyid']}）这次确实没采集到有效数据。"
+                                    f"重新采集需要 {config.COST_RECOLLECT} 积分，"
+                                    "你的余额不够了，联系运营老师补充额度我再帮你重采～")
+                        if _st == "duplicate":
+                            return (f"你说得对，{p['name']}（{p['dyid']}）这次确实没采集到有效数据。"
+                                    f"已经安排了重新采集（扣 {config.COST_RECOLLECT} 积分，"
+                                    f"余额 {_bal}），报告出来直接发你～")
                         return (f"你说得对，{p['name']}（{p['dyid']}）这次没有采集到有效数据，"
-                                "是我这边采集失误。已免费安排重新采集，报告出来直接发你～")
+                                "是我这边采集失误。已安排重新采集"
+                                f"（扣 {config.COST_RECOLLECT} 积分，余额 {_bal}），"
+                                "报告出来直接发你～")
                     except Exception:
                         log.exception("enqueue recollect failed")
                 return (f"{p['name']}（{p['dyid']}）这次确实没采集到有效数据，"

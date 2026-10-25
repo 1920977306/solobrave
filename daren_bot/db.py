@@ -446,16 +446,27 @@ def peer_douyin_count(tenant_key: str, bound_id: str) -> int:
 
 # ---------- 任务队列 ----------
 
+def _find_pending(conn, tenant_key: str, task_type: str, target: str):
+    """同租户同类型同目标是否已有在跑的任务（幂等键）。"""
+    return conn.execute(
+        """SELECT id FROM bot_collect_tasks
+           WHERE tenant_key=? AND type=? AND target=? AND status IN ('pending','collecting')
+           ORDER BY created_at LIMIT 1""",
+        (tenant_key, task_type, target)).fetchone()
+
+
 def enqueue_task(tenant_key: str, task_type: str, target: str,
                  credits_cost: int, cache_hit: int = 0,
                  chat_id: str = '', payload: str = '') -> str:
-    """入队，幂等：同租户同目标存在 pending/collecting 时返回原任务 id。"""
+    """入队，幂等：同租户同目标存在 pending/collecting 时返回原任务 id。
+
+    ⚠️ **只给零成本 / 管理员后门用**（不扣分的路径）。
+       凡是**消耗算力**的路径 ⇒ 必须走 `enqueue_task_charged()`
+       （它才做「扣费 + 入队」的原子操作），
+       否则会出现「扣了钱、却没建任务」或「重复扣费、只建一个任务」。
+    """
     with db_ctx() as conn:
-        r = conn.execute(
-            """SELECT id FROM bot_collect_tasks
-               WHERE tenant_key=? AND type=? AND target=? AND status IN ('pending','collecting')
-               ORDER BY created_at LIMIT 1""",
-            (tenant_key, task_type, target)).fetchone()
+        r = _find_pending(conn, tenant_key, task_type, target)
         if r:
             return r["id"]
         task_id = uuid.uuid4().hex
@@ -466,6 +477,57 @@ def enqueue_task(tenant_key: str, task_type: str, target: str,
             (task_id, tenant_key, task_type, target, chat_id,
              cache_hit, credits_cost, payload, now_ts()))
         return task_id
+
+
+def enqueue_task_charged(tenant_key: str, task_type: str, target: str,
+                         cost: int, action: str, cache_hit: int = 0,
+                         chat_id: str = '', payload: str = '') -> tuple:
+    """★ 原子「扣费 + 入队」—— 消耗算力的路径**只能**走这里。
+
+    ★ 为什么必须是一个操作（2026-10-25 实测过的坑）：
+      原来「先 `deduct` 扣费、再 `enqueue_task` 入队」是**两个独立事务**，
+      而入队本身是**幂等**的（同租户+同类型+同目标已有 pending/collecting
+      ⇒ 返回旧任务、**不新建**）⇒ 达人重复发一次（同一个商品 / 同一个问题 /
+      同一个对标号）就**扣两次钱、只建一个任务**；任务失败时 worker 只按任务上
+      记的金额退一份 ⇒ **净多扣**（实测：扣 200、只有 1 个任务、只退 100）。
+      ⇒ 现在：**先查幂等键 → 再查余额 → 扣费 + 写流水 + 建任务**，全在一个事务里。
+
+    ★ 扣费规则：**只有真建了新任务才扣**——
+      命中幂等（不额外消耗算力）⇒ 不扣分（老大：「不消耗的就算了」）。
+
+    返回 `(status, task_id, balance)`：
+      status = "ok"           扣费成功 + 已入队
+      status = "duplicate"    命中幂等 ⇒ **未扣费**、未新建（task_id = 旧任务 id）
+      status = "insufficient" 余额不足 ⇒ **未扣费**、未入队
+    """
+    with db_ctx() as conn:
+        # 1) 幂等命中？⇒ 不额外消耗算力 ⇒ 不扣费
+        r = _find_pending(conn, tenant_key, task_type, target)
+        if r:
+            br = conn.execute("SELECT balance FROM bot_credits_accounts "
+                              "WHERE tenant_key=?", (tenant_key,)).fetchone()
+            return "duplicate", r["id"], int(br["balance"]) if br else 0
+        # 2) 余额够吗？
+        br = conn.execute("SELECT balance FROM bot_credits_accounts "
+                          "WHERE tenant_key=?", (tenant_key,)).fetchone()
+        balance = int(br["balance"]) if br else 0
+        if balance < cost:
+            return "insufficient", "", balance
+        # 3) 扣费 + 建任务（同一事务 ⇒ 要么都成，要么都不成）
+        new_balance = balance - cost
+        conn.execute(
+            "UPDATE bot_credits_accounts SET balance=?, updated_at=? WHERE tenant_key=?",
+            (new_balance, now_ts(), tenant_key))
+        task_id = uuid.uuid4().hex
+        conn.execute(
+            """INSERT INTO bot_collect_tasks
+               (id, tenant_key, type, target, chat_id, status, cache_hit, credits_cost, payload, created_at)
+               VALUES (?,?,?,?,?,'pending',?,?,?,?)""",
+            (task_id, tenant_key, task_type, target, chat_id,
+             cache_hit, cost, payload, now_ts()))
+        # 流水带上 task_id ⇒ 退款/查账能双向对得上
+        _ledger(conn, tenant_key, action, cost, new_balance, cache_hit, task_id)
+        return "ok", task_id, new_balance
 
 
 def claim_next_task() -> dict:

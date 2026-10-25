@@ -19,6 +19,8 @@ import datetime
 from pathlib import Path
 
 from . import db
+from . import config
+from . import credits   # 积分闸门（周报消耗算力 ⇒ 必须过闸门）
 from . import executors
 from . import cockpit_link
 from .fmt import fmt_wan
@@ -110,14 +112,33 @@ def _week_report_enqueued(conn_week_ts: int, tenant_key: str,
         return r is not None
 
 
-def _enqueue_report(tenant_key: str, douyin_id: str, missing: int) -> None:
+def _enqueue_report(tenant_key: str, douyin_id: str, missing: int,
+                    sender=None) -> None:
     chat_id = db.get_latest_chat_id(tenant_key)
     if not chat_id:
         log.warning("weekly report skipped, no chat_id: tenant=%s", tenant_key)
         return
-    db.enqueue_task(tenant_key, "weekly_report", douyin_id, 0,
-                    chat_id=chat_id,
-                    payload=json.dumps({"missing": missing}))
+    # ★ 2026-10-25 老大：「每一个功能都需要积分控制 毕竟是消耗算力」——
+    #   周报要调 LLM 写经营报告 ⇒ **消耗算力** ⇒ 必须过积分闸门。
+    #   （原来这里 cost=0 ⇒ 一直白干）
+    # ★ 扣费与入队是**一个原子操作**（`charge_and_enqueue`）⇒ 幂等命中时
+    #   不会重复扣费（原来「先扣后入」两个事务 ⇒ 会重复扣、只建一个任务）。
+    status, _task_id, bal = credits.charge_and_enqueue(
+        tenant_key, "weekly_report", douyin_id, "weekly_report",
+        chat_id=chat_id, payload=json.dumps({"missing": missing}))
+    if status == "insufficient":
+        log.warning("weekly report skipped, insufficient credits: tenant=%s balance=%s",
+                    tenant_key, bal)
+        # 主动告诉达人为什么收不到（否则「订阅了却没收到」= 静默失联）
+        if sender is not None:
+            try:
+                sender.send_text(chat_id, credits.insufficient_text("weekly_report", bal))
+            except Exception:
+                log.exception("weekly no-credit notice failed tenant=%s", tenant_key)
+        return
+    if status == "duplicate":
+        log.info("weekly report already queued: tenant=%s dyid=%s", tenant_key, douyin_id)
+        return
 
 
 def _push_at(w_start: datetime.datetime, slot_min: int = 577):
@@ -205,9 +226,20 @@ class WeeklyScheduler(threading.Thread):
             retry = 1
         else:
             return  # 两次都败，等数据缺失版周报
-        db.enqueue_task(tk, "douyin", dyid, 0, chat_id=chat_id,
-                        payload=json.dumps({"auto": 1, "retry": retry},
-                                           ensure_ascii=False))
+        # ★ 2026-10-25：周报触发的**自动采集**也是消耗算力（开浏览器采集）
+        #   ⇒ 必须过积分闸门（原来 cost=0 ⇒ 一直白干）。
+        #   幂等保证一周只扣一次（`_collected` 已挡住重复入队）。
+        # ★ 扣费+入队一个原子操作 ⇒ 幂等命中不重复扣分。
+        status, _task_id, bal = credits.charge_and_enqueue(
+            tk, "douyin", dyid, "weekly_collect", chat_id=chat_id,
+            payload=json.dumps({"auto": 1, "retry": retry}, ensure_ascii=False))
+        if status == "insufficient":
+            log.warning("weekly auto collect skipped, insufficient credits: "
+                        "tenant=%s balance=%s", tk, bal)
+            return
+        if status == "duplicate":
+            log.info("weekly auto collect already queued: tenant=%s dyid=%s", tk, dyid)
+            return
         log.info("weekly auto collect enqueued: tenant=%s dyid=%s retry=%d",
                  tk, dyid, retry)
 
@@ -230,7 +262,9 @@ class WeeklyScheduler(threading.Thread):
             missing = 1
         else:
             return
-        _enqueue_report(tk, dyid, missing=missing)
+        # ★ 传 sender：余额不足时要能主动告诉达人「为什么收不到周报」
+        sender = self.wm.get_sender(tk) if self.wm else None
+        _enqueue_report(tk, dyid, missing=missing, sender=sender)
         log.info("weekly report enqueued: tenant=%s dyid=%s missing=%s",
                  tk, dyid, missing)
 

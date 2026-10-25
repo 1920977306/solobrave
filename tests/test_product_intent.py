@@ -98,21 +98,28 @@ def _json_str(s):
 
 
 def _spy(bot, monkeypatch):
-    """记录入队与扣分，用来断言「走了哪条路」「扣没扣钱」。"""
+    """记录入队与扣分，用来断言「走了哪条路」「扣没扣钱」。
+
+    ★ 2026-10-25：扣费与入队已合并成**一个原子操作**
+      （`db.enqueue_task_charged`，见 db.py）⇒ 扣费不再走 `db.deduct`，
+      也不再有独立的 `db.enqueue_task` 调用。
+      ⇒ spy 必须盯**新的原子入口**，否则会「一个都录不到」
+      （2026-10-25 实测：改了实现但没改 spy ⇒ 6 个路由测试假红）。
+    ★ 这正是「声明端 ≠ 使用端」：测试盯的入口名，必须跟**实际调用链**一致。
+    """
     db = bot["db"]
     enq, ded = [], []
-    orig_enq, orig_ded = db.enqueue_task, db.deduct
+    orig_enq = db.enqueue_task_charged
 
     def spy_enq(*a, **kw):
         enq.append(a)
+        # 扣费与入队已合并 ⇒ 扣费金额就在原子入口的 cost 实参上
+        #（签名：tenant_key, task_type, target, cost, action, ...）
+        if len(a) >= 4:
+            ded.append((a[0], a[3]))
         return orig_enq(*a, **kw)
 
-    def spy_ded(*a, **kw):
-        ded.append(a)
-        return orig_ded(*a, **kw)
-
-    monkeypatch.setattr(db, "enqueue_task", spy_enq)
-    monkeypatch.setattr(db, "deduct", spy_ded)
+    monkeypatch.setattr(db, "enqueue_task_charged", spy_enq)
     return enq, ded
 
 

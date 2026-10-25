@@ -13,6 +13,7 @@ import time
 from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode
 
 from . import config, db, cockpit_link, product_intent
+from . import credits   # 积分闸门（扣费入口唯一真源，见 credits.py）
 
 log = logging.getLogger("daren-bot.handler")
 
@@ -562,20 +563,32 @@ class Router:
                 "联系运营老师补充额度（内测期免费发放）")
             return
 
-        # v1.1 收紧：先回确认卡片，再扣分
+        # ★ 2026-10-25 修：**先扣费、再回确认、最后入队**（同一原子操作）。
+        #   原来顺序是「先回『已开始采集』→ 再扣费」⇒ 并发下余额被别人扣光时，
+        #   达人收到「已开始采集」但任务**根本没入队** ⇒ 永远等不到报告，
+        #   还多收一句「余额不足」自相矛盾。
+        #   另修：「扣费」与「入队」原本是**两个事务**，而入队是幂等的
+        #   ⇒ 重复发同一个号会**扣两次钱、只建一个任务**（净多扣）。
+        #   现在 `charge_and_enqueue` 一个事务搞定，且**只有真建了任务才扣分**。
+        status, _task_id, bal = credits.charge_and_enqueue(
+            tk, "douyin", dy_id, "collect_douyin",
+            chat_id=chat_id,
+            payload=json.dumps({"name_hint": name_hint},
+                               ensure_ascii=False) if name_hint else '')
+        if status == "insufficient":  # 并发下余额竞争失败
+            sender.send_text(chat_id, credits.insufficient_text("collect_douyin", bal))
+            return
+        if status == "duplicate":
+            # 同一个号已经在采集中 ⇒ 没多消耗算力 ⇒ 不扣分
+            sender.send_text(chat_id,
+                             f"这个号正在采集中啦，报告出来直接发你～（积分余额 {bal}）")
+            return
         sender.send_text(
             chat_id,
-            "已开始采集，正常5-8分钟出报告" if is_self
-            else f"已开始采集对标账号 {dy_id}，正常5-8分钟出报告；"
-                 "你的号和对标号数据可以对比着看")
-        ok, _ = db.deduct(tk, config.COST_COLLECT_DOUYIN, "collect_douyin")
-        if not ok:  # 并发下余额竞争失败
-            sender.send_text(chat_id, "积分余额不足，联系运营老师补充额度")
-            return
-        db.enqueue_task(tk, "douyin", dy_id, config.COST_COLLECT_DOUYIN,
-                        chat_id=chat_id,
-                        payload=json.dumps({"name_hint": name_hint},
-                                           ensure_ascii=False) if name_hint else '')
+            ("已开始采集，正常5-8分钟出报告" if is_self
+             else f"已开始采集对标账号 {dy_id}，正常5-8分钟出报告；"
+                  "你的号和对标号数据可以对比着看")
+            + f"（积分余额 {bal}）")
         if first_bind:
             log.info("tenant=%s first-bind douyin_id=%s", tk, bound)
         elif not is_self:
@@ -611,14 +624,17 @@ class Router:
                 "联系运营老师补充额度（内测期免费发放）")
             return
 
-        ok, bal = db.deduct(tk, config.COST_VISION, "vision")
-        if not ok:
-            sender.send_text(chat_id, "积分余额不足，联系运营老师补充额度")
+        status, _task_id, bal = credits.charge_and_enqueue(
+            tk, "image", str(path), "vision", chat_id=chat_id)
+        if status == "insufficient":
+            sender.send_text(chat_id, credits.insufficient_text("vision", bal))
+            return
+        if status == "duplicate":
+            sender.send_text(chat_id,
+                             f"这张图正在识别中，识别完直接发你～（积分余额 {bal}）")
             return
         sender.send_text(chat_id, f"收到截图，识别中～（积分余额 {bal}）")
         # vision 走 worker（3 秒硬约束）；废图（识别不出）在 worker 里返还
-        db.enqueue_task(tk, "image", str(path), config.COST_VISION,
-                        chat_id=chat_id)
 
     # ---------- ③ 业务问答（spec ① 意图分类的问答类） ----------
 
@@ -636,11 +652,12 @@ class Router:
         #   含时效词的问题（最近/今天/最新…）不缓存 —— 答案会过期
         cached_qa = db.qa_cache_get(tk, q)
         if cached_qa:
-            db.deduct(tk, 0, "qa_cached", cache_hit=1)
+            # ★ 命中缓存 ⇒ 这次**没消耗算力**（根本没调 LLM）⇒ 不扣分，
+            #   但记一条 cache_hit=1 的流水留痕（走闸门的零成本入口，不裸调 db.deduct）。
+            credits.enqueue_free(
+                tk, "qa", q[:200], "qa_cached", cache_hit=1, chat_id=chat_id,
+                payload=json.dumps({"cached_answer": cached_qa}, ensure_ascii=False))
             sender.send_text(chat_id, "收到（缓存命中，秒回）～")
-            db.enqueue_task(tk, "qa", q[:200], 0, cache_hit=1, chat_id=chat_id,
-                            payload=json.dumps({"cached_answer": cached_qa},
-                                               ensure_ascii=False))
             return
         if db.get_balance(tk) < config.COST_QA:
             sender.send_text(
@@ -648,12 +665,16 @@ class Router:
                 f"这个动作需要 {config.COST_QA} 积分，你的余额不够啦。"
                 "联系运营老师补充额度（内测期免费发放）")
             return
-        ok, bal = db.deduct(tk, config.COST_QA, "qa")
-        if not ok:
-            sender.send_text(chat_id, "积分余额不足，联系运营老师补充额度")
+        status, _task_id, bal = credits.charge_and_enqueue(
+            tk, "qa", q[:200], "qa", chat_id=chat_id)
+        if status == "insufficient":
+            sender.send_text(chat_id, credits.insufficient_text("qa", bal))
+            return
+        if status == "duplicate":
+            sender.send_text(chat_id,
+                             f"这个问题正在回答中，回答完直接发你～（积分余额 {bal}）")
             return
         sender.send_text(chat_id, f"收到，我想一下～（积分余额 {bal}）")
-        db.enqueue_task(tk, "qa", q[:200], config.COST_QA, chat_id=chat_id)
 
     # ---------- ③ 商品链接 / 商品ID（spec 4.3） ----------
 
@@ -677,34 +698,41 @@ class Router:
         #   下面的商品数据缓存只省了「开浏览器采集」，LLM 照跑 —— 省钱不够。
         v_hit = db.verdict_cache_get(tk, product_key)
         if v_hit:
-            ok, bal = db.deduct(tk, config.COST_PRODUCT_CACHED,
-                                "collect_product_cached", cache_hit=1)
-            if not ok:
-                sender.send_text(chat_id, "积分余额不足，联系运营老师补充额度")
+            status, _task_id, bal = credits.charge_and_enqueue(
+                tk, "product", product_key, "collect_product_cached",
+                cache_hit=1, chat_id=chat_id,
+                payload=json.dumps({"cached_verdict": v_hit}, ensure_ascii=False))
+            if status == "insufficient":
+                sender.send_text(
+                    chat_id, credits.insufficient_text("collect_product_cached", bal))
+                return
+            if status == "duplicate":
+                sender.send_text(
+                    chat_id,
+                    f"这个商品正在分析中，结论出来直接发你～（积分余额 {bal}）")
                 return
             sender.send_text(
                 chat_id,
                 f"收到{label}（结论缓存命中，秒出结果）～（积分余额 {bal}）")
-            db.enqueue_task(tk, "product", product_key,
-                            config.COST_PRODUCT_CACHED, cache_hit=1,
-                            chat_id=chat_id,
-                            payload=json.dumps({"cached_verdict": v_hit},
-                                               ensure_ascii=False))
             return
 
         cached = db.cache_get(product_key)
         if cached:
-            ok, bal = db.deduct(tk, config.COST_PRODUCT_CACHED,
-                                "collect_product_cached", cache_hit=1)
-            if not ok:
-                sender.send_text(chat_id, "积分余额不足，联系运营老师补充额度")
+            status, _task_id, bal = credits.charge_and_enqueue(
+                tk, "product", product_key, "collect_product_cached",
+                cache_hit=1, chat_id=chat_id)
+            if status == "insufficient":
+                sender.send_text(
+                    chat_id, credits.insufficient_text("collect_product_cached", bal))
+                return
+            if status == "duplicate":
+                sender.send_text(
+                    chat_id,
+                    f"这个商品正在分析中，结论出来直接发你～（积分余额 {bal}）")
                 return
             sender.send_text(
                 chat_id,
                 f"收到{label}（缓存命中，秒出结果）～（积分余额 {bal}）")
-            db.enqueue_task(tk, "product", product_key,
-                            config.COST_PRODUCT_CACHED, cache_hit=1,
-                            chat_id=chat_id)
             return
 
         if db.get_balance(tk) < config.COST_COLLECT_PRODUCT:
@@ -713,17 +741,20 @@ class Router:
                 f"这个动作需要 {config.COST_COLLECT_PRODUCT} 积分，你的余额不够啦。"
                 "联系运营老师补充额度（内测期免费发放）")
             return
-        ok, bal = db.deduct(tk, config.COST_COLLECT_PRODUCT, "collect_product")
-        if not ok:
-            sender.send_text(chat_id, "积分余额不足，联系运营老师补充额度")
+        status, _task_id, bal = credits.charge_and_enqueue(
+            tk, "product", product_key, "collect_product", chat_id=chat_id)
+        if status == "insufficient":
+            sender.send_text(chat_id, credits.insufficient_text("collect_product", bal))
+            return
+        if status == "duplicate":
+            sender.send_text(
+                chat_id, f"这个商品正在分析中，结论出来直接发你～（积分余额 {bal}）")
             return
         tip = ("收到商品ID，正在查这个商品的数据，分析中" if label == "商品ID"
                else "收到链接，打开商品页分析中")
         sender.send_text(
             chat_id,
             f"{tip}，大约 1-2 分钟～（积分余额 {bal}）")
-        db.enqueue_task(tk, "product", product_key, config.COST_COLLECT_PRODUCT,
-                        chat_id=chat_id)
 
     # ---------- 视频链接拆解（直链下载+转写+画面+报告） ----------
 
@@ -736,11 +767,15 @@ class Router:
                 f"视频拆解需要 {config.COST_VIDEO} 积分，你的余额不够啦。"
                 "联系运营老师补充额度（内测期免费发放）")
             return
-        ok, bal = db.deduct(tk, config.COST_VIDEO, "teardown_video")
-        if not ok:
-            sender.send_text(chat_id, "积分余额不足，联系运营老师补充额度")
+        status, _task_id, bal = credits.charge_and_enqueue(
+            tk, "video", url, "video", chat_id=chat_id)
+        if status == "insufficient":
+            sender.send_text(chat_id, credits.insufficient_text("video", bal))
+            return
+        if status == "duplicate":
+            sender.send_text(
+                chat_id, f"这个视频正在拆解中，拆完直接发你～（积分余额 {bal}）")
             return
         sender.send_text(chat_id,
                          "收到视频链接，拆解中：下载→转写口播→看画面→出拆解报告，"
                          f"大约需要 3-8 分钟～（积分余额 {bal}）")
-        db.enqueue_task(tk, "video", url, config.COST_VIDEO, chat_id=chat_id)
