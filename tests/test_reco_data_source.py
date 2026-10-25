@@ -71,6 +71,35 @@ def _literals_of(rel_path: str, func_name: str = "") -> set:
             if isinstance(n, ast.Constant) and isinstance(n.value, str)}
 
 
+def _func_node(rel_path: str, func_name: str):
+    path = ROOT / rel_path
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) \
+                and node.name == func_name:
+            return node
+    raise AssertionError(f"{rel_path} 里找不到函数 {func_name}")
+
+
+def _names_of(rel_path: str, func_name: str = "") -> set:
+    """文件（或某个函数）里引用到的**标识符**（函数名/属性名/变量名）。
+
+    ★ 为什么要跟字面量分开扫：
+      「代码里真的调用了 `reco_source.build_chain(...)`」是**属性访问**，
+      不是字符串字面量 ⇒ 只扫字面量会被 docstring 里的同名文字骗过去。
+    """
+    path = ROOT / rel_path
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    target = _func_node(rel_path, func_name) if func_name else tree
+    names = set()
+    for n in ast.walk(target):
+        if isinstance(n, ast.Name):
+            names.add(n.id)
+        elif isinstance(n, ast.Attribute):
+            names.add(n.attr)
+    return names
+
+
 # ─────────────── 行为：取数口径 ───────────────
 
 def test_sold_dimension_reads_daren_side_influencer_count():
@@ -98,7 +127,30 @@ def test_sold_dimension_label_says_platform_not_our_sales():
         "维度名还叫「达人已出单数」，下一个人还会拿我方出单数去填它"
 
 
-# ─────────────── 结构：推荐器本体 ───────────────
+# ─────────────── 结构：推荐取数的唯一真源（达人可见面的门）────────────────
+
+def test_reco_source_column_allowlist_has_no_our_side_columns():
+    """★ 达人可见面的取数口 = `reco_source.PRODUCT_COLS`（**白名单**）。
+
+    ★ 用白名单而不是黑名单：黑名单会被新加的我方列悄悄绕过，白名单不会。
+    """
+    from daren_cockpit.tools import reco_source
+    bad = sorted(set(OUR_SIDE_COLS) & set(reco_source.PRODUCT_COLS))
+    assert not bad, f"达人可见面的取数白名单里混进了我方出单列：{bad}"
+
+
+def test_reco_source_reads_daren_side_column():
+    from daren_cockpit.tools import reco_source
+    assert DAREN_SIDE_COL in reco_source.PRODUCT_COLS, \
+        f"取数白名单里没有达人端 {DAREN_SIDE_COL}"
+
+
+def test_reco_source_module_has_no_our_side_columns():
+    """★ 取数层源码里不得出现我方口径的列（哪怕是取数用的字面量）。"""
+    lits = _literals_of("daren_cockpit/tools/reco_source.py")
+    bad = sorted(set(OUR_SIDE_COLS) & lits)
+    assert not bad, f"取数层里出现我方出单列（会泄露我方经营数据给达人）：{bad}"
+
 
 def test_reco_engine_has_no_our_side_columns():
     """★ 推荐器里不得出现任何我方口径的列。"""
@@ -116,18 +168,26 @@ def test_reco_engine_reads_daren_side_column():
 
 # ─────────────── 结构：推荐取数的两个消费端 ───────────────
 
-@pytest.mark.parametrize("rel_path,func_name", [
-    ("daren_cockpit/server.py", "_build_reco_chain"),
-    ("solobrave-server.py", "_handle_get_product_recommendations"),
-])
-def test_recommend_consumers_use_daren_side_column(rel_path, func_name):
-    """★ 两个推荐取数的消费端都必须取达人端列、都不许取我方出单达人数。
+def test_cockpit_reco_goes_through_shared_source():
+    """★ 驾驶舱那条必须走 `reco_source`（唯一真源）—— 别自己再写一份 SQL。
+
+    ⚠️ 曾经它自己 select 一份列，和飞书那边的口径分叉过一次。
+    """
+    lits = _literals_of("daren_cockpit/server.py", "_build_reco_chain")
+    names = _names_of("daren_cockpit/server.py", "_build_reco_chain")
+    assert "reco_source" in names, \
+        "驾驶舱的 _build_reco_chain 没走 reco_source（取数口径会分叉）"
+    assert "platform_order_daren_count" not in lits
+
+
+def test_solobrave_recommend_uses_daren_side_column():
+    """★ 服务端 `/api/products/recommend` 也不许 select 我方出单达人数。
 
     ⚠️ 只扫**这个函数**的 AST：同一个文件里 `talent_count` 等在商品档案、
        团长端看板上是合法用法，全文件一刀切会误伤。
     """
-    lits = _literals_of(rel_path, func_name)
+    lits = _literals_of("solobrave-server.py", "_handle_get_product_recommendations")
     assert "platform_order_daren_count" not in lits, \
-        f"{rel_path}::{func_name} select 了我方出单达人数（会泄露给达人）"
+        "solobrave-server.py::_handle_get_product_recommendations select 了我方出单达人数"
     assert DAREN_SIDE_COL in lits, \
-        f"{rel_path}::{func_name} 没取达人端 {DAREN_SIDE_COL}"
+        f"solobrave-server.py 没取达人端 {DAREN_SIDE_COL}"

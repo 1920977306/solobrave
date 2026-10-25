@@ -29,6 +29,9 @@ from daren_cockpit import apply as apply_mod  # noqa: E402
 # 选品推理链 + 推荐指数评分器（2026-10-24）—— 对齐抖音达人「选品AI助手」
 # ★ 达人端那个 ★★★★★ 是 AI 助手自己算的（平台无此真值）⇒ 这套是我方评分器。
 from daren_cockpit.tools import product_reco as reco  # noqa: E402
+# 推荐链的**取数层**（唯一真源）—— 驾驶舱和飞书达人共用一份取数。
+# ⚠️ 这里是**达人可见面**的口子 ⇒ 列白名单在 reco_source.PRODUCT_COLS。
+from daren_cockpit.tools import reco_source  # noqa: E402
 # 排品表算法（纯函数）—— 和机器人侧 / 服务端 API **同一份**，
 # 避免「同一套排品，三个地方三种算出来」。
 from daren_cockpit.tools import product_plan as plan  # noqa: E402
@@ -313,32 +316,11 @@ def _build_reco_chain(talent_row, top_n: int = 6) -> dict:
     ⚠️ 只读 DB、只吃达人端来的商品维度（店铺分/好评率/榜单/7日销量），
        **不把我方出单数据带进给达人看的推荐里**（AGENTS.md §8.1）。
     ⚠️ 拿不到画像就返回空 dict —— **不编粉丝画像**。
+
+    ★ 取数走 `reco_source`（**唯一真源**）：飞书达人问「推荐点什么」也用同一份，
+      两边算出来的推荐必须一样。
     """
-    if not talent_row:
-        return {}
-    try:
-        con = sqlite3.connect(str(SOLOBRAVE_DB))
-        con.execute("PRAGMA query_only=ON")
-        con.row_factory = sqlite3.Row
-        cols = {r[1] for r in con.execute("PRAGMA table_info(products)")}
-        want = ["id", "name", "price", "price_range", "category", "commission_rates",
-                "tags", "conversion_rate"]
-        # ★ 「带货达人数」取**达人端** `influencer_count`（平台全商品带货达人数）。
-        #   ⛔ 不用 `platform_order_daren_count`（团长端「我方机构出单达人数」）
-        #      —— 我方出单数据进达人可见的推荐 = 违反 AGENTS.md §8.1。
-        for c in ("shop_score", "good_ratio", "video_sales_7d", "sales_7d", "board_rank",
-                  "influencer_count"):
-            if c in cols:
-                want.append(c)
-        rows = con.execute(
-            f"SELECT {','.join(want)} FROM products WHERE status!='archived'"
-        ).fetchall()
-        products = [dict(r) for r in rows]
-        con.close()
-        return reco.recommend(dict(talent_row), products, top_n=top_n)
-    except Exception as e:  # noqa: BLE001
-        logging.warning("reco chain failed: %s", e)
-        return {}
+    return reco_source.build_chain(talent_row, top_n=top_n)
 
 
 def load_plan(talent_row, days: int = 7, per_day: int = 2) -> dict:

@@ -660,7 +660,10 @@ def score_products(products: list[dict], strategy: Strategy) -> list[Recommendat
                     note = f"近7日短视频销量 {_fmt_num(raw)}"
                 else:
                     sc = _norm_log(float(raw), sold_lo, sold_hi)
-                    note = f"达人已出单 {_fmt_num(raw)} 人"
+                    # ★ 文案必须跟**数据源**一致（2026-10-25 修）：
+                    #   这个维度的来源已从「我方出单达人数」换成达人端
+                    #   「平台带货达人数」，note 还写「达人已出单」= 口径漂移。
+                    note = f"带货达人数 {_fmt_num(raw)} 人"
             elif spec.kind == "bounded":
                 sc = _norm_bounded(float(raw), spec.lo, spec.hi)
                 unit = "%" if spec.key in ("commission_rate", "good_ratio") else ""

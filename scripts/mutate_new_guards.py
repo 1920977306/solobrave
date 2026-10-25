@@ -63,11 +63,9 @@ CASES = [
      'sold = product.get("platform_order_daren_count")',
      "tests/test_reco_data_source.py"),
 
-    ("P0-3 变异B：消费端改回 select 我方出单达人数",
-     "daren_cockpit/server.py",
-     '"influencer_count"',
-     '"platform_order_daren_count"',
-     "tests/test_reco_data_source.py"),
+    # ⚠️ P0-3 变异B（驾驶舱消费端改回 select 我方列）**已作废**：
+    #   取数已收拢到 `reco_source`（P0-2 变异A 覆盖白名单），
+    #   `_build_reco_chain` 自己不再 select 列 ⇒ 那个变异已无落点。
 
     ("P0-3 变异C：消费端(solobrave-server)改回 select 我方出单达人数",
      "solobrave-server.py",
@@ -104,6 +102,52 @@ CASES = [
     #   —— 后者内部就是转调前者（plan_notify.py:429），行为完全一样，
     #   属**等价变异**（不是缺陷）⇒ 不该有测试去抓它。
     #   （等价变异当缺陷 = 逼着人去改等价代码，纯浪费。）
+
+    # ── 2026-10-25 选品推荐链路（老大目标 3）新增的变异 ──
+    ("P0-2 变异A：取数白名单里加回我方出单达人数",
+     "daren_cockpit/tools/reco_source.py",
+     '"tags", "conversion_rate",',
+     '"tags", "conversion_rate", "platform_order_daren_count",',
+     "tests/test_reco_data_source.py"),
+
+    ("P0-2 变异B：驾驶舱改回自己写一份 SQL（取数口径分叉）",
+     "daren_cockpit/server.py",
+     "    return reco_source.build_chain(talent_row, top_n=top_n)",
+     "    return reco.recommend(dict(talent_row), [], top_n=top_n)",
+     "tests/test_reco_data_source.py"),
+
+    ("P0-2 变异C：推荐意图判据放宽（什么推荐词都拦）",
+     "daren_bot/handler.py",
+     "    return len(t) <= 4 or bool(_RECO_RANGE_RE.search(t))",
+     "    return True",
+     "tests/test_reco_bot.py"),
+
+    ("P0-2 变异D：去掉「点名具体商品就不拦」的排除",
+     "daren_bot/handler.py",
+     "    if _RECO_EXCLUDE_RE.search(t):\n        return False",
+     "    if False:\n        return False",
+     "tests/test_reco_bot.py"),
+
+    ("P0-2 变异E：算不出推荐时也照样发卡（不「只丢不造」）",
+     "daren_bot/handler.py",
+     "        if not recos:",
+     "        if False:",
+     "tests/test_reco_bot.py"),
+
+    ("P0-2 变异F：推荐理由改回用内部话术（策略价带）",
+     "daren_bot/feishu_card.py",
+     "    if not out:\n"
+     "        out = [str(x).strip() for x in (rec.get(\"reasons\") or []) if str(x).strip()]\n"
+     "    return out[:limit]",
+     "    return [str(x).strip() for x in (rec.get(\"reasons\") or []) "
+     "if str(x).strip()][:limit]",
+     "tests/test_reco_bot.py"),
+
+    ("P0-2 变异G：推荐卡的「接这个品」按钮不带商品 id",
+     "daren_bot/feishu_card.py",
+     '{"action": "accept_deal", "product_id": pid},',
+     '{"action": "accept_deal"},',
+     "tests/test_reco_bot.py"),
 ]
 
 before = subprocess.run(["git", "diff", "--stat"], capture_output=True, text=True).stdout

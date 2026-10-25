@@ -98,6 +98,16 @@ def _read_talent(douyin_id: str, talent_id: str = "") -> dict | None:
         conn.close()
 
 
+def read_talent(douyin_id: str, talent_id: str = "") -> dict | None:
+    """按抖音号 / 达人 id 找达人行（**公开入口**）。
+
+    ★ 其它模块（`daren_bot/handler.py` 的选品推荐路由）也按达人身份取数
+      ⇒ 别在别处再写一份查 `talents` 的 SQL（同一份事实只写一份）。
+    ★ 实现只有这一份，`_read_talent` 是它的内部名。
+    """
+    return _read_talent(douyin_id, talent_id)
+
+
 def _read_deals(talent_id: str) -> list[dict]:
     conn = _ro_conn()
     try:

@@ -103,6 +103,98 @@ def product_card(product_name: str, verdict: str, verdict_tpl: str,
     return card(f"🛒 {product_name}", els, template=verdict_tpl)
 
 
+def _dim_raw(rec: dict, key: str):
+    """从推荐结果的 `dims` 里取某个维度的**原始值**（没有就返回 None）。
+
+    ★ 为什么不直接读商品表的列：卡片只拿到 `Recommendation.to_dict()`，
+      维度原始值就在 `dims` 里（每项带 key/label/raw/score/note）。
+    """
+    for d in rec.get("dims") or []:
+        if d.get("key") == key:
+            return d.get("raw")
+    return None
+
+
+# ★ 达人能看懂的「业务理由」维度。
+#   ⛔ 排除「到手价契合度」—— 它的 note 是「¥40 落在策略价带 ¥60~¥150」，
+#      那是**我们内部**的话术，达人看了不知道这品好不好。
+_RECO_REASON_DIMS = ("shop_score", "good_ratio", "video_sales_7d",
+                      "talents_sold", "board_rank")
+
+
+def _reco_reasons(rec: dict, limit: int = 2) -> list:
+    """挑达人能看懂的推荐理由（业务维度优先，挑不满再退回 `reasons`）。"""
+    out = []
+    for d in rec.get("dims") or []:
+        if d.get("key") in _RECO_REASON_DIMS and (d.get("score") or 0) >= 0.5:
+            note = str(d.get("note") or "").strip()
+            if note:
+                out.append(note)
+        if len(out) >= limit:
+            break
+    if not out:
+        out = [str(x).strip() for x in (rec.get("reasons") or []) if str(x).strip()]
+    return out[:limit]
+
+
+def _btn_label(name: str) -> str:
+    """按钮标签：去掉括号后缀，截断得干净些（别留半个「【」）。"""
+    s = str(name or "")
+    for ch in "[【（(":
+        if ch in s:
+            s = s.split(ch)[0]
+    s = s.strip() or "这个品"
+    return ("接 " + s)[:12]
+
+
+def reco_card(profile_line: str, recos: list, note: str = "") -> dict:
+    """选品推荐卡：画像一句话 + 每个推荐一行（★/名称/价格/佣金/理由）+ 「接这个品」按钮。
+
+    ★ 每个推荐自带一个「接这个品」按钮（`accept_deal` + 商品 id）
+      ⇒ 达人点一下就进排品池 → **当场排期** → 第二天早上推「今天推哪个」（闭环）。
+    ★ 按钮标签带商品名首字 —— 不能三个一模一样的「接这个品」，
+      达人分不清哪个按钮对哪个品。
+    ★ 星级用推荐结果里的 `stars`（= min(绝对分星级, 池内分位星级)），
+      不自己另算一套。
+    """
+    els = []
+    if profile_line:
+        els.append(_md(profile_line))
+    buttons = []
+    for r in recos:
+        name = str(r.get("name") or "")
+        stars = int(r.get("stars") or 0)
+        price = r.get("price") or 0
+        comm = _dim_raw(r, "commission_rate")
+        bits = []
+        if price:
+            bits.append(f"¥{float(price):g}")
+        if comm:
+            bits.append(f"佣金{float(comm):g}%")
+        strat = str(r.get("strategy") or "")
+        if strat:
+            bits.append(strat)
+        reasons = _reco_reasons(r)
+        lines = [f"**{'★' * stars}{'☆' * (5 - stars)}** {name[:26]}"]
+        if bits:
+            lines.append(" · ".join(bits))
+        if reasons:
+            lines.append(" · ".join(reasons))
+        els.append(_md("\n".join(lines)))
+        pid = str(r.get("product_id") or "")
+        if pid:
+            buttons.append(_button(
+                _btn_label(name),
+                {"action": "accept_deal", "product_id": pid},
+                "primary" if not buttons else "default"))
+    if buttons:
+        els.append(_hr())
+        els.append(_action(buttons))
+    if note:
+        els.append(_note(note))
+    return card("⭐ 给你的选品推荐", els, template=TPL_BLUE)
+
+
 def plan_card(talent_name: str, title: str, lines: list,
               actions: list = None, note: str = "") -> dict:
     """排品提醒卡：今天推哪几个 + 坑位 + 按钮。

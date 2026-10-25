@@ -48,6 +48,44 @@ PLAN_QUERY_RE = re.compile(
 ACCEPT_DEAL_RE = re.compile(
     r"^(?:我?接(了|下|了它|了这个品|了这单)|加进排品|排品加|要接|推这个)"
     r"[\s:：,，]*(?P<pid>[0-9]{15,22}|[A-Za-z0-9_-]{6,40})\s*$")
+
+# ── 选品推荐（2026-10-25 老大目标 3：自算推荐指数接到飞书）──
+# 「推荐点什么 / 推荐几个品 / 选品建议」→ 走**我方自算的推荐指数**
+# （粉丝画像 → 类目策略 → 商品推荐 → ★ 星级），
+# **零成本**：纯查库 + 纯函数算，不调 LLM、不扣积分。
+#
+# ⚠️ 与排品表（PLAN_QUERY_RE）严格区分：
+#    「今天推什么」= 已排好的表（问排期）；「推荐什么」= 现算的候选（问推荐）。
+# ⚠️ 判据刻意**保守**：宁可漏（回落到 LLM 问答），不可抢 ——
+#    抢了会把「这个品能不能带」这种要**真值**的问题变成一份候选清单。
+_RECO_KEYWORD_RE = re.compile(r"推荐|选品")
+# 范围词：出现它才说明达人在要「一份清单」而不是「一个商品」
+_RECO_RANGE_RE = re.compile(
+    r"点|几个|些|一些|什么|啥|哪些|哪个|给我|来|看看|建议|指数|有什么|有啥")
+# ★ 点名了某个**具体商品** ⇒ 那是商品判断意图，交给商品链路，别截
+_RECO_EXCLUDE_RE = re.compile(
+    r"这款|这个款|本款|这个商品|这款商品|这个产品|这款产品|"
+    r"这个单品|这款单品|这个链接|这款链接|这瓶|这盒|这包|这双|"
+    r"这个礼盒|这款礼盒|这个品|这款品")
+
+# 一次给几个推荐（= 卡片上的「接这个品」按钮数，别太多）
+RECO_TOP_N = 3
+RECO_CARD_NOTE = "★ 是我方按你的粉丝画像算的（平台没这个数）· 想看更多发「推荐」"
+
+
+def is_reco_query(text: str) -> bool:
+    """达人是不是在要「一份选品推荐清单」。"""
+    t = (text or "").strip()
+    if not t or len(t) > 24:
+        return False
+    if _RECO_EXCLUDE_RE.search(t):
+        return False
+    if not _RECO_KEYWORD_RE.search(t):
+        return False
+    # 光秃秃一个信号（「推荐」「选品」）也算
+    return len(t) <= 4 or bool(_RECO_RANGE_RE.search(t))
+
+
 GREETING_REPLY = ("你好呀，我是你的带货选品助手。发我你的抖音号可以做账号分析，"
                   "直接问选品、带货、粉丝画像的问题我也都能答～")
 
@@ -288,6 +326,9 @@ class Router:
                 # 以前这种会掉进「其他问题帮不上忙」的通用兜底，达人以为机器人不懂货。
                 # 零成本（只是要一个输入），不扣积分、不调 LLM。
                 sender.send_text(chat_id, product_intent.NEED_PRODUCT_REF_REPLY)
+            elif is_reco_query(text):
+                # 选品推荐（零成本：我方自算的推荐指数，不调 LLM、不扣积分）
+                self._route_reco_query(tenant, chat_id, sender)
             else:
                 # 业务问答：入队异步走 LLM（扣 1 积分），超出带货范围由模型拒答
                 self._route_qa(tenant, chat_id, text, sender)
@@ -394,6 +435,73 @@ class Router:
             text = "排品表我这边算不出来，稍后再问我一次～"
         log.info("plan query: tenant=%s", tk)
         sender.send_text(chat_id, text)
+
+    def _route_reco_query(self, tenant, chat_id, sender):
+        """「推荐点什么 / 选品建议」→ 回一张**自算推荐指数**卡。
+
+        ★ 零成本：纯查库 + 纯函数算，不调 LLM、不扣积分（跟排品表查询一个待遇）。
+        ★ 只丢不造：画像不足就如实说「算不出」，**不给一份编出来的推荐**。
+        ★ 取数走 `reco_source`（**唯一真源**）—— 和驾驶舱那份是同一份取数、同一套算法。
+        ★ 卡片上的「接这个品」点一下就进排品池 → 当场排期 → 第二天早上推「今天推哪个」
+          （闭环）。
+        """
+        from . import plan_notify
+        from . import feishu_card as fc
+        from daren_cockpit.tools import reco_source
+        tk = tenant["tenant_key"]
+        dyid = (db.get_latest_douyin_id(tk)
+                or tenant.get("bind_douyin_id") or "").strip()
+        if not dyid:
+            sender.send_text(chat_id, "先把你的抖音号发我，我才能按你的粉丝画像算推荐～")
+            return
+        try:
+            talent = plan_notify.read_talent(dyid)
+        except Exception:
+            log.exception("reco query talent lookup failed tenant=%s", tk)
+            talent = None
+        if not talent:
+            sender.send_text(chat_id, "还没采到你的账号数据，发我抖音号我先帮你拉一份～")
+            return
+        try:
+            chain = reco_source.build_chain(talent, top_n=RECO_TOP_N)
+        except Exception:
+            log.exception("reco query failed tenant=%s", tk)
+            chain = {}
+        recos = chain.get("recommendations") or []
+        if not recos:
+            # ★ 只丢不造：算不出就如实说，不给一份编出来的推荐
+            notes = [n for n in (chain.get("notes") or []) if n]
+            why = notes[0] if notes else ""
+            sender.send_text(chat_id, "我这边暂时算不出你的选品推荐"
+                             + (f"（{why}）" if why else "") + "～")
+            return
+        prof = chain.get("profile") or {}
+        bits = []
+        if prof.get("main_gender"):
+            bits.append(str(prof["main_gender"]))
+        if prof.get("main_age"):
+            bits.append(str(prof["main_age"]))
+        if prof.get("price_center"):
+            bits.append(f"客单价约 ¥{float(prof['price_center']):g}")
+        cats = prof.get("categories") or []
+        if cats:
+            bits.append("、".join(str(c) for c in cats[:2]))
+        head = "**" + str(prof.get("name") or "") + "**"
+        if bits:
+            head += " · " + " · ".join(bits)
+        card = fc.reco_card(head, recos, note=RECO_CARD_NOTE)
+        try:
+            sender.send_card(chat_id, card)
+        except Exception:
+            # ★ 发卡失败回退成文字（卡片不是唯一出口）
+            log.exception("reco card send failed tenant=%s", tk)
+            lines = [head]
+            for r in recos:
+                lines.append(f"{'★' * int(r.get('stars') or 0)} {r.get('name') or ''}"
+                             f" ¥{r.get('price') or 0:g}")
+            sender.send_text(chat_id, "\n".join(lines))
+            return
+        log.info("reco query: tenant=%s recos=%d", tk, len(recos))
 
     def _route_trial_weekly(self, tenant, chat_id, text, sender):
         tk = tenant["tenant_key"]
