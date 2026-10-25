@@ -1389,3 +1389,65 @@ tail -n +$((BEFORE+1)) /tmp/openclaw/openclaw-$(date +%Y-%m-%d).log \
 在原有用例集里**根本没生效过**（用例都被范围词挡住了）
 ⇒ 补了「这个商品有什么推荐」这种**既点名又带范围词**的反例才真正覆盖它。
 ⇒ **闸门写完要问「这条守卫到底在挡什么」**，否则它可能一直是摆设。
+
+### 8.10 隔离的边界：商品「管理」按 owner，商品「候选池」不按 owner（2026-10-25 新增）
+
+体检时发现 `/api/products/recommend`（选品推荐推理链）**真实调用下返回 0 条推荐**。
+
+#### 根因
+
+这个接口照抄了 `/api/products`（商品**管理**）的 owner 过滤：
+
+```python
+uid = _resolve_talent_owner_id(auth)
+visible_ids = {uid} | set(_get_user_emp_ids(uid))
+pool = [p for p in pool if p.get('created_by') in visible_ids]
+```
+
+而商品库的**主体挂在管理员（`user_7acb72ff`）名下**（在架 47 条），
+AI 员工却分属贺主管 / 荔枝 / 一个孤儿 user ⇒ 可见集里没有这些商品
+⇒ **候选池被裁空** ⇒ 返回 0 条。
+
+⚠️ 但真正在用的两个面都是**公共库**语义（不过滤 owner）：
+- 运营驾驶舱 `daren_cockpit`（`/api/cockpit` 的 `reco` 字段）
+- 飞书达人侧（`reco_source`）
+
+⇒ 所以真正的病根是**口径分叉**：同一个「推荐」，三个面三种算出来。
+
+#### 修法
+
+服务端也走 `reco_source`（唯一真源）⇒ 三个面**同一份取数、同一套算法**。
+
+#### ★ 隔离的边界（这条要记住）
+
+| 面 | 语义 | 按 owner 隔离？ |
+|---|---|---|
+| `/api/products`（商品**管理**）| 谁能看/改这些商品行（含 `created_by` 等我方字段）| **是** |
+| `/api/products/recommend`（**候选池**）| 给某个达人选品 ⇒ 输出只有达人端商品维度 + 星级 | **否** |
+
+理由：商品库本质是**我方推给达人的公共商品库**（达人侧、驾驶舱侧都按公共库取）；
+推荐接口的输出经 `reco_source.PRODUCT_COLS` **白名单**过滤，
+**不含任何我方经营数据** ⇒ 按录入人裁剪只会让各面算出不一样的推荐。
+多租户之间的隔离由 **DB 路由**（`_tenant_db_path`）保证，不靠这里。
+
+⚠️ 放宽**只限候选池**，不许顺手扩到管理面 ⇒ 闸门
+`test_product_management_api_still_isolates_by_owner` 专门锁这条。
+
+#### 顺带查出：三个 AI 员工的归属是孤儿
+
+`Ray` / `上官婉儿` / `孔明` 的 `createdBy` 都是 `user_5b46ceaa`，
+而这个 user **在 `data/users.json` 里不存在** ⇒ 它们在任何按 owner 过滤的
+接口上都是瞎子（可见集恒空）。**这是数据问题、涉及归属，没擅自改**，
+交老大定。
+
+#### ★ 闸门探针的教训（同一个坑，第二次踩）
+
+「商品管理接口仍按 owner 隔离」这条守卫，最初写成
+「查 `_resolve_talent_owner_id` / `_get_user_emp_ids` 这两个**名字还在不在**」。
+
+⇒ 变异把 `if not auth.is_admin or ...:` 改成 `if False:` 时，
+**这两个名字照旧在源码里**（只是永远不执行）⇒ **恒真探针**，抓不住任何东西。
+⇒ 改成查 **`if` 的条件本身**（AST 里找 test 引用了 `is_admin` 的 `ast.If`）。
+
+★ 规律：**探针要盯「行为」，不是盯「符号」**。
+把条件改成死值时，符号一个都不会少。

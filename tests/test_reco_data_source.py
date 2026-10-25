@@ -180,14 +180,50 @@ def test_cockpit_reco_goes_through_shared_source():
     assert "platform_order_daren_count" not in lits
 
 
-def test_solobrave_recommend_uses_daren_side_column():
-    """★ 服务端 `/api/products/recommend` 也不许 select 我方出单达人数。
+def test_solobrave_recommend_goes_through_shared_source():
+    """★ 服务端 `/api/products/recommend` 也必须走 `reco_source`（唯一真源）。
 
-    ⚠️ 只扫**这个函数**的 AST：同一个文件里 `talent_count` 等在商品档案、
-       团长端看板上是合法用法，全文件一刀切会误伤。
+    ⚠️ 曾经它自己 select 一份列 + 另写一份 owner 过滤 ⇒ 和驾驶舱/飞书口径分叉，
+       且 owner 过滤把候选池裁空（实测返回 0 条推荐）。
     """
     lits = _literals_of("solobrave-server.py", "_handle_get_product_recommendations")
-    assert "platform_order_daren_count" not in lits, \
-        "solobrave-server.py::_handle_get_product_recommendations select 了我方出单达人数"
-    assert DAREN_SIDE_COL in lits, \
-        f"solobrave-server.py 没取达人端 {DAREN_SIDE_COL}"
+    names = _names_of("solobrave-server.py", "_handle_get_product_recommendations")
+    assert "reco_source" in names, \
+        "服务端推荐接口没走 reco_source（取数口径会分叉）"
+    for col in OUR_SIDE_COLS:
+        assert col not in lits, \
+            f"服务端推荐接口里出现了我方出单列 {col}（会泄露给达人）"
+
+
+def _has_is_admin_guard(rel_path: str, func_name: str) -> bool:
+    """这个函数里还有没有一个「按身份分流」的 `if`（test 里引用 `is_admin`）。
+
+    ★ 为什么不能只查函数名在不在：
+      变异把 `if not auth.is_admin or ...:` 改成 `if False:` 时，
+      里面的 `_resolve_talent_owner_id` / `_get_user_emp_ids` **照旧在源码里**
+      ⇒ 查名字是**恒真探针**，抓不住任何东西。
+      ⇒ 必须看**条件本身**还在不在。
+    """
+    node = _func_node(rel_path, func_name)
+    for n in ast.walk(node):
+        if isinstance(n, ast.If):
+            for sub in ast.walk(n.test):
+                if isinstance(sub, ast.Attribute) and sub.attr == "is_admin":
+                    return True
+    return False
+
+
+def test_product_management_api_still_isolates_by_owner():
+    """★ 隔离的边界：**商品*管理*接口仍然按 owner 隔离**。
+
+    ⚠️ 上一条把「推荐候选池」放宽成公共商品库，但 `/api/products`
+       返回完整商品行（含 created_by 等我方字段）⇒ **绝不能**跟着放宽。
+       ⇒ 这条测试锁住「别把放宽顺手扩到管理面」。
+    """
+    assert _has_is_admin_guard("solobrave-server.py", "_handle_get_products"), \
+        "/api/products 不再做 owner 隔离了（商品管理面泄露）"
+    names = _names_of("solobrave-server.py", "_handle_get_products")
+    assert "_resolve_talent_owner_id" in names, \
+        "/api/products 不再做 owner 隔离了（商品管理面泄露）"
+    assert "_get_user_emp_ids" in names, \
+        "/api/products 不再做 owner 隔离了（商品管理面泄露）"

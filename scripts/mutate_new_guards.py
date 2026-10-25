@@ -67,11 +67,10 @@ CASES = [
     #   取数已收拢到 `reco_source`（P0-2 变异A 覆盖白名单），
     #   `_build_reco_chain` 自己不再 select 列 ⇒ 那个变异已无落点。
 
-    ("P0-3 变异C：消费端(solobrave-server)改回 select 我方出单达人数",
-     "solobrave-server.py",
-     "'board_rank', 'influencer_count'",
-     "'board_rank', 'platform_order_daren_count'",
-     "tests/test_reco_data_source.py"),
+    # ⚠️ P0-3 变异B / 变异C（两个消费端改回 select 我方列）**已作废**：
+    #   取数已收拢到 `reco_source`（P0-2 变异A 覆盖白名单），
+    #   服务端/驾驶舱都不再自己 select 列 ⇒ 那两个变异已无落点。
+    #   服务端「自己写一份 SQL」这个形态由 P0-4 变异A 覆盖。
 
     ("P0-3 变异D：维度名改回「达人已出单数」",
      "daren_cockpit/tools/product_reco.py",
@@ -148,6 +147,37 @@ CASES = [
      '{"action": "accept_deal", "product_id": pid},',
      '{"action": "accept_deal"},',
      "tests/test_reco_bot.py"),
+
+    # ── 2026-10-25 服务端口径分叉（候选池被 owner 裁空）新增的变异 ──
+    ("P0-4 变异A：服务端改回自己写一份取数 SQL（口径分叉）",
+     "solobrave-server.py",
+     "        chain = reco_source.build_chain(\n"
+     "            dict(trow), top_n=top_n, db_path=_tenant_db_path(_current_tenant_id()))",
+     "        import sqlite3 as _sq\n"
+     "        from daren_cockpit.tools import product_reco as _pr\n"
+     "        _cc = _sq.connect(str(_tenant_db_path(_current_tenant_id())))\n"
+     "        _cc.row_factory = _sq.Row\n"
+     "        _pp = [dict(x) for x in _cc.execute(\n"
+     "            \"SELECT id,name,price,price_range,category,commission_rates,tags,\"\n"
+     "            \"conversion_rate,shop_score,good_ratio,influencer_count \"\n"
+     "            \"FROM products WHERE status!='archived'\")]\n"
+     "        _cc.close()\n"
+     "        chain = _pr.recommend(dict(trow), _pp, top_n=top_n)",
+     "tests/test_reco_data_source.py"),
+
+    ("P0-4 变异B：商品管理接口的 owner 隔离被顺手去掉",
+     "solobrave-server.py",
+     "        if not auth.is_admin or getattr(auth, 'localhost_agent_id', None):\n"
+     "            uid = _resolve_talent_owner_id(auth)\n"
+     "            visible_ids = {uid} | set(_get_user_emp_ids(uid))\n"
+     "            products = [p for p in products "
+     "if (p.get('created_by') or p.get('createdBy') or '') in visible_ids]",
+     "        if False:\n"
+     "            uid = _resolve_talent_owner_id(auth)\n"
+     "            visible_ids = {uid} | set(_get_user_emp_ids(uid))\n"
+     "            products = [p for p in products "
+     "if (p.get('created_by') or p.get('createdBy') or '') in visible_ids]",
+     "tests/test_reco_data_source.py"),
 ]
 
 before = subprocess.run(["git", "diff", "--stat"], capture_output=True, text=True).stdout

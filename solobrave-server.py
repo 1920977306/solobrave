@@ -88,9 +88,12 @@ import memory_pipeline
 # 知识库入库分档整理层（老大 2026-10-23 两档口径：分析类完全提取 / 平常类整理后）
 import knowledge_intake as ki
 
-# 选品推理链 + 推荐指数评分器（2026-10-24：粉丝画像 → 类目策略 → 商品推荐 → ★★★★★）
+# 选品推理链 + 推荐指数（2026-10-24：粉丝画像 → 类目策略 → 商品推荐 → ★★★★★）
 # ★ 达人端那个 ★★★★★ 是 AI 助手自算的（平台无此真值）⇒ 这套是我方自己的评分器。
-from daren_cockpit.tools import product_reco as reco
+# 推荐链的**取数层**（唯一真源）—— 服务端 / 驾驶舱 / 飞书达人侧共用同一份。
+# ⚠️ 这里是**达人可见面**的口子 ⇒ 列白名单在 reco_source.PRODUCT_COLS。
+#   （评分器 `product_reco` 由 reco_source 内部调用，本文件不再直接 import 它。）
+from daren_cockpit.tools import reco_source
 
 # 排品表 + 提醒（2026-10-24：达人接很多品，要 AI 帮忙排 + 提醒）
 from daren_cockpit.tools import product_plan as plan
@@ -19013,6 +19016,23 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
              平台没有这个真值 ⇒ 我们用 `product_reco` 算自己的一套。
           3. **缺失维度不当 0 分**：没采到的维度退出加权并重新归一化，
              输出里带 `missing_dims` / `dropped_dims` / `completeness`。
+
+        ★ 取数走 `reco_source`（**唯一真源**）—— 与驾驶舱、飞书达人侧
+          共用同一份取数、同一套算法 ⇒ 三个面算出来的推荐**必须一样**。
+
+        ⚠️ **为什么这里不按 owner 裁剪候选池**（2026-10-25 改）：
+          原来这个接口照抄了 `/api/products`（商品**管理**）的 owner 过滤，
+          但两个接口语义不同：
+            · `/api/products` = 「商品**管理**」⇒ 返回完整商品行（含 created_by
+              等我方字段）⇒ **必须**按录入人隔离。
+            · 本接口 = 「给某个达人选品」⇒ 输出只有**达人端商品维度** + 星级
+              （列白名单见 `reco_source.PRODUCT_COLS`）⇒ 不含任何我方经营数据。
+          而商品库本质是**我方推给达人的公共商品库**（达人侧、驾驶舱侧都按
+          公共库取）⇒ 只这里按录入人裁，会让 AI 员工通道算出**和另外两个面
+          不一样的**推荐（实测：主商品池挂在管理员名下 ⇒ 候选被裁空 ⇒ 返回 0 条）。
+
+          ⇒ **隔离的边界**：商品*管理*按 owner 隔离；商品*候选池*不隔离。
+            多租户之间的隔离由 DB 路由（`_tenant_db_path`）保证，不靠这里。
         """
         auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
@@ -19029,45 +19049,19 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         except (TypeError, ValueError):
             top_n = 6
 
-        # 商品池：owner 过滤口径与 /api/products 完全一致
-        pool = self._load_products().get('products', [])
-        if not auth.is_admin or getattr(auth, 'localhost_agent_id', None):
-            uid = _resolve_talent_owner_id(auth)
-            visible_ids = {uid} | set(_get_user_emp_ids(uid))
-            pool = [p for p in pool
-                    if (p.get('created_by') or p.get('createdBy') or '') in visible_ids]
-        ids = [p.get('id') for p in pool if p.get('id')]
-
         conn = _db_conn()
         try:
             trow = conn.execute('SELECT * FROM talents WHERE id = ?',
                                 (talent_id,)).fetchone()
-            products = []
-            if ids:
-                have = {r[1] for r in conn.execute('PRAGMA table_info(products)')}
-                want = ['id', 'name', 'price', 'price_range', 'category',
-                        'commission_rates', 'tags',
-                        'conversion_rate', 'main_image', 'subtitle']
-                # 新维度列可能还没迁移（旧库）⇒ 有才取，缺了评分器会自动当「缺失」
-                # ★ 「带货达人数」取**达人端** `influencer_count`（平台全商品带货达人数），
-                #   ⛔ 不用 `platform_order_daren_count`（团长端「我方机构出单达人数」）
-                #      —— 我方出单数据进达人可见的推荐 = 违反 AGENTS.md §8.1。
-                for col in ('shop_score', 'good_ratio', 'video_sales_7d',
-                            'sales_7d', 'board_rank', 'influencer_count'):
-                    if col in have:
-                        want.append(col)
-                marks = ','.join('?' * len(ids))
-                rows = conn.execute(
-                    f"SELECT {','.join(want)} FROM products WHERE id IN ({marks})",
-                    ids).fetchall()
-                products = [dict(r) for r in rows]
         finally:
             conn.close()
 
         if not trow:
             self._send_json_error(404, 'Talent not found')
             return
-        chain = reco.recommend(dict(trow), products, top_n=top_n)
+        # ★ DB 路径要跟着租户路由走（多租户下每个租户一个库）
+        chain = reco_source.build_chain(
+            dict(trow), top_n=top_n, db_path=_tenant_db_path(_current_tenant_id()))
         self._send_json(200, chain)
 
     def _handle_get_product_score(self, product_id):
