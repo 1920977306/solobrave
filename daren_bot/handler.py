@@ -6,7 +6,6 @@ handler 只做：免费路由判定 → 图片落盘 → 余额/限频检查 →
 意图分类（glm-4-flash 走 OpenClaw 网关）未接入前，未命中免费路由的文本
 一律走零成本软话术（fail-closed 兜底，spec 4.4），不产生任何模型/浏览器调用。
 """
-import datetime
 import json
 import logging
 import re
@@ -117,7 +116,10 @@ class Router:
                 if act == "accept_deal":
                     return self._card_accept_deal(tk, value)
                 if act == "view_plan":
-                    return self._card_view_plan(tk, chat_id)
+                    # ★ product_id 一起带过去：原卡被替换后「接这个品」会消失，
+                    #   排品表卡上要能再接一次同一个品。
+                    return self._card_view_plan(tk, chat_id,
+                                                 str(value.get("product_id") or ""))
                 return {"toast": {"type": "info", "content": "这个按钮还没接上"}}
             except Exception:
                 log.exception("card action failed tenant=%s", tk)
@@ -140,35 +142,51 @@ class Router:
             log.exception("card accept deal failed tenant=%s", tk)
             return {"toast": {"type": "error", "content": "接品失败，稍后再试"}}
 
-    def _card_view_plan(self, tk: str, chat_id: str) -> dict:
+    def _card_view_plan(self, tk: str, chat_id: str, product_id: str = "") -> dict:
         """卡片按钮「看我的排品表」→ 直接回一张排品卡。
 
         ★ 用回调响应里的 `card` 字段**替换原卡片**（飞书原生「点开替换」），
           不用再发一条新消息 ⇒ 聊天里不会越堆越多。
+        ★ 显示**今天及以后**（口径与 H5 `/api/plan`、文字版 `plan_notify.plan_text`
+          三处一致）—— 原来只筛 today 这 1 天，按钮叫「排品表」却只给 1 天，
+          名不副实（2026-10-25 修）。
+        ★ 原卡上的「接这个品」按钮会因为「替换」而消失 ⇒ 把 product_id 带过来，
+          排品表卡上再放一个，接品的闭环不丢。
         """
         from . import plan_notify
         from . import feishu_card as fc
+        from daren_cockpit.tools import product_plan as plan
         try:
             dyid = (db.get_latest_douyin_id(tk)
                     or (db.get_tenant(tk) or {}).get("bind_douyin_id") or "").strip()
             slots, talent = plan_notify.plan_for_talent(dyid)
-            if not talent or not slots:
+            if not talent:
                 return {"toast": {"type": "info", "content": "还没有排品，先接几个品吧"}}
-            today = datetime.datetime.now().strftime("%Y-%m-%d")
+            # ★ 只看今天及以后 —— 和 H5 / 文字版同一个过滤函数（`plan.future_slots`），
+            #   别在这儿另写一套（历史排期不是待办）。
+            future = plan.future_slots(slots or [])
+            if not future or not any(s.items for s in future):
+                return {"toast": {"type": "info",
+                                  "content": "今天及以后没有排品，接几个品我就给你排"}}
             lines = []
-            for s in slots:
-                if s.date != today:
+            for s in future:
+                if not s.items:
                     continue
+                lines.append(f"**{s.date}**")
                 for it in s.items:
-                    lines.append(f"**坑位 {it.plan_slot}** {it.product_name[:28]}\n"
-                                 f"¥{it.price:g} · 佣金{it.commission_rate:g}% · "
-                                 f"{(it.lifecycle.label if it.lifecycle else '')}")
-            if not lines:
-                return {"toast": {"type": "info", "content": "今天没有排品，明天再来"}}
+                    life = it.lifecycle.label if it.lifecycle else ""
+                    lines.append(f"坑位 {it.plan_slot} · {it.product_name[:24]}\n"
+                                 f"¥{it.price:g} · 佣金{it.commission_rate:g}%"
+                                 + (f" · {life}" if life else ""))
+            actions = []
+            if product_id:
+                actions.append(fc._button("接这个品",
+                                          {"action": "accept_deal", "product_id": product_id},
+                                          "primary"))
             new_card = fc.plan_card(
-                plan_notify._display_name(talent), "📋 我的排品表", lines,
-                actions=[fc._button("看明天推什么", {"action": "view_plan"}, "default")],
-                note="每天 09:37 我会推「今天推哪个」给你")
+                plan.display_name(talent), "📋 我的排品表", lines,
+                actions=actions or None,
+                note="每天 09:37 我会推「今天推哪个」给你 · 想加品发我「接了 <商品ID>」")
             return {"card": {"type": "raw", "data": new_card}}
         except Exception:
             log.exception("card view plan failed tenant=%s", tk)

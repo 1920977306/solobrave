@@ -332,7 +332,12 @@ BASE_DIMS: tuple[DimSpec, ...] = (
     DimSpec("shop_score",     "店铺体验分",     0.15, "bounded", 0, 100),
     DimSpec("commission_rate", "佣金率",        0.12, "bounded", 0, 30),
     DimSpec("good_ratio",     "好评率",         0.10, "bounded", 0, 100),
-    DimSpec("talents_sold",   "达人已出单数",   0.10, "log"),
+    # ★ 「带货达人数」= **达人端** `cooper_author_num` = 平台全商品带货达人数。
+    #   ⚠️ 绝不能用 `platform_order_daren_count` —— 那是**团长端**的
+    #      「我方机构出单达人数」（口径见 filing_products.py 的注释），
+    #      属**我方出单数据** ⇒ 进达人可见的推荐 = 违反 AGENTS.md §8.1。
+    #      字段名带 `platform_` 前缀、看着像平台数据，其实是我方的 ⇒ 极易误用。
+    DimSpec("talents_sold",   "带货达人数",     0.10, "log"),
     DimSpec("board_rank",     "榜单排名",       0.06, "rank"),
     DimSpec("benefit_tags",   "优惠/运营险标签", 0.05, "tag"),
 )
@@ -516,9 +521,16 @@ def _normalized_row(product: dict) -> dict:
         "conversion_rate": _num_or_zero(product.get("conversion_rate")),
         "tags": _tags_of(product),
     }
-    sold = product.get("talents_sold")
+    # ★ 「带货达人数」的唯一合规来源 = **达人端** `cooper_author_num`
+    #   （= 平台全商品带货达人数，存 `products.influencer_count`）。
+    #   ⛔ 绝不能 fallback 到 `platform_order_daren_count`（团长端「我方机构出单达人数」）
+    #      —— 那是**我方出单数据**，进了推荐就是泄露我方经营数据给达人（AGENTS.md §8.1）。
+    #      这颗雷的隐蔽处：列名带 `platform_` 前缀，看着像平台数据。
+    sold = product.get("influencer_count")
     if _missing(sold):
-        sold = product.get("platform_order_daren_count")
+        # 兜底只认「调用方显式传入的同义 key」，生产链路没人传（已 grep 确认），
+        # 保留是为了让纯函数单测能用自造样本喂值。
+        sold = product.get("talents_sold")
     row["talents_sold"] = _num_or_zero(sold)
     return row
 

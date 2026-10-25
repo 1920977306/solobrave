@@ -322,8 +322,12 @@ def _build_reco_chain(talent_row, top_n: int = 6) -> dict:
         con.row_factory = sqlite3.Row
         cols = {r[1] for r in con.execute("PRAGMA table_info(products)")}
         want = ["id", "name", "price", "price_range", "category", "commission_rates",
-                "tags", "platform_order_daren_count", "conversion_rate"]
-        for c in ("shop_score", "good_ratio", "video_sales_7d", "sales_7d", "board_rank"):
+                "tags", "conversion_rate"]
+        # ★ 「带货达人数」取**达人端** `influencer_count`（平台全商品带货达人数）。
+        #   ⛔ 不用 `platform_order_daren_count`（团长端「我方机构出单达人数」）
+        #      —— 我方出单数据进达人可见的推荐 = 违反 AGENTS.md §8.1。
+        for c in ("shop_score", "good_ratio", "video_sales_7d", "sales_7d", "board_rank",
+                  "influencer_count"):
             if c in cols:
                 want.append(c)
         rows = con.execute(

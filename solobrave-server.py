@@ -19046,11 +19046,14 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             if ids:
                 have = {r[1] for r in conn.execute('PRAGMA table_info(products)')}
                 want = ['id', 'name', 'price', 'price_range', 'category',
-                        'commission_rates', 'tags', 'platform_order_daren_count',
+                        'commission_rates', 'tags',
                         'conversion_rate', 'main_image', 'subtitle']
                 # 新维度列可能还没迁移（旧库）⇒ 有才取，缺了评分器会自动当「缺失」
+                # ★ 「带货达人数」取**达人端** `influencer_count`（平台全商品带货达人数），
+                #   ⛔ 不用 `platform_order_daren_count`（团长端「我方机构出单达人数」）
+                #      —— 我方出单数据进达人可见的推荐 = 违反 AGENTS.md §8.1。
                 for col in ('shop_score', 'good_ratio', 'video_sales_7d',
-                            'sales_7d', 'board_rank'):
+                            'sales_7d', 'board_rank', 'influencer_count'):
                     if col in have:
                         want.append(col)
                 marks = ','.join('?' * len(ids))

@@ -89,7 +89,13 @@ def product_card(product_name: str, verdict: str, verdict_tpl: str,
         buttons.append(_button("接这个品",
                                {"action": "accept_deal", "product_id": product_id},
                                "primary"))
-    buttons.append(_button("看我的排品表", {"action": "view_plan"}))
+    # ★ 把当前商品的 product_id 一起带过去 ——
+    #   点「看我的排品表」会用回调响应**替换**原卡 ⇒ 原卡上的「接这个品」按钮会消失。
+    #   带上 id ⇒ 排品表卡上能再放一个「接这个品」，接品闭环不丢。
+    vp_value = {"action": "view_plan"}
+    if product_id:
+        vp_value["product_id"] = product_id
+    buttons.append(_button("看我的排品表", vp_value))
     els.append(_hr())
     els.append(_action(buttons))
     if plan_hint:
