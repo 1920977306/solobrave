@@ -55,9 +55,18 @@
   环 0  套餐 API（Anthropic）—— 长期凭据，官方 M Plan 接入路径，最快
   环 1  Code 订阅 OAuth（= 贾维斯自己）—— 套餐 key 失效时的备份
   环 2  套餐 API（OpenAI）—— 协议冗余：Anthropic 端点挂了还能活
-  环 3+ kimi / minimax 开放平台 —— 当前 429/402，保留但不指望
+  环 3  智谱 GLM —— **第二家独立服务商**（老大买的资源包，2026-10-25 实测通）
+  环 4  智谱 GLM 备胎模型（推理强、token 贵，排同家的第二档）
+  环 5+ kimi / minimax 开放平台 —— 当前 429 月度耗尽 / 402 余额不足，保留但不指望
 
-`vision` 链单独一套（识图要能读图的模型）。
+★★ **「有几环」≠「有几家」**（2026-10-25 实测教训）：
+  环 0/1/2 **全是 MiniMax 一家**（套餐 API / Code 订阅 / 同一把 key 的另一条协议）
+  —— MiniMax 一家出问题时这三环会**同时死**。
+  ⇒ 每个环都带 `vendor` 字段，探针按 vendor 统计**独立服务商数**，
+    那才是「要不要买第二家 API」的真判据。
+  ⇒ 接入智谱后，独立服务商 = 2（MiniMax + 智谱），kimi 仍死。
+
+`vision` 链单独一套（识图要能读图的模型），智谱 glm-4v-flash 同为第二家通道。
 """
 from __future__ import annotations
 
@@ -85,8 +94,55 @@ CODE_SUB_AUTH_DIR = Path.home() / '.minimax' / 'auth'
 CODE_SUB_MODELS = ('MiniMax-M3', 'MiniMax-M3.1-Flash', 'MiniMax-M2.7')
 CODE_SUB_DEFAULT_MODEL = 'MiniMax-M3'
 
+#: 智谱（GLM）—— **第二家独立服务商**（老大买的资源包）
+#:
+#: ⚠️ 2026-10-25 实测（老大问「要再买 API 吗」的取证结论）：
+#:   智谱的**文字与识图都通**，而**降级链里压根没有智谱环** ——
+#:   即「买了、测过能用、但没接进来」。
+#:   当时的链看着有 3 个可用环（套餐 Anthropic / Code 订阅 / 套餐 OpenAI 协议），
+#:   实则**全是 MiniMax 一家** —— 一家挂了全线崩。
+#:
+#: ⚠️ 智谱 key **不绑模型**：`.env` 里那把 `SOLOBRAVE_EMBEDDING_API_KEY`
+#:   （当初为 embedding 买的）打 `/chat/completions` 同样通（实测 glm-4-flash 200）。
+#:   但**资源包按模型算**：该模型没包 → HTTP 429 + code=1113「余额不足或无可用资源包」。
+#:   实测有包：glm-4-flash / glm-4.5-flash / glm-4v-flash；
+#:   实测无包：glm-4-plus / glm-4-air / glm-4v-plus。
+#:   ⇒ 环里只放**实测有包**的模型，别把没包的塞进去白等一轮 429。
+ZHIPU_BASE = 'https://open.bigmodel.cn/api/paas/v4'
+ZHIPU_TEXT_MODELS = ('glm-4-flash', 'glm-4.5-flash')
+ZHIPU_VISION_MODEL = 'glm-4v-flash'
+
 #: 识图走 OpenAI 协议（同一把套餐 key 实测能读图）
 VISION_MODELS = ('MiniMax-M3', 'MiniMax-M3.1-Flash')
+
+#: 服务商归属 —— **「有几环」≠「有几家」**
+#:
+#: ★ 为什么要显式写死这个字段（2026-10-25 实测教训）：
+#:   降级链曾有 6 个环、3 个可用，看着很冗余，但**全来自 MiniMax**
+#:   （api.minimax.cn = 套餐 API、agent.minimax.cn = Code 订阅、
+#:     api.minimaxi.com = 同一把 key 的另一条协议）。
+#:   ⇒ MiniMax 一家出问题时，其余「环」会**同时死** —— 冗余是假的。
+#:   ⇒ 探针按 `vendor` 统计**独立服务商数**，才是「要不要买 API」的真判据。
+VENDOR_MINIMAX = 'minimax'
+VENDOR_ZHIPU = 'zhipu'
+VENDOR_KIMI = 'kimi'
+
+#: 额度池标识 —— **「同一家」≠「同一个池」**（2026-10-25 实测教训之二）
+#:
+#: ★ 两个维度回答的是两个不同的问题，混用必错：
+#:   `vendor`（服务商）→ 答「一家挂了是不是全家死」：
+#:       api.minimax.cn / agent.minimax.cn / api.minimaxi.com 都是 MiniMax，
+#:       MiniMax 整体故障时这三家一起没 ⇒ 判「要不要买第二家 API」看这个。
+#:   `pool`（额度池）→ 答「还剩几种能顶的额度」：
+#:       套餐 CP key 与开放平台 key **都是 MiniMax**，但是**两套独立的账**
+#:       （订阅额度 vs 账户余额）—— 开放平台 402 不影响套餐订阅继续用。
+#:       同一把 key 的两条协议（环0 Anthropic / 环2 OpenAI）= **同一个池**，
+#:       互为协议冗余（一个端点 500 时另一个还能走），但**不构成额度冗余**。
+POOL_CP_SUBSCRIPTION = 'cp-subscription'      # 套餐 API key（环0 / 环2 同一把）
+POOL_CODE_SUB = 'code-subscription'           # Code 订阅 OAuth
+POOL_ZHIPU_PACK = 'zhipu-resource-pack'       # 智谱资源包
+POOL_KIMI_MONTHLY = 'kimi-monthly-quota'      # kimi 月度额度
+POOL_MINIMAX_OPEN = 'minimax-open-balance'    # 开放平台账户余额
 
 #: 文本模型默认输出上限（下游会覆盖）
 DEFAULT_MAX_TOKENS = 2000
@@ -219,6 +275,8 @@ def text_rings(requested_model: str = '') -> list:
         rings.append({'protocol': 'anthropic', 'base': CP_ANTHROPIC_BASE, 'key': cp_key,
                       'model': model, 'temp': 1.0, 'models': CP_MODELS,
                       'auth': 'x-api-key', 'refresh': False,
+                      'vendor': VENDOR_MINIMAX,
+                      'pool': POOL_CP_SUBSCRIPTION,
                       'max_tokens': DEFAULT_MAX_TOKENS, 'label': 'minimax-cp-anthropic'})
     else:
         _warn('文字链 套餐 API: .env 无 MINIMAX_CP_API_KEY → 该环跳过')
@@ -230,6 +288,8 @@ def text_rings(requested_model: str = '') -> list:
         rings.append({'protocol': 'anthropic', 'base': CODE_SUB_BASE, 'key': token,
                       'model': model, 'temp': 1.0, 'models': CODE_SUB_MODELS,
                       'auth': 'bearer', 'refresh': True,
+                      'vendor': VENDOR_MINIMAX,
+                      'pool': POOL_CODE_SUB,
                       'max_tokens': DEFAULT_MAX_TOKENS, 'label': 'code-sub'})
     else:
         _warn('文字链 Code 订阅通道: 无有效 accessToken'
@@ -240,17 +300,46 @@ def text_rings(requested_model: str = '') -> list:
         rings.append({'protocol': 'openai', 'base': CP_OPENAI_BASE, 'key': cp_key,
                       'model': CP_DEFAULT_MODEL, 'temp': 1.0, 'models': CP_MODELS,
                       'auth': 'bearer', 'refresh': False,
+                      'vendor': VENDOR_MINIMAX,
+                      'pool': POOL_CP_SUBSCRIPTION,
                       'max_tokens': DEFAULT_MAX_TOKENS, 'label': 'minimax-cp-openai'})
     else:
         _warn('文字链 套餐 API(OpenAI 协议冗余环): 无 key → 该环跳过')
 
-    # ---- 环 3+：kimi + minimax 开放平台（当前 429/402，保留但不指望）----
+    # ---- 环 3/4：智谱 GLM —— **第二家独立服务商**（老大买的资源包，实测通）----
+    #
+    # ★ 为什么排在 MiniMax 三环之后、kimi/开放平台之前：
+    #   MiniMax 三环是**订阅制**（不走余额，最稳）；
+    #   智谱是**资源包**（有限额，但实测活）；
+    #   kimi 月度额度耗尽（429）、开放平台余额不足（402）—— 实测都是死的，
+    #   排在活环后面 = 平时不走它们，真出事了才白等一轮失败。
+    zbase, zkey = _zhipu_channel()
+    if zkey:
+        zmodels = list(ZHIPU_TEXT_MODELS)
+        if requested in zmodels:                  # 下游点名的模型排最前
+            zmodels.remove(requested)
+            zmodels.insert(0, requested)
+        for zm in zmodels:
+            rings.append({'protocol': 'openai', 'base': zbase, 'key': zkey,
+                          'model': zm, 'temp': 1.0, 'models': tuple(zmodels),
+                          'auth': 'bearer', 'refresh': False,
+                          'vendor': VENDOR_ZHIPU,
+                          'pool': POOL_ZHIPU_PACK,
+                          'max_tokens': DEFAULT_MAX_TOKENS,
+                          'label': f'zhipu-{zm}'})
+    else:
+        _warn('文字链 智谱: 无可用 key'
+              '（.env SOLOBRAVE_EMBEDDING_API_KEY / openclaw zhipu）→ 该环跳过')
+
+    # ---- 环 5+：kimi + minimax 开放平台（当前 429/402，保留但不指望）----
     try:
         kbase, kkey = _kimi_channel()
         if kkey:
             rings.append({'protocol': 'openai', 'base': kbase, 'key': kkey,
                           'model': 'moonshot-v1-32k', 'temp': 1.0,
                           'models': ('moonshot-v1-32k',), 'auth': 'bearer', 'refresh': False,
+                          'vendor': VENDOR_KIMI,
+                          'pool': POOL_KIMI_MONTHLY,
                           'max_tokens': DEFAULT_MAX_TOKENS, 'label': 'kimi'})
         else:
             _warn('文字链 kimi 无可用 key → 该环跳过')
@@ -260,6 +349,8 @@ def text_rings(requested_model: str = '') -> list:
                 rings.append({'protocol': 'openai', 'base': CP_OPENAI_BASE, 'key': mmkey,
                               'model': m, 'temp': 1.0, 'models': VISION_MODELS,
                               'auth': 'bearer', 'refresh': False,
+                              'vendor': VENDOR_MINIMAX,
+                              'pool': POOL_MINIMAX_OPEN,
                               'max_tokens': DEFAULT_MAX_TOKENS, 'label': 'minimax-open'})
         else:
             _warn('文字链 minimax 开放平台无可用 key → 该环跳过')
@@ -280,14 +371,32 @@ def vision_rings() -> list:
     if cp_key:
         rings.append({'protocol': 'openai', 'base': CP_OPENAI_BASE, 'key': cp_key,
                       'model': CP_DEFAULT_MODEL, 'temp': 1.0,
+                      'vendor': VENDOR_MINIMAX,
+                      'pool': POOL_CP_SUBSCRIPTION,
                       'max_tokens': 1500, 'label': 'minimax-cp'})
     else:
         _warn('识图链 套餐 API: .env 无 MINIMAX_CP_API_KEY → 该环跳过')
+
+    # ---- 智谱 glm-4v-flash —— **第二家识图通道**（2026-10-25 实测真能读图）----
+    # ⚠️ 只放实测**有资源包**的模型：glm-4v-plus 实测 429/1113（没包），
+    #   glm-4v-flash-free 实测「模型不存在」—— 塞进去只是白等一轮失败。
+    zbase, zkey = _zhipu_channel()
+    if zkey:
+        rings.append({'protocol': 'openai', 'base': zbase, 'key': zkey,
+                      'model': ZHIPU_VISION_MODEL, 'temp': 1.0,
+                      'vendor': VENDOR_ZHIPU,
+                      'pool': POOL_ZHIPU_PACK,
+                      'max_tokens': 1500, 'label': f'zhipu-{ZHIPU_VISION_MODEL}'})
+    else:
+        _warn('识图链 智谱: 无可用 key → 该环跳过')
+
     try:
         kbase, kkey = _kimi_channel()
         if kkey:
             rings.append({'protocol': 'openai', 'base': kbase, 'key': kkey,
                           'model': 'moonshot-v1-8k-vision-preview', 'temp': 1.0,
+                          'vendor': VENDOR_KIMI,
+                          'pool': POOL_KIMI_MONTHLY,
                           'max_tokens': 1500, 'label': 'kimi'})
         else:
             _warn('识图链 kimi 无可用 key → 该环跳过')
@@ -295,8 +404,10 @@ def vision_rings() -> list:
         if mmkey:
             for m in ('MiniMax-M3.1-Flash-Preview', 'MiniMax-M3'):
                 rings.append({'protocol': 'openai', 'base': CP_OPENAI_BASE, 'key': mmkey,
-                              'model': m, 'temp': 1.0, 'max_tokens': 1500,
-                              'label': 'minimax-open'})
+                              'model': m, 'temp': 1.0,
+                              'vendor': VENDOR_MINIMAX,
+                              'pool': POOL_MINIMAX_OPEN,
+                              'max_tokens': 1500, 'label': 'minimax-open'})
         else:
             _warn('识图链 minimax 开放平台无可用 key → 该环跳过')
     except Exception as e:                                    # noqa: BLE001
@@ -316,6 +427,28 @@ def _kimi_channel():
     if not base.endswith('/v1'):
         base += '/v1'
     return base, openclaw_api_key('kimi')
+
+
+def _zhipu_channel():
+    """智谱的 (base, key) —— **第二家独立服务商**。
+
+    ⚠️ **base 必须剥掉 `/embeddings` 后缀**（2026-10-25 实测踩过）：
+    `.env` 的 `SOLOBRAVE_EMBEDDING_BASE_URL` 存的是**完整 embedding 路径**
+    （`.../api/paas/v4/embeddings`）。直接拼 `/chat/completions` 会得到
+    `/api/paas/v4/embeddings/chat/completions` → **HTTP 404 Not Found**
+    （路径看着像 base 没配对，其实是多了三段）。
+    ⇒ 剥完才是 chat 端点 `.../api/paas/v4`。
+
+    ⚠️ **key 不绑模型**：`.env` 那把 embedding key 打 chat 同样通（实测 200）。
+    读不到就退到 openclaw 的 zhipu key store（实测也是同一把）。
+    """
+    base = env_api_key('SOLOBRAVE_EMBEDDING_BASE_URL').rstrip('/')
+    if base.endswith('/embeddings'):
+        base = base[:-len('/embeddings')]
+    if not base:
+        base = ZHIPU_BASE
+    key = env_api_key('SOLOBRAVE_EMBEDDING_API_KEY') or openclaw_api_key('zhipu')
+    return base, key
 
 
 def _warn(msg: str) -> None:

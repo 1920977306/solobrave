@@ -241,3 +241,85 @@ B 边若在 `_fail` 里加新逻辑，**必须保留 `exc`** ——
 ⇒ 采集通道掉登录不再告警运营）。
 
 ⚠️ **合并口径**：两边特性**都保住**，不做单边取舍。
+
+---
+
+## 8. A 边第 4 轮：LLM 降级链补「第二家独立服务商」（2026-10-25 20:50）
+
+### 一句话
+
+老大问「**补什么啊，要我再买API吗？**」⇒ 当场逐环实测的结论是
+**不用买** —— 老大买的**智谱资源包本来就够用**（文字 + 识图都实测通），
+但它**压根没接进降级链** ⇒ 这轮把它接进去，并给降级链加上
+「**有几环 ≠ 有几家**」的判据。
+
+### A 边这轮改了什么（已推 `origin/dev`）
+
+| 文件 | 改动 | 与 B 边是否冲突 |
+|---|---|---|
+| `daren_bot/llm_channels.py` | 加智谱文字环（`glm-4-flash`/`glm-4.5-flash`）+ 识图环（`glm-4v-flash`）；所有环补 `vendor` + `pool` | ✅ **B 边没碰** |
+| `daren_bot/tools/probe_llm_channels.py` | 加独立服务商/额度池统计 + 死因分类 | ✅ **B 边没碰** |
+| `tests/test_llm_channels.py` | +9 条契约测试 | ✅ **B 边没碰** |
+| `scripts/mutate_llm_ring_guards.py`（新）| 11 条变异验证 | ✅ **B 边没碰** |
+| `AGENTS.md` §11 | 环序表更新 + 「有几环≠有几家」口径 + 智谱口径 | ✅ **B 边没碰**（B 边 3 个 commit 都没动 AGENTS.md）|
+| `docs/PROGRESS-2026-10-22.md` §32 | 本轮全过程与沉淀 | ✅ **B 边没碰** |
+| `docs/PARALLEL-HANDOFF-2026-10-25.md` | **只在文件末尾追加本节**（不碰 §6「最近更新」，那是 B 边改的）| ⚠️ 文本面：末尾追加，行级不重叠 |
+
+⇒ **A 边这轮的 4 个代码文件与 B 边零交集** ⇒ 合并时这几个文件不会冲突。
+
+### ★★ 给 B 边：上线阻塞**已解除**
+
+B 边 `924ea8a` 记的「上线阻塞」是：
+> 部署目录 `solobrave-prod` 有另一会话未提交的 `config.py` / `ops_alert.py` 改动，
+> 与 B 边改的 `config.py` 同文件 ⇒ `git merge` 会被拒。
+
+⇒ **那两个改动 A 边已经在 `c585dd7` 之前提交并推 `origin/dev` 了**，
+部署目录工作区现在**干净**（A 边本轮只动 LLM 链相关文件）。
+⇒ **B 边现在可以干净 merge 了** —— 不需要再等。
+
+⚠️ 合并时 B 边要记得：`origin/dev` 这期间又多了
+`c585dd7`（登录态单一真源，改 `buyin_worker.py` + 新增 `buyin_auth.py` + `tests/test_buyin_login_judge.py`）
+与本轮的 LLM 链改动 ⇒ **冲突面仍是原来那 3 个文件**：
+`daren_bot/worker.py`（真冲突）/ `daren_bot/config.py`（区域不重叠，疑似假冲突）/ 交接单（文本面）。
+
+⚠️ **本轮新增的合并注意**：B 边如果改了 `daren_bot/llm_channels.py` 或
+`daren_bot/tools/probe_llm_channels.py`，**要保留 `vendor` / `pool` 两个字段**
+—— 它们是「独立服务商」判据的**唯一来源**，
+丢了字段探针就会退化成「按 host 反推」⇒ 把一家数成三家。
+
+### 本轮的实测结论（别再重新测，直接用）
+
+| 环 | 通道 | 服务商 | 额度池 | 实测 |
+|---|---|---|---|---|
+| 0 | MiniMax 套餐（Anthropic）| minimax | cp-subscription | ✅ 1.1s |
+| 1 | Code 订阅（=贾维斯自己）| minimax | code-subscription | ✅ 0.9s |
+| 2 | MiniMax 套餐（OpenAI 协议冗余）| minimax | cp-subscription | ✅ 1.2s |
+| 3/4 | **智谱 glm-4-flash / glm-4.5-flash** | **zhipu** | zhipu-resource-pack | ✅ 1.1s / 17s |
+| 5 | kimi moonshot-v1-32k | kimi | kimi-monthly-quota | ❌ **429 月度额度耗尽**（下周期刷新）|
+| 6/7 | minimax 开放平台 | minimax | minimax-open-balance | ❌ **402 余额不足** |
+
+识图链：环0 MiniMax ✅ → 环1 **智谱 glm-4v-flash** ✅ 728ms → kimi ❌ → 开放平台 ❌。
+
+⇒ **活的独立服务商 = 2 家**（minimax + zhipu）⇒ 冗余**是真的**了。
+
+### 占用登记（本轮）
+
+| 文件 | 持有方 | 开始时间 | 预计完成 | 备注 |
+|---|---|---|---|---|
+| `daren_bot/llm_channels.py` | A 边 | 2026-10-25 20:36 | ✅ 20:50 已交 | 加智谱环 + vendor/pool |
+| `daren_bot/tools/probe_llm_channels.py` | A 边 | 2026-10-25 20:36 | ✅ 20:50 已交 | 加双维度统计 |
+| `tests/test_llm_channels.py` | A 边 | 2026-10-25 20:36 | ✅ 20:50 已交 | +9 条契约测试 |
+| `scripts/mutate_llm_ring_guards.py`（新）| A 边 | 2026-10-25 20:36 | ✅ 20:50 已交 | 11 条变异 |
+
+### 本轮沉淀（跨边通用）
+
+1. **「有几环」≠「有几家」** —— 冗余判据是**独立服务商/额度池**，不是环数；
+   同一家的多条协议只是**协议冗余**（一个端点挂了另一个还能走），不是额度冗余。
+2. **别从 host 反推服务商**：`api.minimax.cn` / `agent.minimax.cn` / `api.minimaxi.com`
+   是同一家；而套餐 key 与开放平台 key 同属一家却是**两套独立的账**。
+   ⇒ 字段写死在环构造处，下游只读不算。
+3. **能力层测试：重试优先于 skip**；真要 skip 要按**错误语义**分类，
+   **配置错误必须让它红**（本轮变异 M11 逼出来的 —— 只看状态码会把
+   `503 + direct_route_not_configured` 当成瞬时 ⇒ 恒真绿）。
+4. **降级链是顺序遍历** ⇒ 活环必须排在死环前面。
+5. **不许拿旧数据回答「现在能不能用」** ⇒ 逐环真调一次。

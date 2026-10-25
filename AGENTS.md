@@ -955,15 +955,60 @@ prompt 锁死了「🟢 能带」「🟡 慎带」「🔴 别带」三选一，e
 `_text_fallback_cfgs` / `_fallback_cfgs` **全是薄壳**,只做转发。
 **别再在任何一个文件里手写环。**
 
-### 环序(LIFO,最稳的排最前)
+### 环序(LIFO,最稳的排最前) —— **2026-10-25 当场实测**(老大问「要再买 API 吗」的取证)
 
-| 环 | 通道 | 协议 | 凭据 | 2026-10-22 实测 |
-|---|---|---|---|---|
-| 0 | MiniMax 套餐 API | Anthropic | `.env` `MINIMAX_CP_API_KEY` | ✅ 1.2s |
-| 1 | **Code 订阅(=贾维斯自己)** | Anthropic | `~/.minimax/auth/**/mcode-public/auth.json` | ✅ 1.2s |
-| 2 | MiniMax 套餐 API | OpenAI | 同环 0(协议冗余) | ✅ 3.9s |
-| 3 | kimi moonshot-v1-32k | OpenAI | OpenClaw key store | ❌ 429 |
-| 4/5 | minimax 开放平台 | OpenAI | `.env` `MINIMAX_API_KEY` | ❌ 402 |
+| 环 | 通道 | 协议 | 凭据 | vendor | pool | 实测 |
+|---|---|---|---|---|---|---|
+| 0 | MiniMax 套餐 API | Anthropic | `.env` `MINIMAX_CP_API_KEY` | minimax | cp-subscription | ✅ 1.1s |
+| 1 | **Code 订阅(=贾维斯自己)** | Anthropic | `~/.minimax/auth/**/mcode-public/auth.json` | minimax | code-subscription | ✅ 0.9s |
+| 2 | MiniMax 套餐 API | OpenAI | 同环 0(协议冗余) | minimax | cp-subscription | ✅ 1.2s |
+| 3 | **智谱 `glm-4-flash`** | OpenAI | `.env` `SOLOBRAVE_EMBEDDING_API_KEY` | **zhipu** | zhipu-resource-pack | ✅ 1.1s |
+| 4 | 智谱 `glm-4.5-flash` | OpenAI | 同环 3 | **zhipu** | zhipu-resource-pack | ✅ 17s(推理慢) |
+| 5 | kimi moonshot-v1-32k | OpenAI | OpenClaw key store | kimi | kimi-monthly-quota | ❌ 429 月度额度耗尽 |
+| 6/7 | minimax 开放平台 | OpenAI | `.env` `MINIMAX_API_KEY` | minimax | minimax-open-balance | ❌ 402 余额不足 |
+
+识图链:环0 MiniMax(✅) → 环1 **智谱 `glm-4v-flash`**(✅ 728ms,能读图) → kimi(❌429) → 开放平台(❌402)。
+
+### ★★「有几环」≠「有几家」(2026-10-25 实测教训)
+
+改造前链上 6 环、3 个「可用」—— **实则全是 MiniMax 一家**
+(`api.minimax.cn` 套餐 / `agent.minimax.cn` Code 订阅 / `api.minimaxi.com` 同一把 key 的另一条协议)。
+**一家挂了,三个环同时死** ⇒ 冗余是**假的**。
+
+⇒ 每个环现在都带两个**显式字段**(写死在 `llm_channels` 构造环时,不许下游反推 host):
+
+| 字段 | 答什么 | 取值 |
+|---|---|---|
+| `vendor` | **一家挂了是不是全家死** = 判「要不要买第二家 API」 | `minimax` / `zhipu` / `kimi` |
+| `pool` | **还剩几种能顶的额度**(同家的不同账/不同协议也算不同池) | `cp-subscription` / `code-subscription` / `zhipu-resource-pack` / `kimi-monthly-quota` / `minimax-open-balance` |
+
+⚠️ **别从 host 反推 vendor**:`api.minimax.cn` / `agent.minimax.cn` / `api.minimaxi.com`
+三个不同 host 是**同一家**;而套餐 key 与开放平台 key 同属 MiniMax 却是**两套独立的账**
+(订阅额度 vs 账户余额)⇒ 开放平台 402 **不影响**套餐继续用。两个维度都不能互相替代。
+
+### 智谱接进来的口径(2026-10-25)
+
+- 老大**买的智谱资源包本来就够用**,不用再买 API —— 但它此前**压根没接进链里**
+  (「买了、测过能用、没接进来」)。
+- **智谱 key 不绑模型**:`.env` 里那把 `SOLOBRAVE_EMBEDDING_API_KEY`(当初为 embedding 买的)
+  打 `/chat/completions` 同样通(实测 glm-4-flash 200)。
+  但**资源包按模型算**:该模型没包 → **HTTP 429 + code=1113**「余额不足或无可用资源包」。
+- 实测**有包**:`glm-4-flash` / `glm-4.5-flash` / `glm-4v-flash`;
+  实测**没包**:`glm-4-plus` / `glm-4-air` / `glm-4v-plus`。
+  ⇒ 环里**只放实测有包的模型**,别把没包的塞进去白等一轮 429。
+- ⚠️ **base 必须剥掉 `/embeddings` 后缀**:`.env` 的 `SOLOBRAVE_EMBEDDING_BASE_URL` 存的是
+  **完整 embedding 路径**(`.../api/paas/v4/embeddings`),直接拼 `/chat/completions`
+  会打到 `/v4/embeddings/chat/completions` ⇒ **HTTP 404**(实测踩过)。
+  `_zhipu_channel()` 负责剥。
+- 智谱 `glm-4-flash` 非 reasoning,temp 自由(实测 0.2/1.0 都通);
+  `glm-4.5-flash` 是 reasoning,答一句话要 ~170 token、~17s ⇒ 只当**第二档**。
+
+### 降级链顺序也有讲究(2026-10-25)
+
+降级链是**顺序遍历**的 ⇒ **活环必须排在死环前面**。
+kimi(429)/开放平台(402) 排在智谱后面 = 每次降级都先白等两轮 HTTP 失败
+(飞书侧体感就是「卡十几秒才回一句没反应」)。
+
 
 ### 为什么必须收敛(这轮踩到的真 bug)
 

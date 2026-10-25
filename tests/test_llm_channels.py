@@ -171,10 +171,47 @@ def test_buyin_worker_survives_without_package_key(monkeypatch, tmp_path):
     monkeypatch.undo()
     rings = llm_channels.text_rings()
     ring = [r for r in rings if r['label'] == 'code-sub'][0]
-    out = llm_channels.call_ring_messages(ring, [
-        {'role': 'system', 'content': '只回复两个字：可用'},
-        {'role': 'user', 'content': '现在回复。'},
-    ], max_tokens=64)
+
+    # ★ 先**重试一次**再判成败 —— 瞬时抖动（限流/过载）重试就好，
+    #   比「一失败就 skip」更诚实（skip 会掩盖真问题，见下）。
+    import time as _time
+    out = ''
+    last_exc = None
+    for attempt in (1, 2):
+        try:
+            out = llm_channels.call_ring_messages(ring, [
+                {'role': 'system', 'content': '只回复两个字：可用'},
+                {'role': 'user', 'content': '现在回复。'},
+            ], max_tokens=64)
+            last_exc = None
+            break
+        except Exception as e:                            # noqa: BLE001
+            last_exc = e
+            if attempt == 1:
+                _time.sleep(2.0)
+
+    if last_exc is not None:
+        msg = str(last_exc)
+        low = msg.lower()
+        # ⚠️ **顺序很重要：先判「配置/契约错」，再判「瞬时」**。
+        #
+        # ★ 这条判据是被变异 M11 逼出来的（2026-10-25 实测）：
+        #   base 写错时服务端返回的是 **HTTP 503**
+        #   （body: `direct_route_not_configured`）——
+        #   早先的判据只看状态码 '503' ⇒ 把它当「瞬时」skip 掉
+        #   ⇒ 变异的测试**仍然全绿** ⇒ **恒真闸门**（测试再也不报警）。
+        #   ⇒ 现在按**错误语义**分：配置错（`not_configured` / 404 / 401 …）
+        #     必须 raise 让测试红；只有明确的限流/过载才 skip。
+        config_err = any(m in low for m in (
+            'not_configured', 'direct_route', 'not found', '404',
+            'unauthorized', '401', 'invalid model', 'model not exist'))
+        transient = (not config_err) and any(m in low for m in (
+            'too many requests', '429', 'overloaded', '529', 'rate limit',
+            'timed out', 'timeout'))
+        if transient:
+            pytest.skip(f'Code 订阅通道瞬时不可用（能力层，非契约问题）: {msg[:140]}')
+        raise last_exc
+
     assert out.strip(), '贾维斯环返回空'
     assert '<think>' not in out, '推理块没剥干净'
 
@@ -342,3 +379,161 @@ def test_no_secret_hardcoded_in_module():
     # 通用 Authorization: Bearer <长串>
     hits = [m.group(0) for m in re.finditer(r'Bearer\s+[A-Za-z0-9_\-]{16,}', src)]
     assert not hits, f'发现疑似明文 bearer: {hits}'
+
+
+# ─────────────────── D. 第二家独立服务商（智谱）───────────────────
+#
+# ★ 背景（2026-10-25 老大问「要再买 API 吗」的实测结论）：
+#   改造前降级链有 6 个环、3 个「可用」—— 实则**全是 MiniMax 一家**
+#   （套餐 API / Code 订阅 / 同一把 key 的另一条协议）。
+#   ⇒ 一家挂了全线崩，**冗余是假的**。
+#   ⇒ 而老大买的智谱资源包**文字与识图都实测通**，只是压根没接进链里。
+#
+# 下面这组测试锁住三件事：
+#   ① 智谱环真的在链上（结构层，不依赖环境有没有真 key）
+#   ② 智谱 chat base **不残留 /embeddings**（实测踩过 → 404）
+#   ③ 链上**独立服务商 ≥ 2 家**（把「假冗余」钉死）
+
+def _fake_zhipu_key(monkeypatch):
+    """给 `.env` 注入一把**假**智谱 key —— 让智谱环必然被构造出来。
+
+    ⚠️ 不能因为「当前环境没有智谱 key」就 skip —— 那样环境一变，
+    契约就没人测了（和上面 code-sub 环同样的理由）。
+    """
+    real = llm_channels.env_api_key
+    monkeypatch.setattr(
+        llm_channels, 'env_api_key',
+        lambda name: ('fake-zhipu-key-0123456789'
+                      if name == 'SOLOBRAVE_EMBEDDING_API_KEY' else real(name)))
+
+
+def test_zhipu_ring_present_in_text_rings(monkeypatch):
+    """智谱文字环必须在链上（第二家独立服务商）。"""
+    _fake_zhipu_key(monkeypatch)
+    rings = llm_channels.text_rings()
+    z = [r for r in rings if r.get('vendor') == llm_channels.VENDOR_ZHIPU]
+    assert z, ('文字链里没有智谱环 —— 第二家独立服务商没接进来: '
+               + str([r.get('label') for r in rings]))
+    for r in z:
+        assert r['protocol'] == 'openai', '智谱走 OpenAI 协议'
+        assert r['model'] in llm_channels.ZHIPU_TEXT_MODELS, r['model']
+        assert r['auth'] == 'bearer'
+        assert r['pool'] == llm_channels.POOL_ZHIPU_PACK
+
+
+def test_zhipu_vision_ring_present(monkeypatch):
+    """智谱识图环必须在链上（商品截图识别也要有第二家）。"""
+    _fake_zhipu_key(monkeypatch)
+    rings = llm_channels.vision_rings()
+    z = [r for r in rings if r.get('vendor') == llm_channels.VENDOR_ZHIPU]
+    assert z, '识图链里没有智谱环'
+    assert z[0]['model'] == llm_channels.ZHIPU_VISION_MODEL
+    assert z[0]['protocol'] == 'openai'
+
+
+def test_zhipu_base_must_not_keep_embeddings_suffix(monkeypatch):
+    """★ 回归：`.env` 的 base 存的是**完整 embedding 路径**。
+
+    不剥掉 `/embeddings` 后缀 → 拼出来是
+    `/api/paas/v4/embeddings/chat/completions` → **HTTP 404**（实测踩过）。
+    """
+    _fake_zhipu_key(monkeypatch)
+    base, key = llm_channels._zhipu_channel()
+    assert key, '智谱 key 没读到'
+    assert not base.endswith('/embeddings'), \
+        f'智谱 chat base 残留 /embeddings → 请求会 404: {base}'
+    assert base.endswith('/v4'), base
+
+
+def test_zhipu_ring_ranked_before_exhausted_rings(monkeypatch):
+    """智谱（实测活）必须排在 kimi(429) / 开放平台(402) **前面**。
+
+    ⚠️ 降级链是**顺序**遍历的：活环排在死环后面 = 每次降级都要先白等
+    两轮 HTTP 失败（飞书侧体感就是「卡十几秒才回一句没反应」）。
+    """
+    _fake_zhipu_key(monkeypatch)
+    rings = llm_channels.text_rings()
+    z_idx = [i for i, r in enumerate(rings)
+             if r.get('vendor') == llm_channels.VENDOR_ZHIPU]
+    assert z_idx, '没有智谱环'
+    dead_idx = [i for i, r in enumerate(rings)
+                if r.get('pool') in (llm_channels.POOL_KIMI_MONTHLY,
+                                     llm_channels.POOL_MINIMAX_OPEN)]
+    if dead_idx:
+        assert min(z_idx) < min(dead_idx), \
+            f'智谱环(环{min(z_idx)}) 排在额度耗尽环(环{min(dead_idx)})后面了'
+
+
+def test_every_ring_declares_vendor_and_pool(monkeypatch):
+    """每个环都必须声明 `vendor` + `pool`（口径单一真源，不许靠下游反推）。"""
+    _fake_zhipu_key(monkeypatch)
+    for name, rings in (('text', llm_channels.text_rings()),
+                        ('vision', llm_channels.vision_rings())):
+        for r in rings:
+            assert r.get('vendor'), f'{name} 环缺 vendor: {r.get("label")}'
+            assert r.get('pool'), f'{name} 环缺 pool: {r.get("label")}'
+
+
+def test_fallback_chain_has_two_independent_vendors(monkeypatch):
+    """★ 核心契约：链上必须有 **≥2 个独立服务商**。
+
+    这条直接对应老大的问题「要不要再买 API」——
+    只有 1 家 ⇒ 一家挂了全线崩 ⇒ 该买；
+    ≥2 家 ⇒ 冗余是真的 ⇒ 不必买。
+    """
+    _fake_zhipu_key(monkeypatch)
+    vendors = {r.get('vendor') for r in llm_channels.text_rings()}
+    assert llm_channels.VENDOR_ZHIPU in vendors, \
+        f'智谱没接进来，独立服务商只有: {vendors}'
+    assert len(vendors) >= 2, f'独立服务商不足 2 家: {vendors}'
+
+
+# ─────────────────── E. 探针的「假冗余」判据 ────────────────────
+
+def test_probe_counts_vendors_not_rings():
+    """探针必须按 **vendor** 统计，不能按 ring 数。
+
+    ⚠️ 反例：3 个环里 2 个是 MiniMax 同一家的不同协议 ⇒
+      按 ring 数会报「3 家兜底，出事不慌」，按 vendor 数才是「1 家，冗余是假的」。
+    """
+    from daren_bot.tools import probe_llm_channels as probe
+    rings = [
+        {'vendor': 'minimax', 'pool': 'cp-subscription'},
+        {'vendor': 'minimax', 'pool': 'cp-subscription'},
+        {'vendor': 'minimax', 'pool': 'code-subscription'},
+    ]
+    stat = probe._independence(rings, rings, [], [])
+    assert stat['alive_vendors'] == ['minimax'], stat
+    assert stat['vendor_redundant'] is False, \
+        '同一家 3 个环被判成有冗余 —— 那是假冗余'
+
+
+def test_probe_recognizes_second_vendor_as_real_redundancy():
+    """加进第二家 ⇒ 必须判成「冗余是真的」。"""
+    from daren_bot.tools import probe_llm_channels as probe
+    rings = [
+        {'vendor': 'minimax', 'pool': 'cp-subscription'},
+        {'vendor': 'zhipu', 'pool': 'zhipu-resource-pack'},
+    ]
+    stat = probe._independence(rings, rings, [], [])
+    assert stat['alive_vendors'] == ['minimax', 'zhipu'], stat
+    assert stat['vendor_redundant'] is True
+
+
+def test_probe_counts_empty_channel_as_alive():
+    """「通道通但这次没吐字」≠ 通道死 —— 必须算进活的池。
+
+    ⚠️ 反例：识图链探针拿 1×1 图去探，模型诚实返回空是**正确行为**，
+      若判成死 → 报「识图链全灭」→ 让人去查一个根本没坏的通道。
+
+    ⚠️ 判据要盯**函数内部**的合并逻辑：若把「alive + empty」写在调用方，
+      调用方漏传 empty 时这条测试就抓不到（恒真闸门）。
+    """
+    from daren_bot.tools import probe_llm_channels as probe
+    rings = [{'vendor': 'zhipu', 'pool': 'zhipu-resource-pack'}]
+    # alive 空、empty 有 —— 通道是活的，只是这次没吐字
+    stat = probe._independence(rings, [], rings, [])
+    assert stat['alive_vendors'] == ['zhipu'], stat
+    assert stat['dead_pools'] == []
+    assert stat['vendor_redundant'] is False, '只有一家时不该判成有冗余'
+
