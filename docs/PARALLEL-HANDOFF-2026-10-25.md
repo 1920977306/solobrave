@@ -19,7 +19,8 @@
 **★ 老大唯一还没做的实事（协作面必须知道这件事）**：
 | 项 | 状态 | 在哪 |
 |---|---|---|
-| **密钥轮换**（GitHub PAT + 飞书 4 个 app secret + 顺带发现的 **13 处明文 key**）| ⚠️ **清单已就绪，等老大手动执行** | **`docs/SECRET-ROTATION-RUNBOOK.md`**（每步带验证断言）|
+| **密钥轮换**（GitHub PAT + 飞书 4 个 app secret + `~/.openclaw/` **13 处明文 key** + ★ **`data/settings.json` 4 处明文 key**）| ⚠️ **清单已就绪，等老大手动执行** | **`docs/SECRET-ROTATION-RUNBOOK.md`**（每步带验证断言；★ 2026-10-26 19:3x 新增 **§3** = LLM/embedding/vision 侧）|
+| ↳ **副本地图**（哪把 key 有几个副本）| ✅ **已实测**（19:3x B 边，按 md5 指纹 join，**不回显明文**）| 语义/embedding **3 个副本**；Minimax CP **2 个**；kimi 第 4 段 **3 个**（且同时服务 LLM + vision）⇒ **漏改 ⇒ 旧 key 仍在被调用 ⇒ 撤不掉** ⇒ runbook §3.2 |
 
 ⚠️ 那 13 处明文在 `~/.openclaw/agents/*/agent/models.json`（**不在仓库、不在 git 历史**），
 且**改了 secret store 里的值它们不会自动跟着变**（同一份事实两份来源）⇒ 轮换时**必须一起改**。
@@ -2469,3 +2470,73 @@ A 边再插我的 §21.9（合 `0051165`）⇒ 它变 **§21.10**。
 **而不是默认它会跟着新小节一起变**。
 ⇒ ⇒ **跟 §16 T 第 5 点「同一件事写两遍要都校」同源**：这里的「两遍」是
 **「小节的位置」与「小节的作用域」** —— 改了一处，**另一处不会自动跟**。
+
+---
+
+## 23. ★★ 密钥轮换清单**漏了一类**：`data/settings.json` 的明文 key（2026-10-26 19:3x，B 边）
+
+### 23.1 结论先行
+
+老大唯一剩下的实事是密钥轮换。清单 `docs/SECRET-ROTATION-RUNBOOK.md` 原覆盖三类：
+GitHub PAT（keychain）+ 飞书 4 个 app secret（sqlite store）+ `~/.openclaw/` 那 **13 处**明文 API key。
+⇒ ★ **实测发现漏了第四类**：`data/settings.json` 里 **5 处**明文 key
+（运行时真源、**未被 git 跟踪** ⇒ 不在仓库、不在历史，**但磁盘上就是明文**）
+⇒ **照原清单做完，磁盘上仍有明文**。
+⇒ 已补成 runbook **§3**（后续章节顺延为 §4/§5/§6，3 处自引用已同步改）。
+
+### 23.2 实测总账（**只出指纹 md5[:12]，不回显明文**）
+
+**判据：按【字段名】判定**（`apiKey` / `*_API_KEY` / `token` / `secret`），**不按值的形态猜**。
+
+**落盘明文凭据：27 处条目 / 14 把不同凭据 = 10 把上游 API key + 4 把本地代理 token**
+
+**4 把「多副本」的上游 key（漏改一处 ⇒ 旧 key 仍在被调用 ⇒ 撤不掉）**：
+
+| 指纹 | 副本 | 位置 | 实际生效吗 |
+|---|---|---|---|
+| `67e51cc86d32` | **3** | `.env SOLOBRAVE_EMBEDDING_API_KEY` + `settings.json .visionQA.apiKey` + `models.json emp_…/zhipu.apiKey` | ✅ **= 老大说的「语义用智谱」那把**（`.env` override = `zhipu` / `open.bigmodel.cn` / `embedding-3`）|
+| `aade0ff2e504` | **3** | `.env MINIMAX_CP_API_KEY` + `.env OPENCLAW_MINIMAX_API_KEY`（**两个变量名同值**）+ `settings.json .llm.providers[0].apiKey` | ✅ Minimax CP |
+| `65b936186621` | **3** | `.env KIMI_API_KEY` 第 4 段 + `settings.json .llm.providers[1].apiKey` + `settings.json .vision.apiKey` | ✅ **同时服务 LLM 与 vision 两条链路** ⇒ **两条都要验** |
+| `dfd27cfdd97f` | **3** | `models.json emp_…/openai-compatible` + `models.json main/openai-compatible` + `settings.json .embedding.apiKey` | ⚠️ **硅基流动**那把（`settings.json` 的 `embedding` 段 provider=**siliconflow**）⇒ **被 env override 覆盖、不生效**，**但仍是明文落盘 ⇒ 轮换要一起处理** |
+
+⇒ ★ **`.env` 里两个变量名同值**（`MINIMAX_CP_API_KEY` = `OPENCLAW_MINIMAX_API_KEY`）⇒ **改一个漏一个 = 撤不掉**。
+
+### 23.3 ★ 两条 runbook 里原来没有的操作规则（实测自代码）
+
+| 改哪里 | 要重启 8080 吗 | 原因 |
+|---|---|---|
+| `.env` | **必须重启** | ① `_kimi_keys_from_config()` 在**模块导入时**执行一次（模块级 `_env_kimi_keys = …`）⇒ **key 池是启动时构建的**；② `_get_env_override()` 读的是 `os.environ` ⇒ **改 `.env` 不重启就不生效**（它 docstring 里的「实时」是相对**模块常量**，不是相对**文件**）|
+| `data/settings.json` | **不用重启** | `_read_json(SETTINGS_FILE, …)` **每次调用实时读盘**（embedding / llm providers / vision / visionQA 都走它）|
+
+⇒ ⇒ **同一个第 4 段：`.env` 改了要重启、settings.json 改了不用 ⇒ 两处都改 ⇒ 重启一次。**
+⇒ ⇒ 手改 `settings.json` 要走**「临时文件 + `os.replace`」原子替换**（同服务端 `_write_json`）⇒ **别原地改**（读者可能读到半截）。
+⇒ ⇒ 服务端写 settings 前**先从盘上读** ⇒ **新 key 不会被 UI 保存配置覆盖回旧值** ✅
+（已核 `PUT /api/settings` 白名单只含 `embedding` 段，**不碰** `llm`/`vision`/`visionQA`）。
+
+### 23.4 ⚠️⚠️ 本轮**我自己栽了两次**（同一族坑，实录）
+
+我第一版 runbook §3 写的数字**有错** ⇒ 全部自己核出来：
+
+| 我第一版写的 | 实测真值 | 怎么抓到的 |
+|---|---|---|
+| 「`settings.json` 4 处」| **5 处**（漏了 `.visionQA.apiKey`）| 改成**按字段名**全量扫 |
+| 「`.embedding.apiKey` = 语义/智谱那把」| ❌ **它是硅基流动那把**（provider=**siliconflow**）；**语义那把是 zhipu**，真源在 `.env SOLOBRAVE_EMBEDDING_API_KEY` | 读 `.env` 的 override（provider/baseUrl/model 不是密钥，可读）|
+| 「Minimax CP 2 个副本」| **3 个**（`.env` 两个变量名同值 + settings.json 一处）| 按指纹 join 出「两个变量名同值」|
+| 「models.json 13 处 ⇒ A 边少算了 1」| ❌ **A 边是对的**：13 个真 API key + **`main/codex`（OAuth token，客户端自持）** = 14 个 `apiKey` 字段 | 读 `AGENTS.md §7` 第 6 条 + 看值形态 |
+
+⇒ ★ **根因：我第一版是「按值的形态」判的** ⇒ **连栽两次**：
+先滤掉非 `sk-` 前缀的 kimi 代理 token（**4 把全没**），
+再滤掉非纯 hex 的 zhipu key（**1 把没**）
+⇒ ⇒ **这正是 `AGENTS.md §16 T` 第 8 条**：「**过滤器会把答案自己滤掉**」
+⇒ ⇒ **判据要落在「字段名」这类结构轴上，不能落在「值的形态」这种猜测上**。
+⇒ ⇒ 同一条也解释了 A 边的「13 处」：**它数的是真 API key**（把 codex 的 OAuth token 排除了）⇒ **它没错，我错了**。
+
+### 23.5 给 A 边 / 给老大
+
+⇒ 本节**只改 2 个 `.md`**（runbook + 本文件），**零代码**。
+⇒ **A 边**：runbook 章节号变了（新增 §3，后续顺延 §4/§5/§6）⇒ 引用 runbook 章节号的地方请按新号。
+⇒ **老大**：轮换清单现在**四类齐全**
+（PAT / 飞书 4 secret / `~/.openclaw/` 13 处 / **`data/settings.json` 5 处**）；
+⇒ ★ **要准备的「上游新 key」= 10 把**（4 把 kimi 池 + 硅基流动 + 智谱 + Minimax ×2 + kimi-code ×2 等）
+⇒ **别按「处」准备，按「把」准备**（副本表见 runbook §3.1）；
+⇒ **顺序仍不可反**：先生成新的并验证成功 → 再写全部副本 → 指纹比对 → 最后才撤旧的。
