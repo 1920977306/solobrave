@@ -214,7 +214,10 @@ curl -s -X POST "http://127.0.0.1:8092/admin/api/plan-scan?token=$TOKEN" \
   📌 **远端状态**：`origin/dev` = **089e9eb**（已含 B 边这两个 commit）⇒
   **别人 clone / 拉 dev 就能拿到修复**。
   ⚠️ `origin/main` 仍停在 `64f3ee2`（**落后 origin/dev 68 个 commit**）⇒
-  **B 边没碰 origin/main**（§3.1⑥ 仍待老大拍板）。
+  ~~**B 边没碰 origin/main**（§3.1⑥ 仍待老大拍板）。~~
+  ⇒ ⚠️⚠️ **2026-10-26 19:40 更正：本行是 17:05 的快照，⑥ 已结案** ——
+  老大 19:07 认可现状「**main 跟 dev 走**」⇒ 现 `origin/main` == `origin/dev`（零分叉），
+  且**往后 main 只由协调边（A 边）推**（§20.2）⇒ **别再照本行说「⑥ 待拍板」**。
   ⇒ **A 边下次推 origin/dev 前先 `git pull --rebase`**（我刚把两个 commit 推上去了，
   直接 push 会被拒 non-fast-forward）。
   ⚠️ 顺带标一下：上面这些是**§11 那一轮（17:05）的快照**，`origin/dev` 的 hash 和
@@ -987,8 +990,11 @@ B 边 2026-10-26 17:2x 全仓 grep「智谱 / zhipu」后核出的**文档漂移
 | ② | 「现在是彻底静默」| **已拍板**：发占位消息（§10 已实现）|
 | ③ | 「转化率是常量假值…怎么采」| **已拍板**：保持 NULL 当缺失维度（§10 已实现 + 守门人 `test_conversion_rate_truth.py`）|
 
-⇒ **仍真待老大拍板的只有 ④（缓存计费口径）/ ⑥（`origin/main` 是否合 dev）**；
-⑤（`createdBy` 归属）**已实际解决**（见 §12.10），只等老大确认销案。
+⇒ ~~**仍真待老大拍板的只有 ④（缓存计费口径）/ ⑥（`origin/main` 是否合 dev）**；
+⑤（`createdBy` 归属）**已实际解决**（见 §12.10），只等老大确认销案。~~
+⇒ ⚠️⚠️ **2026-10-26 19:40 更正：本段是 17:35 的快照，四项**全部已结案**——
+④ 老大 17:46 拍板并落地（§16）；⑤ 老大 19:07 销案；⑥ 老大 19:07 认可现状「main 跟 dev 走」（§20）
+⇒ **§3.1 已零待拍板项** ⇒ 引用前先看 **§20.3**（现状表），别照本段行事。
 ⚠️ **2026-10-26 18:35 补记（快照已过期）**：④ 已于 17:46 拍板并落地（见 §16）⇒
    **现在真待拍板的只剩 ⑥**；且 ⑥ 的现状与本节当时的假设不同（main 已被推过两次）⇒ 见 **§17**。
 ⚠️ **2026-10-26 19:15 再补记**：⑥ 也已结案（老大 17:45:56 拍板 + 已执行，§17.6）；
@@ -1074,8 +1080,8 @@ FAILED tests/test_llm_channels.py::test_current_chain_alive_independent_vendors_
 | §3.1 项 | 实测结论 |
 |---|---|
 | ④ 商品结论缓存扣 5 分 vs 问答缓存命中扣 0 分 | ✅ **已拍板并落地**（老大 17:46 原话「没有消耗肯定是0分啊」）—— 结论缓存命中 **0 分**（`collect_product_verdict_cached`，走 `enqueue_free`，`cache_hit=1` 留痕）；商品数据缓存命中 **仍 5 分**（`collect_product_cached`，**LLM 照跑 = 真消耗**）。<br>⚠️⚠️ **本行原写「命中路径零 LLM、零浏览器、零上游调用」是错的**（只对结论缓存成立）—— 已于 §14.3 与本行同步更正，**别照旧把商品数据缓存也改 0 分**（= LLM 照跑却收 0 = 白送算力）。<br>⇒ 最终口径与实现见 **§16 / §16.1**；规格表见 `DAREN-BOT-SPEC.md` 的「action 取值」表。|
-| ⑤ Ray / 上官婉儿 / 孔明 的 `createdBy` | ✅ **已解决**：三个 AI 员工的 `createdBy` 现均为 `user_7acb72ff`；实测 `data/users.json` 里该 user **存在且 role=admin** ⇒ 不再是「owner 过滤接口上的瞎子」。⇒ 只需老大确认即可销案。|
-| ⑥ `origin/main` 是否合并 dev | ⚠️ `origin/main` = `64f3ee2`（**未动过**），`origin/dev` 持续领先（**17:20 复核值：落后 79 个 commit；此后 dev 又前进 ⇒ 数字已变，自己跑** `git rev-list --count origin/main..origin/dev`）。⇒ B 边**仍未动 main**（§3.1⑥ 待拍板）。|
+| ⑤ Ray / 上官婉儿 / 孔明 的 `createdBy` | ✅ **已解决**：三个 AI 员工的 `createdBy` 现均为 `user_7acb72ff`；实测 `data/users.json` 里该 user **存在且 role=admin** ⇒ 不再是「owner 过滤接口上的瞎子」。⇒ ~~只需老大确认即可销案。~~ ⇒ **老大 19:07:29 已销案**（§20.1）。|
+| ⑥ `origin/main` 是否合并 dev | ⚠️ `origin/main` = `64f3ee2`（**未动过**），`origin/dev` 持续领先（**17:20 复核值：落后 79 个 commit；此后 dev 又前进 ⇒ 数字已变，自己跑** `git rev-list --count origin/main..origin/dev`）。⇒ ~~B 边**仍未动 main**（§3.1⑥ 待拍板）。~~ ⇒ ⚠️⚠️ **2026-10-26 19:40 更正：⑥ 已结案** —— 老大 19:07:29 认可现状「**main 跟 dev 走**」⇒ 现 `origin/main` == `origin/dev`（零分叉），**往后 main 只由协调边（A 边）推**（§20.2）。**别再照本行说「待拍板」**。|
 
 ### 12.11 ★★ 目录边界事故：A 边在 **B 边的 worktree** 里改文件（17:2x 实锤）
 
