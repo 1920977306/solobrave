@@ -3657,6 +3657,9 @@ pbpaste | bash ~/.solobrave-secrets/sync_feishu_db_secret.sh cli_aa420db06a78dcc
 ⇒ **4 个仓库的 git 历史全部对象（13,239 / 10,583 / 13,239 / 13,239 个 blob）命中 0**。
 
 ⇒ ⇒ ★ **现役 PAT 从未进过仓库、也从未进过 git 历史**
+⇒ ⇒ ⇒★ **补：全机扫描（不止 4 个仓库）⇒ 32 个 git 仓库的历史全部 0 命中** ——
+含 `~/.openclaw/workspace-*`（17 个 AI 员工工作区）、`Desktop/solobrave-test`、`Developer/solobrave-code`、
+`Projects/solobrave-test`、`.solobrave-tmp/pushtest` 等 ⇒ ⇒ **B 边 §38「12 个仓库全干净」的结论我独立复现并扩到 32 个**。
 ⇒ ⇒ ⇒ **对比 2026-10-21 的 Kimi key 事故**（那把进过历史、推到了 GitHub）
 ⇒ ⇒ ⇒ **本次只需「换新 + 作废旧把」，不需要改 git 历史、不需要 `filter-repo`**
 ⇒ ⇒ ⇒ **泄漏面 100% 在本机**：废纸篓 / 会话快照 / 会话运行时日志 / 后台任务输出 / 扣子云盘 / Spotlight 索引。
