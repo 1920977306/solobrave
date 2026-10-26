@@ -477,6 +477,23 @@ def _find_pending(conn, tenant_key: str, task_type: str, target: str):
         (tenant_key, task_type, target)).fetchone()
 
 
+def has_pending_task(tenant_key: str, task_type: str, target: str) -> bool:
+    """★ 同租户同类型同目标**是否已有在跑的任务**（公开只读查询）。
+
+    ★ 为什么需要它（2026-10-26 老大拍板「结论缓存命中 0 分」时加的）：
+      零成本路径走 `db.enqueue_task()`（幂等，命中就返回旧任务 id），
+      **不返回 status** ⇒ 调用方分不出「新建了」还是「命中了已有任务」。
+      而「这个商品正在分析中」这句提示是**既有 UX**（原来由
+      `charge_and_enqueue` 返回的 "duplicate" 状态驱动）
+      ⇒ 改成零成本入口后若不查一下，**提示会退化成「秒出结果」**
+      （其实在等前一个任务出结果）⇒ 属「顺手弄坏了别的东西」。
+
+    ⇒ 只读查询，**不改任何状态**。
+    """
+    with db_ctx() as conn:
+        return _find_pending(conn, tenant_key, task_type, target) is not None
+
+
 def enqueue_task(tenant_key: str, task_type: str, target: str,
                  credits_cost: int, cache_hit: int = 0,
                  chat_id: str = '', payload: str = '') -> str:

@@ -199,8 +199,16 @@ class TestHandlerReuseGate:
         router._route_qa({"tenant_key": TK}, "chat_1", Q, sender)
         assert db.get_balance(TK) == 100 - bot["config"].COST_QA
 
-    def test_verdict_cache_hit_costs_cached_price(self, bot):
-        """命中结论缓存 → 扣 5 分（比现价便宜），任务带完整结论。"""
+    def test_verdict_cache_hit_costs_zero(self, bot):
+        """★★ 命中**结论**缓存 → **扣 0 分**（老大 2026-10-26 拍板：「没有消耗肯定是 0 分」）。
+
+        ★ 为什么是 0 而不是 5：executor 拿到 payload 的 `cached_verdict` 就
+          **直接 return** ⇒ 不调浏览器、不调 LLM ⇒ **一点算力都没消耗**。
+        ⇒ 走**零成本入口** `enqueue_free`（余额一分不动，流水记 cache_hit=1 留痕）。
+
+        ⚠️ 与下面的 `test_product_data_cache_hit_still_costs_cached_price` 是**对照**：
+          那条（**商品数据**缓存）**LLM 照跑** ⇒ 有真实消耗 ⇒ **仍收 5 分**。
+        """
         db, hd = bot["db"], bot["handler"]
         pk = hd.normalize_product_url(PRODUCT_URL)
         db.verdict_cache_put(TK, pk, name="折叠登山杖", verdict="能带",
@@ -209,8 +217,15 @@ class TestHandlerReuseGate:
         router, sender = _router(hd)
         router._route_link({"tenant_key": TK}, "chat_1", PRODUCT_URL, sender)
 
-        assert db.get_balance(TK) == 100 - bot["config"].COST_PRODUCT_CACHED
+        assert db.get_balance(TK) == 100          # ★ 一分没扣（零消耗）
         with db.db_ctx() as conn:
+            row = conn.execute(
+                "SELECT * FROM bot_credits_ledger WHERE tenant_key=? "
+                "ORDER BY created_at DESC LIMIT 1", (TK,)).fetchone()
+            assert row["cost"] == 0                # 流水是 0 分（但留了痕）
+            assert row["cache_hit"] == 1
+            # ★ 流水里要能**区分**「结论缓存命中」与「商品数据缓存命中」
+            assert row["action"] == "collect_product_verdict_cached"
             task = conn.execute(
                 "SELECT * FROM bot_collect_tasks WHERE tenant_key=? AND type='product' "
                 "ORDER BY created_at DESC LIMIT 1", (TK,)).fetchone()
@@ -219,15 +234,28 @@ class TestHandlerReuseGate:
         assert task["cache_hit"] == 1
 
     def test_verdict_cache_miss_falls_through_to_product_cache(self, bot):
-        """没有结论缓存 → 落回商品数据缓存分支（老路径不能被改坏）。"""
+        """没有结论缓存 → 落回商品数据缓存分支（老路径不能被改坏）。
+
+        ★ ★ 这条同时是「零消耗口径」的**对照守卫**（2026-10-26 老大拍板 0 分时加的注释）：
+          **商品数据**缓存命中只省了「开浏览器采集」，**LLM 照跑**
+          （`executors.py` 里 `verdict = _llm_product_verdict(...)` 照常执行）
+          ⇒ **有真实消耗** ⇒ **仍收 `COST_PRODUCT_CACHED`（5 分）**。
+          ⇒ ⇒ 结论缓存命中改成 0 分**不能**误伤到这条。
+        """
         db, hd = bot["db"], bot["handler"]
         pk = hd.normalize_product_url(PRODUCT_URL)
         db.cache_put(pk, name="折叠登山杖", price="¥8.9",
                      stats={"name": "折叠登山杖"})
         router, sender = _router(hd)
         router._route_link({"tenant_key": TK}, "chat_1", PRODUCT_URL, sender)
+        # ★ 仍扣 5 分（LLM 照跑 ⇒ 有消耗）
         assert db.get_balance(TK) == 100 - bot["config"].COST_PRODUCT_CACHED
         with db.db_ctx() as conn:
+            row = conn.execute(
+                "SELECT * FROM bot_credits_ledger WHERE tenant_key=? "
+                "ORDER BY created_at DESC LIMIT 1", (TK,)).fetchone()
+            # ★ 流水 action 与「结论缓存命中」**区分得开**（以前两者共用一个 action）
+            assert row["action"] == "collect_product_cached"
             task = conn.execute(
                 "SELECT * FROM bot_collect_tasks WHERE tenant_key=? AND type='product' "
                 "ORDER BY created_at DESC LIMIT 1", (TK,)).fetchone()
@@ -414,3 +442,60 @@ class TestWorkerSurvivesPushFailure:
             w.join(timeout=3)
         assert any("push ok: type=product" in r.getMessage()
                    for r in caplog.records), "推送成功没有日志"
+
+
+# ---------------- 零消耗口径的结构守卫（2026-10-26 老大拍板）----------------
+
+class TestZeroCostVerdictCache:
+    """★★ 结论缓存命中 ⇒ **零消耗 ⇒ 0 分**（老大 2026-10-26 拍板）。
+
+    ★ 为什么要**结构守卫**（不只靠行为断言）：
+      行为断言（余额不变）能抓住「多扣了钱」，但抓不住
+      「改走了收费入口、只是把价格改成 0」这种**半路改道**——
+      那会让「零消耗入口」的白名单登记失效（`enqueue_free` 的调用点不在白名单里
+      ⇒ 守门人 `test_free_entry_calls_are_all_whitelisted` 会红，但那是**别的**守卫在管）。
+      ⇒ 这里直接盯**代码结构**：结论缓存命中那个函数**必须**调零成本入口、
+      **不许**调收费入口。
+    """
+
+    def test_verdict_cache_path_uses_free_entry_not_charge_entry(self):
+        """★ 结论缓存命中的入口**必须**是 `enqueue_free`，不许是 `charge_and_enqueue`。"""
+        import ast
+        import inspect
+
+        from daren_bot import handler as hd_mod
+        src = inspect.getsource(hd_mod)
+        tree = ast.parse(src)
+        fn = next(n for n in ast.walk(tree)
+                  if isinstance(n, ast.FunctionDef)
+                  and n.name == "_route_product_verdict_cached")
+        calls = []
+        for node in ast.walk(fn):
+            if not isinstance(node, ast.Call):
+                continue
+            f = node.func
+            if isinstance(f, ast.Attribute) and f.attr in (
+                    "enqueue_free", "charge_and_enqueue", "charge"):
+                calls.append(f.attr)
+        assert "enqueue_free" in calls, (
+            f"结论缓存命中的入口没有走零成本入口 enqueue_free：{calls}")
+        assert "charge_and_enqueue" not in calls, (
+            "结论缓存命中（零消耗）不许走收费入口 charge_and_enqueue —— "
+            "老大 2026-10-26 拍板：没有消耗肯定是 0 分")
+        assert "charge" not in calls, (
+            "结论缓存命中（零消耗）不许走裸扣费入口 charge —— "
+            "裸入口没有幂等保护，会重复扣（AGENTS.md 积分闸门铁律）")
+
+    def test_zero_cost_action_is_distinguishable_in_ledger(self):
+        """★ 流水里要能**区分**两种缓存命中（以前共用一个 action ⇒ 分不出来）。
+
+        ⇒ 结论缓存命中 = `collect_product_verdict_cached`（0 分，零消耗）
+        ⇒ 商品数据缓存命中 = `collect_product_cached`（5 分，LLM 照跑有消耗）
+        """
+        from daren_bot import config
+        # 零消耗的那个**不该**在成本表里（零成本功能进表 = 给白干的路开闸门）
+        assert "collect_product_verdict_cached" not in config.COST_TABLE, (
+            "结论缓存命中是零消耗 ⇒ 不该进成本表（进表 = 给白干的路开闸门）")
+        # 有消耗的那个**必须**在成本表里且价格为正
+        assert config.COST_TABLE.get("collect_product_cached", 0) > 0, (
+            "商品数据缓存命中（LLM 照跑）有真实消耗 ⇒ 必须在成本表里且价格为正")

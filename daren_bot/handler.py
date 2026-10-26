@@ -690,30 +690,63 @@ class Router:
         """
         self._route_product(tenant, chat_id, pid, sender, "商品ID")
 
+    def _route_product_verdict_cached(self, tenant, chat_id, product_key, sender,
+                                       label="链接", verdict=None) -> None:
+        """★★ **结论缓存命中** ⇒ **零消耗** ⇒ **不扣分**（老大 2026-10-26 拍板）。
+
+        ★ 为什么是 0 分（不是 5 分）：
+          executor 拿到 payload 里的 `cached_verdict` 就**直接 return**
+          （`executors.py`：`if isinstance(_vh, dict) and (_vh.get("md") or ...): return ...`）
+          ⇒ **不调浏览器、不调 LLM、不写缓存** ⇒ **一点算力都没消耗**
+          ⇒ 按「**不消耗的就算了**」的口径 ⇒ 扣 0 分。
+
+        ★ 为什么**单独一个函数**（而不是在 `_route_product` 里直接改）：
+          零成本入口 `credits.enqueue_free()` 的调用点要登记在
+          `tests/test_credits_gate.py` 的 `ZERO_COST_ALLOWED` 里，而那个登记是
+          **函数级**粒度（`_free_entry_calls()` 返回 `(文件名, 函数名)`）
+          ⇒ 挂在 `_route_product` 上会**一并放过该函数里未来新增的**
+          `enqueue_free` 调用点（哪怕它消耗算力）⇒ 闸门被削弱。
+          ⇒ 独立成函数 ⇒ 登记粒度精确，且**语义自解释**。
+
+        ★ 为什么**不走** `charge_and_enqueue`：
+          那个入口的语义是「扣费 + 入队」原子操作；0 分路径不扣费
+          ⇒ 走 `enqueue_free()`（写一条 0 分流水留痕，对账可查 cache_hit=1）。
+
+        ⚠️ 与「**商品数据缓存命中**」严格区分（那条**仍收 5 分**）：
+          商品数据缓存只省了「开浏览器采集」，**LLM 照跑**（`executors.py` 里
+          `verdict = _llm_product_verdict(...)` 照常执行）⇒ **有真实消耗**。
+        """
+        tk = tenant["tenant_key"]
+        # 幂等命中（同一商品正在分析中）⇒ 保留既有提示，不退化成「秒出」
+        if db.has_pending_task(tk, "product", product_key):
+            bal = db.get_balance(tk)
+            sender.send_text(
+                chat_id,
+                f"这个商品正在分析中，结论出来直接发你～（积分余额 {bal}）")
+            return
+        credits.enqueue_free(
+            tk, "product", product_key, "collect_product_verdict_cached",
+            cache_hit=1, chat_id=chat_id,
+            payload=json.dumps({"cached_verdict": verdict}, ensure_ascii=False))
+        bal = db.get_balance(tk)
+        sender.send_text(
+            chat_id,
+            f"收到{label}（结论缓存命中，秒出结果）～（积分余额 {bal}）")
+
     def _route_product(self, tenant, chat_id, product_key, sender, label="链接") -> None:
         tk = tenant["tenant_key"]
 
         # ★ 2026-10-21 复用层：**结论缓存**优先于商品数据缓存。
-        #   结论缓存命中 = 连 LLM 都不用调（最贵的一步），只花 5 分。
-        #   下面的商品数据缓存只省了「开浏览器采集」，LLM 照跑 —— 省钱不够。
+        #   结论缓存命中 = 连 LLM 都不用调（最贵的一步）⇒ **零消耗** ⇒ 不扣分
+        #   （老大 2026-10-26 拍板：「没有消耗肯定是 0 分」）。
+        #   ⚠️ 下面的**商品数据缓存**只省了「开浏览器采集」，**LLM 照跑**
+        #   ⇒ 那是**有真实消耗**的 ⇒ 仍收 `COST_PRODUCT_CACHED`（5 分）。
+        #   ⚠️ 这两条以前**共用同一个 action** ⇒ 消耗量不同却同价、流水里还分不出来
+        #   ⇒ 2026-10-26 拆开：结论缓存命中走**零成本入口**（独立 action + 独立函数）。
         v_hit = db.verdict_cache_get(tk, product_key)
         if v_hit:
-            status, _task_id, bal = credits.charge_and_enqueue(
-                tk, "product", product_key, "collect_product_cached",
-                cache_hit=1, chat_id=chat_id,
-                payload=json.dumps({"cached_verdict": v_hit}, ensure_ascii=False))
-            if status == "insufficient":
-                sender.send_text(
-                    chat_id, credits.insufficient_text("collect_product_cached", bal))
-                return
-            if status == "duplicate":
-                sender.send_text(
-                    chat_id,
-                    f"这个商品正在分析中，结论出来直接发你～（积分余额 {bal}）")
-                return
-            sender.send_text(
-                chat_id,
-                f"收到{label}（结论缓存命中，秒出结果）～（积分余额 {bal}）")
+            self._route_product_verdict_cached(
+                tenant, chat_id, product_key, sender, label=label, verdict=v_hit)
             return
 
         cached = db.cache_get(product_key)

@@ -34,6 +34,10 @@ ZERO_COST_ALLOWED = {
         "管理员后门：老大手动试跑周报，扣的是平台自己的算力，不扣达人的分",
     ("handler.py", "_route_qa"):
         "问答缓存命中：根本没调 LLM ⇒ 没消耗算力 ⇒ 不扣分（但记 cache_hit 流水留痕）",
+    ("handler.py", "_route_product_verdict_cached"):
+        "商品**结论**缓存命中：executor 拿到 cached_verdict 直接 return ⇒ "
+        "不调浏览器、不调 LLM、不写缓存 ⇒ **零消耗** ⇒ 不扣分"
+        "（老大 2026-10-26 拍板：「没有消耗肯定是 0 分」）",
 }
 
 # ★ 闸门**实现自身**的转发层 —— 不是业务入口，不参与「白干」判定。

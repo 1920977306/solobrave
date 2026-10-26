@@ -1471,3 +1471,81 @@ B 边建议：「④ 还没拿到老大拍板 ⇒ **先别改口径，只加守�
 
 ⇒ ⇒ **所以本轮「只加守卫/观察」= 0 行新代码** ——
   不是「没做」，是**核实后发现已有且有效** ⇒ **别再写第二份**（那是 §16 F 的「两份事实」）。
+
+---
+
+## 16. ④ 落地：结论缓存命中改 0 分（老大 2026-10-26 拍板）
+
+> 老大拍板原话：「**没有消耗肯定是 0 分啊**」（问卷选「其他」+ 这句）。
+> ⇒ 口径：**零消耗 ⇒ 不扣分**（流水记 0 分 + `cache_hit=1` 留痕，对账不受影响）。
+
+### 16.1 ★★ 动手前发现的关键区分（差点改错）
+
+**两条「缓存命中」路径以前共用同一个 action `collect_product_cached`**，
+但**消耗量完全不同**：
+
+| 路径 | 命中后发生什么 | 消耗 | 原来收费 | 改后 |
+|---|---|---|---|---|
+| **结论缓存命中**（`verdict_cache_get`）| executor 拿到 `cached_verdict` **直接 return**（`executors.py`）⇒ 不调浏览器、不调 LLM、不写缓存 | **零** | 5 分 ❌ | **0 分** ✔ |
+| **商品数据缓存命中**（`cache_get`）| 只省了「开浏览器采集」⇒ **`_llm_product_verdict(...)` 照跑**（`executors.py:987`）| **有真实消耗** | 5 分 ✔ | **5 分不变** ✔ |
+
+⚠️ ⇒ **直接把 `COST_PRODUCT_CACHED` 改成 0 会误伤第二条**（那条 LLM 照跑，
+   收 0 分 = 真·白干不收钱）⇒ ⇒ **必须拆开**。
+
+⇒ ★ 教训：**「缓存命中」不是一个东西** —— 判断能不能免费，
+   要看**命中之后到底还调不调上游**，不是看「命中了没有」。
+
+### 16.2 改法（最小入侵）
+
+1. **`daren_bot/db.py`**：加 `has_pending_task()`（只读）——
+   零成本入口不返回 status ⇒ 调用方分不出「新建」还是「命中已有任务」
+   ⇒ 不查一下会把既有提示「这个商品正在分析中」退化成「秒出结果」。
+2. **`daren_bot/handler.py`**：结论缓存命中**抽成独立方法**
+   `_route_product_verdict_cached()`，走 **`credits.enqueue_free()`**（零成本入口）
+   + **新 action `collect_product_verdict_cached`**。
+   ⇒ 流水里**能区分**两种缓存命中（以前分不出来）。
+3. **`tests/test_credits_gate.py`**：`ZERO_COST_ALLOWED` 登记
+   `("handler.py", "_route_product_verdict_cached")` + 理由。
+
+★ **为什么独立成函数**（不是直接在 `_route_product` 里改）：
+  `ZERO_COST_ALLOWED` 的登记是**函数级**粒度（`_free_entry_calls()` 返回
+  `(文件名, 函数名)`）⇒ 挂在 `_route_product` 上会**一并放过该函数里未来新增的**
+  `enqueue_free` 调用点（哪怕它消耗算力）⇒ 闸门被削弱。
+  ⇒ 独立成函数 ⇒ 登记粒度精确 + 语义自解释。
+  ★ 变异 M2 实测证明了这一点（见 §16.4）。
+
+### 16.3 守门人
+
+| 守卫 | 锁住什么 |
+|---|---|
+| `test_verdict_cache_hit_costs_zero` | 余额**一分不动** + 流水 `cost=0` / `cache_hit=1` / action = `collect_product_verdict_cached` |
+| `test_verdict_cache_miss_falls_through_to_product_cache` | **对照**：商品数据缓存命中**仍扣 5 分** + action = `collect_product_cached` |
+| `test_verdict_cache_path_uses_free_entry_not_charge_entry` | **结构守卫**（AST）：那个函数**必须**调 `enqueue_free`，**不许** `charge_and_enqueue` / `charge` |
+| `test_zero_cost_action_is_distinguishable_in_ledger` | 零成本 action **不该**在成本表；有消耗的**必须**在且价格为正 |
+
+★ 为何要**结构守卫**（不只靠行为断言）：
+  行为断言（余额不变）抓不住「改走收费入口、只是把价格改成 0」这种**半路改道**
+  ⇒ 那种改法会让「零成本入口」的白名单登记失效 ⇒ 直接盯**代码结构**更稳。
+
+### 16.4 变异验证（2/2 全抓，工作区逐字还原）
+
+| 变异 | 期望 | 实测 |
+|---|---|---|
+| M1 零成本入口改回 `charge_and_enqueue` | 行为 + 结构双守卫都红 | ✅ **2 failed** |
+| M2 把「商品数据缓存」也误改成零成本 | 对照守卫 + B 边白名单守门人都红 | ✅ **2 failed** |
+
+★ M2 的红里有 B 边的 `test_free_entry_calls_are_all_whitelisted`
+  （报 `handler.py _route_product` 未登记）⇒ **独立成函数的设计被实测验证**：
+  粒度精确 ⇒ 不会误放过同函数里未来的违规调用。
+
+### 16.5 口径现状（改完）
+
+| 项 | 值 |
+|---|---|
+| 结论缓存命中 | **0 分**（零成本入口，流水留痕 `cache_hit=1`）|
+| 商品数据缓存命中 | **5 分**（LLM 照跑，有真实消耗）|
+| 问答缓存命中 | **0 分**（本来就是）|
+| `COST_PRODUCT_CACHED` | **仍 = 5**（只给「商品数据缓存」那条用）|
+
+⇒ ★ 老大口径「**没有消耗肯定是 0 分**」已**精确落地**：
+  三条路径各按**自己真实有没有消耗**收费，不再按「是不是缓存命中」一刀切。
