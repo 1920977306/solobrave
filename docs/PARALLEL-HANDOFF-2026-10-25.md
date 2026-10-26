@@ -196,11 +196,16 @@ comm -12 <(上两者 --name-only | sort)                              # 交集 =
 
 ### 7.2 `worker.py::_fail` 合并版（两边特性都保住）
 
+> ⚠️⚠️ **2026-10-26 修正：本节的配方最初是错的，照抄会打红 A 边自己的测试。**
+> B 边实测发现并给出正解，A 边已采纳（**别再用下面那行两参数版**）。
+
 ```python
     def _fail(self, task: dict, reason: str, exc: BaseException | None = None) -> None:
         """任务失败：B 边「原子+幂等退款」+ A 边「达人看人话 / 运营收告警」。"""
         cost = int(task.get("credits_cost") or 0)
-        refunded, _balance = db.fail_task_and_refund(task["id"], reason)   # ← B 边的原子退款
+        # ★ 必须带 tenant_key / cost 兜底（B 边修正，A 边原配方漏了）
+        refunded, _balance = db.fail_task_and_refund(
+            task["id"], reason, tenant_key=task.get("tenant_key", ""), cost=cost)
         product_scene = task.get("type") in ("product", "image")
         if exc is not None:
             user_text = failure_text.user_text_for(exc, product=product_scene)
@@ -208,8 +213,8 @@ comm -12 <(上两者 --name-only | sort)                              # 交集 =
         else:
             user_text = failure_text.user_text_for(RuntimeError(reason), product=product_scene)
             ops_text = reason
-        log.warning("[task-failed] id=%s type=%s refunded=%s cost=%s ops=%s",
-                    task["id"], task.get("type"), refunded, cost, ops_text)
+        log.warning("[task-failed] id=%s type=%s tenant=%s refunded=%s cost=%s ops=%s",
+                    task["id"], task.get("type"), task.get("tenant_key"), refunded, cost, ops_text)
         if exc is not None and failure_text.is_login_failure(exc):
             ops_alert.alert(
                 "⚠️ 达人端采集通道掉登录了",
@@ -219,6 +224,27 @@ comm -12 <(上两者 --name-only | sort)                              # 交集 =
         suffix = f"（已返还 {cost} 积分）" if cost > 0 else ""
         self._notify(task["tenant_key"], f"{user_text}{suffix}", task.get("chat_id", ""))
 ```
+
+#### ★★ 为什么必须带 `tenant_key` / `cost` 兜底（B 边 2026-10-26 实测发现）
+
+★ A 边原配方写的是 **两参数版**：
+  `db.fail_task_and_refund(task["id"], reason)`
+  ⇒ 它只按 **DB 行**查；查不到行 ⇒ 直接返回、**不退款**。
+
+★ 后果：`tests/test_failure_text.py::test_fail_refunds_still_happens` **会变红** ——
+  那条测试传的是**不存在于库里的假任务** `{"id": "t2", ...}`：
+  - 老写法按**内存 dict** 的 `credits_cost` 退款 ⇒ 余额 +20 ✔
+  - 两参数版按 DB 行查 ⇒ 查不到 `t2` ⇒ **余额不动** ✘
+
+★ B 边的兜底口径（**A 边已采纳**）：
+  **任务行存在 ⇒ 用行里的（账本真源，实扣多少退多少）；行不存在 ⇒ 用调用方给的值兜底。**
+
+★ 理由（B 边的原话，A 边认可）：**钱的事上「拿不准就不退」是错的** ——
+  静默跳过退款 = 达人的分被吞（客诉 + 信任损失）。
+  宁可多退（有流水可查、幂等判重仍生效），也不能一分钱不退。
+
+⇒ 守门人：`tests/test_credits_gate_adversarial.py::test_refund_happens_even_if_task_row_missing`
+  （B 边补的，锁住这条语义）。
 
 `_process` 里两行同步恢复 `exc=e`：
 ```python
@@ -640,3 +666,27 @@ AST 扫描「代码里有没有写死的转化率数字」**第一次跑就抓�
    还会把注释里的数字当命中。
 8. **假值清理的影响面必须实测**：「推理它应该没影响」不算验证，
    清前取基线、清后跑对比（本轮实测**分数一位不差**）。
+
+### ★★ 第 6 轮跨边对抗审查结论（B 边 ⇄ A 边，2026-10-26 16:30）
+
+B 边在 rebase 到 `7d57796` 后实测发现：**A 边 §7.2 给的 `worker._fail` 合并配方会打红
+A 边自己的测试**（`tests/test_failure_text.py::test_fail_refunds_still_happens`），
+并给出正解。**A 边已采纳并改掉 §7.2**（见上，带 `tenant_key` / `cost` 兜底）。
+
+⇒ 顺带实测了「A 边这轮改动会不会打红 B 边的守门人」：
+把 B 边的 `tests/test_credits_gate_adversarial.py` 拉到 origin/dev 上跑 ——
+
+| 检查 | 结果 |
+|---|---|
+| **消耗点登记表**（`COMPUTE_SITES` 静态点数 vs 代码实测）| ✅ **3 条全绿**，9 个消耗点**实测=登记逐个一致**（含 A 边本轮改过的 `llm_channels.py::call_ring`=2、`call_ring_messages`=2）|
+| B 边 6 条红 | 全部是「**B 边的代码还没合进来**」（`db.fail_task_and_refund` / `claimed_at` 迁移 / 裸 `db.refund` 还没被替换）⇒ 合并后自然变绿 |
+| **M1 真盲区**（新增一处不入队的 LLM 调用点）| ✅ **在 B 边分支上是被抓的** —— 登记表登记 `_qa_llm`=2，变异后变 3 ⇒ 变红。⇒ **合并后自动补上，A 边这边不用再写一套** |
+
+⚠️ **所以「8/9 变异下 A 边守卫全绿」要精确化**（别记成「A 边有 8 个盲区」）：
+那 8 条的「期望变红」指向 **B 边自己的新测试文件**，该文件在 origin/dev 上**不存在**
+⇒ 0 绿 **0 红**（根本没跑），不是「A 边漏了」。
+真正在 origin/dev 上能 apply 的只有 M1/M2 —— M2 **A 边已能抓**（2 红），M1 由 B 边的登记表抓。
+
+⇒ ★ **合并顺序要求**：必须让 B 边的 `tests/test_credits_gate_adversarial.py` 一起进来，
+否则「消耗点登记漂移」这类洞**没人守**（A 边的守卫只覆盖 A 边自己的改动面）。
+⇒ ⚠️ **别两边各写一张消耗点登记表** —— 两张表 = 新的口径漂移（同一个铁律）。
