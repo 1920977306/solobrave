@@ -200,21 +200,39 @@ ls -la ~/.solobrave_github_pat 2>&1 | grep -q "No such file" && echo "✅ 临时
 ⇒ **定位应用唯一可靠的依据 = `app_id` 本身**
 （后台「凭证与基础信息」页顶部「应用凭证 → App ID」）。
 
-**★ 实测（2026-10-26 21:0x）：当前登录的飞书企业（`@飞书个人版`）下，7 个企业自建应用**
+**★ 实测（2026-10-26 21:0x → 21:4x，三轮迭代）：应用分属「不同飞书账号」，不是「同一账号的不同企业」**
 
-| 后台应用名称 | App ID |
-|---|---|
-| 达人1 | `cli_aa461b7cb7fa9cb7` |
-| 貂蝉 | `cli_aa420db06a78dcc5` |
-| 小路 | `cli_a93a8ce3a779dbcb` |
-| 贾维斯 | `cli_aa3617bd2fb91cf8` |
-| 全可传媒小翊的智能助手 | `cli_aafb3ce43878dbd4` |
-| 妍妍 | `cli_a93c6d6a3478dbc0` |
-| 露露 | `cli_a936473c86a11bc4` |
+⚠️⚠️ **术语更正（21:0x 我自己写错过，21:4x 坐实）**：本节最初写「另一个飞书**企业**」
+⇒ **实测是「另一个飞书账号」** —— 个人版没有「企业 / 组织」概念，
+开发者后台右上角是「个人中心 → **切换账号**」⇒ 菜单里列的是 **3 个已登录账号**：
+`+86190******76` / **豆包账号** / `+86157******92`（全为「飞书个人用户」）。
+⇒ ⇒ **「换企业」会把人带到错的地方找 ⇒ 正确说法是「换账号」。**
 
-⇒ **4 个待轮换 app 里，只有 `t_default`（= 后台「貂蝉」）在这个企业下**；
-`default` / `helen` / `mumu` 三个 **在另一个飞书企业**
-⇒ ★ **「后台找不到」= 登错企业，不是应用不存在**。
+**★ 已定位的映射（实测）**：
+
+| 来源 | app_id | 飞书后台应用名 | 在哪个账号下 |
+|---|---|---|---|
+| `t_default`（`FEISHU_APPSECRET_T_DEFAULT`）| `cli_aa420db06a78dcc5` | **貂蝉** | tuz 账号 |
+| `helen`（`FEISHU_APPSECRET_HELEN`）| `cli_aaf9b98563b99bd7` | **Ayn的智能助手** | Ayn 账号 |
+| `default`（`FEISHU_APPSECRET_MAIN`）| `cli_aafb5d7cd6389be4` | ❓未定位 | ❓ 剩下两个账号之一 |
+| `mumu`（`FEISHU_APPSECRET_MUMU`）| `cli_aa51b1b62a7a9bf6` | ❓未定位 | ❓ 同上 |
+| `daren_bot.db` 租户 `daren_boss` | `cli_aa461b7cb7fa9cb7` | **达人1** | tuz 账号 |
+| `daren_bot.db` 租户 `daren_test2` | `cli_aa5b67fd7b799d29` | **ayn小助理** | Ayn 账号 |
+
+⇒ ★ **4 个待轮换 app 里，2 个已定位（`t_default` / `helen`）**；
+另 2 个（`default` / `mumu`）在 Ayn 账号与 `+86157…92` 账号下均搜不到
+⇒ **在第三个账号（豆包账号 / `+86190…76`）下。**
+
+**★ 定位方法（比「切账号翻列表」快得多，实测可用）**：
+开发者后台应用列表上方有个输入框，placeholder = **「搜索应用名称或 App ID」**
+⇒ **直接粘贴 `app_id`** ⇒ 命中即是。
+⇒ **判定式：「搜不到」= 换账号，不是「应用不存在」**
+（在 Ayn 账号下搜 `cli_aafb5d7cd6389be4` ⇒ 页面显示「暂无搜索结果」）。
+
+**★ 两个账号的应用清单（实测）**：
+
+- **tuz 账号（7 个）**：达人1 / 貂蝉 / 小路 / 贾维斯 / 全可传媒小翊的智能助手 / 妍妍 / 露露
+- **Ayn 账号（2 个）**：ayn小助理 / Ayn的智能助手
 
 > ℹ️ **app_id 的来源（自己查配置时用）**：
 > `~/.openclaw/openclaw.json` → `channels.feishu.accounts.<账号标签>.appId`
@@ -227,8 +245,8 @@ ls -la ~/.solobrave_github_pat 2>&1 | grep -q "No such file" && echo "✅ 临时
 https://open.feishu.cn/app/<app_id>/baseinfo
 ```
 
-- 进得去 ⇒ 当前企业有权限，标题栏 `凭证与基础信息 - <应用名> - 开发者后台` 里那个 **就是真实应用名**；
-- 跳 `/exception/403` ⇒ 当前企业看不到它（**不代表应用不存在**）。
+- 进得去 ⇒ 当前账号有权限，标题栏 `凭证与基础信息 - <应用名> - 开发者后台` 里那个 **就是真实应用名**；
+- 跳 `/exception/403` ⇒ 当前账号看不到它（**不代表应用不存在**）。
 
 **secret 存储位置（真源）**：
 - `~/.openclaw/state/openclaw.sqlite` → 表 `secret_store_entries`
@@ -240,15 +258,15 @@ https://open.feishu.cn/app/<app_id>/baseinfo
 - `data/solobrave.db` → 表 `tenant_feishu_config` → 1 行 `t_default`，
   `app_secret` 是 **明文 32 字符**（`status='routed'`, `bound_at=2026-10-09`）
   ⇒ **重置 `t_default` 的 secret 后，这张表也要同步更新**，否则两处不一致。
-  ⚠️ `t_default` = 后台应用「**貂蝉**」，在「飞书个人版」这个企业下
-  ⇒ 它是 4 个里**唯一在当前企业打得开**的那一个。
+  ⚠️ `t_default` = 后台应用「**貂蝉**」，在 **tuz 账号**下
+  ⇒ 它是 4 个里**当前账号就能打得开**的那一个。
 - `data/daren-bot/daren_bot.db` → 表 `bot_tenants` → 2 行
   （`daren_boss` / `daren_test2`），存的是 **AES-GCM 密文**（`app_secret_enc`，60 字符）
   ⇒ 这两个 app 的 app_id 与上面 4 个**都不同**（`cli_aa461b7cb7fa9cb7` / `cli_aa5b67fd7b799d29`），
   ⇒ **不在这次 4 个之内**。如果老大要一起轮换，需另走 `python3 -m daren_bot.main add-tenant` 流程。
-  ⚠️ 2026-10-26 21:0x 实测：`cli_aa461b7cb7fa9cb7` = 后台应用「**达人1**」
-  （在「飞书个人版」企业下，直达 URL 打得开）；
-  `cli_aa5b67fd7b799d29` **在另一个企业**（当前企业列表里没有 ⇒ 应用名待查）。
+  ⚠️ 2026-10-26 21:0x → 21:4x 实测：`cli_aa461b7cb7fa9cb7` = 后台应用「**达人1**」
+  （在 **tuz 账号**下，直达 URL 打得开）；
+  `cli_aa5b67fd7b799d29` = 后台应用「**ayn小助理**」（在 **Ayn 账号**下）。
 
 **★ 轮换时顺带发现的 13 处明文 key（`openclaw secrets audit` 实测）**：
 
@@ -286,11 +304,12 @@ store 里已有的 `MODEL_APIKEY_*` 条目（轮换时按需改）：
 
 **Step 1 — 在飞书后台重置 secret（老大手动）**
 
-- 位置：飞书开放平台 → **先确认企业对得上**（右上角头像/企业名可切换）→ 用 `app_id` 定位应用
+- 位置：飞书开放平台 → **先确认账号对得上**（右上角「个人中心 → 切换账号」，共 3 个已登录账号）
+  → 用 `app_id` 定位应用（应用列表上方的「**搜索应用名称或 App ID**」框，直接粘 app_id）
   → 左侧「凭证与基础信息」→ 顶部「应用凭证 → App ID」**核对与上表一致** → **App Secret** → 重置
 - ⚠️ **不要靠应用名找**（见上面的实测更正：openclaw 的 `name` ≠ 后台应用名）。
-- ⚠️ **企业要对上**：`default` / `helen` / `mumu` 不在「飞书个人版」这个企业下
-  ⇒ 登错企业会「找不到」，但**不代表应用不存在**。
+- ⚠️ **账号要对上**：`default` / `helen` / `mumu` 不在 Ayn 账号下
+  ⇒ 换账号能搜到；**搜不到 = 换账号，不是「应用不存在」**。
 - 逐个 app 做，**不要一次全重置**。
 
 > ✅ 断言：后台显示新的 secret（32 字符），且**你自己已经复制下来**（只显示一次）。
