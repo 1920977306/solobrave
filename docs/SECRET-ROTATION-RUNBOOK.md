@@ -115,7 +115,11 @@ git -C /Users/qichen/solobrave-prod fetch origin   # 必须不要求输入用户
 umask 077 && printf '%s' '<粘贴新PAT>' > ~/.solobrave_github_pat
 
 # 5.2 比指纹 —— 两行必须完全一样
-security find-internet-password -s github.com -w | shasum | cut -c1-12
+# ⚠️ 2026-10-26 20:1x B 边实测修正：**两边的字节口径必须一致**，否则断言本身会给出假警报。
+#    `security … -w` 输出的密码**带一个尾随换行**，而 `tr -d '\r\n' < file` 没有
+#    ⇒ 原写法算出来两个指纹**永远不一样**（实测 15e30df754ea vs f9d0b20a13f2）
+#    ⇒ **看起来像「装错了 PAT」，其实是口径不同** ⇒ **两边都去掉 \r\n 再算**。
+security find-internet-password -s github.com -w | tr -d '\r\n' | shasum | cut -c1-12
 tr -d '\r\n' < ~/.solobrave_github_pat | shasum | cut -c1-12
 
 # 5.3 清掉临时文件
@@ -125,6 +129,10 @@ shred -u ~/.solobrave_github_pat 2>/dev/null || rm -f ~/.solobrave_github_pat
 > ✅ 断言：**两行输出必须完全一样**。
 > ⚠️ 这步是**唯一能证明「keychain 里装的是新 PAT 而不是旧的」**的手段 ——
 > 只做 `git fetch` 成功是不够的（旧的还在 keychain 里时 fetch 也会成功）。
+> ⚠️⚠️ **别用 `security find-internet-password … -g` 来「看属性」** ——
+> 它会把**密码本体打到 stderr**（不是 stdout！）⇒ **明文直接进终端记录 / 日志 / 会话快照**。
+> ⇒ 要看属性就只用 `-w` 并**立刻接管道**（`… -w | tr -d '\r\n' | shasum | cut -c1-12`），
+> **别让裸密码单独出现在任何一行输出里**。
 
 **Step 6 — 撤销旧 PAT（GitHub 后台，老大手动）**
 
