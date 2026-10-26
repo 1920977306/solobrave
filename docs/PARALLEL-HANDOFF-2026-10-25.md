@@ -1051,7 +1051,7 @@ FAILED tests/test_llm_channels.py::test_current_chain_alive_independent_vendors_
 
 | §3.1 项 | 实测结论 |
 |---|---|
-| ④ 商品结论缓存扣 5 分 vs 问答缓存命中扣 0 分 | **两套口径都已落地**：问答缓存命中走 `credits.enqueue_free()`（**0 分**，只留 `cache_hit=1` 流水）；商品结论缓存命中走 `charge_and_enqueue('collect_product_cached')`（**5 分**）。<br>命中路径**零 LLM、零浏览器、零上游调用**（`handler.py:699-717` 只有一次本地 `verdict_cache_get` 查库）。<br>⇒ 按「**按功能收费、不按调用次数收费**」+「**不消耗的就算了**」的口径，**5 分与 0 分应对齐**（我建议命中一律 0 分，流水已有 `cache_hit` 留痕，对账不受影响）。<br>⚠️ 反方事实：命中仍会入队跑一次 worker（渲染 + 发消息）⇒ 有一点执行成本，且改口径会少收 5 分/次 ⇒ **取舍归老大**。<br>⚠️ `credits.py`/`handler.py`/`config.py` 均在 A 边占用 ⇒ B 边只报不改。|
+| ④ 商品结论缓存扣 5 分 vs 问答缓存命中扣 0 分 | ✅ **已拍板并落地**（老大 17:46 原话「没有消耗肯定是0分啊」）—— 结论缓存命中 **0 分**（`collect_product_verdict_cached`，走 `enqueue_free`，`cache_hit=1` 留痕）；商品数据缓存命中 **仍 5 分**（`collect_product_cached`，**LLM 照跑 = 真消耗**）。<br>⚠️⚠️ **本行原写「命中路径零 LLM、零浏览器、零上游调用」是错的**（只对结论缓存成立）—— 已于 §14.3 与本行同步更正，**别照旧把商品数据缓存也改 0 分**（= LLM 照跑却收 0 = 白送算力）。<br>⇒ 最终口径与实现见 **§16 / §16.1**；规格表见 `DAREN-BOT-SPEC.md` 的「action 取值」表。|
 | ⑤ Ray / 上官婉儿 / 孔明 的 `createdBy` | ✅ **已解决**：三个 AI 员工的 `createdBy` 现均为 `user_7acb72ff`；实测 `data/users.json` 里该 user **存在且 role=admin** ⇒ 不再是「owner 过滤接口上的瞎子」。⇒ 只需老大确认即可销案。|
 | ⑥ `origin/main` 是否合并 dev | ⚠️ `origin/main` = `64f3ee2`（**未动过**），`origin/dev` 持续领先（**17:20 复核值：落后 79 个 commit；此后 dev 又前进 ⇒ 数字已变，自己跑** `git rev-list --count origin/main..origin/dev`）。⇒ B 边**仍未动 main**（§3.1⑥ 待拍板）。|
 
@@ -1334,7 +1334,16 @@ exit 2
 B 边给的实测现状，A 边**独立复核**结论一致（口径一致，代码未动）：
 - 问答缓存命中 → `credits.enqueue_free()` ⇒ **0 分**，流水留 `cache_hit=1`
 - 商品结论缓存命中 → `charge_and_enqueue('collect_product_cached')` ⇒ **5 分**
-- 两条命中路径**零 LLM / 零浏览器 / 零上游调用**（只是查库 + 渲染 + 发消息）
+- ⚠️★★ **更正（2026-10-26 18:20 改）**：本节原写「**两条命中路径零 LLM / 零浏览器 / 零上游调用**」
+  —— **这句话只对路径①成立，对路径②是错的**。B 边 17:55 已指出来，A 边当场复核确认：
+
+  | 路径 | 命中后还调不调上游 | 真实消耗 | 结论 |
+  |---|---|---|---|
+  | ① **结论缓存命中**（`verdict_cache_get`）| executor 拿到 `cached_verdict` **直接 return** | **零 LLM / 零浏览器 / 零上游** | 真零消耗 ⇒ 0 分 ✔ |
+  | ② **商品数据缓存命中**（`cache_get`）| **只省了「开浏览器采集」**，`executors.py:988` 的 `_llm_product_verdict()` **照跑** | **LLM 照跑 = 有真实消耗** | 5 分 ✔ **保持不变** |
+
+  ⇒ ⇒ **别照原文把 ② 也改 0 分** —— 那是「LLM 照跑却收 0」= **白送算力**。
+  ⇒ 最终口径见 **§16.1**（B 边补记）与 **§16 Q/R**（AGENTS.md）。
 
 ⇒ 按「**按功能收费、不按调用次数收费**」+「**不消耗的就算了**」的口径
    ⇒ **5 分与 0 分应对齐**（B 边建议命中一律 0 分）。
@@ -1446,6 +1455,10 @@ git fetch origin && git log --oneline -1 origin/dev \
   ⇒ **两者含义完全相反**，混了就会把「设计上的职责分工」误报成「缺口」。
 
 ### 15.4 ④ 拍板前的「只加守卫/观察」—— 结论：守卫**已存在**，不用新写
+
+> ⚠️ **本节是「拍板前」的快照**（2026-10-26 17:50）。老大 17:46 已拍板 0 分并落地 ⇒
+> 那条守卫**已改名为 `test_verdict_cache_hit_costs_zero`**（锁「零消耗」这个事实，定价交给 `config.py` 唯一真源）⇒
+> 查现状请看 **§16.5 口径现状** 与 `tests/test_daren_cache_layer.py`。
 
 B 边建议：「④ 还没拿到老大拍板 ⇒ **先别改口径，只加守卫/观察**」。
 

@@ -137,7 +137,7 @@ CREATE TABLE IF NOT EXISTS bot_credits_accounts (
 CREATE TABLE IF NOT EXISTS bot_credits_ledger (
   id                TEXT PRIMARY KEY,
   tenant_key        TEXT NOT NULL,
-  action            TEXT NOT NULL,              -- collect_douyin/collect_product/collect_product_cached/vision/qa/grant/refund
+  action            TEXT NOT NULL,              -- 见下方「action 取值」表（2026-10-26 补全）
   cost              INTEGER NOT NULL,           -- 正扣负返
   balance_after     INTEGER NOT NULL,
   cache_hit         INTEGER NOT NULL DEFAULT 0,
@@ -146,6 +146,27 @@ CREATE TABLE IF NOT EXISTS bot_credits_ledger (
   created_at        INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_ledger_tenant ON bot_credits_ledger(tenant_key, created_at);
+```
+
+**`action` 取值全清单（2026-10-26 按代码实测补全）**：
+
+| 类别 | action | 扣分 |
+|---|---|---|
+| **消耗算力**（进 `config.py:COST_TABLE`）| `collect_douyin` / `collect_product` / `collect_product_cached` / `vision` / `qa` / `video` / `weekly_collect` / `weekly_report` / `recollect` | 按 `COST_TABLE` |
+| **零消耗**（**不在** `COST_TABLE`）| `qa_cached` / `collect_product_verdict_cached` | **0 分**，`cache_hit=1` 留痕 |
+| 资金动作 | `grant` / `refund` | 正负流水 |
+
+⚠️ ★ **两种「缓存命中」不是一回事**（老大 2026-10-26 拍板「没有消耗肯定是 0 分」后**按消耗量拆开**）：
+
+| 命中类型 | 命中后还调不调上游 | action | 扣分 |
+|---|---|---|---|
+| **结论缓存命中**（`verdict_cache_get`）| **不调** —— executor 拿到 `cached_verdict` 直接 return | `collect_product_verdict_cached` | **0 分** |
+| **商品数据缓存命中**（`cache_get`）| **LLM 照跑**（只省了「开浏览器采集」）| `collect_product_cached` | **5 分** |
+
+⇒ ⇒ **不消耗算力的 action 不许出现在 `COST_TABLE`**（塞进去 = 给白干的路开闸门，
+且 `tests/test_credits_gate.py` 断言表内价格 > 0 ⇒ 两处设计同时被违反）。
+⇒ ⇒ 流水里能**区分**两种缓存命中 = 对账可分辨「复用了多少结论」与「复用了多少商品数据」。
+```
 ```
 
 **图片落盘**（不入库，文件系统）：`data/daren-bot/images/<tenant_key>/<msg_id>_<file_key>.jpg`，收到消息**立刻下载**（im:resource 资源 key 约 3 天过期，异步队列可能几十分钟后才处理，必须收消息即落盘）。
