@@ -759,3 +759,83 @@ A 边自己的测试**（`tests/test_failure_text.py::test_fail_refunds_still_ha
 ⇒ ★ **合并顺序要求**：必须让 B 边的 `tests/test_credits_gate_adversarial.py` 一起进来，
 否则「消耗点登记漂移」这类洞**没人守**（A 边的守卫只覆盖 A 边自己的改动面）。
 ⇒ ⚠️ **别两边各写一张消耗点登记表** —— 两张表 = 新的口径漂移（同一个铁律）。
+
+---
+
+## 11. 积分闸门已上线（B 边交付，2026-10-26 16:55）
+
+### 交付内容（B 边 `3cd51d2` + `089e9eb`）
+
+- `db.fail_task_and_refund()` —— 一个事务里「查幂等 → 标记 failed → 退款」
+  幂等判据用**流水**（`action='refund' AND ref_task_id=?`），**不用任务状态**
+  （状态与退款是两个独立写，只有流水能同时挡住「重复退」和「漏退」）。
+  金额口径：行存在 ⇒ 用行里的（账本真源）；行不存在 ⇒ 用调用方传入的值兜底
+  （★ A 边 §7.2 配方已按此修正，见 §7.2）。
+- `reclaim_stale_collecting()` 加 **30 分钟**门槛（`STALE_COLLECTING_SECONDS=1800`）
+  + 新增 `claimed_at` 列 + `init_db` 轻量迁移 + `claim_next_task` 写入
+  判据用 `claimed_at`（领走时刻）而非 `created_at`
+  ⇒ 排队久但刚被领走的任务不会被误判僵死。
+- `config.py` 成本表旁写死计费口径：**按「功能」收费，不按「调用次数」收费**。
+- `tests/test_credits_gate_adversarial.py`（新，757 行）—— 消耗点**登记表**
+  `COMPUTE_SITES`：登记每个消耗点的 (action, 静态调用点数, 一次收费最多几次调用, 理由)
+  ⇒ **新增一处 LLM 调用点必须留痕**，否则口径悄悄漂移。
+
+### A 边的独立复核（不引用对方报告，全部当场实测）
+
+| 项 | 结果 |
+|---|---|
+| 全量 pytest（部署目录，有 .env）| **1046 passed / 4 skipped** |
+| `bot_collect_tasks.claimed_at` 列 | ✅ **已建**（真库 `PRAGMA table_info` 实测）|
+| **退款幂等**（独立探针租户 `probe_refund_*`，验完已清理）| 扣 100 ⇒ 余额 900；**连 fail 3 次** ⇒ `refunded=True/False/False`、余额**恒 1000**、退款流水**只 1 条**、任务 `failed` ✔ |
+| 修之前的对照 | 900→1000→**1100**（退两遍 = 白送积分）|
+| 服务 | 8080 / 8092 / 8095 / 7188 全 200；团长端 `browser_up=true logged_in=true` |
+
+⚠️ **僵死回收没在生产真调**（B 边决定，**A 边认可**）：
+  `reclaim_stale_collecting()` 会把 `collecting` 任务打回 pending ⇒ **会对生产正在跑的任务动刀**
+  ⇒ 只做**只读核算**（当前 collecting=0 / 会被回收=0），逻辑在副本库验过。
+  ⇒ 这是「对生产动刀的操作要先想清楚」的正面例子，**不是漏测**。
+
+### ⚠️ 合并过程记录（撞了 4 次，对以后有用）
+
+1. B 边 rebase 到 `7d57796` ⇒ 冲突面缩到「交接单文本」。
+2. B 边实测发现 **A 边 §7.2 的配方会打红 A 边自己的测试** ⇒ A 边采纳兜底口径并改正文档。
+3. A 边推 `16dc31d` ⇒ 两边**分叉**（共同祖先 `5fa0cfe`）⇒ `git merge --ff-only` 失效，
+   改普通 merge（`git merge-tree` 预演**零冲突**）。
+4. B 边在部署目录 `main` 上 FF 了自己的分支 ⇒ **B 边的 2 个 commit 当时只在本地 `main`**。
+   ⇒ **A 边统一推 `origin/dev`（合入由协调边做）**。
+
+★ **协作规约补一条（本次真踩）**：
+  ① **合入由协调边统一 push** —— 别的边在自己 worktree 里合完，**必须告协调边**，
+     否则那 2 个 commit 只在本地 `main` 上，下一个人会撞同一个坑。
+  ② 别的边在**部署目录**上操作 `main` 时，**先确认协调边没有并发改同一批文件**
+     （本次是 A 边工作区干净 ⇒ 事实既成且结果正确）。
+  ③ 提 `origin/dev` 前先 `git merge-base --is-ancestor <commit> origin/dev` 自查
+     —— **别基于过时的对方状态给建议**（B 边提醒「你那两个 commit 还没推」时其实早推了）。
+
+### 合入后的最终状态（2026-10-26 17:05 实测）
+
+| 项 | 实测值 |
+|---|---|
+| `origin/dev` | **`e3baba4`**（已含 B 边 `3cd51d2` + `089e9eb` + `e3baba4`）|
+| `origin/main` | `64f3ee2` **未动** ✔（符合「只推 dev」铁律）|
+| 部署目录本地 `main` | `e3baba4` = `origin/dev`（**已分叉问题消除**）|
+| FF 关系 | `git merge-base --is-ancestor origin/dev HEAD` ✔ 成立 |
+
+⇒ **上一节记录的「B 边 2 个 commit 只在本地 main」问题已解决**：`e3baba4` 已进 `origin/dev`，
+部署目录与远端一致 ⇒ 下一个人 clone 下来就能拿到积分闸门的全部守卫，不会撞同一个坑。
+
+### ★ 合并后重跑 4 个变异脚本（全部通过，工作区逐字还原）
+
+| 脚本 | 结果 |
+|---|---|
+| `scripts/mutate_new_guards.py` | ✅ 全部变异被抓住，11 个文件逐字还原 |
+| `scripts/mutate_llm_ring_guards.py` | ✅ 全部变异被抓住，3 个文件逐字还原 |
+| `scripts/mutate_gate_adversarial.py` | ✅ **9/9 全抓** |
+| `scripts/mutate_failure_guards.py` | ✅ 全部变异被抓住，6 个文件逐字还原 |
+
+★ **合并闭合了一个已知盲区**：`mutate_gate_adversarial.py` 合并前报
+「A 边守卫**全绿**（结构性盲区）8/9」—— 那 8 条的「期望变红」指向 B 边**当时还没合入**的
+`tests/test_credits_gate_adversarial.py` ⇒ **0 绿 0 红（根本没跑）**，不是「守住了」。
+⇒ **合并后再跑，B 边守卫 9/9 全抓** ⇒ 盲区自动闭合。
+⇒ **纪律：合并顺序本身就是一道闸门** —— 「守卫在另一个分支上」⇒ 合并前那侧是**结构性裸奔**，
+不是「覆盖率不足」。所以 §7.2 那条「合并顺序要求」不是形式主义，是真需求。
