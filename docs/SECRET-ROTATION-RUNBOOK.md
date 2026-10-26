@@ -134,7 +134,7 @@ ls -la ~/.solobrave_github_pat 2>&1 | grep -q "No such file" && echo "✅ 临时
 
 ---
 
-## 2. 飞书 app secret 轮换（4 个 app）+ 附带发现的 13 处明文 key
+## 2. 飞书 app secret 轮换（4 个 app）+ 顺带发现的 13 处明文 key（在 `~/.openclaw/`，**不在本文件里**）
 
 ### 现状（2026-10-26 实测）
 
@@ -163,6 +163,10 @@ ls -la ~/.solobrave_github_pat 2>&1 | grep -q "No such file" && echo "✅ 临时
   ⇒ **不在这次 4 个之内**。如果老大要一起轮换，需另走 `python3 -m daren_bot.main add-tenant` 流程。
 
 **★ 轮换时顺带发现的 13 处明文 key（`openclaw secrets audit` 实测）**：
+
+> ⚠️ **这 13 处明文在 `~/.openclaw/agents/*/agent/models.json` 里，**
+> **本文件（runbook）本身不含任何明文密钥** ——
+> 已用 5 类形态正则（`sk-` / `gh?_` / 32 位 hex / `Bearer` / 长 base64）独立复核：**全部 0 命中**。
 
 ```
 plaintext=13, unresolved=0, shadowed=0, storeResidue=0, legacy=0
@@ -337,7 +341,23 @@ print('能顶的独立服务商:', {r['vendor'] for r in lc.text_rings() if r['p
 > - 环数 ≥ 3、能顶的独立服务商 ≥ 1
 >   （**2026-10-26 基线：环数 6、能顶 = {minimax}**。
 >   ⇒ 轮换后若「能顶」变成 0 ⇒ **那家 key 填错了，立刻回滚**，别继续做下一个）
-> - pytest `1046 passed / 4 skipped` 左右（**0 failed**）
+> - pytest **`1064 passed / 6 skipped / 0 failed`**（**2026-10-26 18:00 当场实测**）
+>
+> ⚠️ **基线会随开发前进，别拿旧数字当判据**：
+>   这个数字改一次就过期一次 ⇒ 轮换时若 passed 数不同，**先看是不是「新增了测试」**
+>   （更常见）而不是「代码坏了」。★ 判断方法：`git log --oneline <上次基线>..HEAD -- tests/`
+>   —— 有新测试 commit ⇒ 数字涨了是正常的。
+>
+> ⚠️ **6 条 skip 是正常的（不是「没跑」也不是「坏了」）**，实测明细：
+> | 数量 | 来源 | 原因 |
+> |---|---|---|
+> | 2 | `tests/test_mt_p0_tenant_leak.py` | live 双租户沙箱（需 `MT_P0_LIVE=1` + 沙箱在跑）|
+> | 1 | `tests/test_mt_p1_ms3_routing.py` | live 沙箱（需 `MT_P0_LIVE=1`）|
+> | 1 | `tests/test_reliability_full_suite.py` | live 派单验收（要打 prod 8080 + 真实计费调用，**属上线前人工验收，不属回归**）|
+> | 2 | `tests/test_script_suites.py` | live 门禁：`test_kimi_response.py`（真打 Kimi 上游）+ `test_proxy_e2e.py`（要真 server + 登录态）|
+>
+> ⇒ **看到 6 条 skip 不用慌**，那是「需要真环境」的显式登记（不是隐形死代码）。
+> ⇒ 若 skip 数**变多** ⇒ 有测试被意外 skip 了，要查；**变少** ⇒ 有 live 门禁失效了，也要查。
 >
 > ⚠️ 「HTTP 200 要看响应体」—— 光看状态码不够：
 > ```bash
