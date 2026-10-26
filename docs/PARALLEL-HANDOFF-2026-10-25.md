@@ -189,6 +189,12 @@ curl -s -X POST "http://127.0.0.1:8092/admin/api/plan-scan?token=$TOKEN" \
   - 僵死门槛：`STALE_COLLECTING_SECONDS=1800`，**只读核算**当前 collecting=0 / 会被回收=0
     ⇒ **没调用 reclaim**，没动生产正在跑的任务；
   - 三个服务 8092 / 8080 / 7188 全部 200。
+  📌 **远端状态**：`origin/dev` = **089e9eb**（已含 B 边这两个 commit）⇒
+  **别人 clone / 拉 dev 就能拿到修复**。
+  ⚠️ `origin/main` 仍停在 `64f3ee2`（**落后 origin/dev 68 个 commit**）⇒
+  **B 边没碰 origin/main**（§3.1⑥ 仍待老大拍板）。
+  ⇒ **A 边下次推 origin/dev 前先 `git pull --rebase`**（我刚把两个 commit 推上去了，
+  直接 push 会被拒 non-fast-forward）。
   ⚠️ 合并过程记录（对以后有用）：
     中间被挡过 4 次，**每次都是「别人正在改的文件」**（config.py / db.py / 交接单 / test_llm_channels.py）——
     git 都是**干净地拒绝**（HEAD 未动、工作树完好）⇒ **合并前先 `git status` 看交集，
