@@ -64,6 +64,19 @@ umask 077 && printf '%s' '<粘贴刚才那串 github_pat_...>' > ~/.solobrave_gi
 
 **Step 3 — 验新 PAT 有写权限（真 push，不是只读）**
 
+⚠️⚠️ **跑之前先做这个自检**（脚本内部是 `git push origin HEAD:dev`
+⇒ **会把部署目录 HEAD 的所有未推 commit 一起推上 dev**）：
+
+```bash
+cd /Users/qichen/solobrave-prod
+git status --porcelain                      # 应为空（工作区干净）
+git log --oneline origin/dev..HEAD          # 应为空（无未推 commit）
+```
+
+> ★ **这两条任一不为空 ⇒ 先停下**，别跑 Step 3 ——
+> 否则你的 PAT 验证会**顺手把别人的 commit 推进 dev**。
+> （2026-10-26 实测当时是干净且同步的；但这是**时点状态**，换天就不一定。）
+
 ```bash
 cd /Users/qichen/solobrave-prod && bash scripts/verify_github_pat.sh
 ```
