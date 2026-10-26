@@ -444,6 +444,33 @@ shred -u /tmp/_feishu_secret.txt 2>/dev/null || rm -f /tmp/_feishu_secret.txt
 **4 把本地代理 token（不去供应商后台轮换）**：`kimi_proxy_{diaochan,helen,kongming,shangguan}`，
 各 2 副本（两个 agents 同名同值）。
 
+**★ 另一类漏项：飞书 app secret 在老大本机「其它项目目录」里的明文（2026-10-26 21:3x，B 边全盘实测）**
+
+⚠️ §2 的副本地图只覆盖了「部署目录 + `.env` + `settings.json` + `models.json`」
+⇒ **漏了老大本机上其它项目目录里的 `solobrave.db`**（表 `tenant_feishu_config` / `user_feishu_config`
+的 `app_secret` 列 = **明文 32 字符**）：
+
+| 位置 | 表.列 | 明文指纹 |
+|---|---|---|
+| `/Users/qichen/solobrave-prod/data/solobrave.db` | `tenant_feishu_config.app_secret` | `21e42f04ea54` |
+| `/Users/qichen/solobrave-prod/data/backups/20261026_*/solobrave.db`（4 个时间点）| 同上 | `21e42f04ea54` |
+| `/Users/qichen/solobrave-prod/data/solobrave-backup-20261012-192929.db` | 同上 | `21e42f04ea54` |
+| `/Users/qichen/Developer/solobrave-code/data/`（含 8 个时间点 backups）| 同上 | `21e42f04ea54` |
+| `/Users/qichen/Developer/solubrave-prod/data/solobrave.db` | `user_feishu_config.app_secret` | `5c3727ab3a85` |
+| `/Users/qichen/Developer/solubrave-test/` + `/Users/qichen/Projects/solobrave-test/` + `/Users/qichen/Desktop/solobrave-test/` | `user_feishu_config.app_secret` | `e36d40e5c0e1` |
+
+⇒ ★ **`21e42f04ea54` 就是 §2 Step 5 要同步的 `t_default` 那把**
+⇒ 轮换 `t_default` 后它**立即作废**，但**旧值仍以明文躺在 14+ 个 db 文件里** ⇒ 至少要清掉。
+⇒ ⚠️ `5c3727ab3a85` / `e36d40e5c0e1` 是 `user_feishu_config`（**不同的表 ⇒ 不同的飞书应用**）
+⇒ **它们各自属于哪个 app 待查**（不在本轮 4 个的确定范围里）⇒ 老大若要一并轮换，需先查清对应 app。
+⇒ ⚠️ 另：`~/.Trash/gate_verify_*/copy.db` 里也有 `bot_tenants` 的 AES-GCM 密文副本。
+
+⇒ ★ **纪律（这是「副本地图」第三次漏项 ⇒ 升级判据）**：
+**副本地图不能只扫「当前部署目录」** ——
+**凡是把凭据写进文件/数据库的工具，都会把副本散到本机各处**
+⇒ **必须按【内容指纹】全盘 join**（`/Users/qichen` 全域 + `~/.Trash`），
+**只扫部署目录得到的「总数」永远是下界，不是总数**。
+
 ⚠️ **两处数量更正（相对 §2 与交接单）**：
 - `data/settings.json` 里是 **5 处**（不是 4）：`.embedding.apiKey` / `.llm.providers[0].apiKey` /
   `.llm.providers[1].apiKey` / `.vision.apiKey` / **`.visionQA.apiKey`**。

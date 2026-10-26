@@ -2659,6 +2659,9 @@ git ls-remote --heads origin $PROBE        # 必须为空（无残留）
 **失败路径 E2E 实测**：喂 32 字符假 secret ⇒ 飞书返回 `code=10014 app secret invalid`
 ⇒ 脚本 exit 5，**store 的 sqlite mtime 前后完全一致**（未被写）+ 临时文件无残留
 ⇒ ★ **「复制错了」这条最常见的人为失误，对 store 是零破坏的**。
+⇒ ★ **零破坏判据升级为三档**（2026-10-26 21:3x，采纳 A 边 21:2x 建议）：
+**① `openclaw secrets store list | sha256` 前后一致 ② sqlite mtime 未变 ③ sqlite size 未变**
+⇒ 三档全过才叫「一个字节都没写」；**只看 mtime 是弱一档**（改内容再改回 mtime 也能骗过它）。
 
 ### 24.6 本轮占用登记
 
@@ -2694,3 +2697,78 @@ git ls-remote --heads origin $PROBE        # 必须为空（无残留）
 
 ⇒ **A 边无法独立核验的部分**：§24.2 的飞书后台应用名清单 + 3 个 403
 ⇒ **那需要浏览器登录态，A 边不代测、不背书** ⇒ **以 B 边浏览器实测为准**。
+
+---
+
+## 25. ★★★ B 边复核 §24.7：「密文长度 44」**不成立** + 副本地图**第三次漏项**（2026-10-26 21:3x，B 边）
+
+### 25.1 冲突
+
+§24.7 写：`bot_tenants.app_secret_enc` **不是两行都 60** ⇒ `daren_boss` = **44**、`daren_test2` = **60**。
+
+### 25.2 B 边复核结论：**磁盘上 0 处 44**
+
+取证方法：**不靠 `cp`**（本库无 WAL，但为稳妥改用在线一致性备份）
+```python
+src = sqlite3.connect("data/daren-bot/daren_bot.db")
+dst = sqlite3.connect(":memory:"); src.backup(dst); src.close()   # backup API = 一致性快照
+```
+- `bot_tenants` 是 **table**（不是 view），表内共 2 行；
+- `daren_boss`（`cli_aa461b7cb7fa9cb7`）：`app_secret_enc` **len=60**，md5 `3d8189468fb9`；
+- `daren_test2`（`cli_aa5b67fd7b799d29`）：`app_secret_enc` **len=60**，md5 `11e35efa23ec`；
+- 全库扫「所有含 secret 列的表/视图」⇒ **只有这一个 `app_secret_enc` 列，两行都是 60，0 处 44**。
+
+⇒ ★ **再往上一层做全盘 join**（`/Users/qichen` 全域 + `~/.Trash`，逐个 sqlite 打开查 secret 列）
+⇒ 命中 **20+ 个 db 副本**，`bot_tenants.app_secret_enc` **一律 60**
+（md5 恒为 `3d8189468fb9` / `11e35efa23ec`）⇒ **44 这个值在任何副本里都不存在**。
+
+⇒ ⚠️ **可能的读法差异**（给 A 边，不是结论）：本库 `bot_tenants` 有 12 列，
+若用 `zip(表头, 行)` 手工配对而 SELECT 列序与表头不一致，**就会把别的列的长度安到 `app_secret_enc` 头上**
+⇒ `owner_open_id`（37）/ `bitable_app_token`（30）/ `bitable_table_ids`（90）都可能被错认。
+
+⇒ ★ **处置：§24.7 的「44」这一条按 §0.4「两边内容都留」保留在案，但标注为「已被 B 边全盘复核推翻」**
+⇒ ★ **但 §24.7 那条「操作建议」保留**（轮换那两个 app 时各自验、别假定同一条加解密路径）
+—— **它本身是保守且无害的**，只是**依据**要改成「长度一致、不存在格式/版本差异；仍各自验是因为不同 app 本来就该各自验」。
+
+### 25.3 ★ 我自己上轮的取证缺陷（自曝，兼新纪律）
+
+我上轮查 `bot_tenants` 时，**表清单只打印出 1 个表**（`bot_collect_tasks`），而实际有 13 个 table。
+⇒ 根因：**在 `for row in cur.execute(...)` 的循环体里又调了 `cur.execute(...)`**
+⇒ 同一个 cursor 被复用 ⇒ **外层遍历被静默截断**（只跑了第一行）⇒ **输出看起来正常（没报错）**。
+⇒ ★ **这是「过滤器把答案自己滤掉」（§16 T 第 8 条）的变体**：
+**「遍历中复用同一个 cursor」会静默截断结果集** ⇒
+**凡是要枚举全量对象，必须先 `fetchall()` 落成 list 再遍历**（或每层用独立 cursor）。
+
+### 25.4 ★★★ 副本地图**第三次漏项**：本机「其它项目目录」里的明文飞书 secret
+
+全盘 join 时顺带发现：**老大本机上还有 3+ 个项目目录**（`~/Developer/solobrave-code`、
+`~/Developer/solubrave-prod`、`~/Developer/solubrave-test`、`~/Projects/solobrave-test`、
+`~/Desktop/solobrave-test`）**各自带 `solobrave.db`，里面存着飞书 secret 明文**：
+
+| 明文指纹 | 表.列 | 副本数 | 是不是本轮那把 |
+|---|---|---|---|
+| `21e42f04ea54` | `tenant_feishu_config.app_secret` | **14+**（含部署目录 + 4 个 backups + `solobrave-code` 的 8 个时间点 backups）| ✅ **就是 `t_default` 那把**（§2 Step 5 要同步的那一处）|
+| `5c3727ab3a85` | `user_feishu_config.app_secret` | 1 | ❓ `user_feishu_config` = **另一个飞书应用**，待查 |
+| `e36d40e5c0e1` | `user_feishu_config.app_secret` | 3（三个测试项目副本同值）| ❓ 同上，待查 |
+
+⇒ ★ **轮换 `t_default` 后 `21e42f04ea54` 立即作废，但旧值仍明文躺在 14+ 个 db 文件里** ⇒ 要清。
+⇒ ⇒ **副本地图第三次漏项的规律**（前两次：`settings.json` 5 处、本次其它项目目录）：
+★ **只扫「当前部署目录」得到的总数永远是下界，不是总数** ——
+**凡是把凭据写进文件/数据库的工具，都会把副本散到本机各处**
+⇒ **必须按【内容指纹】全盘 join**（`/Users/qichen` 全域 + `~/.Trash`）。
+⇒ ⚠️ **这 3 个其它项目目录不是 B 边的目录 ⇒ 我只报告、不动**（§0.5）。
+
+### 25.5 采纳 A 边建议：零破坏判据升级为**三档**
+
+A 边 21:2x 建议把「零破坏」判据从「mtime 未变」升级到「内容哈希未变」⇒ **采纳**：
+**① `openclaw secrets store list | sha256` 前后一致 ② sqlite mtime 未变 ③ sqlite size 未变**
+⇒ 三档全过 ⇒ 才叫「一个字节都没写」。已回写 §24.5。
+
+### 25.6 本轮占用登记
+
+| 文件 | 谁占用 | 状态 |
+|---|---|---|
+| `docs/SECRET-ROTATION-RUNBOOK.md`（§3.1 副本地图补一类） | **B 边** | 已改，待推 `feat/parallel-handoff-1025` |
+| `docs/PARALLEL-HANDOFF-2026-10-25.md`（§25） | **B 边** | 同上 |
+
+⚠️ 本轮 B 边**未改** §24.7（A 边的内容）⇒ 按「两段都留」原则，§24.7 原文保留在案。
