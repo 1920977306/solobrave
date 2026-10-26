@@ -68,7 +68,7 @@
 | ③ | 转化率 / 榜单排名 / 近7日短视频销量怎么采 | ✅ **已拍板已实现**：转化率**保持 NULL 当缺失维度**（清 479 行假值 + AST 守门人）；榜单/近7日销量走达人端真接口（§8.3）|
 | ④ | 商品结论缓存扣 5 分 vs 问答缓存命中扣 0 分 | ⏳ **真待拍板** —— 口径不一致，既有定价决策。B 边 §12.10 已给实测现状：命中路径零 LLM/零浏览器/零上游 ⇒ 按「不消耗的就算了」**建议统一 0 分**（流水已有 `cache_hit=1` 留痕，对账不受影响）；反方：命中仍会入队跑一次 worker，且改口径少收 5 分/次 |
 | ⑤ | `Ray`/`上官婉儿`/`孔明` 的 `createdBy` 归属 | ✅ **已解决**（2026-10-26 实测）：三个现均为 `user_7acb72ff`，该 user 在 `data/users.json` 里**存在且 role=admin** ⇒ 不再是「owner 过滤接口上的瞎子」。**只需老大确认即可销案** |
-| ⑥ | `origin/main` 是否合并 dev | ⏳ **真待拍板** —— `origin/main` = `64f3ee2`，`origin/dev` 持续领先（截至 §13 为 **76 个 commit**）。**B 边与 A 边都没动过 main** |
+| ⑥ | `origin/main` 是否合并 dev | ⏳ **真待拍板** —— `origin/main` = `64f3ee2`（**未动过**），`origin/dev` 持续领先（**差距在变，别引用文档里的旧数字 —— 自己跑** `git rev-list --count origin/main..origin/dev`）。**B 边与 A 边都没动过 main** |
 
 > ★ `AI-CONNECTION-SPEC.md` 里的 `zhipu` provider 档**不是漂移** ——
 > 那是 OpenClaw 的**可选 provider 选择器**清单，智谱仍做知识库 embedding + 服务端视觉 QA
@@ -204,6 +204,13 @@ curl -s -X POST "http://127.0.0.1:8092/admin/api/plan-scan?token=$TOKEN" \
   **B 边没碰 origin/main**（§3.1⑥ 仍待老大拍板）。
   ⇒ **A 边下次推 origin/dev 前先 `git pull --rebase`**（我刚把两个 commit 推上去了，
   直接 push 会被拒 non-fast-forward）。
+  ⚠️ 顺带标一下：上面这些是**§11 那一轮（17:05）的快照**，`origin/dev` 的 hash 和
+  落后的 commit 数**都已经在变** ⇒ 引用前**自己跑**
+  `git log --oneline -1 origin/dev` / `git rev-list --count origin/main..origin/dev`。
+  ⇒ ★ 这就是 §16 O（文档漂移）的**两种形态**：
+  ① **状态表**里的「待拍板」标记过时 ⇒ 会让人重复讨论已定的事（§3.1 表已修）；
+  ② **历史记录**里的数字过时 ⇒ 会让人当成现状引用。
+  ⇒ **两种都要处理**：前者改状态，后者**标注是快照 + 给出自查命令**。
   ⚠️ 合并过程记录（对以后有用）：
     中间被挡过 4 次，**每次都是「别人正在改的文件」**（config.py / db.py / 交接单 / test_llm_channels.py）——
     git 都是**干净地拒绝**（HEAD 未动、工作树完好）⇒ **合并前先 `git status` 看交集，
@@ -1032,7 +1039,7 @@ FAILED tests/test_llm_channels.py::test_current_chain_alive_independent_vendors_
 |---|---|
 | ④ 商品结论缓存扣 5 分 vs 问答缓存命中扣 0 分 | **两套口径都已落地**：问答缓存命中走 `credits.enqueue_free()`（**0 分**，只留 `cache_hit=1` 流水）；商品结论缓存命中走 `charge_and_enqueue('collect_product_cached')`（**5 分**）。<br>命中路径**零 LLM、零浏览器、零上游调用**（`handler.py:699-717` 只有一次本地 `verdict_cache_get` 查库）。<br>⇒ 按「**按功能收费、不按调用次数收费**」+「**不消耗的就算了**」的口径，**5 分与 0 分应对齐**（我建议命中一律 0 分，流水已有 `cache_hit` 留痕，对账不受影响）。<br>⚠️ 反方事实：命中仍会入队跑一次 worker（渲染 + 发消息）⇒ 有一点执行成本，且改口径会少收 5 分/次 ⇒ **取舍归老大**。<br>⚠️ `credits.py`/`handler.py`/`config.py` 均在 A 边占用 ⇒ B 边只报不改。|
 | ⑤ Ray / 上官婉儿 / 孔明 的 `createdBy` | ✅ **已解决**：三个 AI 员工的 `createdBy` 现均为 `user_7acb72ff`；实测 `data/users.json` 里该 user **存在且 role=admin** ⇒ 不再是「owner 过滤接口上的瞎子」。⇒ 只需老大确认即可销案。|
-| ⑥ `origin/main` 是否合并 dev | ⚠️ `origin/main` = `64f3ee2`，`origin/dev` = `a70dd62` ⇒ **落后 79 个 commit**（17:20 复核值；上一轮报 68、再上轮 75 —— dev 一直在前进）。⇒ B 边**仍未动 main**（§3.1⑥ 待拍板）。|
+| ⑥ `origin/main` 是否合并 dev | ⚠️ `origin/main` = `64f3ee2`（**未动过**），`origin/dev` 持续领先（**17:20 复核值：落后 79 个 commit；此后 dev 又前进 ⇒ 数字已变，自己跑** `git rev-list --count origin/main..origin/dev`）。⇒ B 边**仍未动 main**（§3.1⑥ 待拍板）。|
 
 ### 12.11 ★★ 目录边界事故：A 边在 **B 边的 worktree** 里改文件（17:2x 实锤）
 
