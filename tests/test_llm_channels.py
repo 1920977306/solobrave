@@ -465,11 +465,27 @@ def test_current_chain_alive_independent_vendors_is_one():
     ⚠️ 这条不是「期望 1 家」，是**把已知的冗余缺口钉在测试里**：
       老大 2026-10-26 拍板把智谱从对话链摘掉的那一刻起就是这样。
       有人接回第二家服务商时这条会红 ⇒ 逼着更新认知（而不是让它悄悄变好/变坏）。
+
+    ★★ 2026-10-26（B 边实测反馈后修正）：**死因必须说对**。
+      起因：环是**按凭据构造**的 —— 没有 `.env`（套餐 key）/ 没有 Code 登录态
+      ⇒ `text_rings()` 返回**空列表** ⇒ 「能顶的服务商集合」= 空集
+      ⇒ 原写法报「独立服务商集合变了」，**误导**（代码其实没错，是环境没配）。
+
+      ⇒ 现在分两种死因，**都让它红，但红得诚实**：
+        ① 链**一个环都没构造出来** ⇒ 报「**环境未配置**」
+           （按老大的规矩：配置错误必须让它红，不许 skip —— 但要说清是环境问题）；
+        ② 链构造出来了但集合不对 ⇒ 报「独立服务商集合变了」—— 这才是真的代码漂移。
     """
     # 实测已死的额度池：kimi 月度 429 / 开放平台 402（AGENTS.md §11 环序表）
     dead_pools = {llm_channels.POOL_KIMI_MONTHLY, llm_channels.POOL_MINIMAX_OPEN}
     for name, rings in (('text', llm_channels.text_rings()),
                         ('vision', llm_channels.vision_rings())):
+        assert rings, (
+            f'{name} 链**一个环都没构造出来** ⇒ **环境未配置**'
+            f'（.env 的 MINIMAX_CP_API_KEY / Code 登录态 / OpenClaw key store）'
+            f'⇒ 这条测试无法验证当前的服务商集合。'
+            f'⚠️ 这是**配置错误**，按规矩必须红（不许 skip）；'
+            f'但它**不是**「独立服务商集合变了」——别去查代码，去查环境。')
         alive = {r.get('vendor') for r in rings
                  if r.get('vendor') and r.get('pool') not in dead_pools}
         assert alive == {'minimax'}, (
