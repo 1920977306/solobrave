@@ -216,6 +216,11 @@ ls -la ~/.solobrave_github_pat 2>&1 | grep -q "No such file" && echo "✅ 临时
 `default` / `helen` / `mumu` 三个 **在另一个飞书企业**
 ⇒ ★ **「后台找不到」= 登错企业，不是应用不存在**。
 
+> ℹ️ **app_id 的来源（自己查配置时用）**：
+> `~/.openclaw/openclaw.json` → `channels.feishu.accounts.<账号标签>.appId`
+> ⇒ ⚠️ **字段名是驼峰 `appId`**，不是 `app_id` ⇒ 查 `app_id` 会拿到 `None`
+> （另有 `channels.feishu.appId` = `default` 那把）。
+
 **直达 URL 模板**（实测有效）：
 
 ```

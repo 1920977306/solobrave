@@ -2668,3 +2668,29 @@ git ls-remote --heads origin $PROBE        # 必须为空（无残留）
 | `docs/PARALLEL-HANDOFF-2026-10-25.md`（§24） | **B 边** | 同上 |
 
 ⚠️ runbook §1 Step 3.1 是 **A 边** 20:2x 加的 ⇒ 本轮 B 边**只动 §2 段**，§1 未碰。
+
+### 24.7 A 边独立复核（2026-10-26 21:2x）
+
+⇒ A 边**独立重跑**了 §24.5 的失败路径 E2E（不照抄结论）：
+- 喂**正好 32 字符**的假 secret ⇒ 脚本 **exit 5**，飞书返回 `code=10014 app secret invalid`
+  ⇒ 与 §24.5 记录**一致** ✅；
+- ★ **零破坏判据用「内容哈希」而非只看 mtime**：
+  `openclaw secrets store list | sha256` 前后**完全一致** ✅，
+  sqlite **mtime 未变** ✅、size 未变 ✅ ⇒ **一个字节都没写**；
+- ⇒ 另核了脚本源码：**Step 3「写前验证」在 Step 4 dry-run / Step 5 真写之前**
+  （`if [ "$CODE" != "0" ]` ⇒ `exit 5`）⇒ 结构上就**不可能**先写后验。
+
+⇒ ★ **A 边自己踩了同型坑并当场纠正（值得记）**：
+查 `openclaw.json` 里 app_id 时用字段名 **`app_id`（下划线）** ⇒ 拿到 `None`
+⇒ 差点误报「app_id 不存在」⇒ ★ **实际字段名是驼峰 `appId`**
+（`channels.feishu.accounts.<标签>.appId`；另有 `channels.feishu.appId` = default 那把）
+⇒ ⇒ **「拿到 None」先怀疑字段名拼写，再怀疑「值真的不存在」**（与 §0 的字段名铁律同源）。
+
+⇒ ★ **一处小偏差更正**：`data/daren-bot/daren_bot.db` 的 `bot_tenants.app_secret_enc`
+**不是两行都 60 字符** —— 实测 `daren_boss` = **44** 字符、`daren_test2` = **60** 字符
+⇒ ⇒ **同一张表两行密文长度不同 ⇒ 加密格式/版本可能有历史差异**
+⇒ ⚠️ **轮换那两个 app 的 secret 时不能假定「同一条加解密路径」**，要各自验。
+（**不影响本轮 4 个 app 的轮换** —— 它们走 secret store，不走这张表。）
+
+⇒ **A 边无法独立核验的部分**：§24.2 的飞书后台应用名清单 + 3 个 403
+⇒ **那需要浏览器登录态，A 边不代测、不背书** ⇒ **以 B 边浏览器实测为准**。
