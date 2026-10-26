@@ -61,6 +61,18 @@ umask 077 && printf '%s' '<粘贴刚才那串 github_pat_...>' > ~/.solobrave_gi
 > ```
 > ❌ 若长度 < 20 ⇒ 说明把 `<粘贴...>` 占位符原样存进去了，回到 Step 2 重来。
 > ❌ 若 `wc -c` 输出里带 `>` ⇒ 命令行里带了重定向符，token 会进 history，改用上面的 `printf` 写法。
+>
+> ⚠️⚠️ **用完必须真删，不要「拖进废纸篓」（2026-10-26 22:0x 实测）** ——
+> **废纸篓是「可恢复删除」⇒ 明文仍常驻磁盘** ⇒ 实测老大 20:1x 这三份
+> （`~/.Trash/.solobrave_github_pat` ×3，mtime 20:12/20:12/20:15）
+> **md5 与 keychain 现役那把完全同值** ⇒ ★ **现役 PAT 的明文还在废纸篓里**。
+> ⇒ ⇒ **而且它们以 `.` 开头 = 隐藏文件** ⇒ **macOS Finder 默认不显示** ⇒
+> **老大在废纸篓里根本看不见它们** ⇒ **清完必须按名字核对**：
+> ```bash
+> find ~/.Trash -maxdepth 1 -name '.solobrave_github_pat*' -print   # 必须无输出
+> ```
+> ⇒ ⇒ **首选：Step 2 一开始就用 `mktemp -d` 私有目录 + `trap` 兜底**
+> （飞书那套脚本 `~/.solobrave-secrets/rotate_feishu_secret.sh` 已是这个做法）。
 
 **Step 3 — 验新 PAT 有写权限（真 push，不是只读）**
 
