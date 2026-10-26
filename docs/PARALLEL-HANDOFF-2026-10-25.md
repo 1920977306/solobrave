@@ -1566,3 +1566,63 @@ B 边建议：「④ 还没拿到老大拍板 ⇒ **先别改口径，只加守�
 | B 边原实现 | 结论缓存命中改走 `enqueue_free`，白名单登记挂 `_route_product` ⇒ **已撤回**（`origin/feat/...` 已回退）|
 | A 边实现（更严密）| ① 拆独立函数 `_route_product_verdict_cached` —— 零成本白名单是**函数级**粒度，挂 `_route_product` 会**一并放过该函数未来新增的 `enqueue_free` 调用点 ⇒ 闸门被削弱**；② 新增 `db.has_pending_task()`（只读）—— 零成本入口不返回 status ⇒ 靠它**保住「这个商品正在分析中」这句既有 UX**（B 边原方案删了 duplicate 分支 ⇒ 提示会退化成「秒出结果」⇒ 属「顺手弄坏了别的东西」）|
 | B 边保留的增量 | ① `daren_bot/tools/cache_probe.py`：商品「复用命中数」统计要**两个 action 求和**（结论命中记在独立 action 下，只查旧的会**漏** ⇒ 复用率数字偏低 = 口径漂移）；② `daren_bot/tools/feishu_e2e.py`：「命中结论缓存（扣 5 分）」⇒ 改为「零消耗不扣分」|
+
+---
+
+## 17. `origin/main` 被推了两次（2026-10-26 18:05）—— ⑥ 的现状与新规矩
+
+### 17.1 取证链（remote-tracking reflog 带时间戳；`.git` 共享 ⇒ 两边都看得到）
+
+```
+64f3ee2 → 30b19b8   17:46:20   update by push
+30b19b8 → 2c680b4   17:57:57   update by push
+```
+
+| 谁 | 排除依据 |
+|---|---|
+| A 边（协调边）| ✅ **排除** —— A 边所有 push 都带 `HEAD:dev` 显式 refspec，不存在推 main 的路径 |
+| B 边 | ⚠️ **时间线高度吻合** —— B 边 worktree reflog：17:55:20 `rebase (start): checkout origin/dev` → 17:55:45 rebase 完成（feat = `2c680b4`）→ **17:57:57 main 变成 `2c680b4`** → 17:59:51 B 边汇报把「**main 合并**」列为自己本轮完成的工作。⇒ 已发消息请其确认（**A 边不猜**）|
+| 老大手动 | ⚠️ 未排除 —— 但老大当时正在拍 ⑥（问卷未答），**主动推 main 的动机低**；已一并问过 |
+
+### 17.2 ★ 现状：**零分叉、零丢失 ⇒ 不需要回退**
+
+```
+origin/dev = origin/main = origin/feat/parallel-handoff-1025 = 2c680b4
+git rev-list --count origin/dev..origin/main   → 0     ← main 不含任何 dev 没有的 commit
+git rev-list --count 64f3ee2..origin/main     → 92    ← main 相对起点涨了 92 个 commit
+```
+
+- ④ 的实现（`_route_product_verdict_cached` + `collect_product_verdict_cached`）**在 `origin/main` 上完整**；
+- ④ 相关守卫在 main 内容上复验：**65 passed**（`test_daren_cache_layer` + `test_credits_gate` + `test_credits_gate_adversarial`）；
+- ⇒ **force push 回退到 `64f3ee2` 会白丢 92 个 commit 且是破坏性** ⇒ **不做、也不建议做**。
+
+### 17.3 ★ 新规矩（已落 `AGENTS.md §0.4` + `§16 S`）
+
+1. **任何边都不许推 `origin/main`** —— main 只由**协调边（A 边）在 dev 验收后统一推**；
+2. 其余边一律写全 refspec：`git push origin HEAD:dev` / `HEAD:feat/parallel-handoff-1025`；
+3. **禁止裸 `git push`**（连 `git push origin` 都不行）——
+   ⚠️ 部署目录 local `main` 领先 `origin/main` 时，裸 push 会把未推 commit **顺手带进 main**
+   = **等于替老大执行了 ⑥**（今晚真发生）；
+4. 推之前自查：`git rev-list --count origin/dev..origin/main`（>0 = 有人推了 main）。
+
+### 17.4 ★ 元教训：「未拍板就执行」比「拍错了」更贵
+
+本次 main 被多推 92 个 commit，**看似要回退**；
+但因 dev 与 main 已**零分叉** ⇒ 回退反而白丢 ⇒ **回退本身变贵了**。
+
+⇒ ⇒ **「顺手执行」剥夺了老大的选择权，并让回退变贵** ——
+  这是「动手前确认拍板」比「拍板后执行错」更值钱的真实案例。
+
+⇒ **推 `dev` 与推 `main` 的后果完全不同（main = 生产面），却可能用同一条命令发出**
+  ⇒ ⇒ **破坏力必须体现在命令里**（显式 refspec），不能靠「我记得我推的是 dev」。
+
+### 17.5 当前三线与工作区（18:05 快照）
+
+| 项 | 值 |
+|---|---|
+| `origin/dev` / `origin/main` / `origin/feat/parallel-handoff-1025` | 全部 `2c680b4`，落后 **0** |
+| 部署目录 `/Users/qichen/solobrave-prod` | HEAD `2c680b4`，工作区**干净** |
+| 桌面 clone `/Users/qichen/Desktop/solobrave` | 落后 2 个 commit（A 边已 ff 同步）|
+| 无凭据 worktree `/Users/qichen/sb-dev/alice-noenv` | detached `0ca684f`，无 `.env`，**干净** |
+| 全量 pytest | 1066 passed / 6 skipped / 0 failed |
+| ④ 相关守卫（main 内容上复验）| 65 passed |
