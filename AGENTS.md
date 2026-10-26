@@ -2697,3 +2697,54 @@ A 边在全盘扫描里写了 `except Exception: pass` ⇒ **把「db 打不开�
    ⇒ ⇒ ★ **但「盘点」≠「擦除」**：作废前仍要盘，因为**可能有别的活副本**。
    ⇒ ⇒ ★ **推论：副本地图的「要清多少」≠「要改多少」** ——
    **备份/快照里的旧值本来就是废值，改它们是自找麻烦**（破坏历史真实性 + 多份写风险）。
+
+### Y. ★★ shell 脚本里的中文标点会「吃掉变量名」—— bash 3.2 的 `$VAR（` 陷阱（2026-10-26 新增）
+
+★ **本条是「同类坑只修了一个文件」的实证**：2026-10-24 已在 `scripts/verify_github_pat.sh` 踩过一次并**就地修好**
+⇒ 当时以为「已修」⇒ ★ **2026-10-26 全仓一扫，又在另外 3 个文件里挖出 4 处**，其中 **2 处是现行生产脚本**。
+
+1. ⇒ **现象**：macOS 自带 **bash 3.2** 会把「`$VAR` 后紧跟的全角字符」并进变量名 ——
+   `$code（` 被当成变量 `code（` ⇒
+   - 有 `set -u` ⇒ 报 `code?: unbound variable` ⇒ **脚本中途静默死掉**；
+   - ★★ **装了 `trap cleanup EXIT` ⇒ 退出码变成 0** ⇒ **脚本死了还报「成功」**（§16 N 同款「沉默的假验证」）；
+   - 无 `set -u` ⇒ 变量被吞成空 + **多吐一个乱码字节**（全角字符 3 字节只被吃掉第 1 个）⇒
+     ⇒ **告警消息里的关键信息（状态码 / ID）会凭空消失**，而告警块照常打印 ⇒ 人以为看到了内容。
+2. ⇒ **纪律 1：`$VAR` 后面紧跟非 ASCII 字符时，一律写 `${VAR}`**（`$code（` → `${code}（`）。
+3. ⇒ **纪律 2：修一个文件不算修完 ⇒ 必须全仓扫**（扫描器见本条末尾）。
+4. ⇒ **纪律 3：告警脚本默认检查的端点，必须是「真能返回 200 的那个」** ——
+   否则它是**永久假警报**（本轮 `health_check.sh` 的三个端点全 401 ⇒ 永远报警、永远非 0 退出 ⇒ 谁看都会麻木）
+   ⇒ ★ **告警恒真 = 没有告警**。
+5. ⇒ **纪律 4：告警消息里的关键字段，必须验它真的显示出来了** ——
+   造一个返回 500 的假服务跑一遍，**grep 输出里有没有 `500`**；
+   只看到「报警块打印出来了」是不够的（那正是本轮 `health_check.sh` 报警里**状态码被吞**的原因）。
+6. ⇒ **纪律 5：退出码契约要用整数** ——
+   `raise SystemExit("字符串")` 的退出码是 **1**，不是你以为的那个数 ⇒「断言失败 = 6」的契约直接作废
+   ⇒ 必须 `print(msg)` + `raise SystemExit(6)`。
+7. ⇒ **纪律 6（同类坑：读活着的 WAL 库）** ——
+   `sqlite3.connect("file:...?mode=ro")` 在 **WAL 库且 `-shm` 不在场**时**读不了**
+   （ro 句柄无权创建 `-shm`）⇒ 报 `unable to open database file` ⇒
+   ⇒ **一律用普通 `sqlite3.connect(db)`**（rw 句柄、只做读）；
+   **不要用 `immutable=1`**（它会**忽略 `-wal`** ⇒ 活库上读到陈旧快照）；
+   ⇒ **备份活库用 sqlite `backup API`，不要 `cp`**（`cp` 可能拷到撕裂快照）。
+
+⇒ **全仓扫描器（`$VAR` 后紧跟非 ASCII）**：
+
+```bash
+python3 - <<'PY'
+import os, re, glob
+rx = re.compile(rb'\$[A-Za-z_][A-Za-z0-9_]*(?=[^\x00-\x7f])')
+targets = []
+for root in ("/path/to/repo",):
+    for dp, dn, fn in os.walk(root):
+        if any(s in dp for s in (".git", "node_modules")): continue
+        for f in fn:
+            if f.endswith((".sh", ".bash")): targets.append(os.path.join(dp, f))
+for p in sorted(set(targets)):
+    for i, line in enumerate(open(p, "rb").read().split(b"\n"), 1):
+        for m in rx.finditer(line):
+            print(f"{p}:{i}: {m.group(0)!r}")
+PY
+```
+
+⇒ ★ **注意**：注释里的命中无害（注释不解析）⇒ **逐条人工判读，别一报了之**
+（本轮 `scripts/verify_github_pat.sh` 的命中就在注释里，且那段注释**正是这个坑的记录**）。
