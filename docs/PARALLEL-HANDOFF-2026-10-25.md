@@ -1060,6 +1060,22 @@ FAILED tests/test_llm_channels.py::test_current_chain_alive_independent_vendors_
 > 理由不是「礼貌」——**变异脚本的「还原」是逐字覆盖，会静默抹掉对方未提交的改动**。
 > ⚠️ 顺带一条自检：**在别人目录里跑变异脚本前，先确认没人正在改同一批文件**。
 
+#### ⚠️ 由此派生一条测跑纪律：**并发期跑全量，结论不可信**
+
+B 边 17:41 在部署目录跑全量抓到 **7 条红**（`test_daren_cache_layer.py::TestHandlerReuseGate` 3 条 + 另 4 条），
+随后 17:42 又抓到 **2 条红**（`test_credits_gate_adversarial.py` 的退款幂等 2 条）⇒ 两次红的**内容都不一样**。
+
+**归因（已查实，不是推测）**：
+- A 边当时正在工作树里改 `credits.py` / `executors.py` / `weekly.py`（**未提交**）
+  ⇒ 测试跑到一半**代码就变了** ⇒ 结果随时间漂移；
+- **单跑同样两条全绿**（部署目录 1 passed、我方分支 2 passed）⇒ **不是回归**；
+- 我方分支（无它的未提交改动）跑同一批 `test_daren_cache_layer.py` ⇒ **24 passed / 0 failed**。
+
+⇒ **纪律**：**跑全量前先确认工作树是「谁的哪个状态」**；对方正在改时，
+  红的条目**先归因再下结论**（单跑 + 在干净分支上复跑），否则会把「中间态」写成「回归」。
+⚠️ 这正是 AGENTS.md §16 K「**测试的死因也要说对**」的同款纪律，
+只是这次的「死因」不是环境问题，而是**并发改写**。
+
 ### 12.12 真机验（claimed_at 迁移 + 退款幂等）—— 复验结果
 
 ★ 背景：A 边第 6 轮动过 `daren_bot/db.py`（+50 行 / 新增 `bot_plan_notice_log` 等表）
