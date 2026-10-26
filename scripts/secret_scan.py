@@ -292,7 +292,15 @@ def main():
             print(__doc__, file=sys.stderr)
             return 2
 
-    if not os.path.isdir(os.path.join(ROOT, '.git')):
+    # ★ 2026-10-25 B 边（对抗审查时撞上）：**worktree 的 `.git` 是「文件」不是「目录」**
+    #   （它是一行 `gitdir: /主仓库/.git/worktrees/<名字>` 指针）。
+    #   ⇒ 原来的 `os.path.isdir(ROOT/.git)` 在**任何 worktree 里都判假**
+    #   ⇒ 报「不在 git 仓库里」+ exit 2 ⇒ §7 铁律那道闸门
+    #      **在并行开发目录里根本跑不起来**（B 边 worktree 实测 exit=2）。
+    #   ⇒ 并行开发是本项目的常态（AGENTS.md §0），闸门跑不起来 = 形同虚设
+    #      ⇒ 判定改成「有 .git（**目录或文件**都算）**或** git 自己认这个目录」。
+    dotgit = os.path.join(ROOT, '.git')
+    if not (os.path.exists(dotgit) or run(['git', 'rev-parse', '--show-toplevel']).strip()):
         print('❌ 不在 git 仓库里', file=sys.stderr)
         return 2
 

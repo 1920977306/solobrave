@@ -69,8 +69,9 @@ CREATE TABLE IF NOT EXISTS bot_collect_tasks (
   credits_cost INTEGER NOT NULL DEFAULT 0,
   error        TEXT DEFAULT '',
   created_at   INTEGER NOT NULL,
-  done_at      INTEGER
-);
+  done_at      INTEGER,
+  claimed_at   INTEGER                         -- ★ 2026-10-25 B 边：被 worker 领走的时刻
+);                                               --   （stale 回收按它算，不按 created_at）
 CREATE INDEX IF NOT EXISTS idx_tasks_tenant ON bot_collect_tasks(tenant_key, status);
 
 -- 3.3 商品共享缓存（全平台达人共用，TTL 7-14 天）
@@ -224,6 +225,12 @@ def init_db():
         if "payload" not in cols:
             conn.execute("ALTER TABLE bot_collect_tasks "
                          "ADD COLUMN payload TEXT DEFAULT ''")
+        # 轻量迁移：tasks 表补 claimed_at（worker 领走的时刻）
+        # ★ 2026-10-25 B 边：stale 回收要按「领走多久」算，不能按 created_at
+        #   （否则排队久的任务刚被领走就被判 stale ⇒ 重跑一遍）
+        if "claimed_at" not in cols:
+            conn.execute("ALTER TABLE bot_collect_tasks "
+                         "ADD COLUMN claimed_at INTEGER")
         # 轻量迁移：tenants 表补 owner_open_id（多维表格创建后授权给达人本人）
         cols = {r[1] for r in conn.execute("PRAGMA table_info(bot_tenants)")}
         if "owner_open_id" not in cols:
@@ -553,23 +560,50 @@ def claim_next_task() -> dict:
         if not r:
             return {}
         cur = conn.execute(
-            "UPDATE bot_collect_tasks SET status='collecting' WHERE id=? AND status='pending'",
-            (r["id"],))
+            "UPDATE bot_collect_tasks SET status='collecting', claimed_at=? "
+            "WHERE id=? AND status='pending'",
+            (now_ts(), r["id"]))
         if cur.rowcount != 1:
             return {}  # 被别的 worker 抢走
         d = dict(r)
         d["status"] = "collecting"
+        d["claimed_at"] = now_ts()
         return d
 
 
+# ★ 2026-10-25 B 边：僵死回收的时间门槛（秒）。
+#   为什么要有门槛：原来的回收是「把所有 collecting 打回 pending」——
+#   **不区分是不是真的卡死了** ⇒ worker 重启的重叠窗口里，
+#   **另一个 worker 正在执行的任务会被抢回重跑** ⇒
+#     ① 算力跑两遍（平台成本双份）
+#     ② 两个 worker 都失败时 ⇒ 退款两次（白送积分）
+#   ⇒ 门槛取值依据：单次采集最长 timeout=240s（见 executors 的
+#     collect_product_by_url），视频拆解（下载+转写+vision+报告）更久 ⇒
+#     取 30 分钟，远高于任何正常任务，够宽松也不至于卡死回收。
+STALE_COLLECTING_SECONDS = 1800
+
+
 def reclaim_stale_collecting() -> int:
-    """worker 启动时把残留的 collecting 打回 pending 重跑。
+    """worker 启动时把**僵死**的 collecting 打回 pending 重跑。
+
     进程重启后内存里的 buyin collect_id 已丢、轮询线程已死，这些任务永远不会
-    自己完结；积分在入队时已扣，重跑不重复收费。返回回收条数。"""
+    自己完结；积分在入队时已扣，重跑不重复收费。返回回收条数。
+
+    ★ 2026-10-25 B 边（对抗审查）：**加了时间门槛**。
+      原来这里是「把所有 collecting 打回 pending」——
+      **不区分是不是真的卡死了** ⇒ worker 重启的重叠窗口里，
+      另一个 worker 正在执行的任务会被抢回重跑（算力跑两遍 + 可能双退）。
+      ⇒ 现在只回收「领走超过 STALE_COLLECTING_SECONDS 秒」的：
+        - 判据用 `claimed_at`（**领走**的时刻）而不是 `created_at` ——
+          否则排队久的任务刚被领走就被判成僵死 ⇒ 白重跑一遍。
+        - `claimed_at` 为空的老任务（旧数据没这列）也回收 —— 它们本来就是旧残留。
+    """
     with db_ctx() as conn:
         cur = conn.execute(
             "UPDATE bot_collect_tasks SET status='pending', error='' "
-            "WHERE status='collecting'")
+            "WHERE status='collecting' AND ("
+            "  claimed_at IS NULL OR claimed_at < ?)",
+            (now_ts() - STALE_COLLECTING_SECONDS,))
         return cur.rowcount
 
 
@@ -578,6 +612,77 @@ def mark_task(task_id: str, status: str, error: str = ''):
         conn.execute(
             "UPDATE bot_collect_tasks SET status=?, error=?, done_at=? WHERE id=?",
             (status, error[:500], now_ts() if status in ('done', 'failed') else None, task_id))
+
+
+def fail_task_and_refund(task_id: str, error: str = '', tenant_key: str = '',
+                          cost=None) -> tuple:
+    """★ 原子「标记失败 + 返还积分」—— 同一个任务**最多退一次**。
+
+    ★★ 为什么必须是一个操作（2026-10-25 B 边对抗审查）：
+      退款侧之前是「先 `mark_task(failed)` → 再 `refund`」**两个独立写**：
+        ① **没有幂等保护** ⇒ 同一个任务被 `_fail` 两次就**退两次钱**
+           （可达路径：worker 重启时 reclaim 把 collecting 打回 pending
+             ⇒ 重跑又失败 ⇒ 双退；`bot_credits_ledger` 又**没有**
+             `ref_task_id` 唯一约束 ⇒ DB 层拦不住）
+           ⇒ **白送积分**（比多扣更糟：那是直接造钱）。
+        ② 两个写不在一个事务 ⇒ 崩溃窗口里「标记了失败但没退款」
+           ⇒ 达人的分**永久被扣**（`failed` 任务不会被 reclaim 捡回来重试）。
+      ⇒ 现在：**查幂等（流水里退过没有）→ 标记 + 退款（同一事务）**。
+      与扣费侧的 `enqueue_task_charged` **同型**
+      （那边解决「重复扣费」，这边解决「重复退款」）。
+
+    ★ 幂等判据用**流水**（`action='refund' AND ref_task_id=?`）而不是任务状态：
+      状态与退款是两个独立写，崩溃窗口里可能出现
+      「状态=failed 但没退」（按状态判 ⇒ 永远不补退）
+      「钱退了但状态没改」（按状态判 ⇒ 重复退）⇒ 只有流水说了算。
+
+    ★★ **金额与租户从哪来**（两种口径，谁更真用谁）：
+      - 任务行**存在** ⇒ 用**行里的** `tenant_key` / `credits_cost`
+        （账本真源：实扣多少就退多少，不信调用方的数字）。
+      - 任务行**不存在** ⇒ 用**调用方传入的** `tenant_key` / `cost` 兜底。
+        ★ 为什么要有兜底：**钱的事上「拿不准就不退」是错的** ——
+          静默跳过退款 = 达人的分被吞（客诉 + 信任损失）。
+          宁可按调用方给的值退（最多退多，但有流水可查、且幂等判重仍生效），
+          也不能因为查不到行就一分钱不退。
+          （这条兜底也让 A 边的 `test_failure_text.py::test_fail_refunds_still_happens`
+            用「不存在于库里的假任务」时依然能验到退款。）
+
+    返回 `(refunded: bool, balance: int)`：
+      refunded=True  本次真的退了钱
+      refunded=False  已经退过（幂等命中）/ 该任务本来就没扣费
+    """
+    with db_ctx() as conn:
+        row = conn.execute(
+            "SELECT tenant_key, credits_cost FROM bot_collect_tasks WHERE id=?",
+            (task_id,)).fetchone()
+        if row:
+            tenant_key = row["tenant_key"]
+            cost = int(row["credits_cost"] or 0)
+        else:
+            cost = int(cost or 0)
+        already = conn.execute(
+            "SELECT COUNT(*) FROM bot_credits_ledger "
+            "WHERE action='refund' AND ref_task_id=?", (task_id,)).fetchone()[0]
+        if row:
+            # 标记失败（与退款同一个事务 ⇒ 要么都成，要么都不成）
+            conn.execute(
+                "UPDATE bot_collect_tasks SET status='failed', error=?, done_at=? WHERE id=?",
+                (error[:500], now_ts(), task_id))
+        if cost > 0 and tenant_key and not already:
+            br = conn.execute("SELECT balance FROM bot_credits_accounts WHERE tenant_key=?",
+                              (tenant_key,)).fetchone()
+            balance = int(br["balance"]) if br else 0
+            new_balance = balance + cost
+            conn.execute(
+                "INSERT INTO bot_credits_accounts (tenant_key, balance, updated_at) VALUES (?,?,?) "
+                "ON CONFLICT(tenant_key) DO UPDATE SET balance=excluded.balance, "
+                "updated_at=excluded.updated_at",
+                (tenant_key, new_balance, now_ts()))
+            _ledger(conn, tenant_key, "refund", -cost, new_balance, 0, task_id)
+            return True, new_balance
+        br = conn.execute("SELECT balance FROM bot_credits_accounts WHERE tenant_key=?",
+                          (tenant_key,)).fetchone() if tenant_key else None
+        return False, (int(br["balance"]) if br else 0)
 
 
 def save_task_payload(task_id: str, payload: str):

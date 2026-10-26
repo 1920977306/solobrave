@@ -144,7 +144,30 @@ curl -s -X POST "http://127.0.0.1:8092/admin/api/plan-scan?token=$TOKEN" \
 > ⇒ 已用 `git merge-tree` 预演：B 边分支与 `origin/dev` 的冲突只有
 >    `daren_bot/worker.py` + 本交接单（**已知的两处**），`db.py` **自动合并干净**。
 > ⇒ 但 B 边若在 `db.py` 里也加了表，注意**别和 A 边的 `bot_plan_notice_log` 撞名**。
+| `daren_bot/db.py` | **B 边** | 2026-10-25 19:45 | ✅ 已交 | `fail_task_and_refund()` 原子退款 + `claimed_at` 列 + stale 门槛（**与 A 边改动区域不重叠**）|
+| `daren_bot/config.py` | **B 边** | 2026-10-25 19:45 | ✅ 已交 | 只在 `COST_TABLE` 上方加计费口径注释（**与 A 边 `_load_env_file()` 区域不重叠**）|
+| `daren_bot/worker.py` | **B 边** | 2026-10-25 19:45 | ✅ 已交 | `_fail` 的退款部分改走原子函数；**A 边的话术/告警层全保留**（按 §7.2 配方合的）|
+| `scripts/secret_scan.py` | **B 边** | 2026-10-25 18:40 | ✅ 已交 | 修「worktree 里跑不起来」（`.git` 在 worktree 是文件）|
+| `tests/test_credits_gate_adversarial.py`（新）| **B 边** | 2026-10-25 17:50 | ✅ 已交 | 19 条对抗守卫（消耗侧 + 退款侧）|
+| `scripts/mutate_gate_adversarial.py`（新）| **B 边** | 2026-10-25 17:50 | ✅ 已交 | 变异验证（9 个变异，**9/9 全抓**）|
+| `docs/ADVERSARIAL-REVIEW-2026-10-25.md`（新）| **B 边** | 2026-10-25 17:50 | ✅ 已交 | 对抗审查报告 |
+| `daren_bot/db.py` | **B 边** | 2026-10-25 19:45 | ✅ 已交 | `fail_task_and_refund()` 原子退款 + `claimed_at` 列 + stale 门槛（**与 A 边改动区域不重叠**）|
+| `daren_bot/config.py` | **B 边** | 2026-10-25 19:45 | ✅ 已交 | 只在 `COST_TABLE` 上方加计费口径注释（**与 A 边 `_load_env_file()` 区域不重叠**）|
+| `daren_bot/worker.py` | **B 边** | 2026-10-25 19:45 | ✅ 已交 | `_fail` 的退款部分改走原子函数；**A 边的话术/告警层全保留**（按 §7.2 配方合的）|
+| `scripts/secret_scan.py` | **B 边** | 2026-10-25 18:40 | ✅ 已交 | 修「worktree 里跑不起来」（`.git` 在 worktree 是文件）|
+| `tests/test_credits_gate_adversarial.py`（新）| **B 边** | 2026-10-25 17:50 | ✅ 已交 | 20 条对抗守卫（消耗侧 + 退款侧）|
+| `scripts/mutate_gate_adversarial.py`（新）| **B 边** | 2026-10-25 17:50 | ✅ 已交 | 变异验证（9 个变异，**9/9 全抓**）|
+| `docs/ADVERSARIAL-REVIEW-2026-10-25.md`（新）| **B 边** | 2026-10-25 17:50 | ✅ 已交 | 对抗审查报告 |
 
+> ✅ **B 边第 7 轮回执（2026-10-26 16:40）** —— 冲突面比预演还小：
+>   `daren_bot/db.py` **自动合并干净**（B 边加 `claimed_at` 列、A 边加 `bot_plan_notice_log` 表
+>   ⇒ 区域不重叠，**没撞名**）；`worker.py` / `config.py` 也自动合（按 §7.2 配方）。
+>   ⇒ **只有本交接单的「占用登记」是文本冲突 ⇒ 两段都留**。
+>   ⚠️ 补一条给 A 边：B 边 `fail_task_and_refund()` **多带两个兜底参数**
+>   （`tenant_key` / `cost`）—— 因为 A 边 `test_failure_text.py::test_fail_refunds_still_happens`
+>   用的是**不存在于库里的假任务** ⇒ 没有兜底就查不到行 ⇒ 不退款 ⇒ **那条测试会红**。
+>   ⇒ 口径：任务行存在 ⇒ 用行里的（账本真源）；行不存在 ⇒ 用调用方给的值兜底
+>   （**钱的事上「拿不准就不退」是错的** ⇒ 静默跳过退款 = 达人的分被吞）。
 > ⚠️ **B 边注意**：A 边与 B 边**都改过** `daren_bot/worker.py`、`config.py`、
 > `executors.py`、`handler.py`、`main.py`、`admin.py` ⇒ 合 `origin/dev` 时**这几处会冲突**。
 > ⇒ 合法：把 A 边 `origin/dev`（`8f50052`+）与 B 边 `origin/feat/parallel-handoff-1025`
@@ -154,6 +177,28 @@ curl -s -X POST "http://127.0.0.1:8092/admin/api/plan-scan?token=$TOKEN" \
 > ⇒ `solobrave-server.py` **两边都没动**（B 边的 `58f864d` 只碰 daren_bot/scripts/docs）⇒ 无冲突。
 
 ### 最近更新
+
+- **2026-10-26 16:20 B 边**：按 A 边 §7 的合并配方，把积分闸门修复**重基到最新 `origin/dev`**
+  （`7d57796`）上 —— 冲突只有 `worker.py::_fail` 一个函数，
+  **按 §7.2 合：两边特性都保住**（A 边的话术/告警层 + B 边的原子幂等退款）。
+  ⚠️ 顺带确认：**上游 `worker._fail` 当时仍是 `mark_task` + `db.refund` 两个独立写**
+  ⇒ B 边抓的「重复退款 = 白送积分」缺陷**在生产代码里确实活着**。
+  📌 **沙箱对照验证**（真库副本，线上代码 vs 修复后代码，同一段探针）：
+
+  | | 线上现有代码 | 修复后代码 |
+  |---|---|---|
+  | 同一任务失败两次的余额 | 900 → 1000 → **1100**（退了两遍，余额超过初始值）| 900 → 1000 → **1000** ✔ |
+  | 退款流水条数 | 2 条 | 1 条 ✔ |
+  | 刚被领走的任务 | **被回收**（会被重跑 ⇒ 算力双跑）| 不被回收 ✔（2 小时前的僵死任务正常回收）|
+  | `claimed_at` 迁移 | 无此列 | ✔ 已建 |
+
+  📌 **三个真缺口全部闭合**（老大 2026-10-25 拍板「按你的建议来」）：
+  ① 退款幂等（`db.fail_task_and_refund()` 原子函数，与扣费侧 `enqueue_task_charged` 同型）；
+  ② `reclaim_stale_collecting()` 加 30 分钟时间门槛（判据用 `claimed_at`，不用 `created_at`）；
+  ③ 计费口径写死在 `config.py` 成本表旁：**按功能收费，不按调用次数收费**。
+  📌 **盲区结论**：A 边守卫全部从「入队侧」看 ⇒
+  **「直接调 LLM 而不入队」的新功能能绕过整道闸门而 19 条守卫全绿**
+  （实测 9 个变异里 **8 个**下 A 边全绿、B 边全红）⇒ 两份守卫互补。
 
 - **2026-10-25 19:58 A 边**：飞书告警切到运营租户最近会话（老大确认「我看得见」）+
   `daren_bot/config.py` 加 `.env` 加载；清理没用的 AI 员工（删「测试1」「子龙」，

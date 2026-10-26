@@ -65,7 +65,23 @@ COST_RECOLLECT = 100        # 采集失败后的重采（= 又采一次，成本
 #   **不消耗算力**的功能（纯查库 + 纯函数：排品表查询 / 选品推荐 / 接品登记 /
 #   余额查询 / 订阅开关）**不扣分**，也不许出现在这张表里
 #   （塞进来 = 给白干的路开闸门）。
-#   ⇒ 闸门见 `daren_bot/credits.py`；防漏测试见 `tests/test_credits_gate.py`。
+#   ⇒ 闸门见 `daren_bot/credits.py`；防漏测试见 `tests/test_credits_gate.py`
+#     （入队侧）与 `tests/test_credits_gate_adversarial.py`（算力消耗侧）。
+#
+# ★★ 计费口径（2026-10-25 老大拍板，B 边对抗审查时确认写死）：
+#     **按「功能」收费，不按「调用次数」收费。**
+#     一次收费覆盖该功能在**一次请求内**的所有重试与降级环尝试：
+#       - `qa` 收 1 分，但降级链 + 重试最多打 **3 次** LLM；
+#       - `collect_product` 收 20 分，覆盖「开浏览器采集 + 出商品结论」全部调用；
+#       - `weekly_report` 收 30 分，覆盖周报生成 + AI 经营建议。
+#     ⇒ 为什么这么定：
+#       ① 达人对「我发一条消息扣多少分」要有**确定答案** ——
+#          按调用计费 ⇒ 同一条消息可能扣 1 分也可能扣 3 分 ⇒ 达人对不了账。
+#       ② 降级环与重试是**我们的可用性工程**，不是达人的选择 ——
+#          让达人为我们的重试买单不合理。
+#       ③ 但**倍数必须登记**（`tests/test_credits_gate_adversarial.py` 的
+#          `COMPUTE_SITES.max_calls` 字段）⇒ 成本核算不靠猜，靠表。
+#     ⚠️ 口径要改 ⇒ 改这里 + 改那张登记表，两处一起改（单改一处 = 口径漂移）。
 COST_TABLE = {
     "collect_douyin": COST_COLLECT_DOUYIN,
     "collect_product": COST_COLLECT_PRODUCT,

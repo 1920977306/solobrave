@@ -168,11 +168,21 @@ class Worker(threading.Thread):
           之前这里直接把异常原文发给达人（`RuntimeError: 达人端采集账号登录态过期了，
           跟运营老师说一声扫码重登就好`）⇒ 达人看不懂、运营收不到。
           现在：**达人**走 `failure_text` 的话术层；**运营**走日志 + 告警通道。
+
+        ★★ 2026-10-25 B 边（积分闸门对抗审查）：**退款改成走原子函数**
+          `db.fail_task_and_refund()` —— 一个事务里「查幂等 → 标记 failed → 退款」。
+          原来这里是 `mark_task(failed)` + `db.refund(...)` **两个独立写**：
+            ① **没有幂等保护** ⇒ 同一任务 `_fail` 两次就**退两次钱**
+               （worker 重启时 reclaim 把 collecting 打回 pending ⇒ 重跑又失败 ⇒ 双退；
+                 `bot_credits_ledger` 又没有 `ref_task_id` 唯一约束 ⇒ DB 层拦不住）
+               ⇒ **白送积分**（比多扣更糟：直接造钱）。
+            ② 两个写不在一个事务 ⇒ 崩溃窗口「标记失败但没退款」
+               ⇒ 达人的分**永久被扣**（failed 任务不会被 reclaim 捡回来重试）。
+          ⇒ 幂等判据是**流水**（退过没有），不是任务状态。
         """
-        db.mark_task(task["id"], "failed", reason)
         cost = int(task.get("credits_cost") or 0)
-        if cost > 0:
-            db.refund(task["tenant_key"], cost, "refund", ref_task_id=task["id"])
+        refunded, _balance = db.fail_task_and_refund(
+            task["id"], reason, tenant_key=task.get("tenant_key", ""), cost=cost)
 
         # ★ 达人看到的**只有**人话；技术细节不外发
         product_scene = task.get("type") in ("product", "image")
@@ -183,8 +193,9 @@ class Worker(threading.Thread):
             user_text = failure_text.user_text_for(RuntimeError(reason),
                                                     product=product_scene)
             ops_text = reason
-        log.warning("[task-failed] id=%s type=%s tenant=%s ops=%s",
-                    task["id"], task.get("type"), task.get("tenant_key"), ops_text)
+        log.warning("[task-failed] id=%s type=%s tenant=%s refunded=%s cost=%s ops=%s",
+                    task["id"], task.get("type"), task.get("tenant_key"),
+                    refunded, cost, ops_text)
 
         # ★ 登录态掉了 ⇒ 运营必须知道（达人看到的「查不到数据」根因就在这）
         if exc is not None and failure_text.is_login_failure(exc):
