@@ -1829,3 +1829,58 @@ logged = 'ecom_us_lt_buyin' in names and 'sessionid' in names
    `expires_utc` / `last_access_utc`）—— cookie 有效就说明登录态在；
 2. 再看浏览器 History 的最后访问（`Default/History`）—— 停在哪一页一目了然；
 3. 最后才考虑「让老大重扫」。
+
+---
+
+## 15. 服务端代理链铁律:声明端 ≠ 使用端 + 「第一环死 ≠ 全员死」(2026-10-26 新增)
+
+> 触发:老大「**木木回复消息,怎么回复跟以前弄的不一样啊**」
+> ⇒ 当场挖出 **6 处根因**,**全是「声明端 ≠ 使用端」形态**。
+> 详见 `docs/PARALLEL-HANDOFF-2026-10-25.md` §9(提交 `24a7fb9` / `82d10c7`)。
+
+### A. 「声明端 ≠ 使用端」的三种形态(本轮全踩了一遍)
+
+| 形态 | 声明端(人配的) | 使用端(真跑的) | 后果 |
+|---|---|---|---|
+| **路径** | `agents.json` 的 `openclawName` | `openclaw.json` 的 `agents.entries[].workspace` | 木木(`openclawName='main'`,6 人里唯一错位)读写**贾维斯**的 workspace;写文档会**覆盖别人的 SOUL.md** |
+| **配置** | `settings.json` 的 `llm.providers[].baseUrl` | `_resolve_ai_base_url()` 的**内置 mapping** | 配置**静默失效**(minimax 实际打老端点 → 404) |
+| **协议** | provider 名 / 端点 | **写死在调用处**的 OpenAI 形状 | 换端点后协议 / 端点 / 模型三者全错位 |
+
+⇒ **凡是要「配置生效」的地方,都必须问一句:使用端到底读的是谁?**
+⇒ **协议不许写死在调用处** —— 统一走 `provider_adapters`(唯一协议真源)。
+
+### B. 「第一环死」≠「全员死」—— 降级链**之前**的早退闸门会杀死整条链
+
+★ 实测:kimi 月度额度耗尽 ⇒ 4 把 key 全被拉黑
+⇒ 旧实现在**进链之前**就 503「Key 池已空」
+⇒ 兜底档(minimax 套餐 M3,实测 200 可用)**根本没机会接管**。
+
+⇒ **早退闸门必须问:链后面还有档位吗?**
+- chain 引擎:带**空 primary** 进链,`_chain_kimi_key_iter`(池空即止)自己往下走;
+- legacy 引擎:没有链可退 ⇒ **仍 503**(这条要保留,别拆)。
+
+### C. 闸门的返回码会被下游当成**健康信号**
+
+★ 运维健康检查(`~/Developer/solobrave-ops/healthcheck.py`)用**空 body** 探测代理端口,
+它**只把 400/401/403/404/405/422 当作「端口活着」**
+⇒ 我们返回 503 ⇒ 它判「主服务故障」⇒ **连续误报 13 次以上**。
+
+⇒ **闸门选错状态码 ⇒ 上游监控整套失真。**
+⇒ 死因文案要按**错误语义**写(空 body 就报「空 body」,别报「Key 池已空」)。
+
+### D. 看着有覆盖 ≠ CI 跑得到
+
+★ `tests/` 下有 4 个**脚本式**测试文件(`main()` + `check()` 风格),
+pytest **收集 0 条** ⇒ 看着有覆盖,CI 其实跑不到
+(本轮 `tests/test_proxy_engine.py` 在第一条就崩 ⇒ **链引擎核心覆盖一直是死的**)。
+
+⇒ **改共享模块前先确认「相关测试真的会被执行」**;新测试一律 pytest 风格。
+
+### E. 员工设定以 **OpenClaw 运行时**为准,不是 agents.json
+
+★ 员工的完整人格 / 工具清单存在**它真正跑的那个 workspace**
+(`openclaw.json` 的 `entry.workspace`),不是 `agents.json` 的字段
+(木木的 `SOUL.md` 曾被截断成 304/556 字、且**没有 TOOLS.md**)。
+
+⇒ 改设定走服务端 `POST /api/openclaw/write-agent-docs`(按 `entry.workspace` 解析 + 归属校验),
+**别手改 workspace 目录**(会绕过归属校验)。
