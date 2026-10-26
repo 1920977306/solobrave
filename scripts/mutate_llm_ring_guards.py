@@ -75,7 +75,12 @@ def run_tests(selector: str) -> tuple:
     r = subprocess.run([sys.executable, "-m", "pytest", selector, "-q",
                         "--no-header", "-p", "no:cacheprovider"],
                        capture_output=True, text=True)
-    return r.returncode, (r.stdout or "")[-800:]
+    # ⚠️ 2026-10-26（B 边 §12.9 反馈后修）：截取窗口从 800 → 8000 字符。
+    #   起因：pytest 的失败详情在**中段**，末尾只有摘要（"1 failed, 23 passed"）
+    #   ⇒ 旧的 800 字符窗口**看不到死因文案**（「环境未配置」在失败详情里）
+    #   ⇒ 基线自检分不清「环境性红」与「真漂移」⇒ 静默走错分支。
+    #   ⇒ 窗口太小 = 判据看不见要判的东西。
+    return r.returncode, (r.stdout or "")[-8000:]
 
 
 # 智谱环（变异体）：故意用**字面量**而不是模块常量 ——
@@ -187,14 +192,69 @@ failed = []
 # ★★ 基线自检：**变异之前**测试必须是全绿的。
 #   否则「变异后变红」证明不了任何事 —— 基线本来就红的话，
 #   每个变异都会「被抓到」，是假象。
+#
+# ★★★ 2026-10-26（B 边 §12.9 反馈后修）：基线自检必须**分清两种红**。
+#   起因（真·「沉默的假验证」）：
+#     `tests/test_llm_channels.py::test_current_chain_alive_independent_vendors_is_one`
+#     在**没有 `.env` 的环境**（干净 clone / CI / 并行 worktree）里**必然红**
+#     ⇒ 旧逻辑 `if rc != 0: sys.exit(1)` ⇒ 脚本在那些环境里
+#     **exit 1 且 0 个变异被执行** ⇒ **守卫线根本没被验证，却看不出任何异常**
+#     （只看到「基线不绿」，会误以为是代码坏了）。
+#
+#   ⇒ 修法（两层，缺一层都不够 —— 见 §12.9）：
+#     ① 测试层：死因判据改成「alive 空 ⇒ 环境未配置」（已由 A 边在 a986b66 之后的
+#        `0fe3bb1` 落地）⇒ 那条红会**明确说「环境未配置」**；
+#     ② ★ 本层（脚本层）：基线若红，且**失败原因恰是「环境未配置」**
+#        ⇒ 判为「**环境不足，跳过变异验证**」⇒ **明确提示是环境不是代码**，
+#           退出码仍非 0（不许假装通过），但**说清真相**；
+#        基线若红且是**别的**原因 ⇒ 仍按「基线不绿 ⇒ 变异验证无意义」处理。
+#
+#   ⚠️ 判据必须**按错误语义**（不是状态码）：认「失败输出里是否出现
+#      「环境未配置」这个死因标记」⇒ 环境性红 vs 真漂移，两者语义互斥。
+_ENV_MARKER = "环境未配置"
+
+
+def _is_env_only_red(out: str) -> bool:
+    """基线的红是不是**纯环境问题**（而不是代码漂移）。
+
+    判据（按错误语义，不是状态码）：
+      失败输出里必须出现死因标记「环境未配置」
+      ⇒ 说明那条红是「这个环境没配凭据」，不是「代码变了」。
+
+    ⚠️ 为什么不能只看「有 .env 没有」：
+      有 .env 也能缺别的东西（Code 登录态、OpenClaw key store）⇒
+      文件存在 ≠ 环境齐备 ⇒ 只能认**死因标记**。
+    """
+    return _ENV_MARKER in out
+
+
 print("=== 基线自检（变异前必须全绿）===")
+_env_blocked = False
 for sel in BASELINE:
     rc, out = run_tests(sel)
-    if rc != 0:
-        print(f"❌ 基线不绿（{sel}）⇒ 变异验证无意义，先修好基线：")
-        print(out)
-        sys.exit(1)
-    print(f"  ✅ {sel} 全绿")
+    if rc == 0:
+        print(f"  ✅ {sel} 全绿")
+        continue
+    if _is_env_only_red(out):
+        # ⇒ 环境性红：**不执行变异**（跑了也是假象），但说清是环境问题
+        print(f"  ⚠️  {sel} 因**环境未配置**而红（不是代码漂移）")
+        print("      ⇒ 这个环境缺凭据（.env 的 MINIMAX_CP_API_KEY / Code 登录态 /")
+        print("        OpenClaw key store）⇒ **基线不可能全绿 ⇒ 变异验证无意义**")
+        print("      ⇒ 本次**跳过全部变异**（不是「变异没被抓住」，是压根没跑）")
+        print("      ⇒ 请在**配齐凭据的环境**（部署目录 solobrave-prod）重跑本脚本")
+        _env_blocked = True
+        continue
+    # ⇒ 真·基线不绿（代码漂移）⇒ 照旧处理
+    print(f"❌ 基线不绿（{sel}）⇒ 变异验证无意义，先修好基线：")
+    print(out)
+    sys.exit(1)
+
+if _env_blocked:
+    print()
+    print("=" * 60)
+    print("⛔ 变异验证**未执行**（环境未配置）—— 这不是「守住了」，是「没跑」")
+    print("=" * 60)
+    sys.exit(2)
 
 for name, rel, old, new, sel in CASES:
     print(f"\n=== {name} ===")
