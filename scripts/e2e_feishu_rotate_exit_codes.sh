@@ -187,6 +187,12 @@ make_fixture() {
       # db 存在但不是 sqlite 库
       printf 'this is definitely not a sqlite database\n' > "${APP_DB}"
       ;;
+    garbage_store)
+      # ★ store db 是垃圾文件（app db 仍是好的）⇒ 命中「备份 store 失败」分支
+      #   ⇒ 这条**可判别**：app db 好 ⇒ 预检不会替它兜底 ⇒ 单独改坏该分支它就会红
+      make_db "${TEN}|${APP}|${OLD_V}"
+      printf 'this is definitely not a sqlite database\n' > "${SBFB_STORE}"
+      ;;
     notable)
       # ★ 是**合法 sqlite 库**，但**没有 tenant_feishu_config 这张表**
       #   ⇒ 备份步骤能成功 ⇒ 命中的是**预检的读库失败分支**（except Exception）
@@ -204,14 +210,27 @@ PY
   esac
 }
 
-# 读假 store 的 secret 指纹（只输出指纹，不输出明文）
-read_store_fp() {
+# 读假 store 的 secret 状态（只输出指纹，不输出明文）
+# ★ 四态，与 db_state_of 同构：
+#   NOFILE          = 文件不存在
+#   GARBAGE:<md5>   = 文件存在但不是 sqlite 库（带内容指纹 ⇒ 内容被改也能发现）
+#   NOROW           = 是 sqlite 库但没有这一条
+#   <fp>            = 该条 value 的指纹
+read_store_state() {
   python3 - "$SBFB_STORE" "$NAME" <<'PY'
-import hashlib, sqlite3, sys
-con = sqlite3.connect(sys.argv[1])
-row = con.execute("SELECT value FROM secret_store_entries WHERE name=?", (sys.argv[2],)).fetchone()
-con.close()
-print(hashlib.md5(str(row[0]).strip().encode()).hexdigest()[:12] if row else "MISSING")
+import hashlib, os, sqlite3, sys
+p, name = sys.argv[1], sys.argv[2]
+if not os.path.isfile(p):
+    print("NOFILE"); sys.exit(0)
+try:
+    con = sqlite3.connect(p)
+    row = con.execute("SELECT value FROM secret_store_entries WHERE name=?", (name,)).fetchone()
+    con.close()
+except Exception:
+    print("GARBAGE:" + hashlib.md5(open(p, "rb").read()).hexdigest()[:12]); sys.exit(0)
+if row is None:
+    print("NOROW"); sys.exit(0)
+print(hashlib.md5(str(row[0]).strip().encode()).hexdigest()[:12])
 PY
 }
 
@@ -254,14 +273,14 @@ run_case() {
   local name="$1" stub_code="$2" infile="$3" exp_rc="$4" exp_store="$5" exp_db="$6" variant="$7"
   local rc out store_before db_before store_after db_after sentinel bad_items=""
   make_fixture "$variant"
-  store_before="$(read_store_fp)"
+  store_before="$(read_store_state)"
   db_before="$(db_state_of)"
   STUB_CODE="$stub_code" bash "$SCRIPT" "$NAME" \
       --db "$APP_DB" --store-db "$SBFB_STORE" --bak-dir "$SANDBOX/bak" \
       < "$infile" > "${SANDBOX}/out.txt" 2>&1
   rc=$?                       # ★ 直接取，不经过管道（管道会洗掉退出码）
   out="${SANDBOX}/out.txt"
-  store_after="$(read_store_fp)"
+  store_after="$(read_store_state)"
   db_after="$(db_state_of)"
   if grep -q '哨兵：全部步骤完成' "$out"; then sentinel="yes"; else sentinel="no"; fi
 
@@ -313,6 +332,7 @@ if run_case "S5c 同 app_id 命中两行 ⇒ 退出码 6 + 零写入"           
 if run_case "S5d db 文件不存在 ⇒ 退出码 6 + 零写入"                          0 "${SANDBOX}/in_ok.txt" 6 no no nofile;           then PASS=$((PASS+1)); else FAIL=$((FAIL+1)); fi
 if run_case "S5e db 存在但不是 sqlite 库 ⇒ 退出码 6 + 零写入"                0 "${SANDBOX}/in_ok.txt" 6 no no garbage;          then PASS=$((PASS+1)); else FAIL=$((FAIL+1)); fi
 if run_case "S5f db 是合法 sqlite 但没有目标表 ⇒ 退出码 6 + 零写入"        0 "${SANDBOX}/in_ok.txt" 6 no no notable;          then PASS=$((PASS+1)); else FAIL=$((FAIL+1)); fi
+if run_case "S5g store db 是垃圾文件 ⇒ 退出码 6 + 零写入（备份 store 失败分支）" 0 "${SANDBOX}/in_ok.txt" 6 no no garbage_store;  then PASS=$((PASS+1)); else FAIL=$((FAIL+1)); fi
 
 echo ""
 echo "--- S5d 额外断言：预检不得凭空造出 db 文件 ---"
