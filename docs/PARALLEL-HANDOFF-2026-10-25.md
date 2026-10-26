@@ -178,6 +178,24 @@ curl -s -X POST "http://127.0.0.1:8092/admin/api/plan-scan?token=$TOKEN" \
 
 ### 最近更新
 
+- **2026-10-26 16:50 B 边**：★ **已上线**（部署目录 `solobrave-prod` 的 `main` @ `3cd51d2`）。
+  合入方式：`git merge --ff-only origin/feat/parallel-handoff-1025`（**fast-forward，无冲突**）。
+  上线后逐项验过（**都是实测，不是推断**）：
+  - 全量 pytest（部署目录，有 `.env`）⇒ **1046 passed / 4 skipped**；
+  - 重启 `com.solobrave.daren-bot` ⇒ **真库 `bot_collect_tasks.claimed_at` 列已建**（`cmd_serve` 调 `db.init_db()` 走迁移）
+    ⇒ 这是「新代码已加载」的硬证据（旧 db.py 不会建这一列）；
+  - **真库退款幂等**（独立探针租户 `probe_gate_1026b`，验完清理）：
+    扣 100 分 ⇒ 失败 3 次 ⇒ `refunded=True/False/False`、余额恒为 1000、**退款流水只 1 条**、任务 `failed` ✔；
+  - 僵死门槛：`STALE_COLLECTING_SECONDS=1800`，**只读核算**当前 collecting=0 / 会被回收=0
+    ⇒ **没调用 reclaim**，没动生产正在跑的任务；
+  - 三个服务 8092 / 8080 / 7188 全部 200。
+  ⚠️ 合并过程记录（对以后有用）：
+    中间被挡过 4 次，**每次都是「别人正在改的文件」**（config.py / db.py / 交接单 / test_llm_channels.py）——
+    git 都是**干净地拒绝**（HEAD 未动、工作树完好）⇒ **合并前先 `git status` 看交集，
+    不要用 stash 硬闯**（老大 2026-10-26 拍板「等它提交再合」是对的）。
+    另外：`origin/dev` 与部署目录本地 `main` 会**分叉**（A 边本地有未推 commit）⇒
+    要先 `git rebase main` 再 FF，否则「Not possible to fast-forward」。
+
 - **2026-10-26 16:20 B 边**：按 A 边 §7 的合并配方，把积分闸门修复**重基到最新 `origin/dev`**
   （`7d57796`）上 —— 冲突只有 `worker.py::_fail` 一个函数，
   **按 §7.2 合：两边特性都保住**（A 边的话术/告警层 + B 边的原子幂等退款）。
