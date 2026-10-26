@@ -1692,3 +1692,25 @@ collect_product_verdict_cached / qa_cached  →  0 条
 ⇒ ⇒ 零消耗 action 在真库**尚无记录**（④ 刚上线，还没产生真实缓存命中流量）
    ⇒ **这本身是个可观测点**：等真出现命中时，流水里会首次出现 `collect_product_verdict_cached`
    ⇒ 而 `collect_product_cached` 继续存在 ⇒ **两种命中在账上可区分**（对账不再混）。
+
+### 16.3 ★ 代码级口径闭合核对（A 边 2026-10-26 18:45，grep 实测）
+
+**不只看文档，核对「每条路径是否只有一个计费入口」**：
+
+| 路径 | 命中后 | 计费入口（唯一）| action | 扣分 |
+|---|---|---|---|---|
+| **结论缓存命中** | **零消耗**（executor 直接 return）| `handler.py:728` | `collect_product_verdict_cached` | **0 分**（`enqueue_free`）|
+| **商品数据缓存命中** | **LLM 照跑** | `handler.py:755` | `collect_product_cached` | **5 分**（`charge_and_enqueue`）|
+| **无缓存（新鲜采集）** | 调浏览器 + LLM | `handler.py` 后续分支 | `collect_product` | 20 分 |
+
+**grep 证据**（防止「第二条路径偷偷收错价」）：
+- `verdict_cache_get` 的调用点**只有 2 处**：`handler.py:746`（唯一计费路径）+ `cache_probe.py:198`（只读探针，**不计量**）⇒ **结论缓存命中不可能被按 5 分收**；
+- `collect_product_cached` 的入队调用点**只有 1 处**（`handler.py:755`）；`collect_product_verdict_cached` **也只有 1 处**（`handler.py:728`）；
+- `_route_product` 的分支顺序 = **结论缓存优先**（命中即 `return`）⇒ 命中**根本走不到** 5 分那条 ⇒ **不存在「既收 0 分又收 5 分」的双收**。
+
+⇒ ⇒ ★ **「一个 action 只承载一种消耗量」这个设计，在代码层已闭合**：
+  谁命中、命中几次、扣几分，**从流水里就能算清**，不需要再回查日志。
+
+⚠️ 顺带记一笔**命名易踩坑**：`collect_product_cached` 里的 "cached" 指
+**「商品数据缓存命中」**（省了浏览器、LLM 照跑），**不是**「结论缓存命中」——
+后者是 `collect_product_verdict_cached`。⇒ 两者**只差一个 `verdict_`** ⇒ 对账时极易看错 ⇒ 见 §16.2 的两 action 求和统计。
