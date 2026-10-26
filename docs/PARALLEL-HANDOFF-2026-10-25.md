@@ -1755,7 +1755,7 @@ git rev-list --count 64f3ee2..origin/main     → 92    ← main 相对起点涨
 
 | 项 | 值 |
 |---|---|
-| **拍板凭据** | 问卷 `ask_0122d2a436085c06a82ea037` 第 2 问，原文「**合（推荐）：main 快进到 dev，部署目录 main 同步**」，`submittedAt=1793007956641` = **17:45:56**（详见 §18.2）|
+| **拍板凭据（两份，互相印证）** | ① 问卷 `ask_0122d2a436085c06a82ea037` 第 2 问，原文「**合（推荐）：main 快进到 dev，部署目录 main 同步**」，`submittedAt=1793007956641` = **17:45:56**（详见 §18.2）；② **A 边自己那份 ⑥ 问卷** `ask_7c18f6841f2552e2f0a6ccf7`，老大 **19:07:20 答「顺势合到最新 dev」**（`submittedAt=1793010440079`）⇒ **与 ① 完全一致** |
 | **执行** | 协调边（A 边）`git push origin HEAD:main` ⇒ `2c680b4..8feadfe`（**快进，非 force**）|
 | **推后校验** | `origin/main` = `origin/dev` = `8feadfe`；`git rev-list --count origin/dev..origin/main` = **0** ⇒ **完全同步、零分叉** |
 | **部署目录** | local `main` = `8feadfe`，工作区**干净** |
