@@ -1444,3 +1444,30 @@ git fetch origin && git log --oneline -1 origin/dev \
   **不在** ⇒ 那侧根本没跑（合并顺序问题）；
   **在 + 跑了** ⇒ 那是真的「跑了但没抓住」（覆盖面问题）。
   ⇒ **两者含义完全相反**，混了就会把「设计上的职责分工」误报成「缺口」。
+
+### 15.4 ④ 拍板前的「只加守卫/观察」—— 结论：守卫**已存在**，不用新写
+
+B 边建议：「④ 还没拿到老大拍板 ⇒ **先别改口径，只加守卫/观察**」。
+
+**A 边核实结论：这条守卫早就有了**（`tests/test_daren_cache_layer.py`，24 条，类 `TestHandlerReuseGate` / `TestExecutorConsumesCache`）：
+
+| 守卫 | 锁住的事实 | 实测 |
+|---|---|---|
+| `test_product_uses_cached_verdict_without_collect` | 命中路径**不调采集、不调 LLM**（monkeypatch 成 `_boom`）| ✅ PASSED |
+| `test_verdict_cache_hit_costs_cached_price` | 命中收 `COST_PRODUCT_CACHED`（=5）| ✅ PASSED |
+| `test_qa_cache_hit_costs_zero` | 问答命中收 0 | ✅ PASSED |
+
+⇒ ★ **「命中路径零消耗」这个事实层已被守门人锁住** ⇒ 老大拍板时，
+  **事实基础是稳的**，只需要决策**扣几分**（定价决策），不需要先补事实。
+
+★ **并且验证了这条守卫真能失败**（不能只看它绿）：
+  把 `executors.py` 的 `if isinstance(_vh, dict) and ...` 改成 `if False and ...`
+  （= 模拟「命中路径改成去调上游」）⇒
+  ```
+  AssertionError: 结论缓存命中时不应该再采集/调 LLM
+  1 failed
+  ```
+  ⇒ 改完**逐字还原**（diff 一致）⇒ `24 passed` 复跑 ✔ 工作区干净 ✔
+
+⇒ ⇒ **所以本轮「只加守卫/观察」= 0 行新代码** ——
+  不是「没做」，是**核实后发现已有且有效** ⇒ **别再写第二份**（那是 §16 F 的「两份事实」）。
