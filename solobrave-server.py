@@ -3498,7 +3498,9 @@ def init_db():
                 monthly_gmv REAL DEFAULT 0,
                 commission_rates TEXT DEFAULT '{}',
                 commission_amount REAL DEFAULT 0,
-                conversion_rate REAL DEFAULT 0,
+                -- ⚠️ 转化率默认 NULL 不默认 0（2026-10-26）：平台没有通用商品转化率接口，
+                --   默认 0 = 每次插入都长出一个**编造的 0%**。
+                conversion_rate REAL,
                 avg_order_value REAL DEFAULT 0,
                 influencer_count INTEGER DEFAULT 0,
                 talent_count INTEGER DEFAULT 0,
@@ -3539,7 +3541,7 @@ def init_db():
             ('monthly_gmv', 'REAL DEFAULT 0'),
             ('commission_rates', "TEXT DEFAULT '{}'"),
             ('commission_amount', 'REAL DEFAULT 0'),
-            ('conversion_rate', 'REAL DEFAULT 0'),
+            ('conversion_rate', 'REAL'),
             ('avg_order_value', 'REAL DEFAULT 0'),
             ('influencer_count', 'INTEGER DEFAULT 0'),
             ('talent_count', 'INTEGER DEFAULT 0'),
@@ -3854,7 +3856,9 @@ def init_db():
                 match_score REAL DEFAULT 0,
                 match_reason TEXT DEFAULT '',
                 sales_volume INTEGER DEFAULT 0,
-                conversion_rate REAL DEFAULT 0,
+                -- ⚠️ 转化率默认 NULL 不默认 0（2026-10-26）：平台没有通用商品转化率接口，
+                --   默认 0 = 每次插入都长出一个**编造的 0%**。
+                conversion_rate REAL,
                 is_ai_recommended INTEGER DEFAULT 0,
                 created_at INTEGER,
                 updated_at INTEGER,
@@ -4595,6 +4599,35 @@ _PRODUCT_COLUMNS = [
 # (DELETE 置 archived :19283 / restore 置 active :19317), 防读-改-写竞态复活归档行
 _PRODUCT_SYNC_COLUMNS = [c for c in _PRODUCT_COLUMNS if c not in ('status', 'created_by', 'created_at')]
 
+def _product_analysis_prompt(product: dict) -> str:
+    """商品 → 选品分析 prompt。
+
+    ★ 转化率**没有平台真值**（平台没有通用商品转化率接口）⇒ 整行不写。
+      写成「转化率：0%」= 往 LLM prompt 里塞一个**编造的数** ⇒
+      模型会拿它当事实推理（「转化率 0% 说明没人买」），结论就被带偏了。
+      ⇒ 没有真值就**不写这一行**，让模型知道「这项不知道」（只丢不造）。
+
+    ★ 抽成独立函数（2026-10-26）：原先这段 prompt 拼在 handler 里，
+      「不写转化率」这条契约**没法测** —— 只能靠翻源码看，那不算验证。
+      抽出来后可以直接断言 prompt 里**没有**「转化率：0%」。
+    """
+    conv = product.get('conversion_rate')
+    conv_line = (f"转化率：{conv}%\n" if conv not in (None, '', 0, 0.0) else "")
+    return (
+        f"请为以下商品做选品分析，只返回 JSON，不要返回其他内容。\n"
+        f"JSON 格式：{{\"ai_score\": 1-5 的整数, \"competition_analysis\": \"...\", \"selection_advice\": \"...\"}}\n\n"
+        f"商品名称：{product.get('name', '')}\n"
+        f"品牌：{product.get('brand', '')}\n"
+        f"分类：{product.get('category', '')}\n"
+        f"价格：¥{product.get('price', 0)}\n"
+        f"月销量：{product.get('monthly_sales', 0)}\n"
+        f"月 GMV：¥{product.get('monthly_gmv', 0)}\n"
+        f"佣金策略：{json.dumps(product.get('commission_rates', {}), ensure_ascii=False)}\n"
+        f"{conv_line}"
+        f"受众画像：{json.dumps(product.get('audience', {}), ensure_ascii=False)}\n"
+    )
+
+
 def _product_row_to_dict(row):
     """将 products 表的 sqlite3.Row 转为前端兼容 dict（容忍旧库表缺列，缺列用默认值）"""
     if not row:
@@ -4631,7 +4664,7 @@ def _product_row_to_dict(row):
         'monthly_gmv': _col('monthly_gmv') if _col('monthly_gmv') is not None else 0,
         'commission_rates': _json_col('commission_rates', {}),
         'commission_amount': _col('commission_amount') if _col('commission_amount') is not None else 0,
-        'conversion_rate': _col('conversion_rate') if _col('conversion_rate') is not None else 0,
+        'conversion_rate': _col('conversion_rate') if _col('conversion_rate') is not None else None,
         'avg_order_value': _col('avg_order_value') if _col('avg_order_value') is not None else 0,
         'influencer_count': _col('influencer_count') if _col('influencer_count') is not None else 0,
         'talent_count': _col('talent_count') if _col('talent_count') is not None else 0,
@@ -4691,6 +4724,20 @@ def _dict_to_product_row(p):
             return '{}'
         return json.dumps(val, ensure_ascii=False)
 
+    def _opt_num(*keys):
+        """可选数值：**没有真值就 None**（不拿 0 冒充）。
+
+        ⚠️ 只给「平台压根没有这个字段」的列用（如转化率）——
+           0 会被读成「真的是 0」，而不是「没采到」。
+        """
+        v = _get(*keys)
+        if v is None or v == '':
+            return None
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return None
+
     sku_specs = _get('sku_specs', 'skuSpecs', 'attributes')
     if sku_specs is None:
         sku_val = _get('sku')
@@ -4730,7 +4777,9 @@ def _dict_to_product_row(p):
         'monthly_gmv': float(_get('monthly_gmv', 'monthlyGmv', 'monthlyGMV', default=0) or 0),
         'commission_rates': _dump(commission_rates),
         'commission_amount': float(_get('commission_amount', 'commissionAmount', default=0) or 0),
-        'conversion_rate': float(_get('conversion_rate', 'conversionRate', default=0) or 0),
+        # ⚠️ 转化率：**没有平台真值就留 None**（2026-10-26 老大拍板）。
+        #   原来写 `float(... or 0)` ⇒ 缺字段时落库成 0 = 一个**编造的数字**。
+        'conversion_rate': _opt_num('conversion_rate', 'conversionRate'),
         'avg_order_value': float(_get('avg_order_value', 'avgOrderValue', default=0) or 0),
         'influencer_count': int(_get('influencer_count', 'influencerCount', default=0) or 0),
         'talent_count': int(_get('talent_count', 'talentCount', default=0) or 0),
@@ -5542,7 +5591,8 @@ def _add_talent_foreign_keys():
         match_score REAL DEFAULT 0,
         match_reason TEXT DEFAULT '',
         sales_volume INTEGER DEFAULT 0,
-        conversion_rate REAL DEFAULT 0,
+        -- ⚠️ 转化率默认 NULL 不默认 0（2026-10-26）：平台没有通用商品转化率接口。
+        conversion_rate REAL,
         is_ai_recommended INTEGER DEFAULT 0,
         created_at INTEGER,
         updated_at INTEGER,
@@ -7939,7 +7989,10 @@ def _seed_coolchap_data(conn):
             'followerCount': t['followers'],
             'sales': [1324, 568, 2103, 892][i],
             'settlementAmount': [188456, 80952, 299784, 127312][i],
-            'conversionRate': [3.2, 2.8, 4.1, 3.5][i],
+            # ⚠️ 转化率**不编造**（2026-10-26 老大拍板「保持 NULL 当缺失维度」）：
+            #   平台没有通用商品/达人转化率接口 ⇒ 没有真值。
+            #   这里原来写死 [3.2, 2.8, 4.1, 3.5] —— 示例达人卡里长出**假转化率**。
+            'conversionRate': None,
             'commissionRate': [20, 15, 5, 10][i],
             'source': '抖音精选联盟' if i % 2 == 0 else '手动录入'
         }
@@ -8035,7 +8088,12 @@ def _seed_coolchap_data(conn):
             'monthly_gmv': monthly_gmv,
             'commission_rates': json.dumps({'投放期': rate, '常规活动期': max(5, rate // 2), '其他': 5}, ensure_ascii=False),
             'commission_amount': commission_amount,
-            'conversion_rate': 3.5,
+            # ⚠️ 转化率**不编造**（2026-10-26 老大拍板「保持 NULL 当缺失维度」）：
+            #   平台**没有**通用商品转化率接口 ⇒ 没有真值。
+            #   这里原来硬写 3.5 ⇒ 库里长出一批**假转化率**，
+            #   而评分器只要池内覆盖率够（≥60%）就会把它当真值参与打分。
+            #   ⇒ 没有真值就写 NULL（= 缺失维度，评分时退出加权）。
+            'conversion_rate': None,
             'avg_order_value': price,
             'influencer_count': len(base_influencers),
             'talent_count': len(base_talents),
@@ -8080,7 +8138,11 @@ def _seed_coolchap_data(conn):
             score, reasons = (88, ['类目一致', '价格带匹配', '粉丝画像契合']) if i % 2 == 0 else (72, ['类目一致', '价格带基本匹配'])
             conn.execute(
                 f"INSERT INTO product_talent_match ({', '.join(_PTM_COLUMNS)}) VALUES ({', '.join('?' * len(_PTM_COLUMNS))})",
-                (ptm_id, pid, t['id'], score, '；'.join(reasons), sales_list[i], [3.2, 2.8, 4.1, 3.5][i], 1 if score >= 75 else 0, now, now)
+                # ⚠️ 转化率不编造（2026-10-26）：原来这里写死 [3.2, 2.8, 4.1, 3.5]
+                #   ⇒ 示例数据里长出**假转化率**，且会流到达人可见的详情接口。
+                #   ⇒ 没有平台真值就写 NULL（缺失维度）。
+                (ptm_id, pid, t['id'], score, '；'.join(reasons), sales_list[i], None,
+                 1 if score >= 75 else 0, now, now)
             )
 
     _update_brand_product_stats(conn, brand_id)
@@ -20223,19 +20285,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         cfg['model'] = cfg['model'] or _resolve_ai_model(cfg['provider'], '')
         cfg['baseUrl'] = cfg['baseUrl'] or _resolve_ai_base_url(cfg['provider'], '')
 
-        prompt = (
-            f"请为以下商品做选品分析，只返回 JSON，不要返回其他内容。\n"
-            f"JSON 格式：{{\"ai_score\": 1-5 的整数, \"competition_analysis\": \"...\", \"selection_advice\": \"...\"}}\n\n"
-            f"商品名称：{product.get('name', '')}\n"
-            f"品牌：{product.get('brand', '')}\n"
-            f"分类：{product.get('category', '')}\n"
-            f"价格：¥{product.get('price', 0)}\n"
-            f"月销量：{product.get('monthly_sales', 0)}\n"
-            f"月 GMV：¥{product.get('monthly_gmv', 0)}\n"
-            f"佣金策略：{json.dumps(product.get('commission_rates', {}), ensure_ascii=False)}\n"
-            f"转化率：{product.get('conversion_rate', 0)}%\n"
-            f"受众画像：{json.dumps(product.get('audience', {}), ensure_ascii=False)}\n"
-        )
+        prompt = _product_analysis_prompt(product)
         messages = [
             {'role': 'system', 'content': '你是电商选品分析助手，擅长根据商品数据给出结构化分析。'},
             {'role': 'user', 'content': prompt}
@@ -25453,17 +25503,32 @@ def _parse_vision_json(desc):
 #   业界依据: SOB 基准 (arXiv 2604.25359) — VLM 提取 schema 合规近满分但图像值准确率
 #   仅 ~67%, "格式对值错"是 silent failure 主因; PARSE/SCOPE (EMNLP 2025) 三段校验+重试
 #   首次消 92% 错误。单 pass 调 prompt 到不了 95%+, 必须上"提取→见证→校验→修复"闭环。
-#   架构: Pass1 kimi 视觉提取(不动) → 独立 witness OCR (glm-4v-flash 逐字转录, 同 key 免费档)
+#   架构: Pass1 kimi 视觉提取(不动) → 独立 witness OCR (逐字转录, 同 key 免费档)
 #   → 程序化双层校验 (常识规则 + 原文 grounding, key 粘连检测靠 digit-run 不在 witness 自然暴露)
-#   → 修复 pass (glm-4-flash 拿 witness 当依据只改被标记字段) → 修不动保留原值+记日志 (不置 null 不误杀)。
+#   → 修复 pass (拿 witness 当依据只改被标记字段) → 修不动保留原值+记日志 (不置 null 不误杀)。
 #   生效路径: /api/vision/describe + HeavyPipe stage1 (共用 _call_kimi_vision 的两处都接了)。
-#   开关: SOLOBRAVE_VISION_QA=0 关闭 (默认开); witness/修复模型 SOLOBRAVE_VISION_WITNESS_MODEL
-#   / SOLOBRAVE_VISION_QA_MODEL 可覆盖, 默认 glm-4v-flash / glm-4-flash。
-#   降级链: 无 glm 配置 → 只跑常识规则; witness 失败 → 常识规则结果直出; 全程不 raise 不阻塞主链路。
+#   开关: SOLOBRAVE_VISION_QA=0 关闭 (默认开)。
+#   ★ 配置源 (2026-10-26 独立): `settings.json` 顶层 `visionQA` 段 (主源, 同 `vision` 段形态)
+#     + env `SOLOBRAVE_VISION_QA_{API_KEY,BASE_URL,PROVIDER}` (兜底)；
+#     witness/修复模型可用 `visionQA.witnessModel` / `visionQA.repairModel` 或
+#     env `SOLOBRAVE_VISION_WITNESS_MODEL` / `SOLOBRAVE_VISION_QA_MODEL` 覆盖,
+#     默认 glm-4v-flash / glm-4-flash。
+#     **不再读 `settings.llm.providers`** —— 那是对话链的档位表, 共用会把本管线一起带断。
+#   降级链: 无独立配置 → 只跑常识规则; witness 失败 → 常识规则结果直出; 全程不 raise 不阻塞主链路。
 # ══════════════════════════════════════════════════════════════════════
 
 _VISION_QA_MIN_WIDTH = 640     # 低于此宽度的截图小字识别不可靠, 记警告日志 (不拒收, 避免误伤)
 _VISION_QA_MIN_HEIGHT = 480
+
+#: 视觉 QA 调用走 **OpenAI 兼容** 协议的载体标识。
+#:
+#: ⚠️ `_call_chat_completion` 的第一个参数同时决定**协议分支**：
+#:   'kimicode' / 'anthropic' / 'minimax' → 走 Anthropic `/messages`；
+#:   其它 → 走 OpenAI `/chat/completions`。
+#:   witness 的内容形态是 `image_url`（OpenAI 形态）⇒ 必须落在 OpenAI 分支。
+#:   用一个**语义准确**的标识（而不是 'zhipu'）⇒ 读代码的人一眼知道
+#:   「这里要的是协议，不是厂商」；baseUrl 由 cfg 显式传入，不走内置 mapping。
+_VISION_QA_PROTOCOL = 'openai-compatible'
 
 # 数值字段 → 规则类型。percent: 全部数量级须在 [0, 100]; score5: [0, 5];
 # count: 非负 (followers 额外卡 5 亿上限, 抖音粉丝上限 ~1.9 亿); money: 非负 (GMV 上不封顶)。
@@ -25757,25 +25822,110 @@ def _vision_grounding_check(obj, witness_text):
     return misses
 
 
-def _vision_qa_glm_cfg():
-    """解析 witness/修复用的 glm 配置 (zhipu only): settings.llm 里 name 含 zhipu 且有 key
-    的 provider 优先, 退 SOLOBRAVE_AI_* env。返回 {'base','key'} 或 None (调用方降级常识规则)。"""
+def _vision_qa_cfg():
+    """解析 witness/修复用的模型配置 —— **视觉 QA 的独立配置源**。
+
+    ★ 2026-10-26 修（**同一份事实被两个语义不同的消费者共用** = 声明端 ≠ 使用端）：
+      原来这里读 `settings.llm.providers` 里 name 含 zhipu 的那一档。
+      那份档位表是**对话链**的；而对话链按老大口径（智谱资源包只做知识库 embedding，
+      不拿来做 LLM 对话）摘掉智谱档后，**视觉 QA 的 witness/repair 被一起带断**
+      （实测本函数返回 None ⇒ 字段提取精度从 95%+ 退回「只跑常识规则」）。
+
+      ⇒ 视觉 QA 是**另一个消费者**（逐字校验，不是对话）⇒ 必须有自己的配置源：
+        ① `settings.json` 顶层 `visionQA` 段（主源，形态同既有 `vision` 段）
+        ② env `SOLOBRAVE_VISION_QA_{API_KEY,BASE_URL,PROVIDER}`（兜底/覆盖）
+        ③ **绝不读 `llm.providers`** —— 对话链改配置不再能把它带断。
+
+    ⚠️ 协议要求：witness / 修复走 **OpenAI 兼容**端点（`image_url` 内容形态）。
+       Anthropic 协议端点（minimax / anthropic / kimicode）**不能**用这个形态，
+       配错会静默走错分支 ⇒ 这里显式拦下并降级，不硬撑。
+
+    返回 {'base','key','provider','witnessModel','repairModel','maxTokens'}，
+    或 None（调用方降级常识规则）。
+    """
+    def _clean(v):
+        return (v or '').strip()
+
+    def _env(name):
+        val = _clean(os.environ.get(name))
+        if val:
+            return val
+        # ⚠️ 本文件的 _load_dotenv() 在模块末尾才被调用（晚于模块级初始化），
+        #   这里按**绝对路径**直读 .env，绕开调用顺序与 CWD 依赖（同 _kimi_keys_from_config）。
+        try:
+            env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env')
+            with open(env_path, 'r', encoding='utf-8') as f:
+                for line in f:
+                    line = line.strip()
+                    if line.startswith(name + '='):
+                        return line.split('=', 1)[1].strip().strip('"\'')
+        except Exception:
+            pass
+        return ''
+
+    def _assemble(provider, key, base_override, witness_override, repair_override):
+        """把 (provider, key) 装配成完整 cfg；协议不兼容则返回 None（降级，不硬撑）。"""
+        provider = _clean(provider) or 'zhipu'
+        if provider in ('minimax', 'anthropic', 'kimicode'):
+            logger.warning(f'  [VisionQA] provider={provider} 是 Anthropic 协议端点，'
+                           f'与 witness 的 image_url 形态不兼容 → 本次跳过视觉 QA')
+            return None
+        base = _resolve_ai_base_url(provider, _clean(base_override))
+        if not base:
+            logger.warning(f'  [VisionQA] provider={provider} 解析不出 baseUrl → 跳过视觉 QA')
+            return None
+        # ⚠️ base 必须剥掉 `/embeddings` 后缀（2026-10-25 实测踩过）：
+        #   `.env` 的 embedding base 存的是**完整 embedding 路径**
+        #   （`.../api/paas/v4/embeddings`）。直接拼 `/chat/completions` 会得到
+        #   `/api/paas/v4/embeddings/chat/completions` → **HTTP 404 Not Found**
+        #   （路径看着像 base 没配对，其实是多了三段）。
+        #   ⇒ 剥完才是 chat 端点 `.../api/paas/v4`。
+        if base.endswith('/embeddings'):
+            base = base[:-len('/embeddings')]
+        is_zhipu = (provider == 'zhipu')
+        return {
+            'base': base.rstrip('/'),
+            'key': key,
+            'provider': provider,
+            'witnessModel': (_clean(witness_override)
+                             or ('glm-4v-flash' if is_zhipu else '')),
+            'repairModel': (_clean(repair_override)
+                            or ('glm-4-flash' if is_zhipu else '')),
+            # ⚠️ glm-4v-flash 的 max_tokens 上限就是 1024（真机 2026-10-15 实证：
+            #   传 2500 → HTTP 400 code 1210「限制数值范围[1,1024]」）
+            'maxTokens': 1024 if is_zhipu else 1500,
+        }
+
+    # ① settings.json 顶层 visionQA 段（主源）
     try:
         settings = _read_json(SETTINGS_FILE, {}) or {}
-        providers = ((settings.get('llm') or {}).get('providers')) or []
-        for p in sorted((x for x in providers if isinstance(x, dict)),
-                        key=lambda x: x.get('priority', 99)):
-            if (p.get('apiKey') or '').strip() and 'zhipu' in (p.get('name') or '').lower():
-                base = (p.get('baseUrl') or '').strip() or _resolve_ai_base_url('zhipu', '')
-                return {'base': (base or '').rstrip('/'), 'key': p['apiKey'].strip()}
+        qa = settings.get('visionQA') or {}
+        if isinstance(qa, dict):
+            key = _clean(qa.get('apiKey'))
+            if key:
+                cfg = _assemble(
+                    qa.get('provider'), key, qa.get('baseUrl'),
+                    qa.get('witnessModel') or _env('SOLOBRAVE_VISION_WITNESS_MODEL'),
+                    qa.get('repairModel') or _env('SOLOBRAVE_VISION_QA_MODEL'))
+                # ⚠️ 配了但**装配失败**（协议不兼容 / base 解析不出）⇒ 直接返回 None，
+                #    **不许**悄悄落到 env 兜底 ——
+                #    「配置错误」被当成「没配置」= 把故障写成结论，排查会跑偏。
+                return cfg
     except Exception as e:
-        logger.warning(f'  [VisionQA] settings.llm 读取失败: {e}')
-    ai_key = os.environ.get('SOLOBRAVE_AI_API_KEY', '').strip()
-    if ai_key:
-        base = _resolve_ai_base_url(os.environ.get('SOLOBRAVE_AI_PROVIDER', 'zhipu') or 'zhipu',
-                                    os.environ.get('SOLOBRAVE_AI_CUSTOM_ENDPOINT', ''))
-        if base:
-            return {'base': base.rstrip('/'), 'key': ai_key}
+        logger.warning(f'  [VisionQA] settings.visionQA 读取失败: {e}')
+
+    # ② env 兜底（没配 settings.visionQA 时）
+    key = _env('SOLOBRAVE_VISION_QA_API_KEY')
+    if key:
+        cfg = _assemble(
+            _env('SOLOBRAVE_VISION_QA_PROVIDER'), key, _env('SOLOBRAVE_VISION_QA_BASE_URL'),
+            _env('SOLOBRAVE_VISION_WITNESS_MODEL'), _env('SOLOBRAVE_VISION_QA_MODEL'))
+        if cfg:
+            return cfg
+
+    # ③ 没有独立配置 —— 降级常识规则（不 raise，不阻塞主链路）
+    logger.warning('  [VisionQA] 无独立配置（settings.visionQA / SOLOBRAVE_VISION_QA_*）'
+                   '→ 只跑常识规则（字段精度退回 ~67%）')
     return None
 
 
@@ -25800,9 +25950,17 @@ def _vision_witness_quality(text):
 
 
 def _vision_witness_ocr(image_base64, cfg):
-    """witness OCR: glm-4v-flash 独立转录截图全部可见文字 (权威依据, 与 kimi 提取不同源)。
-    失败/超时返回 None (调用方降级)。temperature=0 追求逐字忠实。"""
+    """witness OCR: 独立转录截图全部可见文字 (权威依据, 与第一遍提取不同源)。
+    失败/超时返回 None (调用方降级)。temperature=0 追求逐字忠实。
+
+    ★ 模型名来自 `cfg['witnessModel']`（**视觉 QA 自己的配置源** `settings.visionQA`），
+      不再各自读 env —— 口径单一真源。
+    """
     if not image_base64 or not cfg:
+        return None
+    model = (cfg.get('witnessModel') or '').strip()
+    if not model:
+        logger.warning('  [VisionQA] 未配置 witness 模型 → 跳过 witness OCR')
         return None
     data, media_type = image_base64, 'image/jpeg'
     if image_base64.startswith('data:'):
@@ -25811,7 +25969,6 @@ def _vision_witness_ocr(image_base64, cfg):
             media_type = header.split(';')[0].split(':')[1] or media_type
         except Exception:
             return None
-    model = os.environ.get('SOLOBRAVE_VISION_WITNESS_MODEL', 'glm-4v-flash').strip() or 'glm-4v-flash'
     prompt = ('把这张截图里所有可见文字按阅读顺序逐行原样转录，包括: 所有数字、百分数、金额、'
               '区间(保留万/亿/%单位)、标签、表格的列名和每个单元格数值、图例、角标小字。'
               '不要概括、不要解释、不要翻译、不要单位换算, 原样照抄。能看清多少转录多少。')
@@ -25819,13 +25976,13 @@ def _vision_witness_ocr(image_base64, cfg):
         # ★ fix/vision-p0-realworld: glm-4v-flash 的 max_tokens 上限就是 1024
         #   (真机 2026-10-15 实证: 传 2500 → HTTP 400 code 1210 "限制数值范围[1,1024]")
         text = _call_chat_completion(
-            'zhipu', cfg['key'], model, cfg['base'],
+            _VISION_QA_PROTOCOL, cfg['key'], model, cfg['base'],
             [{'role': 'user', 'content': [
                 {'type': 'text', 'text': prompt},
                 {'type': 'image_url', 'image_url': {'url': f'data:{media_type};base64,{data}'}}]}],
-            timeout=60, max_tokens=1024)
+            timeout=60, max_tokens=cfg.get('maxTokens') or 1024)
         if text and text.strip():
-            logger.info(f'  [VisionQA] witness OCR 成功 len={len(text)}')
+            logger.info(f'  [VisionQA] witness OCR 成功 model={model} len={len(text)}')
             return text
         logger.warning('  [VisionQA] witness OCR 空返回, 降级常识规则')
     except Exception as e:
@@ -25844,7 +26001,11 @@ def _vision_repair_with_witness(obj, issues, witness_text, cfg):
     flagged = [i for i in issues if i.get('repairable')][:40]
     if not flagged or not cfg:
         return None
-    model = os.environ.get('SOLOBRAVE_VISION_QA_MODEL', 'glm-4-flash').strip() or 'glm-4-flash'
+    # ★ 模型名来自 `cfg['repairModel']`（视觉 QA 自己的配置源），口径单一真源
+    model = (cfg.get('repairModel') or '').strip()
+    if not model:
+        logger.warning('  [VisionQA] 未配置修复模型 → 跳过修复 pass')
+        return None
     issue_lines = '\n'.join(
         f"- {i['field']}: {i['why']} (当前值 {str(i['value'])[:60]})" for i in flagged)
     prompt = (
@@ -25864,9 +26025,9 @@ def _vision_repair_with_witness(obj, issues, witness_text, cfg):
     try:
         # max_tokens 卡 glm-4v-flash 的 1024 上限; 小 JSON 输出 (<500字) 远离截断区,
         # 生成耗时也从 >60s 降到几秒 (完整输出真机实测超时 100% 失败)
-        text = _call_chat_completion('zhipu', cfg['key'], model, cfg['base'],
+        text = _call_chat_completion(_VISION_QA_PROTOCOL, cfg['key'], model, cfg['base'],
                                      [{'role': 'user', 'content': prompt}],
-                                     timeout=60, max_tokens=1024)
+                                     timeout=60, max_tokens=cfg.get('maxTokens') or 1024)
     except Exception as e:
         logger.warning(f'  [VisionQA] 修复 pass 异常: {e}')
         return None
@@ -25907,11 +26068,25 @@ def _vision_flagged_roots(issues):
 def _vision_apply_field_fixes(obj, fixes, flagged_roots):
     """把修复 pass 的小 JSON ({路径: 新值}) 程序合并进 obj。
     程序保证只动被标记字段根 (未标记字段不可能被碰, 比模型自觉可靠);
-    解析失败/越界/野路径一律忽略并记日志。返回成功应用的路径列表。"""
+    解析失败/越界/野路径一律忽略并记日志。返回成功应用的路径列表。
+
+    ★ 2026-10-26：**拒绝 None**（修不动 ⇒ 保留原值，不置 null 不误杀）。
+      模块设计写的是「修不好的字段不输出 → 保持原值」「修不动保留原值+记日志
+      (不置 null 不误杀)」，但程序侧原来**照单全收**模型给的任何值，
+      包括 `null` ⇒ 模型「找不到依据」时吐 null，原来的**错值**被抹成 null，
+      而原值其实还有参考价值。
+      ⚠️ 注意与**常识规则**的区分：常识规则(`_vision_sanity_check`)把越界值置 null
+         是**合法**的（120% 这种就是错值，置 null 比留错值好）；
+         这里拒的是**修复模型**的 null（=「我没修好」，不是「这个值是错的」）。
+    """
     import re
     applied = []
     for path, v in (fixes or {}).items():
         if not isinstance(path, str) or not path.strip():
+            continue
+        if v is None:
+            logger.warning(f'  [VisionQA] 修复 pass 给 "{path}" 吐了 null → '
+                           f'拒绝采纳（修不动 ⇒ 保留原值, 不置 null 不误杀）')
             continue
         root = re.split(r'[\.\[]', path, 1)[0]
         if root not in flagged_roots:
@@ -25999,10 +26174,10 @@ def _vision_qa_pipeline(desc_text, image_base64, role=None):
 
         sanity_issues = _vision_sanity_check(obj, fix=True)
 
-        cfg = _vision_qa_glm_cfg()
+        cfg = _vision_qa_cfg()
         if not cfg:
             if sanity_issues:
-                logger.warning(f'  [VisionQA] 无 glm 配置, 常识修复后直出 ({len(sanity_issues)} 处)')
+                logger.warning(f'  [VisionQA] 无独立配置, 常识修复后直出 ({len(sanity_issues)} 处)')
                 return json.dumps(obj, ensure_ascii=False)
             return desc_text
         witness = _vision_witness_ocr(image_base64, cfg)

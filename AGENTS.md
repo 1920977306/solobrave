@@ -444,6 +444,12 @@ GET /ecom/captain/operate_analysis/coop_diagnosis/overview?period_type=&ewid=<�
   `/api/anchor/product_diagnose/search|detail` 只诊断**我们自己达人账号**的商品
   （实测 `total=0`）；`/pc/diagnose/get_total` 返回风控码 `11001`。
   ⇒ `products.conversion_rate` 保持 NULL，评分器把它当「缺失维度」。
+  ★ **2026-10-26 已清库**：137 行假值（131 行 `0.0` + 6 行 `3.5`）全部清成 NULL
+  （`product_talent_match` 的 342 行同清）⇒ 实测推荐输出**一位不差**
+  （321 条展示 / 764 样本）—— 转化率维度本就因覆盖率 4% < 60% 被整体剔除。
+  ⚠️ 但**假值必须清**：覆盖率闸门挡不住「假值凑够 60% 覆盖」⇒ 会翻身参与打分。
+  ⇒ 代码侧也堵死了（示例种子不写死数字 / 导入不落 0 / prompt 不写「转化率：0%」），
+  守门人 `tests/test_conversion_rate_truth.py`（含 AST 扫描）。详见 **§16 H**。
 - **推荐指数★★★★★**：❌ 平台**没有这个接口** —— 达人端那个是 **AI 助手自己算的**。
   ⇒ **我们自己算**（见下）。
 
@@ -955,19 +961,32 @@ prompt 锁死了「🟢 能带」「🟡 慎带」「🔴 别带」三选一，e
 `_text_fallback_cfgs` / `_fallback_cfgs` **全是薄壳**,只做转发。
 **别再在任何一个文件里手写环。**
 
-### 环序(LIFO,最稳的排最前) —— **2026-10-25 当场实测**(老大问「要再买 API 吗」的取证)
+### 环序(LIFO,最稳的排最前) —— **2026-10-26 当场实测**(老大拍板摘除智谱后)
 
 | 环 | 通道 | 协议 | 凭据 | vendor | pool | 实测 |
 |---|---|---|---|---|---|---|
 | 0 | MiniMax 套餐 API | Anthropic | `.env` `MINIMAX_CP_API_KEY` | minimax | cp-subscription | ✅ 1.1s |
 | 1 | **Code 订阅(=贾维斯自己)** | Anthropic | `~/.minimax/auth/**/mcode-public/auth.json` | minimax | code-subscription | ✅ 0.9s |
 | 2 | MiniMax 套餐 API | OpenAI | 同环 0(协议冗余) | minimax | cp-subscription | ✅ 1.2s |
-| 3 | **智谱 `glm-4-flash`** | OpenAI | `.env` `SOLOBRAVE_EMBEDDING_API_KEY` | **zhipu** | zhipu-resource-pack | ✅ 1.1s |
-| 4 | 智谱 `glm-4.5-flash` | OpenAI | 同环 3 | **zhipu** | zhipu-resource-pack | ✅ 17s(推理慢) |
-| 5 | kimi moonshot-v1-32k | OpenAI | OpenClaw key store | kimi | kimi-monthly-quota | ❌ 429 月度额度耗尽 |
-| 6/7 | minimax 开放平台 | OpenAI | `.env` `MINIMAX_API_KEY` | minimax | minimax-open-balance | ❌ 402 余额不足 |
+| 3 | kimi moonshot-v1-32k | OpenAI | OpenClaw key store | kimi | kimi-monthly-quota | ❌ 429 月度额度耗尽 |
+| 4/5 | minimax 开放平台 | OpenAI | `.env` `MINIMAX_API_KEY` | minimax | minimax-open-balance | ❌ 402 余额不足 |
 
-识图链:环0 MiniMax(✅) → 环1 **智谱 `glm-4v-flash`**(✅ 728ms,能读图) → kimi(❌429) → 开放平台(❌402)。
+识图链:环0 MiniMax(✅) → kimi(❌429) → 开放平台(❌402)。
+（原来的环1「智谱 `glm-4v-flash`」**已摘除** ⇒ 识图链也只剩 MiniMax 一家。）
+
+### ⚠️⚠️ 独立服务商 = **1 家**（MiniMax）⇒ **冗余归零，该买第二家 API**（2026-10-26）
+
+老大 2026-10-26 终审口径：**智谱资源包只做知识库 embedding，不拿来做 LLM 对话**
+⇒ `daren_bot/llm_channels.py` 的智谱文字环 + 智谱识图环**全部摘除**（含常量/符号一并删，
+防复活后门）。
+
+⇒ **回答老大「要再买 API 吗」：要买。**
+  链上有 5 个环，但 **能顶的独立服务商只有 MiniMax 一家**
+  （环0/1/2 全是 MiniMax 的三条路；环3 kimi 429；环4/5 开放平台 402）
+  ⇒ MiniMax 一家出问题时全线崩 ⇒ **冗余是假的**。
+
+★ 这条「缺口」被**钉在测试里**（`tests/test_llm_channels.py::test_current_chain_alive_independent_vendors_is_one`）：
+  有人接回第二家服务商时该测试会红 ⇒ 逼着同步更新环序表与结论，不让它悄悄变。
 
 ### ★★「有几环」≠「有几家」(2026-10-25 实测教训)
 
@@ -979,34 +998,56 @@ prompt 锁死了「🟢 能带」「🟡 慎带」「🔴 别带」三选一，e
 
 | 字段 | 答什么 | 取值 |
 |---|---|---|
-| `vendor` | **一家挂了是不是全家死** = 判「要不要买第二家 API」 | `minimax` / `zhipu` / `kimi` |
-| `pool` | **还剩几种能顶的额度**(同家的不同账/不同协议也算不同池) | `cp-subscription` / `code-subscription` / `zhipu-resource-pack` / `kimi-monthly-quota` / `minimax-open-balance` |
+| `vendor` | **一家挂了是不是全家死** = 判「要不要买第二家 API」 | `minimax` / `kimi` |
+| `pool` | **还剩几种能顶的额度**(同家的不同账/不同协议也算不同池) | `cp-subscription` / `code-subscription` / `kimi-monthly-quota` / `minimax-open-balance` |
 
 ⚠️ **别从 host 反推 vendor**:`api.minimax.cn` / `agent.minimax.cn` / `api.minimaxi.com`
 三个不同 host 是**同一家**;而套餐 key 与开放平台 key 同属 MiniMax 却是**两套独立的账**
 (订阅额度 vs 账户余额)⇒ 开放平台 402 **不影响**套餐继续用。两个维度都不能互相替代。
 
-### 智谱接进来的口径(2026-10-25)
+### 智谱摘除的口径(2026-10-26 老大终审)
 
-- 老大**买的智谱资源包本来就够用**,不用再买 API —— 但它此前**压根没接进链里**
-  (「买了、测过能用、没接进来」)。
-- **智谱 key 不绑模型**:`.env` 里那把 `SOLOBRAVE_EMBEDDING_API_KEY`(当初为 embedding 买的)
-  打 `/chat/completions` 同样通(实测 glm-4-flash 200)。
-  但**资源包按模型算**:该模型没包 → **HTTP 429 + code=1113**「余额不足或无可用资源包」。
-- 实测**有包**:`glm-4-flash` / `glm-4.5-flash` / `glm-4v-flash`;
-  实测**没包**:`glm-4-plus` / `glm-4-air` / `glm-4v-plus`。
-  ⇒ 环里**只放实测有包的模型**,别把没包的塞进去白等一轮 429。
-- ⚠️ **base 必须剥掉 `/embeddings` 后缀**:`.env` 的 `SOLOBRAVE_EMBEDDING_BASE_URL` 存的是
-  **完整 embedding 路径**(`.../api/paas/v4/embeddings`),直接拼 `/chat/completions`
-  会打到 `/v4/embeddings/chat/completions` ⇒ **HTTP 404**(实测踩过)。
-  `_zhipu_channel()` 负责剥。
-- 智谱 `glm-4-flash` 非 reasoning,temp 自由(实测 0.2/1.0 都通);
-  `glm-4.5-flash` 是 reasoning,答一句话要 ~170 token、~17s ⇒ 只当**第二档**。
+- **老大原话**:「智谱资源包是知识库（embedding）的 API」⇒ **不拿来做 LLM 对话**。
+- ⇒ 对话链 + 识图链的智谱环**全部摘除**;`llm_channels` 里**连常量都不留**
+  （`VENDOR_ZHIPU` / `POOL_ZHIPU_PACK` / `ZHIPU_*` / `_zhipu_channel` 全部删除）
+  ⇒ **口径变更必须改代码才能生效**，不是一个常量就能绕过去的。
+- ⚠️ **对话流量在偷知识库额度**：对话链与知识库 embedding **共用同一把 key / 同一个资源包**
+  ⇒ 智谱对话环每跑一次 = 知识库少一分可用额度。
+- **智谱只在服务端视觉 QA 里保留**（witness OCR 逐字校验）—— 那是**校验**不是对话，
+  且实测 glm-4v-flash 的转录精度明显优于 MiniMax-M3
+  （MiniMax 会把「验收」转成「验饭」、「接的品」转成「接的作品」——
+  witness 是**权威依据**，错字会把正确字段「修」错）。
+  ⇒ 但它必须用**独立配置源**，见下一节。
+
+### ★★ §11.1 视觉 QA 的配置源必须**独立**于对话链（2026-10-26 实测踩坑）
+
+★ **病根 = 两份语义不同的事实共用一份配置源**：
+  视觉 QA 的 witness/repair 原来读 `settings.llm.providers`（**对话链的档位表**）
+  里 name 含 zhipu 的那一档。对话链按老大口径摘掉智谱档后,
+  **视觉 QA 被一起带断** —— 实测 `_vision_qa_cfg()` 返回 None
+  ⇒ 字段提取精度从 95%+ 退回「只跑常识规则」（~67%）。
+
+⇒ **修法 = 拆成两个配置源**（不是「再摘一个档」）：
+
+| 消费者 | 配置源 | 用途 |
+|---|---|---|
+| **对话链 / 识图链** | `settings.llm.providers` + `.env` | LLM 推理（**不含智谱**）|
+| **服务端视觉 QA** | `settings.visionQA` 段（+ env `SOLOBRAVE_VISION_QA_*` 兜底）| witness OCR + 修复 pass |
+
+⚠️ **配套三条**：
+  1. 视觉 QA 走 **OpenAI 兼容**协议（`image_url` 形态）⇒
+     provider 配成 `minimax`/`anthropic`/`kimicode`（Anthropic 协议）会**静默走错分支**
+     ⇒ `_vision_qa_cfg()` 显式拦下并降级，不硬撑。
+  2. `base` 必须剥掉 `/embeddings` 后缀（实测踩过 → 404）。
+  3. 模型名也归 cfg（`witnessModel` / `repairModel`），不许每个 pass 各自读 env。
+
+⇒ 守门人：`tests/test_vision_qa.py::test_vision_qa_cfg_ignores_conversation_chain_provider_list`
+  + 变异 M10（配置源跑回 `llm.providers` ⇒ 必须红）。
 
 ### 降级链顺序也有讲究(2026-10-25)
 
 降级链是**顺序遍历**的 ⇒ **活环必须排在死环前面**。
-kimi(429)/开放平台(402) 排在智谱后面 = 每次降级都先白等两轮 HTTP 失败
+kimi(429)/开放平台(402) 排在 MiniMax 三环后面 = 每次降级都先白等两轮 HTTP 失败
 (飞书侧体感就是「卡十几秒才回一句没反应」)。
 
 
@@ -1884,3 +1925,75 @@ pytest **收集 0 条** ⇒ 看着有覆盖,CI 其实跑不到
 
 ⇒ 改设定走服务端 `POST /api/openclaw/write-agent-docs`(按 `entry.workspace` 解析 + 归属校验),
 **别手改 workspace 目录**(会绕过归属校验)。
+
+---
+
+## 16. 缺失值 / 空态 / 配置源三条铁律（2026-10-26 新增）
+
+> 触发:老大 2026-10-26 问卷拍板三件事 —— ① 撤 daren_bot 降级链里的智谱环
+> ②「今天没排品」发占位消息 ③ 转化率保持 NULL 当缺失维度。
+> ⇒ 执行时**当场挖出 4 条更深的病根**,都写在这里。
+
+### F. 两份**语义不同**的事实共用一份配置源 ⇒ 一改就互相带断
+
+★ 病根（本轮实测踩到）：视觉 QA 的 witness/repair 读的是
+  `settings.llm.providers`（**对话链的档位表**）。
+  对话链按老大口径摘掉智谱档 ⇒ 视觉 QA **跟着一起断**
+  ⇒ 字段提取精度从 95%+ 退回「只跑常识规则」（~67%），而两边**都不报错**。
+
+⇒ **判据**：这份配置是给「谁」用的？消费者语义不同 ⇒ **配置源必须分开**。
+  （对话链 = `settings.llm.providers`；视觉 QA = `settings.visionQA` 段 + env 兜底）
+⇒ **共享模块改了配置，另一条链会静默失效** —— 这类故障没有任何报错，
+  只能靠「配置源独立」在结构上杜绝。
+
+### G. 空态与故障必须分得开：**不许把故障说成结论**
+
+★ 原来 `plan_notify._reminder_parts` 把「达人查不到」和「今天没品」
+  **折叠成同一个 `("", [], [])`** ⇒ `scan_and_push` 只看 `if not text:`
+  ⇒ 一律静默。老大拍板「今天没排品也要发占位」后，暴露出一个新问题：
+  **空态有回音了，但「我们没采到数据」也会被说成「今天没排品」**。
+
+⇒ **状态必须是显式枚举**（`ok` / `no_talent` / `no_pool` / `no_today_item` / `already_sent`），
+  **不许靠 `text == ''` 反推**（那把「缺一个输入」说成了「答不了」）。
+⇒ 处置相反的两类必须分开：
+  「达人数据缺失」= **我们的问题** ⇒ 不发给达人（只记日志/告警）；
+  「确实没品可推」= 达人的现状 ⇒ 发占位。
+⇒ ⚠️ **空态消息没有 `deal_id`** ⇒ 挂不上 `deals.remind_state` ⇒ 幂等要**单独一个标记位**
+  （`bot_plan_notice_log`，按 `(tenant_key, day_key, kind)` 唯一，**DB 级**，重启也守住）。
+  且空态推送**要计入调度器的「今天推过了」闸门**，否则 09:37 之后会每 300s 重扫一整天。
+
+### H. 「没有真值」不许变成 **0** —— 编造的 0 比 NULL 更毒
+
+★ 转化率：平台**没有**通用商品转化率接口 ⇒ 我们的库里从来没有过它的真值。
+  但代码在到处**编造**：
+  - 示例种子写死 `3.5` / `[3.2, 2.8, 4.1, 3.5]`
+  - 导入时缺字段落库成 `0`
+  - 商品分析 prompt 写死「转化率：0%」⇒ **编造的数进了 LLM 的输入**
+    ⇒ 模型会拿它当事实推理（「转化率 0% 说明没人买」）⇒ 结论被带偏。
+
+⇒ **NULL ≠ 0**：0 会被读成「真的是 0%」；NULL 才是「没采到」。
+  评分器侧已有配套（`_missing()` 把 0 也当缺失 + 池内覆盖率闸门 ⇒ 退出加权 + 重新归一化），
+  但**闸门挡不住「假值凑够 60% 覆盖」** ⇒ 必须从**源头**不写假值。
+⇒ 往 LLM prompt 里塞数字前先问：**这个数的来源是哪一端？平台真值还是我们自己填的？**
+  没有 ⇒ **整行不写**（让模型知道「这项不知道」），别写 0。
+
+### I. 守门人**不能为了让代码通过而放宽标准**
+
+★ 本轮用 AST 扫描「代码里有没有写死的转化率数字」，第一次跑就抓到
+  一个 `grep 'conversion_rate'` **漏掉**的假值 —— 它用的是 camelCase 的
+  `conversionRate`（藏在示例达人卡的 JSON blob 里）。
+
+⇒ **守门人一旦为了「让代码过」而收窄覆盖面，它就从守门人变成了摆设** ——
+  那还不如不写。正确做法是**把代码改对**（把那个假值也清掉）。
+⇒ 静态扫描抓事实类问题（代码里有没有硬编码）用 **AST**，不用正则：
+  正则会漏（多行 / 变量间接赋值），而且会把「注释里提到这个数字」也当命中（假红）。
+
+### J. 假值清理的**影响面必须实测**，不能靠推理
+
+★ 清掉 137 行假转化率前，先取基线快照（`reco_calibrate.collect_displayed`
+  = **用户实际看到的**推荐列表，321 条 / 764 样本），清完再跑一次对比。
+
+⇒ 实测结果：**321 条展示、764 样本，分数一位不差** ——
+  因为转化率维度此前就因覆盖率 4% < 60% 被整体剔除 ⇒ 清假值对打分**零影响**。
+  （但假值仍必须清：它随时可能凑够覆盖率翻身。）
+⇒ **「推理它应该没影响」不算验证**，**当场跑一遍对比**才算。

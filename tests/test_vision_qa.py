@@ -217,13 +217,15 @@ def test_grounding_single_digit_skipped():
 # ── 6) _vision_qa_pipeline 端到端 (monkeypatch) ──────────────────────────
 
 _GOOD_DESC = json.dumps(_extraction_obj(), ensure_ascii=False)
-_CFG = {'base': 'https://open.bigmodel.cn/api/paas/v4', 'key': 'test-key'}
+_CFG = {'base': 'https://open.bigmodel.cn/api/paas/v4', 'key': 'test-key',
+        'provider': 'zhipu', 'witnessModel': 'glm-4v-flash',
+        'repairModel': 'glm-4-flash', 'maxTokens': 1024}
 
 
 def test_pipeline_disabled_passthrough():
     os.environ['SOLOBRAVE_VISION_QA'] = '0'
     try:
-        with _Monkey(_vision_qa_glm_cfg=lambda: _CFG):
+        with _Monkey(_vision_qa_cfg=lambda: _CFG):
             out = srv._vision_qa_pipeline(_GOOD_DESC, _png_b64(), role='商务')
         assert out == _GOOD_DESC
     finally:
@@ -232,13 +234,13 @@ def test_pipeline_disabled_passthrough():
 
 def test_pipeline_non_extraction_passthrough():
     prose = '这张图片显示了一个柱状图, 蓝色系列代表销售额, 整体呈上升趋势。'
-    with _Monkey(_vision_qa_glm_cfg=lambda: _CFG):
+    with _Monkey(_vision_qa_cfg=lambda: _CFG):
         out = srv._vision_qa_pipeline(prose, _png_b64(), role='运营')
     assert out == prose
 
 
 def test_pipeline_clean_extraction_untouched():
-    with _Monkey(_vision_qa_glm_cfg=lambda: _CFG,
+    with _Monkey(_vision_qa_cfg=lambda: _CFG,
                  _vision_witness_ocr=lambda b64, cfg: _WITNESS_GOOD):
         out = srv._vision_qa_pipeline(_GOOD_DESC, _png_b64(), role='商务')
     assert out == _GOOD_DESC    # 零问题: 一字不动
@@ -253,7 +255,7 @@ def test_pipeline_repair_adopted():
         fixed = _extraction_obj()    # 修复成完美版
         return json.dumps(fixed, ensure_ascii=False)
 
-    with _Monkey(_vision_qa_glm_cfg=lambda: _CFG,
+    with _Monkey(_vision_qa_cfg=lambda: _CFG,
                  _vision_witness_ocr=lambda b64, cfg: _WITNESS_GOOD,
                  _call_chat_completion=_fake_chat):
         out = srv._vision_qa_pipeline(desc, _png_b64(), role='商务')
@@ -271,7 +273,7 @@ def test_pipeline_repair_rejected_when_still_bad():
         still_bad['video_ratio'] = 150    # 修复结果带新硬错
         return json.dumps(still_bad, ensure_ascii=False)
 
-    with _Monkey(_vision_qa_glm_cfg=lambda: _CFG,
+    with _Monkey(_vision_qa_cfg=lambda: _CFG,
                  _vision_witness_ocr=lambda b64, cfg: _WITNESS_GOOD,
                  _call_chat_completion=_fake_bad_chat):
         out = srv._vision_qa_pipeline(desc, _png_b64(), role='商务')
@@ -283,7 +285,7 @@ def test_pipeline_no_glm_cfg_sanity_only():
     obj = _extraction_obj()
     obj['video_ratio'] = 150
     desc = json.dumps(obj, ensure_ascii=False)
-    with _Monkey(_vision_qa_glm_cfg=lambda: None):
+    with _Monkey(_vision_qa_cfg=lambda: None):
         out = srv._vision_qa_pipeline(desc, _png_b64(), role='商务')
     out_obj = json.loads(out)
     assert out_obj['video_ratio'] is None     # 常识硬错仍被置 null
@@ -294,7 +296,7 @@ def test_pipeline_witness_failure_falls_back():
     obj = _extraction_obj()
     obj['video_ratio'] = 150
     desc = json.dumps(obj, ensure_ascii=False)
-    with _Monkey(_vision_qa_glm_cfg=lambda: _CFG,
+    with _Monkey(_vision_qa_cfg=lambda: _CFG,
                  _vision_witness_ocr=lambda b64, cfg: None):
         out = srv._vision_qa_pipeline(desc, _png_b64(), role='商务')
     out_obj = json.loads(out)
@@ -313,27 +315,53 @@ def test_pipeline_exception_never_raises():
     assert srv._vision_qa_pipeline('{}', 'garbage-base64!!!') == '{}'
 
 
-def test_glm_calls_never_exceed_flash_max_tokens():
+def test_vision_qa_calls_never_exceed_configured_max_tokens():
     """★ fix/vision-p0-realworld 防回归: glm-4v-flash 的 max_tokens 硬上限就是 1024
-    (真机 2026-10-15 传 2500 → HTTP 400 code 1210)。witness 和修复 pass 都不许再超。"""
+    (真机 2026-10-15 传 2500 → HTTP 400 code 1210)。witness 和修复 pass 都不许再超。
+
+    ★ 2026-10-26：上限来源从「源码里写死 1024」改成 **cfg['maxTokens']**
+    （视觉 QA 的独立配置源 `settings.visionQA`）⇒ 断言也跟着改：
+
+    ⚠️ 断言方式从「源码里有没有这串字」改成**盯行为**（真调一次，看传出去的 max_tokens）。
+       源码字符串断言是**恒真探针的第二形态**：把代码改成 `max_tokens=99999`
+       而保留那串字，测试照样绿 —— 盯符号抓不到这种变异。
+    """
     captured = []
 
     def _fake_chat(provider, key, model, endpoint, messages, timeout=0, max_tokens=0):
         captured.append(max_tokens)
         return json.dumps(_extraction_obj(), ensure_ascii=False)
 
-    # 直接调真实 _vision_witness_ocr 验证它传的 max_tokens (打真 HTTP 会被网络层拦, 只看传参)
-    import inspect
-    src = inspect.getsource(srv._vision_witness_ocr)
-    assert 'max_tokens=1024' in src, 'witness 必须卡 glm-4v-flash 的 1024 上限'
-    src2 = inspect.getsource(srv._vision_repair_with_witness)
-    assert 'max_tokens=1024' in src2, '修复 pass 必须卡 glm-4v-flash 的 1024 上限'
+    # witness：真调一次，抓它实际传出去的 max_tokens
+    captured.clear()
+    with _Monkey(_call_chat_completion=_fake_chat):
+        srv._vision_witness_ocr(_png_b64(), _CFG)
+    assert captured, 'witness 根本没调模型 —— 这条断言会空跑'
+    assert max(captured) <= 1024, f'witness max_tokens={max(captured)} 超 glm-4v-flash 上限 1024'
+
+    # 修复 pass：同上
+    captured.clear()
+    with _Monkey(_call_chat_completion=_fake_chat):
+        srv._vision_repair_with_witness(
+            _extraction_obj(), [{'field': 'video_ratio', 'why': 'x', 'value': 1,
+                                 'hard': False, 'repairable': True}],
+            _WITNESS_GOOD, _CFG)
+    assert captured, '修复 pass 根本没调模型 —— 这条断言会空跑'
+    assert max(captured) <= 1024, f'修复 pass max_tokens={max(captured)} 超上限 1024'
+
+    # cfg 里给了更小的上限时，必须照 cfg 走（不许硬写 1024 顶掉）
+    captured.clear()
+    small = dict(_CFG, maxTokens=256)
+    with _Monkey(_call_chat_completion=_fake_chat):
+        srv._vision_witness_ocr(_png_b64(), small)
+    assert captured == [256], f'witness 没照 cfg 的 maxTokens 走: {captured}'
 
     # 管线里修复 pass 的传参也不许超
     obj = _extraction_obj()
     obj['video_ratio'] = 88.88
     desc = json.dumps(obj, ensure_ascii=False)
-    with _Monkey(_vision_qa_glm_cfg=lambda: _CFG,
+    captured.clear()
+    with _Monkey(_vision_qa_cfg=lambda: _CFG,
                  _vision_witness_ocr=lambda b64, cfg: _WITNESS_GOOD,
                  _call_chat_completion=_fake_chat):
         srv._vision_qa_pipeline(desc, _png_b64(), role='商务')
@@ -379,7 +407,7 @@ def test_pipeline_repair_touching_unflagged_ignored():
     def _fake_naughty_chat(provider, key, model, endpoint, messages, timeout=0, max_tokens=0):
         return json.dumps({'video_ratio': 99.16, 'followers': '4500'}, ensure_ascii=False)
 
-    with _Monkey(_vision_qa_glm_cfg=lambda: _CFG,
+    with _Monkey(_vision_qa_cfg=lambda: _CFG,
                  _vision_witness_ocr=lambda b64, cfg: _WITNESS_GOOD,
                  _call_chat_completion=_fake_naughty_chat):
         out = srv._vision_qa_pipeline(desc, _png_b64(), role='商务')
@@ -421,7 +449,7 @@ def test_pipeline_garbage_witness_never_corrupts_good_data():
     def _fake_chat(provider, key, model, endpoint, messages, timeout=0, max_tokens=0):
         raise AssertionError('\u574f witness \u4e0b\u4fee\u590d pass \u4e0d\u8be5\u88ab\u8c03\u7528')
 
-    with _Monkey(_vision_qa_glm_cfg=lambda: _CFG,
+    with _Monkey(_vision_qa_cfg=lambda: _CFG,
                  _vision_witness_ocr=lambda b64, cfg: _BAD_WITNESS,
                  _call_chat_completion=_fake_chat):
         out = srv._vision_qa_pipeline(desc, _png_b64(), role='\u5546\u52a1')
@@ -534,7 +562,7 @@ def test_pipeline_fixes_partial_merge_adopted():
     def _fake_partial_chat(provider, key, model, endpoint, messages, timeout=0, max_tokens=0):
         return json.dumps({'video_ratio': 99.16}, ensure_ascii=False)    # 只修一个
 
-    with _Monkey(_vision_qa_glm_cfg=lambda: _CFG,
+    with _Monkey(_vision_qa_cfg=lambda: _CFG,
                  _vision_witness_ocr=lambda b64, cfg: _WITNESS_GOOD,
                  _call_chat_completion=_fake_partial_chat):
         out = srv._vision_qa_pipeline(desc, _png_b64(), role='商务')
@@ -645,3 +673,154 @@ def test_repair_bare_thousands_number():
     # 字符串内转义引号不误伤
     obj2 = srv._parse_vision_json('{"bio": "他说\\"1,000\\"次", "n": 2,500}')
     assert obj2 == {'bio': '他说"1,000"次', 'n': 2500}
+
+
+# ── 8) 视觉 QA 的配置源必须独立于对话链（2026-10-26）─────────────────────
+#
+# ★ 背景（连带损伤的根因）：视觉 QA 原来读 `settings.llm.providers` 里 name 含 zhipu
+#   的那一档 —— 那份档位表是**对话链**的。对话链按老大口径（智谱资源包只做知识库
+#   embedding，不拿来做 LLM 对话）摘掉智谱档后，**视觉 QA 被一起带断**：
+#   witness/repair 双双失效 ⇒ 字段提取精度从 95%+ 退回「只跑常识规则」（~67%）。
+#   ⇒ 病根不是「智谱没了」，是**两份语义不同的事实共用一份配置源**。
+
+
+def _no_visionqa_env():
+    """清掉视觉 QA 的 env 兜底变量，保证测试只走 settings 路径（不碰真实 .env）。"""
+    for k in ('SOLOBRAVE_VISION_QA_API_KEY', 'SOLOBRAVE_VISION_QA_BASE_URL',
+              'SOLOBRAVE_VISION_QA_PROVIDER', 'SOLOBRAVE_VISION_WITNESS_MODEL',
+              'SOLOBRAVE_VISION_QA_MODEL'):
+        os.environ.pop(k, None)
+
+
+def test_vision_qa_cfg_ignores_conversation_chain_provider_list():
+    """★ 回归锁：视觉 QA 绝不许读 `settings.llm.providers`（对话链的档位表）。
+
+    对话链的档位表里**有** zhipu 档时，视觉 QA 仍必须拿不到配置 ——
+    否则两份事实又共用起来了，对话链改一次配置就能把本管线一起带断。
+    """
+    _no_visionqa_env()
+    fake_settings = {'llm': {'providers': [
+        {'name': 'zhipu', 'apiKey': 'fake-zhipu-key',
+         'baseUrl': 'https://open.bigmodel.cn/api/paas/v4', 'priority': 1},
+    ]}}
+    with _Monkey(_read_json=lambda *a, **k: fake_settings):
+        cfg = srv._vision_qa_cfg()
+    assert cfg is None, (
+        '视觉 QA 又在读对话链的 llm.providers 了 —— '
+        '两份语义不同的事实共用一份配置源，会互相把对方带断')
+
+
+def test_vision_qa_cfg_reads_dedicated_visionqa_section():
+    """视觉 QA 从自己的 `settings.visionQA` 段取配置（形态同既有 `vision` 段）。"""
+    _no_visionqa_env()
+    fake_settings = {'visionQA': {
+        'provider': 'zhipu', 'apiKey': 'fake-key-123',
+        'baseUrl': 'https://open.bigmodel.cn/api/paas/v4',
+        'witnessModel': 'glm-4v-flash', 'repairModel': 'glm-4-flash'}}
+    with _Monkey(_read_json=lambda *a, **k: fake_settings):
+        cfg = srv._vision_qa_cfg()
+    assert cfg, '视觉 QA 读不到自己的配置段'
+    assert cfg['key'] == 'fake-key-123'
+    assert cfg['base'] == 'https://open.bigmodel.cn/api/paas/v4'
+    assert cfg['witnessModel'] == 'glm-4v-flash'
+    assert cfg['repairModel'] == 'glm-4-flash'
+    # ⚠️ glm-4v-flash 的 max_tokens 硬上限 1024（真机 2026-10-15 实证：
+    #   传 2500 → HTTP 400 code 1210「限制数值范围[1,1024]」）必须被尊重
+    assert cfg['maxTokens'] == 1024, cfg['maxTokens']
+
+
+def test_vision_qa_cfg_rejects_anthropic_protocol_provider():
+    """Anthropic 协议端点接不了 witness 的 image_url 形态 ⇒ 显式降级，不静默走错分支。
+
+    ⚠️ `_call_chat_completion` 的 provider 参数决定协议分支：
+    'minimax'/'anthropic'/'kimicode' → Anthropic `/messages`；
+    其它 → OpenAI `/chat/completions`。配错了不会报错，只会**静默走错分支**。
+    """
+    _no_visionqa_env()
+    fake_settings = {'visionQA': {
+        'provider': 'minimax', 'apiKey': 'fake-key',
+        'baseUrl': 'https://api.minimax.cn/anthropic/v1'}}
+    with _Monkey(_read_json=lambda *a, **k: fake_settings):
+        cfg = srv._vision_qa_cfg()
+    assert cfg is None, 'Anthropic 协议端点被当 OpenAI 兼容用了 —— 会静默走到错误分支'
+
+
+def test_vision_qa_cfg_env_fallback():
+    """env 兜底可用（没配 settings.visionQA 时）。"""
+    _no_visionqa_env()
+    os.environ['SOLOBRAVE_VISION_QA_API_KEY'] = 'fake-env-key'
+    os.environ['SOLOBRAVE_VISION_QA_BASE_URL'] = 'https://example.invalid/v4'
+    try:
+        with _Monkey(_read_json=lambda *a, **k: {}):
+            cfg = srv._vision_qa_cfg()
+        assert cfg, 'env 兜底不生效'
+        assert cfg['key'] == 'fake-env-key'
+        assert cfg['base'] == 'https://example.invalid/v4'
+    finally:
+        _no_visionqa_env()
+
+
+def test_vision_qa_cfg_misconfigured_does_not_fall_through_to_env():
+    """★ 配置错误不许被当成「没配置」：配了但装配失败 ⇒ 直接 None，不落 env 兜底。
+
+    ⚠️ 落 env 兜底 = 把「配错了」写成「没配」⇒ 排查会跑偏（去查 env 而不是查配置）。
+    """
+    _no_visionqa_env()
+    os.environ['SOLOBRAVE_VISION_QA_API_KEY'] = 'env-should-not-be-used'
+    try:
+        fake_settings = {'visionQA': {
+            'provider': 'minimax', 'apiKey': 'fake-key',
+            'baseUrl': 'https://api.minimax.cn/anthropic/v1'}}
+        with _Monkey(_read_json=lambda *a, **k: fake_settings):
+            cfg = srv._vision_qa_cfg()
+        assert cfg is None, '配置错误时不该悄悄落到 env 兜底'
+    finally:
+        _no_visionqa_env()
+
+
+def test_vision_qa_cfg_strips_embeddings_suffix_from_base():
+    """★ 回归（2026-10-25 实测踩过）：base 残留 `/embeddings` ⇒ 请求 404。
+
+    `.env` 的 embedding base 存的是**完整 embedding 路径**
+    （`.../api/paas/v4/embeddings`）。直接拼 `/chat/completions` 会打到
+    `/api/paas/v4/embeddings/chat/completions` → HTTP 404
+    （路径看着像 base 没配对，其实是多了三段）。
+    """
+    _no_visionqa_env()
+    fake_settings = {'visionQA': {
+        'provider': 'zhipu', 'apiKey': 'fake-key',
+        'baseUrl': 'https://open.bigmodel.cn/api/paas/v4/embeddings'}}
+    with _Monkey(_read_json=lambda *a, **k: fake_settings):
+        cfg = srv._vision_qa_cfg()
+    assert cfg, '视觉 QA 配置解析失败'
+    assert not cfg['base'].endswith('/embeddings'), \
+        f"base 残留 /embeddings → 请求会 404: {cfg['base']}"
+    assert cfg['base'].endswith('/v4'), cfg['base']
+
+
+def test_repair_null_is_rejected_and_original_kept():
+    """★ 修复 pass 吐 `null` ⇒ **拒绝采纳**，保留原值（「不置 null 不误杀」）。
+
+    ⚠️ 模块设计写的是「修不好的字段不输出 → 保持原值」「修不动保留原值+记日志
+      (不置 null 不误杀)」—— 程序侧原来照单全收模型给的任何值（包括 null），
+      ⇒ 模型「找不到依据」时吐 null，原来的**错值**被抹成 null。
+
+    ⚠️ 与**常识规则**的区分（别一起改错）：
+      `_vision_sanity_check` 把越界值（120%）置 null 是**合法**的 ——
+      120% 这种就是错值，置 null 比留错值好；
+      这里拒的是**修复模型**的 null（=「我没修好」，不是「这个值是错的」）。
+    """
+    obj = {'followers': '450万', 'video_ratio': 88.88}
+    fixes = {'followers': None, 'video_ratio': 99.16}
+    applied = srv._vision_apply_field_fixes(obj, fixes, {'followers', 'video_ratio'})
+    assert obj['followers'] == '450万', f'修不动不该抹掉原值: {obj}'
+    assert obj['video_ratio'] == 99.16, obj
+    assert 'followers' not in applied, applied
+    assert 'video_ratio' in applied, applied
+
+
+def test_sanity_check_may_still_null_out_of_range():
+    """对照：常识规则的越界置 null **仍然合法**（别把它一起禁掉）。"""
+    obj = {'extra_fields': {'转化率': '120%'}}
+    srv._vision_sanity_check(obj, fix=True)
+    assert obj['extra_fields']['转化率'] is None, obj

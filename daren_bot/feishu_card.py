@@ -196,10 +196,13 @@ def reco_card(profile_line: str, recos: list, note: str = "") -> dict:
 
 
 def plan_card(talent_name: str, title: str, lines: list,
-              actions: list = None, note: str = "") -> dict:
+              actions: list = None, note: str = "",
+              template: str = TPL_GREEN) -> dict:
     """排品提醒卡：今天推哪几个 + 坑位 + 按钮。
 
     ★ 达人名放**正文第一行**（header.title 是单行，塞不下两行）。
+    ★ `template` 可覆盖（2026-10-26）：空态占位卡用**灰色** ——
+      绿色模板的视觉语义是「今天有好货」，空态用绿色 = 误读。
     """
     els = []
     if talent_name:
@@ -210,7 +213,7 @@ def plan_card(talent_name: str, title: str, lines: list,
         els.append(_action(actions))
     if note:
         els.append(_note(note))
-    return card(title, els, template=TPL_GREEN)
+    return card(title, els, template=template)
 
 
 def to_content(card_obj: dict) -> str:

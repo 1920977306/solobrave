@@ -133,6 +133,17 @@ curl -s -X POST "http://127.0.0.1:8092/admin/api/plan-scan?token=$TOKEN" \
 | `daren_bot/config.py` / `main.py` / `admin.py` | A 边 | 2026-10-25 18:05 | ✅ 18:10 已交 | 告警配置 / 启动巡检 / 后台告警区 |
 | `daren_bot/config.py` / `daren_bot/ops_alert.py` | A 边 | 2026-10-25 19:45 | ✅ 19:58 已交 | `.env` 加载 + 飞书告警走运营租户最近会话 |
 | `solobrave-server.py` | A 边 | 2026-10-25 19:50 | ✅ 19:56 已交 | 只改 `_cleanup_agent_data` 一段（逐语句容错 + 补清漏表）|
+| `daren_bot/llm_channels.py` + `executors.py` + `plan_notify.py` + `db.py` + `feishu_card.py` | A 边 | 2026-10-26 15:50 | ✅ 16:40 已交 | **第 6 轮**：摘智谱环 + 空态占位 + 幂等标记表 + 灰色卡 |
+| `solobrave-server.py` | A 边 | 2026-10-26 15:50 | ✅ 16:40 已交 | **第 6 轮**：视觉 QA 独立配置源 + 转化率 5 处编造源头 + 修复 pass 拒绝 null |
+| `tests/test_llm_channels.py` + `test_vision_qa.py` + `test_plan_notify.py` + `test_conversion_rate_truth.py`（新）| A 边 | 2026-10-26 15:50 | ✅ 16:40 已交 | 第 6 轮契约反转 + 新增 22 条 |
+| `scripts/mutate_llm_ring_guards.py` | A 边 | 2026-10-26 15:50 | ✅ 16:40 已交 | 变异 M1-M11 重写 |
+
+> ⚠️ **B 边注意（第 6 轮新增的冲突面）**：
+> `daren_bot/db.py` / `daren_bot/plan_notify.py` / `daren_bot/feishu_card.py`
+> 这三个文件 **A 边第 6 轮动过**（若 B 边也动了 ⇒ 会有冲突）。
+> ⇒ 已用 `git merge-tree` 预演：B 边分支与 `origin/dev` 的冲突只有
+>    `daren_bot/worker.py` + 本交接单（**已知的两处**），`db.py` **自动合并干净**。
+> ⇒ 但 B 边若在 `db.py` 里也加了表，注意**别和 A 边的 `bot_plan_notice_log` 撞名**。
 
 > ⚠️ **B 边注意**：A 边与 B 边**都改过** `daren_bot/worker.py`、`config.py`、
 > `executors.py`、`handler.py`、`main.py`、`admin.py` ⇒ 合 `origin/dev` 时**这几处会冲突**。
@@ -441,3 +452,191 @@ B 边 `924ea8a` 记的「上线阻塞」是：
 ⇒ 教训再加一条：**闸门的返回码会被下游当成健康信号** ——
    闸门选错状态码 ⇒ 上游监控整套失真（下游把 503 当「服务挂了」，
    实际那只是个空 body 探测）。
+
+---
+
+## 10. A 边第 6 轮：撤智谱环 + 空态回音 + 转化率归 NULL（2026-10-26 16:40）
+
+### 一句话
+
+老大 2026-10-26 问卷拍板三件事 —— ① 撤 `daren_bot` 降级链里的智谱环
+②「今天没排品」发占位消息 ③ 转化率保持 NULL 当缺失维度
+⇒ **执行时当场挖出 4 条更深的病根**（本轮真正的价值在这 4 条）。
+
+### ★ 病根 1：两份**语义不同**的事实共用一份配置源 ⇒ 一改就互相带断
+
+**现象**：第 5 轮把 `data/settings.json` 的 zhipu 档删了（对话链不再用智谱），
+  当场没报错 —— 但**服务端视觉 QA 的 witness/repair 被一起带断**
+  （`_vision_qa_glm_cfg()` 返回 None ⇒ 字段提取精度从 95%+ 退回「只跑常识规则」~67%）。
+
+**根因**：视觉 QA 读的是 `settings.llm.providers` = **对话链的档位表**。
+  ⇒ 两份语义不同的事实共用一份配置源。
+
+**修法**：拆配置源（不是「再摘一个档」）：
+
+| 消费者 | 配置源 | 用途 |
+|---|---|---|
+| 对话链 / 识图链 | `settings.llm.providers` + `.env` | LLM 推理（**不含智谱**）|
+| **服务端视觉 QA** | **`settings.visionQA` 段** + env `SOLOBRAVE_VISION_QA_*` 兜底 | witness OCR + 修复 pass |
+
+配套三条：① 走 OpenAI 兼容协议（`image_url` 形态），provider 配成
+Anthropic 协议端点会**静默走错分支** ⇒ 显式拦下降级；
+② base 必须剥 `/embeddings` 后缀（否则 404）；
+③ 模型名归 cfg（`witnessModel` / `repairModel`），不许各 pass 各自读 env。
+
+⇒ 守门人：`tests/test_vision_qa.py` 5 条新断言 + 变异 **M10**（配置源跑回
+`llm.providers` ⇒ 必须红）。
+
+### ★ 病根 2：空态与故障被**折叠成同一个返回值**
+
+`plan_notify._reminder_parts` 把「达人查不到」和「今天没品」都返回 `("", [], [])`
+⇒ `scan_and_push` 只看 `if not text:` ⇒ **一律静默**（达人彻底收不到回音）。
+
+**修法**：状态改成**显式枚举**，处置相反的两类分开走：
+
+| 状态 | 含义 | 处置 |
+|---|---|---|
+| `no_talent` | 达人数据没采到 = **我们的问题** | **不发**给达人（只记日志）——发了就是把故障说成「没排品」|
+| `no_pool` | 名下一张单都没有 | 发占位（灰色卡）|
+| `no_today_item` | 池里有单但今天没排到 | 发占位（灰色卡）|
+| `already_sent` | 今天该推的都推过了 | 不发（幂等）|
+
+⚠️ **空态消息没有 `deal_id`** ⇒ 挂不上 `deals.remind_state` ⇒ 幂等要**单独标记位**：
+`bot_plan_notice_log`（按 `(tenant_key, day_key, kind)` 唯一，**DB 级**，重启也守住）。
+且空态推送**要计入调度器的「今天推过了」闸门**，否则 09:37 之后每 300s 重扫一整天。
+
+### ★ 病根 3：⚠️ **两个库不是一个库**（本轮最隐蔽的一个）
+
+`daren_bot` 有**两个 SQLite**：
+- `data/daren-bot/daren_bot.db` —— bot 自己的表（`bot_*`）
+- `data/solobrave.db` —— 排品的 `deals` / `talents` / `products`
+
+`bot_plan_notice_log` 建在 bot 库（跟 `bot_coop_push_log` 同类），
+但**第一版实现去读 `SOLOBRAVE_DB`**（排品库）⇒ 表查不到
+⇒ `sqlite3.OperationalError` 被吞 ⇒ **幂等静默失效**（每次都发占位）。
+
+⇒ 现在：表的**数据访问在 schema owner 里**（`db.notice_log_exists()` /
+`db.mark_notice_sent()`），`plan_notify` 只调 `db.*`。
+⇒ 且**读取失败必须喊出来**（warning），不许静默降级成「每次都发」。
+⇒ 测试也必须隔离**两个**库（`monkeypatch.setattr(plan_notify.db.config, "DB_PATH", tmp)`），
+   否则会往**生产库**写通知记录。
+
+### ★ 病根 4：守门人不能为了让代码通过而放宽标准
+
+AST 扫描「代码里有没有写死的转化率数字」**第一次跑就抓到**一个
+`grep 'conversion_rate'` **漏掉**的假值 —— 它用 camelCase 的 `conversionRate`
+（藏在示例达人卡的 JSON blob 里）。
+⇒ 处置：**把代码改对**（清掉那个假值），**不是**收窄扫描范围。
+⇒ 静态扫描抓「代码里有没有硬编码」用 **AST**，不用正则（正则会漏多行/间接赋值，
+   还会把「注释里提到这个数字」当命中）。
+
+### 智谱摘除后的口径（**回答老大「要再买 API 吗」**）
+
+| 项 | 现状 |
+|---|---|
+| `daren_bot` 对话链 | 环0 MiniMax 套餐(Anthropic) / 环1 Code 订阅 / 环2 MiniMax 套餐(OpenAI) / 环3 kimi(429) / 环4-5 开放平台(402) |
+| `daren_bot` 识图链 | 环0 MiniMax / 环1 kimi(429) / 环2-3 开放平台(402) |
+| **能顶的独立服务商** | **1 家（MiniMax）** ⇒ **冗余归零，该买第二家 API** |
+| 智谱 | 只剩**服务端视觉 QA**（witness OCR 逐字校验），配置源**独立**（`settings.visionQA`）|
+
+⚠️ 为什么视觉 QA 仍保留智谱（**实测**决策，不是拍脑袋）：
+同一张真截图做逐字转录对比 ——
+
+| 通道 | 耗时 | 质量判定 | 转录实况 |
+|---|---|---|---|
+| zhipu `glm-4v-flash` | 33.9s | 合格（CJK 696 / 数字 140）| 「链路**验收**」「达人接的**品**」—— **无错字** |
+| MiniMax-M3（Anthropic 端点）| 11.8s | 合格 | 「链路**验饭**」「达人接的**作品**」—— **有错字** |
+| MiniMax-M3（OpenAI 端点）| 29.7s | **不合格**（CJK 占比 0.17）| 漏出 `<think>` 推理过程 |
+
+⇒ witness 是**权威依据**（拿它的原文去「修」第一遍的错值），
+   **错字会把正确字段修错** ⇒ 不能换成 MiniMax。
+⇒ 但「智谱只做 embedding」的口径不变 ⇒ 视觉 QA 是**校验**不是对话，
+   且配置源独立，对话链改配置**不会再**把它带断。
+
+### 转化率：清库 + 堵住编造源头
+
+**库里清掉的假值**（备份 `data/solobrave-backup-20261026-161634-before-conversion-null.db`）：
+- `products.conversion_rate`：137 行（131 行 `0.0` + 6 行 `3.5`）→ **全 NULL**
+- `product_talent_match.conversion_rate`：342 行（330 行 `0.0` + 6 行 `3.5` + 6 行 `3.2`）→ **全 NULL**
+
+**代码侧堵死的编造源头**（4 处）：
+① 示例种子 `products.conversion_rate = 3.5` → `None`
+② 示例种子 `product_talent_match.conversion_rate = [3.2,2.8,4.1,3.5]` → `None`
+③ 示例达人卡 JSON 里的 `conversionRate` → `None`
+④ 导入缺字段落库成 `0` → `None`（`_dict_to_product_row` 加 `_opt_num`）
+⑤ 商品分析 prompt 里的「转化率：0%」→ **整行不写**（没真值就不写）
+
+**影响面实测**（清库前取基线 → 清库后对比）：
+`reco_calibrate.collect_displayed`（**用户实际看到的**推荐列表）
+**321 条展示 / 764 样本，分数一位不差** ⇒ 因为转化率维度本就因
+覆盖率 4% < 60% 被整体剔除 ⇒ 清假值对打分**零影响**。
+（但假值**必须清**：覆盖率闸门挡不住「假值凑够 60% 覆盖」⇒ 会翻身参与打分。）
+
+⇒ 守门人 `tests/test_conversion_rate_truth.py`（9 条，含 AST 扫描）。
+
+### ★ 顺带修掉：修复 pass 把「修不动」写成「置 null」
+
+**现象**：视觉 QA 管线复活后，第一次实跑就看到 —— 修复模型对 3 个找不到依据的字段
+吐了 `null`，程序**照单全收** ⇒ 原来的错值被抹成 null。
+**矛盾**：模块设计白纸黑字写着「修不动保留原值+记日志（**不置 null 不误杀**）」。
+
+⇒ 修法：`_vision_apply_field_fixes` **拒绝 None**（保留原值 + 记日志）。
+⚠️ **不与常识规则混淆**：`_vision_sanity_check` 把越界值（120%）置 null 是**合法**的
+（120% 就是错值）；这里拒的是**修复模型**的 null（=「我没修好」）。
+⇒ 实测复验：`followers` 保留 `'450万'`（不再 null）、`price` 仍被修对成 `¥68.00`、
+   `转化率` 照常置 null。
+
+### 本轮改了什么（已推 `origin/dev`）
+
+| 文件 | 改动 |
+|---|---|
+| `daren_bot/llm_channels.py` | 摘除智谱文字环 + 识图环 + **全部智谱常量/函数**（防复活后门）|
+| `daren_bot/executors.py` | 删死代码 `_zhipu_cfg_daren()`（从未被调用）|
+| `daren_bot/plan_notify.py` | 状态枚举 + 空态占位消息 + DB 幂等位 + 灰色卡 + 调度器闸门 |
+| `daren_bot/db.py` | 新表 `bot_plan_notice_log` + `notice_log_exists()` / `mark_notice_sent()` |
+| `daren_bot/feishu_card.py` | `plan_card` 支持 `template` 覆盖（空态用灰色）|
+| `solobrave-server.py` | 视觉 QA 独立配置源 `_vision_qa_cfg()`（不再读 `llm.providers`）+ 转化率 5 处编造源头 + 修复 pass 拒绝 null + `_product_analysis_prompt` 抽成可测函数 |
+| `tests/test_llm_channels.py` | 契约反转（智谱不许回链 + 独立服务商数如实报告）|
+| `tests/test_vision_qa.py` | 5 条配置源独立断言 + max_tokens 断言改成**盯行为**（原来盯源码字符串 = 恒真探针）+ null 拒绝 |
+| `tests/test_plan_notify.py` | 5 条占位消息断言 + `_Rec` 补 `send_card`（原来每次都走回退分支 ⇒ **卡片主路径从没被测过**）+ **两个库都要隔离** |
+| `tests/test_conversion_rate_truth.py`（新）| 9 条：prompt 不编 0 / 导入不造 0 / AST 扫描 / 评分器缺失维度 |
+| `scripts/mutate_llm_ring_guards.py` | 契约反转后重写：M1（/embeddings 不剥）M2/M3（智谱回链）M9（符号复活）M10（配置源跑回对话链）|
+
+### 运行时配置改动（**不进 git**，data/ 被 ignore）
+
+| 文件 | 改动 |
+|---|---|
+| `data/settings.json` | **新增顶层 `visionQA` 段**（provider=zhipu / apiKey / baseUrl / witnessModel=glm-4v-flash / repairModel=glm-4-flash）。备份 `data/settings.json.bak-20261026-160328-before-visionQA` |
+| `data/solobrave.db` | 转化率假值清 NULL（备份 `data/solobrave-backup-20261026-161634-before-conversion-null.db`）|
+| `data/daren-bot/daren_bot.db` | 新表 `bot_plan_notice_log`（bot 启动时 `db.init_db()` 自动建）|
+
+### 实测证据（本轮当场跑，非单测）
+
+| 项 | 结果 |
+|---|---|
+| 降级链现状 | 文字链 5 环 / 识图链 4 环，**zhipu 环 0 个**，能顶的独立服务商 = **1（MiniMax）** |
+| 入口 ① 问答链 `executors._qa_llm` | ✅ 2127ms 返回「收到」|
+| 入口 ② 采集/摘要链 `buyin_worker.llm_chat_fb` | ✅ 2005ms 返回「收到」|
+| 排品扫描（dry_run）| `daren_boss` → `no_today_item` 占位；`daren_test2` → `no_pool` 占位；**两种状态正确区分** |
+| 视觉 QA 管线端到端 | witness OCR 200（len 1589）→ grounding 4 处 → 修复 pass → 修好 `price=¥68`；修不动的保留原值 |
+| 全量测试 | **1026 passed / 4 skipped**（基线 1004 + 新增 22）|
+| 变异验证 | `scripts/mutate_llm_ring_guards.py` **M1-M11 全抓住**（含新写的 M10）|
+| 密钥扫描 | `scripts/secret_scan.py --staged` ✅ 无明文密钥 |
+
+### 本轮沉淀（跨边通用）
+
+1. **两份语义不同的事实共用一份配置源 ⇒ 一改就互相带断**（且**静默无报错**）。
+   ⇒ 消费者语义不同 ⇒ 配置源必须分开。
+2. **空态与故障必须分得开**：折叠成同一个返回值 ⇒ 只能「一律不发」或「一律乱发」。
+   ⇒ 状态用**显式枚举**，不许靠 `text == ''` 反推。
+3. **空态消息没有业务主键 ⇒ 幂等要单独标记位**；且要**计入调度器的「今天推过了」闸门**，
+   否则每 5 分钟重发一整天。
+4. **「没有真值」不许变成 0**：0 会被读成「真的是 0%」；NULL 才是「没采到」。
+   ⇒ 往 LLM prompt 里塞数字前先问「这个数的来源是哪一端」。
+5. **守门人不能为了让代码通过而放宽标准** —— 收窄覆盖面 = 从守门人变成摆设。
+6. **两个库不是一个库**：`daren_bot` 有 bot 库 + 排品库两套 SQLite
+   ⇒ 新表的**数据访问必须放在 schema owner 里**，测试要**两个库都隔离**。
+7. **静态扫描抓「代码里有没有硬编码」用 AST**：正则会漏多行/间接赋值，
+   还会把注释里的数字当命中。
+8. **假值清理的影响面必须实测**：「推理它应该没影响」不算验证，
+   清前取基线、清后跑对比（本轮实测**分数一位不差**）。

@@ -387,86 +387,51 @@ def test_no_secret_hardcoded_in_module():
 #   改造前降级链有 6 个环、3 个「可用」—— 实则**全是 MiniMax 一家**
 #   （套餐 API / Code 订阅 / 同一把 key 的另一条协议）。
 #   ⇒ 一家挂了全线崩，**冗余是假的**。
-#   ⇒ 而老大买的智谱资源包**文字与识图都实测通**，只是压根没接进链里。
+#
+# ★ 2026-10-26 老大拍板：智谱资源包**只做知识库 embedding**，不拿来做 LLM 对话
+#   ⇒ 文字链 / 识图链的智谱环**全部摘除**。
+#   ⇒ 下面这组测试从「智谱必须在链上」**反转**成「智谱不许回到链上」，
+#     并把「独立服务商数」这条契约改成**如实报告现状**（当前 = 1 家）。
 #
 # 下面这组测试锁住三件事：
-#   ① 智谱环真的在链上（结构层，不依赖环境有没有真 key）
-#   ② 智谱 chat base **不残留 /embeddings**（实测踩过 → 404）
-#   ③ 链上**独立服务商 ≥ 2 家**（把「假冗余」钉死）
-
-def _fake_zhipu_key(monkeypatch):
-    """给 `.env` 注入一把**假**智谱 key —— 让智谱环必然被构造出来。
-
-    ⚠️ 不能因为「当前环境没有智谱 key」就 skip —— 那样环境一变，
-    契约就没人测了（和上面 code-sub 环同样的理由）。
-    """
-    real = llm_channels.env_api_key
-    monkeypatch.setattr(
-        llm_channels, 'env_api_key',
-        lambda name: ('fake-zhipu-key-0123456789'
-                      if name == 'SOLOBRAVE_EMBEDDING_API_KEY' else real(name)))
+#   ① 链上**不许**出现智谱环（老大口径，防复活）
+#   ② `llm_channels` 里**不许**残留任何智谱凭据/厂商/额度池符号
+#   ③ 探针报的**独立服务商数**必须等于链上真实的 vendor 数（口径单一真源）
 
 
-def test_zhipu_ring_present_in_text_rings(monkeypatch):
-    """智谱文字环必须在链上（第二家独立服务商）。"""
-    _fake_zhipu_key(monkeypatch)
+def test_no_zhipu_ring_in_text_rings():
+    """★ 老大 2026-10-26 拍板：智谱只做知识库 embedding，不做 LLM 对话 ⇒ 文字链不许有智谱环。"""
     rings = llm_channels.text_rings()
-    z = [r for r in rings if r.get('vendor') == llm_channels.VENDOR_ZHIPU]
-    assert z, ('文字链里没有智谱环 —— 第二家独立服务商没接进来: '
-               + str([r.get('label') for r in rings]))
-    for r in z:
-        assert r['protocol'] == 'openai', '智谱走 OpenAI 协议'
-        assert r['model'] in llm_channels.ZHIPU_TEXT_MODELS, r['model']
-        assert r['auth'] == 'bearer'
-        assert r['pool'] == llm_channels.POOL_ZHIPU_PACK
+    z = [r for r in rings if r.get('vendor') == 'zhipu']
+    assert not z, (
+        '文字链里又出现智谱环了 —— 智谱资源包是知识库的，不该被对话流量偷额度: '
+        + str([r.get('label') for r in z]))
+    assert not any('zhipu' in (r.get('label') or '') for r in rings), \
+        '文字链里出现了带 zhipu 标签的环'
 
 
-def test_zhipu_vision_ring_present(monkeypatch):
-    """智谱识图环必须在链上（商品截图识别也要有第二家）。"""
-    _fake_zhipu_key(monkeypatch)
+def test_no_zhipu_ring_in_vision_rings():
+    """同上 —— 识图链也不许有智谱环（daren_bot 的识图链，不是服务端视觉 QA）。"""
     rings = llm_channels.vision_rings()
-    z = [r for r in rings if r.get('vendor') == llm_channels.VENDOR_ZHIPU]
-    assert z, '识图链里没有智谱环'
-    assert z[0]['model'] == llm_channels.ZHIPU_VISION_MODEL
-    assert z[0]['protocol'] == 'openai'
+    z = [r for r in rings if r.get('vendor') == 'zhipu']
+    assert not z, '识图链里又出现智谱环了: ' + str([r.get('label') for r in z])
 
 
-def test_zhipu_base_must_not_keep_embeddings_suffix(monkeypatch):
-    """★ 回归：`.env` 的 base 存的是**完整 embedding 路径**。
+def test_zhipu_symbols_removed_from_module():
+    """★ 防复活：`llm_channels` 里不许残留任何智谱符号。
 
-    不剥掉 `/embeddings` 后缀 → 拼出来是
-    `/api/paas/v4/embeddings/chat/completions` → **HTTP 404**（实测踩过）。
+    ⚠️ 为什么连常量都要删干净（而不是留个不用的 `VENDOR_ZHIPU='zhipu'`）：
+      留着符号 = 留着一条「随时可以把它接回来」的后门，而「谁接回来、为什么接回来」
+      正是老大拍板过的口径 ⇒ 口径变更必须**改代码**才能生效，不是一个常量就能绕过去的。
     """
-    _fake_zhipu_key(monkeypatch)
-    base, key = llm_channels._zhipu_channel()
-    assert key, '智谱 key 没读到'
-    assert not base.endswith('/embeddings'), \
-        f'智谱 chat base 残留 /embeddings → 请求会 404: {base}'
-    assert base.endswith('/v4'), base
-
-
-def test_zhipu_ring_ranked_before_exhausted_rings(monkeypatch):
-    """智谱（实测活）必须排在 kimi(429) / 开放平台(402) **前面**。
-
-    ⚠️ 降级链是**顺序**遍历的：活环排在死环后面 = 每次降级都要先白等
-    两轮 HTTP 失败（飞书侧体感就是「卡十几秒才回一句没反应」）。
-    """
-    _fake_zhipu_key(monkeypatch)
-    rings = llm_channels.text_rings()
-    z_idx = [i for i, r in enumerate(rings)
-             if r.get('vendor') == llm_channels.VENDOR_ZHIPU]
-    assert z_idx, '没有智谱环'
-    dead_idx = [i for i, r in enumerate(rings)
-                if r.get('pool') in (llm_channels.POOL_KIMI_MONTHLY,
-                                     llm_channels.POOL_MINIMAX_OPEN)]
-    if dead_idx:
-        assert min(z_idx) < min(dead_idx), \
-            f'智谱环(环{min(z_idx)}) 排在额度耗尽环(环{min(dead_idx)})后面了'
+    for name in ('VENDOR_ZHIPU', 'POOL_ZHIPU_PACK', 'ZHIPU_BASE',
+                 'ZHIPU_TEXT_MODELS', 'ZHIPU_VISION_MODEL', '_zhipu_channel'):
+        assert not hasattr(llm_channels, name), \
+            f'llm_channels 里还留着智谱符号 {name} —— 口径变更要改代码才能生效'
 
 
 def test_every_ring_declares_vendor_and_pool(monkeypatch):
     """每个环都必须声明 `vendor` + `pool`（口径单一真源，不许靠下游反推）。"""
-    _fake_zhipu_key(monkeypatch)
     for name, rings in (('text', llm_channels.text_rings()),
                         ('vision', llm_channels.vision_rings())):
         for r in rings:
@@ -474,18 +439,42 @@ def test_every_ring_declares_vendor_and_pool(monkeypatch):
             assert r.get('pool'), f'{name} 环缺 pool: {r.get("label")}'
 
 
-def test_fallback_chain_has_two_independent_vendors(monkeypatch):
-    """★ 核心契约：链上必须有 **≥2 个独立服务商**。
+def test_probe_vendor_count_matches_ring_vendor_set():
+    """★ 探针报的**独立服务商数**必须等于链上真实的 vendor 数（口径单一真源）。
 
-    这条直接对应老大的问题「要不要再买 API」——
-    只有 1 家 ⇒ 一家挂了全线崩 ⇒ 该买；
-    ≥2 家 ⇒ 冗余是真的 ⇒ 不必买。
+    ⚠️ 反例：链上只有 MiniMax 一家，探针报「2 家，有冗余」⇒
+      老大问「要再买 API 吗」时拿到的是**假安全感**。
     """
-    _fake_zhipu_key(monkeypatch)
-    vendors = {r.get('vendor') for r in llm_channels.text_rings()}
-    assert llm_channels.VENDOR_ZHIPU in vendors, \
-        f'智谱没接进来，独立服务商只有: {vendors}'
-    assert len(vendors) >= 2, f'独立服务商不足 2 家: {vendors}'
+    from daren_bot.tools import probe_llm_channels as probe
+    rings = llm_channels.text_rings()
+    real_vendors = {r.get('vendor') for r in rings if r.get('vendor')}
+    stat = probe._independence(rings, rings, [], [])
+    assert set(stat['alive_vendors']) == real_vendors, \
+        f'探针报的独立服务商数与链上真实 vendor 不符: {stat["alive_vendors"]} vs {real_vendors}'
+    assert stat['vendor_redundant'] is (len(real_vendors) >= 2), stat
+
+
+def test_current_chain_alive_independent_vendors_is_one():
+    """★ 如实锁住现状：链上**能顶的**独立服务商 = 1（MiniMax）⇒ **冗余归零，该买第二家 API**。
+
+    ⚠️ 口径要说清（别把「链上有几个环」当「有几家能顶」）：
+      - **结构上** kimi 环仍在链里（保留但不指望 —— 实测 429 月度额度耗尽）；
+      - 但**能顶的**独立服务商只有 MiniMax 一家 ⇒ 一家挂了全线崩。
+      这正是老大问「要再买 API 吗」的真判据 —— 答「不用买」= 假安全感。
+
+    ⚠️ 这条不是「期望 1 家」，是**把已知的冗余缺口钉在测试里**：
+      老大 2026-10-26 拍板把智谱从对话链摘掉的那一刻起就是这样。
+      有人接回第二家服务商时这条会红 ⇒ 逼着更新认知（而不是让它悄悄变好/变坏）。
+    """
+    # 实测已死的额度池：kimi 月度 429 / 开放平台 402（AGENTS.md §11 环序表）
+    dead_pools = {llm_channels.POOL_KIMI_MONTHLY, llm_channels.POOL_MINIMAX_OPEN}
+    for name, rings in (('text', llm_channels.text_rings()),
+                        ('vision', llm_channels.vision_rings())):
+        alive = {r.get('vendor') for r in rings
+                 if r.get('vendor') and r.get('pool') not in dead_pools}
+        assert alive == {'minimax'}, (
+            f'{name} 链能顶的独立服务商变了: {alive} —— '
+            f'若已接入第二家，请更新这条断言并在 AGENTS.md §11 更新环序表与「该买第二家 API」的结论')
 
 
 # ─────────────────── E. 探针的「假冗余」判据 ────────────────────

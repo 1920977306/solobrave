@@ -1419,15 +1419,10 @@ def notify_qa_card(sender, chat_id: str, question: str, answer: str,
 
 # ---------------- 业务问答（spec ① 意图分类的问答类，1 积分/次） ----------------
 
-def _zhipu_cfg_daren():
-    cfg = json.load(open(Path.home() / '.openclaw' / 'openclaw.json', encoding='utf-8'))
-    zp = cfg.get('models', {}).get('providers', {}).get('zhipu') or {}
-    base = (zp.get('baseUrl') or 'https://open.bigmodel.cn/api/paas/v4/').rstrip('/')
-    key = zp.get('apiKey') or ''
-    if not key:
-        raise RuntimeError('openclaw.json 缺少 zhipu apiKey')
-    return base, key
-
+# ⚠️ 2026-10-26：原 `_zhipu_cfg_daren()`（直连智谱的裸配置读取）**已删除** ——
+#   它**从来没有被调用过**（全仓仅此定义处命中），却是「对话链悄悄依赖智谱」的
+#   残留入口：留着它 = 给后人留一条绕过「智谱只做 embedding」口径的后门。
+#   智谱的对话/识图环已在 `daren_bot/llm_channels.py` 摘除（老大 2026-10-26 拍板）。
 
 def _qa_llm(prompt: str, model: str = '', temp: float = None) -> str:
     """问答直连文字模型链：Code 订阅 → kimi moonshot-v1-32k → minimax ×2。

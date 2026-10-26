@@ -84,6 +84,14 @@ def dbfile(tmp_path, monkeypatch):
     conn.commit()
     conn.close()
     monkeypatch.setattr(plan_notify, "SOLOBRAVE_DB", path)
+
+    # ★ bot 自己的库也要隔离（2026-10-26）：
+    #   `bot_plan_notice_log`（推送去重表）在 **bot 库** `daren_bot.db`，
+    #   不在排品库 `solobrave.db` ⇒ 两个库都得指到 tmp，
+    #   否则测试会往**生产库**写通知记录（违反 AGENTS.md §1 数据隔离）。
+    bot_db = tmp_path / "daren_bot.db"
+    monkeypatch.setattr(plan_notify.db.config, "DB_PATH", bot_db)
+    plan_notify.db.init_db()
     return path
 
 
@@ -258,6 +266,14 @@ class _Rec:
     def send_text(self, chat_id, text):
         self._sink.append((chat_id, text))
 
+    def send_card(self, chat_id, card):
+        """★ 2026-10-26：之前这个假 sender **没有** send_card ⇒
+        每次推送都走「卡片失败 → 回退文字」的异常分支 ⇒
+        **卡片这条主路径从来没被测过**（看着有覆盖，其实在测回退）。
+        现在补上，卡片内容拍平成 JSON 存进 sink（断言「推了哪个品」照样能查）。
+        """
+        self._sink.append((chat_id, json.dumps(card, ensure_ascii=False)))
+
 
 def _gray_one(monkey_holder, dyid="dy_888"):
     """把灰度名单临时改成只有一个租户，返回 (还原函数)。"""
@@ -387,7 +403,12 @@ def test_overdue_unpushed_item_is_requeued(dbfile):
 
 
 def test_pushed_item_is_not_requeued(dbfile):
-    """★ 已经推过的（哪怕排期在昨天）**不重复推** —— 错挂比漏挂贵。"""
+    """★ 已经推过的（哪怕排期在昨天）**不重复推** —— 错挂比漏挂贵。
+
+    ★ 2026-10-26（老大拍板「今天没排品也要发占位」后口径调整）：
+      允许发**空态占位消息**（让达人知道系统今天确实没排，不是坏了），
+      但**绝不许**把昨天推过的品再推一遍 —— 这条才是本用例要守的东西。
+    """
     import datetime
     plan_notify.register_deal("dy_888", "3668788850777522321")
     yesterday = datetime.datetime.now() - datetime.timedelta(days=1)
@@ -406,7 +427,14 @@ def test_pushed_item_is_not_requeued(dbfile):
                                   dry_run=False)
     finally:
         restore()
-    assert not sent, "昨天已经推过了，不该再推一遍"
+    for _chat, msg in sent:
+        # ★ 真正要守的东西：昨天推过的**品**不许再推一遍（错挂比漏挂贵）
+        assert "面霜A" not in msg, f"昨天已经推过的品被重推了: {msg}"
+        # 空态占位允许发，但标题必须是「今天没排品」那版
+        #（⚠️ 不能用 "今天推" not in msg 去判 —— 卡片备注里就有「今天推哪个」）
+        if msg.startswith("{"):
+            title = json.loads(msg)["header"]["title"]["content"]
+            assert "没排品" in title, f"标题不对: {title}"
 
 
 def test_plan_text_hides_past_days(dbfile):
@@ -460,3 +488,80 @@ def test_register_deal_persists_plan_immediately(dbfile):
     rows = _deals_rows(dbfile)
     assert rows[0]["scheduled_at"], "登记后应立刻把排期落库"
     assert rows[0]["plan_slot"] in (1, 2), rows[0]
+
+
+# ─────────────── 「今天没排品」占位消息（2026-10-26 老大拍板）───────────────
+#
+# ★ 要守的三件事：
+#   ① 「确实没品可推」⇒ **要有回音**（原来一条都不发，达人以为系统挂了）
+#   ② 「我们没采到数据」⇒ **不许**说成「今天没排品」（把故障说成结论）
+#   ③ 空态消息**一天只发一次**（没有 deal_id 挂不上 remind_state ⇒ 单独记标记位）
+
+
+def test_no_pool_sends_empty_plan_placeholder(dbfile):
+    """① 池里一张单都没有 ⇒ 发「今天没排品」占位（不是彻底静默）。"""
+    sent = []
+    restore = _gray_one(None)
+    try:
+        plan_notify.scan_and_push(_Ws(lambda: _Rec(sent)), dry_run=False)
+    finally:
+        restore()
+    assert len(sent) == 1, f"没品可推时应有占位回音，实际发了 {len(sent)} 条"
+    msg = sent[0][1]
+    assert "没排品" in msg, msg
+
+
+def test_empty_plan_placeholder_is_idempotent_within_the_day(dbfile):
+    """③ 同一天重复扫 ⇒ 占位只发一次（DB 标记位，重启也守住）。"""
+    sent = []
+    restore = _gray_one(None)
+    try:
+        for _ in range(3):
+            plan_notify.scan_and_push(_Ws(lambda: _Rec(sent)), dry_run=False)
+    finally:
+        restore()
+    assert len(sent) == 1, f"同一天发了 {len(sent)} 条占位（幂等失效）"
+
+
+def test_no_talent_does_not_send_placeholder(dbfile):
+    """② 达人数据没采到 ⇒ **不发**占位（那是我们的故障，不是「没排品」）。"""
+    sent = []
+    restore = _gray_one(None, dyid="dy_ghost_no_such_talent")
+    try:
+        plan_notify.scan_and_push(_Ws(lambda: _Rec(sent)), dry_run=False)
+    finally:
+        restore()
+    assert not sent, f"数据缺失时不该给达人发「今天没排品」: {sent}"
+
+
+def test_empty_plan_placeholder_card_is_not_green(dbfile):
+    """★ 卡片颜色不许误导：绿色模板的语义是「今天有好货」，空态用灰色。"""
+    sent = []
+    restore = _gray_one(None)
+    try:
+        plan_notify.scan_and_push(_Ws(lambda: _Rec(sent)), dry_run=False)
+    finally:
+        restore()
+    assert sent, "应有占位消息"
+    msg = sent[0][1]
+    if msg.startswith("{"):
+        card = json.loads(msg)
+        assert card["header"]["template"] == "grey", \
+            f"空态占位卡用了 {card['header']['template']} 模板（绿色=有好货，误导）"
+
+
+def test_reminder_state_is_explicit(dbfile):
+    """★ 状态必须是**显式枚举**（不许靠 text == '' 反推）。"""
+    # 池空
+    text, todo, state = plan_notify.build_reminder_state("dy_888")
+    assert text == "" and todo == []
+    assert state == plan_notify.PLAN_STATE_NO_POOL, state
+    # 达人查不到
+    text, todo, state = plan_notify.build_reminder_state("dy_ghost_no_such_talent")
+    assert text == "" and todo == []
+    assert state == plan_notify.PLAN_STATE_NO_TALENT, state
+    # 有品可推
+    plan_notify.register_deal("dy_888", "3668788850777522321")
+    text, todo, state = plan_notify.build_reminder_state("dy_888")
+    assert state == plan_notify.PLAN_STATE_OK, state
+    assert text and todo, (text, todo)

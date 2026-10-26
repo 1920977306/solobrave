@@ -58,6 +58,24 @@ PLAN_DEAL_STATUSES = ("negotiating", "sample_sent", "approved")
 # 灰度：先只推已绑抖音号的租户（和 coop 一致）
 PLAN_GRAY_TENANTS = ("daren_boss", "daren_test2")
 
+# ──────────────── 今日提醒的**状态**（2026-10-26 新增）────────────────
+#
+# ★ 为什么必须把状态拆出来（老大 2026-10-26 拍板「今天没排品也要发占位消息」）：
+#   原来 `_reminder_parts` 把「达人查不到」和「今天没品」**折叠成同一个** `("", [], [])`
+#   ⇒ `scan_and_push` 只看 `if not text:` ⇒ 一条消息都不发（达人彻底静默）。
+#   ⇒ 而这两种情况的**处置完全相反**：
+#      - 「达人数据缺失」= **我们的问题**（数据没采到）⇒ 发「今天没排品」是**误报**；
+#      - 「确实没品可推」= 达人的现状 ⇒ 该发占位让达人知道系统在跑。
+#   ⇒ 状态必须是**显式枚举**，不许靠 `text == ''` 反推（把「缺一个输入」说成「答不了」）。
+PLAN_STATE_OK = "ok"                        # 今天有品要推
+PLAN_STATE_NO_TALENT = "no_talent"          # 达人数据缺失（我们的问题）⇒ 不发占位
+PLAN_STATE_NO_POOL = "no_pool"              # 名下**一张单都没有** ⇒ 发占位
+PLAN_STATE_NO_TODAY_ITEM = "no_today_item"  # 池里有单但今天没排到 ⇒ 发占位
+PLAN_STATE_ALREADY_SENT = "already_sent"    # 今天该推的都推过了 ⇒ 不发（幂等）
+
+# 空态占位消息的幂等 kind（落在 `bot_plan_notice_log`）
+PLAN_NOTICE_EMPTY = "empty_plan"
+
 
 # ────────────────────────── 数据读取 ──────────────────────────
 
@@ -481,24 +499,48 @@ def build_reminder(douyin_id: str, talent_id: str = "") -> tuple[str, list[str]]
       所以这里先看「今天该推的是不是都已经推过了」：
       全部推过 ⇒ 直接返回空（不重复推）。
     """
-    text, todo, _items = _reminder_parts(douyin_id, talent_id)
+    text, todo, _items, _state = _reminder_parts(douyin_id, talent_id)
     return text, todo
 
 
+def build_reminder_state(douyin_id: str, talent_id: str = "") -> tuple[str, list[str], str]:
+    """今日提醒 + 待标记 deal + **状态**（新增出口）。
+
+    ★ 为什么要单独一个出口（2026-10-26）：`build_reminder` 只给「有品可推」的文案，
+      空态的处置（发不发占位、发的什么）需要**状态**才能判断，
+      而状态不能靠 `text == ''` 反推（那把「达人查不到」和「今天没品」混成一团）。
+    """
+    text, todo, _items, state = _reminder_parts(douyin_id, talent_id)
+    return text, todo, state
+
+
 def _reminder_parts(douyin_id: str, talent_id: str = ""):
-    """提醒的三个产物：文字版 / 待标记 deal / 今天的品。"""
+    """提醒的产物：文字版 / 待标记 deal / 今天的品 / **状态**。
+
+    ★ 2026-10-26：返回值从 3 元组变 4 元组（多了 `state`）。
+      原来「达人查不到」和「今天没品」都返回 `("", [], [])` —— 两者处置完全相反，
+      折叠在一起 ⇒ 只能「一律不发」，达人彻底静默。
+      改 4 元组而不是加个新函数：`_reminder_parts` 是**唯一**知道
+      「达人查不到 vs 今天没排到 vs 已推过」的地方，状态必须从这里出来（口径单一真源）。
+    """
     items, talent = _today_slots(douyin_id, talent_id)
     if not talent:
-        return "", [], []
+        # 达人数据缺失 = **我们的问题**（没采到账号数据），不是「没品可推」
+        return "", [], [], PLAN_STATE_NO_TALENT
     if not items:
-        return "", [], []
+        # 区分「池里一张单都没有」 vs 「池里有单但今天没排到」
+        #   —— 判据用**整周 slots 有没有品**：排不进本周的品也会带 reason 落在 slots 里，
+        #   所以「整周都没品」才等于「池是空的」。
+        slots, _t = plan_for_talent(douyin_id, talent_id)
+        has_pool = any(s.items for s in (slots or []))
+        return "", [], [], (PLAN_STATE_NO_TODAY_ITEM if has_pool else PLAN_STATE_NO_POOL)
     day_key = datetime.datetime.now().strftime("%Y-%m-%d")
     markable = [it for it in items if it.deal_id]
     todo = [it.deal_id for it in markable
             if not _already_reminded(it.deal_id, day_key)]
     if markable and not todo:
         # 今天该推的都推过了 ⇒ 不重复推（重启也守住）
-        return "", [], items
+        return "", [], items, PLAN_STATE_ALREADY_SENT
     name = _display_name(talent)
     # ⚠️ 数量必须**跟着实际坑位数走** —— 原来硬编码「今天推这两件」，
     #   排品池里只有 1 个品也照样说「两件」，达人一数就发现不对（2026-10-24 实测）。
@@ -523,7 +565,75 @@ def _reminder_parts(douyin_id: str, talent_id: str = ""):
         for it in tail_left[:3]:
             lines.append(f"   · {it.product_name[:26]}"
                          f"（{it.lifecycle.note if it.lifecycle else ''}）")
-    return "\n".join(lines), todo, items
+    return "\n".join(lines), todo, items, PLAN_STATE_OK
+
+
+def _notice_log_exists(tenant_key: str, day_key: str, kind: str) -> bool:
+    """今天是否已经发过这类通知（DB 级幂等，重启也守住）。
+
+    ★ 走 `db` 模块（**bot 自己的库** `daren_bot.db`）——
+      `bot_plan_notice_log` 是**推送去重表**，跟 `bot_coop_push_log` 同类
+      ⇒ 推送类去重日志统一放 bot 库。
+    ⚠️ 反面教材（2026-10-26 实测踩到）：这张表**建在 bot 库**，
+      但早先的实现去读 `SOLOBRAVE_DB`（排品库）⇒ **两个库不是一个库**
+      ⇒ 表查不到 ⇒ 幂等**静默失效**（每次都发占位）⇒ 本函数改由 db 模块代劳。
+    """
+    try:
+        return db.notice_log_exists(tenant_key, day_key, kind)
+    except Exception as e:
+        # ⚠️ 读不到 ⇒ 幂等**失效**（会重复发）。必须**喊出来** ——
+        #   静默降级成「每次都发」= 把故障写成正常。
+        log.warning("[plan] 读 bot_plan_notice_log 失败（幂等可能失效）: %s", e)
+        return False
+
+
+def _mark_notice_sent(tenant_key: str, day_key: str, kind: str) -> None:
+    """记下「今天已发过这类通知」。"""
+    try:
+        db.mark_notice_sent(tenant_key, day_key, kind)
+    except Exception as e:
+        # ⚠️ 记不进去 = 幂等失效（同上）⇒ 必须喊出来，别让它静默变成「每天重复发」
+        log.warning("[plan] 写 bot_plan_notice_log 失败（幂等失效，可能重复发）: %s", e)
+
+
+def build_empty_plan_notice(douyin_id: str, talent_id: str = "") -> tuple[dict | None, str]:
+    """「今天没排品」占位消息 → (卡片, 文字)。状态不是空态时返回 (None, "")。
+
+    ★ 为什么要有这条（老大 2026-10-26 拍板）：
+      原来「今天没排品」⇒ 达人**彻底静默**（一条消息都不发），
+      达人会以为系统挂了/没人管他 —— 而实际上系统只是**没有品可推**。
+      ⇒ 空态也要有回音，让达人知道「今天确实没排，不是坏了」。
+
+    ★ 但**只对「真的没品」回音**：
+      - `no_talent`（达人数据没采到）= **我们的问题** ⇒ 不发（否则是把故障说成「没排品」）；
+      - `no_pool` / `no_today_item` = 达人的现状 ⇒ 发。
+
+    ⚠️ 文案不许说「你的品被清了」这类我们**不知道**的事（只丢不造）：
+      说「你名下还没有登记待推的品」是可核验的；说「排不下是因为坑位满了」是**推断**，
+      除非我们真能从 `plan_reason` 里读出来 —— 所以这里只说能核验的那部分。
+    """
+    _text, _todo, _items, state = _reminder_parts(douyin_id, talent_id)
+    if state not in (PLAN_STATE_NO_POOL, PLAN_STATE_NO_TODAY_ITEM):
+        return None, ""
+    slots, talent = plan_for_talent(douyin_id, talent_id)
+    name = _display_name(talent) if talent else ""
+    if state == PLAN_STATE_NO_POOL:
+        title = "📦 今天没排品"
+        body = ("你名下还没有登记待推的品。\n"
+                "接了品之后发我「接了 <商品ID或商品链接>」，"
+                "我就能帮你排哪天推哪个。")
+    else:
+        title = "📦 今天没排品"
+        body = ("今天没排到要推的品。\n"
+                "你名下这批品这周的安排看「我的排品表」，"
+                "有新单我马上帮你排进去。")
+    from . import feishu_card as fc
+    card = fc.plan_card(
+        name, title, [body],
+        actions=[fc._button("看我的排品表", {"action": "view_plan"}, "default")],
+        note="每天 09:37 我会推「今天推哪个」给你",
+        template=fc.TPL_GREY)          # ★ 灰色：别用绿色（绿色=「今天有好货」的误读）
+    return card, f"{title}\n{body}"
 
 
 def build_reminder_card(douyin_id: str, talent_id: str = ""):
@@ -534,7 +644,7 @@ def build_reminder_card(douyin_id: str, talent_id: str = ""):
       详细理由不进卡片（要看就在 H5 排品表页看）。
     """
     from . import feishu_card as fc
-    _text, todo, items = _reminder_parts(douyin_id, talent_id)
+    _text, todo, items, _state = _reminder_parts(douyin_id, talent_id)
     if not todo or not items:
         return None, []
     slots, talent = plan_for_talent(douyin_id, talent_id)
@@ -585,7 +695,7 @@ def scan_and_push(ws=None, dry_run: bool = False) -> dict:
 
     返回统计（和 coop_notify.scan_and_push 同样的形状，方便运维看）。
     """
-    stat = {"scanned": 0, "pushed": 0, "skipped": 0, "details": []}
+    stat = {"scanned": 0, "pushed": 0, "notified": 0, "skipped": 0, "details": []}
     day_key = datetime.datetime.now().strftime("%Y-%m-%d")
 
     # ★★ 池级排期：**在推租户之前**先把**整个排品池**的排期重算并落库。
@@ -629,11 +739,73 @@ def scan_and_push(ws=None, dry_run: bool = False) -> dict:
             #   反过来先推后落库，中间崩了就白推一次。
             #   （落库已上移到**池级** `reschedule_pool()` —— 那里按排品池遍历，
             #    覆盖所有有单的达人，不只是有租户的。）
-            text, todo = build_reminder(dyid)
+            text, todo, state = build_reminder_state(dyid)
             card, card_todo = build_reminder_card(dyid)
-            if not text:
+
+            # ── 状态分派（2026-10-26）────────────────────────────────────
+            # 原来只有一句 `if not text: skip` —— 「达人查不到」和「今天没品」
+            # 被折叠成同一个空字符串 ⇒ 一律静默 ⇒ 达人彻底收不到回音。
+            # 现在按**显式状态**分派，处置完全相反的两类分开走。
+            if state == PLAN_STATE_NO_TALENT:
+                # ★ 达人数据没采到 = **我们的问题** ⇒ 不发「今天没排品」
+                #   （那是把故障说成结论）。只记日志 + 运营侧可见。
                 stat["skipped"] += 1
-                stat["details"].append({"tenant": tk, "why": "今天没有要推的品（没排期/已推过）"})
+                stat["details"].append({
+                    "tenant": tk, "why": "达人数据缺失（不发给达人：避免把故障说成「没排品」）"})
+                log.warning("[plan] 租户 %s 达人数据缺失（dyid=%s），本轮不推", tk, dyid)
+                continue
+
+            if state in (PLAN_STATE_NO_POOL, PLAN_STATE_NO_TODAY_ITEM):
+                # 「今天确实没排品」⇒ 发占位消息（老大 2026-10-26 拍板）
+                #   幂等挂 `bot_plan_notice_log`（空态没有 deal_id，挂不上 remind_state）
+                if _notice_log_exists(tk, day_key, PLAN_NOTICE_EMPTY):
+                    stat["skipped"] += 1
+                    stat["details"].append({
+                        "tenant": tk, "why": "今天没排品（占位消息今天已发过，不重发）"})
+                    continue
+                empty_card, empty_text = build_empty_plan_notice(dyid)
+                if not empty_text:
+                    stat["skipped"] += 1
+                    stat["details"].append({"tenant": tk, "why": "今天没排品（状态已变）"})
+                    continue
+                if dry_run:
+                    stat["details"].append({"tenant": tk, "text": empty_text,
+                                            "state": state, "dry_run": True})
+                    continue
+                sender = None
+                if ws is not None:
+                    try:
+                        sender = ws.get_sender(tk)
+                    except Exception:
+                        sender = None
+                if sender is None:
+                    stat["skipped"] += 1
+                    stat["details"].append({"tenant": tk, "why": "拿不到 sender"})
+                    continue
+                sent_as = "card"
+                try:
+                    sender.send_card(chat_id, empty_card)
+                except Exception:
+                    log.exception("[plan] 空态占位卡发送失败，回退文字版")
+                    sender.send_text(chat_id, empty_text)
+                    sent_as = "text"
+                # ★ 先记幂等再计数：记成功才不发第二遍（发送成功却没记 ⇒ 会重发）
+                _mark_notice_sent(tk, day_key, PLAN_NOTICE_EMPTY)
+                stat["notified"] = stat.get("notified", 0) + 1
+                stat["details"].append({"tenant": tk, "state": state, "sent_as": sent_as})
+                continue
+
+            if state == PLAN_STATE_ALREADY_SENT:
+                # 今天该推的都推过了 ⇒ 不重复推（幂等）
+                stat["skipped"] += 1
+                stat["details"].append({"tenant": tk, "why": "今天该推的都推过了（幂等）"})
+                continue
+
+            if not text:
+                # 兜底：状态说 ok 却没文案 ⇒ 记日志，别静默
+                stat["skipped"] += 1
+                stat["details"].append({"tenant": tk, "why": f"状态={state} 但没文案（异常）"})
+                log.warning("[plan] 租户 %s 状态=%s 但文案为空（异常）", tk, state)
                 continue
             if dry_run:
                 stat["details"].append({"tenant": tk, "deals": todo,
@@ -718,5 +890,9 @@ class PlanScheduler(threading.Thread):
         #   排品池 = 我们自己系统里的合作单（达人说「接了 xxx」/ 运营建单）；
         #   达人端只用于「按商品ID搜商品」，不碰达人的其他数据（2026-10-24 老大纠正）。
         stat = scan_and_push(self.wm)
-        if stat.get("pushed"):
+        # ⚠️ 空态占位**也要**置位 `_last_day`（2026-10-26）：
+        #   调度器每 SCAN_INTERVAL(300s) 醒一次，`_last_day` 是「今天推过了」的闸门。
+        #   只发占位没发品时若不置位 ⇒ 09:37 之后会**一整天**每 5 分钟重扫一次
+        #   ⇒ 同一条占位消息发 300+ 次（DB 幂等能挡住重复发，但白扫 300 次）。
+        if stat.get("pushed") or stat.get("notified"):
             self._last_day = today

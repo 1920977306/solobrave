@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
-"""变异验证：LLM 降级链的「第二家独立服务商」护栏必须**能红**。
+"""变异验证：LLM 降级链的「智谱不许回链 + 探针不许报假冗余」护栏必须**能红**。
 
-背景（2026-10-25 老大问「要再买 API 吗」的取证结论）：
-  改造前降级链有 6 个环、3 个「可用」—— 实则**全是 MiniMax 一家**
-  （套餐 API / Code 订阅 / 同一把 key 的另一条协议）。
-  ⇒ 一家挂了全线崩，**冗余是假的**。
-  ⇒ 而老大买的智谱资源包**文字与识图都实测通**，只是压根没接进链里。
+★ 2026-10-26 契约反转（老大拍板：智谱资源包只做知识库 embedding，不做 LLM 对话）：
+  原来这组护栏锁的是「智谱环必须在链上」（当时它是第二家独立服务商）；
+  现在反过来锁 —— **智谱环/符号都不许再回到链上**，
+  且「独立服务商数」这条口径必须**如实报告现状（=1，冗余归零）**。
 
-每个变异 = 把「第二家」这件事改回原样 → 跑对应测试 → 必须 FAIL → 还原。
+★ 连带损伤的根因也在这里锁住（2026-10-26 实测）：
+  视觉 QA 原来读 `settings.llm.providers`（**对话链的档位表**）——
+  两份语义不同的事实共用一份配置源 ⇒ 对话链摘掉智谱档时，
+  视觉 QA 的 witness/repair 被一起带断（字段提取精度 95%+ → ~67%）。
+  ⇒ M10 专门盯这条：配置源跑回对话链 ⇒ 必须红。
 
 ★ 两条纪律（沿用 scripts/mutate_failure_guards.py）：
   ① 改完文件必须 `sleep 1.2` 让 mtime 跨秒，并清掉**仓库自己的** `__pycache__`
@@ -19,8 +22,8 @@
 ★ 本轮要抓的「恒真闸门」形态：
   - 探针按**环数**而不是**服务商数**统计 ⇒ 把一家数成三家（变异 M5/M7）
   - 探针把「通道活着但没吐字」判成死 ⇒ 报假警报（变异 M6）
-  - 智谱环的 base 没剥 /embeddings ⇒ 请求 404（变异 M1）
-  - 智谱环排在额度耗尽环后面 ⇒ 每次降级白等两轮失败（变异 M9）
+  - 视觉 QA 的 base 没剥 /embeddings ⇒ 请求 404（变异 M1）
+  - 视觉 QA 的配置源跑回对话链的 llm.providers ⇒ 会被对话链带断（变异 M10）
 """
 import os
 import shutil
@@ -34,8 +37,13 @@ os.chdir(ROOT)
 
 _BACKUPS: dict = {}
 SEL = "tests/test_llm_channels.py"
+SEL_VQA = "tests/test_vision_qa.py"
 LC = "daren_bot/llm_channels.py"
 PROBE = "daren_bot/tools/probe_llm_channels.py"
+SRV = "solobrave-server.py"
+
+#: 基线自检要跑的全部选择器（每个变异只跑自己那一条）
+BASELINE = [SEL, SEL_VQA]
 
 
 def clear_pycache():
@@ -70,37 +78,46 @@ def run_tests(selector: str) -> tuple:
     return r.returncode, (r.stdout or "")[-800:]
 
 
+# 智谱环（变异体）：故意用**字面量**而不是模块常量 ——
+# 这样 M2/M3 只测「环回链」，M9 才测「符号复活」，两个护栏互不遮蔽。
+_ZHIPU_RING = (
+    "    rings.append({'protocol': 'openai', 'base': 'https://open.bigmodel.cn/api/paas/v4',\n"
+    "                  'key': 'fake-zhipu-key', 'model': 'glm-4-flash', 'temp': 1.0,\n"
+    "                  'models': ('glm-4-flash',), 'auth': 'bearer', 'refresh': False,\n"
+    "                  'vendor': 'zhipu', 'pool': 'zhipu-resource-pack',\n"
+    "                  'max_tokens': DEFAULT_MAX_TOKENS, 'label': 'zhipu-glm-4-flash'})\n"
+)
+
 CASES = [
-    # ── 一、智谱 chat base 必须剥掉 /embeddings（实测踩过 → 404）──
-    ("变异M1：智谱 base 不剥 /embeddings（请求打到 /embeddings/chat/completions → 404）",
+    # ── 一、视觉 QA 的 base 必须剥掉 /embeddings（实测踩过 → 404）──
+    ("变异M1：视觉 QA base 不剥 /embeddings（请求打到 /embeddings/chat/completions → 404）",
+     SRV,
+     "        if base.endswith('/embeddings'):\n"
+     "            base = base[:-len('/embeddings')]\n",
+     "",
+     SEL_VQA),
+
+    # ── 二、智谱环不许回链（老大 2026-10-26 拍板）──
+    ("变异M2：文字链重新接回智谱环（智谱资源包是知识库的，不该被对话流量偷额度）",
      LC,
-     "    base = env_api_key('SOLOBRAVE_EMBEDDING_BASE_URL').rstrip('/')\n"
-     "    if base.endswith('/embeddings'):\n"
-     "        base = base[:-len('/embeddings')]\n",
-     "    base = env_api_key('SOLOBRAVE_EMBEDDING_BASE_URL').rstrip('/')\n",
+     "    # ---- 环 3+：kimi + minimax 开放平台（当前 429/402，保留但不指望）----\n",
+     _ZHIPU_RING
+     + "    # ---- 环 3+：kimi + minimax 开放平台（当前 429/402，保留但不指望）----\n",
      SEL),
 
-    # ── 二、第二家服务商必须真的在链上 ──
-    ("变异M2：文字链里不接智谱（退回「只有一家」的老状态）",
+    ("变异M3：识图链重新接回智谱环",
      LC,
-     "    zbase, zkey = _zhipu_channel()\n"
-     "    if zkey:\n"
-     "        zmodels = list(ZHIPU_TEXT_MODELS)\n",
-     "    zbase, zkey = '', ''\n"
-     "    if zkey:\n"
-     "        zmodels = list(ZHIPU_TEXT_MODELS)\n",
-     SEL),
-
-    ("变异M3：识图链里不接智谱（识图只剩一家）",
-     LC,
-     "    zbase, zkey = _zhipu_channel()\n"
-     "    if zkey:\n"
-     "        rings.append({'protocol': 'openai', 'base': zbase, 'key': zkey,\n"
-     "                      'model': ZHIPU_VISION_MODEL, 'temp': 1.0,\n",
-     "    zbase, zkey = '', ''\n"
-     "    if zkey:\n"
-     "        rings.append({'protocol': 'openai', 'base': zbase, 'key': zkey,\n"
-     "                      'model': ZHIPU_VISION_MODEL, 'temp': 1.0,\n",
+     "    try:\n"
+     "        kbase, kkey = _kimi_channel()\n"
+     "        if kkey:\n"
+     "            rings.append({'protocol': 'openai', 'base': kbase, 'key': kkey,\n"
+     "                          'model': 'moonshot-v1-8k-vision-preview', 'temp': 1.0,\n",
+     _ZHIPU_RING
+     + "    try:\n"
+     "        kbase, kkey = _kimi_channel()\n"
+     "        if kkey:\n"
+     "            rings.append({'protocol': 'openai', 'base': kbase, 'key': kkey,\n"
+     "                          'model': 'moonshot-v1-8k-vision-preview', 'temp': 1.0,\n",
      SEL),
 
     ("变异M4：环上不写 vendor/pool（口径要靠下游反推 ⇒ 一家会被数成三家）",
@@ -137,24 +154,27 @@ CASES = [
      "    dead_pools = sorted({_pool_of(r) for r in live})\n",
      SEL),
 
-    # ── 四、智谱环的归属与排序 ──
-    ("变异M9：智谱环的 vendor 标成 minimax（第二家又变成同一家）",
+    # ── 四、智谱符号不许复活（口径变更要改代码才能生效）──
+    ("变异M9：重新引入 VENDOR_ZHIPU 符号（留个不用的常量 = 留条复活后门）",
      LC,
-     "                          'vendor': VENDOR_ZHIPU,\n"
-     "                          'pool': POOL_ZHIPU_PACK,\n",
-     "                          'vendor': VENDOR_MINIMAX,\n"
-     "                          'pool': POOL_ZHIPU_PACK,\n",
+     "VENDOR_MINIMAX = 'minimax'\nVENDOR_KIMI = 'kimi'\n",
+     "VENDOR_MINIMAX = 'minimax'\nVENDOR_ZHIPU = 'zhipu'\nVENDOR_KIMI = 'kimi'\n",
      SEL),
 
-    ("变异M10：智谱环混进额度耗尽那一档（降级时白等两轮 HTTP 失败）",
-     LC,
-     "                          'vendor': VENDOR_ZHIPU,\n"
-     "                          'pool': POOL_ZHIPU_PACK,\n",
-     "                          'vendor': VENDOR_ZHIPU,\n"
-     "                          'pool': POOL_KIMI_MONTHLY,\n",
-     SEL),
+    # ── 五、视觉 QA 的配置源必须独立于对话链（连带损伤的根因）──
+    ("变异M10：视觉 QA 配置源跑回对话链的 llm.providers（会被对话链改配置一起带断）",
+     SRV,
+     "        qa = settings.get('visionQA') or {}\n",
+     "        qa = settings.get('visionQA') or {}\n"
+     "        if not qa:\n"
+     "            for _p in ((settings.get('llm') or {}).get('providers')) or []:\n"
+     "                if 'zhipu' in (_p.get('name') or '').lower() and _p.get('apiKey'):\n"
+     "                    qa = {'provider': 'zhipu', 'apiKey': _p['apiKey'],\n"
+     "                          'baseUrl': _p.get('baseUrl') or ''}\n"
+     "                    break\n",
+     SEL_VQA),
 
-    # ── 五、能力层的「瞬时错误 skip」不许把真契约错误吞掉 ──
+    # ── 六、能力层的「瞬时错误 skip」不许把真契约错误吞掉 ──
     ("变异M11：Code 订阅 base 写错（404 真契约错误被 skip 吞掉 ⇒ 恒真绿）",
      LC,
      "CODE_SUB_BASE = 'https://agent.minimax.cn/mavis/api/v1/llm/v1'\n",
@@ -168,12 +188,13 @@ failed = []
 #   否则「变异后变红」证明不了任何事 —— 基线本来就红的话，
 #   每个变异都会「被抓到」，是假象。
 print("=== 基线自检（变异前必须全绿）===")
-rc, out = run_tests(SEL)
-if rc != 0:
-    print("❌ 基线不绿 ⇒ 变异验证无意义，先修好基线：")
-    print(out)
-    sys.exit(1)
-print("  ✅ 基线全绿")
+for sel in BASELINE:
+    rc, out = run_tests(sel)
+    if rc != 0:
+        print(f"❌ 基线不绿（{sel}）⇒ 变异验证无意义，先修好基线：")
+        print(out)
+        sys.exit(1)
+    print(f"  ✅ {sel} 全绿")
 
 for name, rel, old, new, sel in CASES:
     print(f"\n=== {name} ===")

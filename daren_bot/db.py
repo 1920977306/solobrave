@@ -196,6 +196,21 @@ CREATE TABLE IF NOT EXISTS bot_coop_apply (
 );
 CREATE INDEX IF NOT EXISTS idx_coop_apply_created
   ON bot_coop_apply(created_at DESC);
+
+-- 3.10 排品提醒的「今日已发」标记位（2026-10-26 A 边）
+--   ★ 为什么需要它：空态占位消息（「今天没排品」）**没有 deal_id** ⇒ 挂不上
+--     deals.remind_state（那个字段挂在品上）。而排品提醒是**一天只主动推一次**
+--     （PlanScheduler._last_day）—— 若空态不计入，调度器会每 SCAN_INTERVAL(300s)
+--     重扫一整天 ⇒ 同一条占位消息发 300+ 次。
+--   ⇒ 单独一个标记位，按 (tenant_key, day_key, kind) 唯一，重启也守住（DB 而非内存）。
+--   kind 留空串给未来的其它提醒类型；当前只用 'empty_plan'。
+CREATE TABLE IF NOT EXISTS bot_plan_notice_log (
+  tenant_key TEXT NOT NULL,
+  day_key    TEXT NOT NULL,
+  kind       TEXT NOT NULL DEFAULT '',
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (tenant_key, day_key, kind)
+);
 """
 
 
@@ -849,6 +864,41 @@ def get_latest_chat_id(tenant_key: str) -> str:
 
 
 # ---------------- 合作机会推送：去重 + 频控（工单 coop-automation） ----------------
+
+def notice_log_exists(tenant_key: str, day_key: str, kind: str) -> bool:
+    """今天是否已经发过这类通知（DB 级幂等，重启也守住）。
+
+    ★ 为什么放在**bot 自己的库**（`daren_bot.db`）而不是排品库（`solobrave.db`）：
+      这张表记的是「**推送**去重」，跟 `bot_coop_push_log`（合作机会推送去重）同一类
+      ⇒ 推送类去重日志统一放 bot 库。
+      ⚠️ 反面教材：2026-10-26 第一次把它建在 `daren_bot/db.py` 却让
+      `plan_notify` 去读 `SOLOBRAVE_DB`（排品库）⇒ **两个库不是一个库**，
+      表查不到 ⇒ 幂等静默失效（每次都发）⇒ 已修。
+    """
+    if not tenant_key or not day_key:
+        return False
+    with db_ctx() as conn:
+        r = conn.execute(
+            "SELECT 1 FROM bot_plan_notice_log "
+            "WHERE tenant_key=? AND day_key=? AND kind=?",
+            (tenant_key, day_key, kind)).fetchone()
+        return bool(r)
+
+
+def mark_notice_sent(tenant_key: str, day_key: str, kind: str) -> bool:
+    """记下「今天已发过这类通知」。返回是否成功写入。
+
+    ⚠️ 返回 False = **幂等失效**（下次还会再发）⇒ 调用方要能看见。
+    """
+    if not tenant_key or not day_key:
+        return False
+    with db_ctx() as conn:
+        cur = conn.execute(
+            "INSERT OR IGNORE INTO bot_plan_notice_log "
+            "(tenant_key, day_key, kind, created_at) VALUES (?,?,?,?)",
+            (tenant_key, day_key, kind, now_ts()))
+        return cur.rowcount >= 0
+
 
 def coop_push_exists(record_id: str, tenant_key: str) -> bool:
     """这条机会是否已经推过给这个达人（防重复打扰）。"""
