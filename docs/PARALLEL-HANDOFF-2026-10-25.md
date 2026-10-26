@@ -4891,3 +4891,79 @@ Code OAuth token 是 30 分钟量级的短期凭据，Code 桌面端会自行续
 | `AGENTS.md`（§16 Y **第 15 条**，新增）| **A 边** | 本轮新增（B 边 §51 只改了交接单，未占用 AGENTS.md）|
 | `scripts/e2e_feishu_rotate_exit_codes.sh` | **B 边** | 本轮**只读**（ff 合入其 `11171eb`）|
 | `data/solobrave.db` ＋ 真 store | **A 边** | 本轮**零读写**（全程假库 ＋ sandbox HOME）|
+
+## 53. ★★ 两个**真值坑**（都能让老大走错路）＋ 「行为级基线」缺口：轮换前**只有配置层基线，没有行为层基线**（2026-10-27 01:2x，B 边）
+
+### 53.1 ★★ 真值坑①：「貂蝉」这个名字**在两个命名空间里指两个不同的 app**
+
+| 命名空间 | 「貂蝉」指谁 | App ID |
+|---|---|---|
+| **飞书后台**（应用名）| `t_default` 这个 app | **`cli_aa420db06a78dcc5`** |
+| **openclaw 配置**（`accounts.default.name`）| `default` 这个账号 | **`cli_aafb5d7cd6389be4`** |
+
+⇒ 真值表（我直接从 `~/.openclaw/openclaw.json` 读出来的，**不是回忆**）：
+
+| openclaw 账号 | App ID | openclaw 里的**本地别名** | 后台应用名 |
+|---|---|---|---|
+| `default` | `cli_aafb5d7cd6389be4` | 貂蝉 | （第三个账号下，未定位）|
+| `helen` | `cli_aaf9b98563b99bd7` | Helen | Ayn的智能助手 |
+| `t_default` | **`cli_aa420db06a78dcc5`** | 租户Bot | ★ **貂蝉** |
+| `mumu` | `cli_aa51b1b62a7a9bf6` | 木木 | （第三个账号下，未定位）|
+
+⇒ ⇒ ★ **同一个词「貂蝉」，在后台指的是 `t_default`，在 openclaw 配置里指的是 `default`** ⇒ **同名不同物**。
+⇒ ⇒ ★★ **纪律**：★ **后台定位一律用 App ID**（runbook §2 已这么写，**是对的**）
+　⇒ **绝对不要拿 `openclaw.json` 里的 `name` 去后台找应用** —— 它只是本地别名，**与后台应用名无关**。
+⇒ ⇒ ⚠️ 我自己也栽过一次：早前凭 `openclaw.json` 判断「貂蝉 = default」，差点把老大带错应用 ⇒ **幸好历史章节 §21/§22 有后台实测记录，纠正了我** ⇒ 这才叫「probe 结论必先对库再下判断」。
+
+### 53.2 ★★ 真值坑②：`t_default` app 下老大的 **open_id / chat_id 我拿不到**
+
+⇒ 我为「行为级验证」把发送目标查了个遍，**结论是拿不到**：
+
+| 来源 | 结果 |
+|---|---|
+| `openclaw message send --help` | ✅ 命令形状确定（见 §53.3）|
+| `channel_ingress_events`（9 行）| ❌ `payload_json` 已被清理 ⇒ **无 chat_id** |
+| `delivery_queue_entries` | ❌ 无 feishu 行 |
+| `current_conversation_bindings` | ❌ 无 feishu 行 |
+| `audit_events` | ❌ `channel` 全 NULL、`target_ref` 全空 ⇒ **无投递历史** |
+| `~/.openclaw/agents/*/sessions/*.jsonl` | ❌ 搜不到 `oc_*` / `ou_*` |
+| `channels resolve` | ❌ **feishu 不支持 resolve** |
+| `channels pairing allow_entries` | 1 行，但属于 `default` 账号 |
+
+⇒ ⇒ ★ **推论**：老大平时在飞书里跟 **`mumu`** 聊（入站事件 7 条都是 mumu，最近 7 条在 10-26 23:xx）
+　⇒ `t_default` 只有 2 条**很旧**的入站事件 ⇒ **老大与 t_default 的会话基本是闲置的**。
+⇒ ⇒ ⇒ **`t_default` app 下老大的 open_id 大概率与 `default`/`helen` 下的不同**（飞书 open_id 是 **per-app** 的）
+　⇒ 而 `default` 与 `helen` 的 `allowFrom` 里**是同一个** `ou_…` ⇒ 这两条要么说明 open_id 跨 app 稳定，要么说明配置是抄来的 ⇒ **需要一次真发才知道**。
+
+### 53.3 ★ 发消息命令形状（已 dry-run 验证，**没真发**）
+
+⇒ 完整命令（**dry-run 已验，没真发**）：`openclaw message send --channel feishu --account t_default --target ou_b96eb50e16247aba1210d4e6ac650e28 -m "..." --dry-run --json`
+
+⇒ 实测 payload：`channel=feishu, to=ou_b96eb50e16247aba1210d4e6ac650e28, via=direct, dryRun=true` ✅
+⇒ 老大的 open id（来自 `default`/`helen` 的 `allowFrom`）= `ou_b96eb50e16247aba1210d4e6ac650e28`；
+　群聊 = `oc_13ca16c9b2789689f707d9c2af005d64`（default）/ `oc_629dc862119d377433644a7fd85dca6f`（helen）。
+
+### 53.4 ★★★ 真缺口：**轮换前只有「配置层基线」，没有「行为层基线」**
+
+⇒ 我此前取的基线（22:42 与 23:58）是：`openclaw channels list` ⇒ 4 个账号 `installed/configured/enabled`
+　＋ 四服务 HTTP 200 ＋ 降级链 6 环 ⇒ ⇒ **全是配置层与基础设施层**。
+⇒ ⇒ ★ **但行为级验证要的是「机器人真的能收到并回复消息」** ⇒ **轮换前从来没有实测过这一层**
+　⇒ ⇒ **若轮换后老大发消息机器人不回，就分不清是「轮换坏掉了」还是「它本来就不通」**。
+⇒ ⇒ ⇒ **修法（前置动作，轮换前做）**：**老大在飞书里给「貂蝉」机器人发一句话**
+　⇒ ① 这是**轮换前的行为级基线**（机器人回了 = 轮换前是通的）；
+　⇒ ② 同时**建立会话**（老大的 open_id 在 `t_default` app 下才会产生）。
+
+### 53.5 ★ 顺带把「reload 为什么必须排在行为验证之前」讲死
+
+⇒ 轮换后，**旧 app secret 已作废** ⇒ openclaw 若还用旧 secret 去换 `tenant_access_token` ⇒ 换不到 ⇒ 消息进不来、机器人不回。
+⇒ ⇒ **所以**：老大轮换 → **我必须先 reload** → 老大再发消息 ⇒ 机器人回 ⇒ 才算通过。
+⇒ ⇒ ⚠️ 反过来，**「轮换后不 reload 就发消息失败」不是 bug，是预期**（而且正好证明 reload 必要）。
+
+### 53.6 本轮占用登记
+
+| 对象 | 谁占用 | 状态 |
+|---|---|---|
+| `docs/PARALLEL-HANDOFF-2026-10-25.md`（§53）| **B 边** | 本轮新增 |
+| `~/.openclaw/openclaw.json` | — | 本轮**只读**（只取账号名/App ID，不碰 secret）|
+| `~/.openclaw/state/openclaw.sqlite` | — | 本轮**只读**（`mode=ro`；**未查 `secret_store_entries`**）|
+| `scripts/e2e_feishu_rotate_exit_codes.sh` | **B 边** | 本轮**未改** |
