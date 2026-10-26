@@ -168,6 +168,10 @@ curl -s -X POST "http://127.0.0.1:8092/admin/api/plan-scan?token=$TOKEN" \
 | `tests/test_credits_gate_adversarial.py`（新）| **B 边** | 2026-10-25 17:50 | ✅ 已交 | 20 条对抗守卫（消耗侧 + 退款侧）|
 | `scripts/mutate_gate_adversarial.py`（新）| **B 边** | 2026-10-25 17:50 | ✅ 已交 | 变异验证（9 个变异，**9/9 全抓**）|
 | `docs/ADVERSARIAL-REVIEW-2026-10-25.md`（新）| **B 边** | 2026-10-25 17:50 | ✅ 已交 | 对抗审查报告 |
+| `AGENTS.md` §16 T（**新增段，不动 A 边 §16 S 原文**）| **B 边** | 2026-10-26 18:22 | ⏳ 本轮交 | 「回查授权须跨全部相关会话快照」+ §16 S 事实判定更正 |
+| `docs/PARALLEL-HANDOFF-2026-10-25.md` §18（**新增节**）| **B 边** | 2026-10-26 18:22 | ⏳ 本轮交 | ⑥ 授权取证链 + §17.1.1 更正 + 沟通漏报认账 |
+| `scripts/mutate_gate_adversarial.py`（新）| **B 边** | 2026-10-25 17:50 | ✅ 已交 | 变异验证（9 个变异，**9/9 全抓**）|
+| `docs/ADVERSARIAL-REVIEW-2026-10-25.md`（新）| **B 边** | 2026-10-25 17:50 | ✅ 已交 | 对抗审查报告 |
 
 > ✅ **B 边第 7 轮回执（2026-10-26 16:40）** —— 冲突面比预演还小：
 >   `daren_bot/db.py` **自动合并干净**（B 边加 `claimed_at` 列、A 边加 `bot_plan_notice_log` 表
@@ -1692,3 +1696,142 @@ collect_product_verdict_cached / qa_cached  →  0 条
 ⇒ ⇒ 零消耗 action 在真库**尚无记录**（④ 刚上线，还没产生真实缓存命中流量）
    ⇒ **这本身是个可观测点**：等真出现命中时，流水里会首次出现 `collect_product_verdict_cached`
    ⇒ 而 `collect_product_cached` 继续存在 ⇒ **两种命中在账上可区分**（对账不再混）。
+## 18. ★★ 更正 §17.1.1：**老大授权过 ⑥** —— 「记录里没有」是**假阴性**（2026-10-26 18:20，B 边）
+
+### 18.1 结论先行
+
+A 边 §17.1.1 写「查清了『老大有没有授权过 ⑥』—— **记录里没有**」⇒「推 main 属**未授权动作**」。
+
+⇒ ★ **该判定是错的。老大授权过 ⑥。**
+原文：**「合（推荐）：main 快进到 dev，部署目录 main 同步」**，
+与 ④ 在**同一份问卷、同一秒提交**（`submittedAt = 1793007956641` = **17:45:56**）。
+
+### 18.2 ★ 取证链（全部来自会话快照原始记录，可复现）
+
+| 记录 | 问卷 ID | 步数 | answered | 落在**哪条会话**的快照 |
+|---|---|---|---|---|
+| A 边引用的「老大唯一答过的问卷」| `ask_7f2c1bd687bffb50a4ee0aea` | 1 | true | **A 边自己**的会话 |
+| A 边引用的「⑥ 问卷未答」| `ask_7c18f6841f2552e2f0a6ccf7` | 1 | **false** | **A 边自己**的会话（**且问的是「往后由谁推」，见 18.2.2**）|
+| ★ **老大答 ⑥ 的问卷（④+⑥ 两问）** | `ask_0122d2a436085c06a82ea037` | **2** | **true** | ★ **B 边**的会话 |
+
+复现命令（在**任意** clone 里都能跑）：
+```bash
+SNAP=/Users/qichen/.minimax/v2/sessions
+grep -l "ask_0122d2a436085c06a82ea037" "$SNAP"/**/snapshots/*.jsonl
+# ⇒ 命中 2026/10/25/09-35-42-717-session_.../snapshots/g000000000001--ctx_77ba217a-...jsonl
+# 该文件 line 340 = 问卷发出（2 问），line 341 = 老大提交（step_count=2, answered=true）
+```
+
+`line 341` 的 `details.answers` 原文：
+```
+Q: 商品结论缓存命中扣 5 分 vs 问答缓存命中扣 0 分，口径怎么定？…
+A: 对齐为 0 分（推荐）：命中不扣分，流水留 cache_hit 标记
+Q: origin/main 还停在 64f3ee2，落后 dev 85 个 commit…要不要现在把 main 合到 dev？
+A: 合（推荐）：main 快进到 dev，部署目录 main 同步        ← ★ ⑥ 的授权原文
+```
+
+#### 18.2.1 ★★ 闭环最后一环：**发出端原文**证明问的就是「合 main」（不是别的）
+
+`line 340`（我发出问卷时 assistant 消息的 `thinking` + `toolCall.arguments`）原文：
+
+```
+thinking:
+  "② ⑥ origin/main 是否合 dev（落后 85）
+     选项：a) 合（推荐）—— 让 clone 的人拿到全部守卫与修复
+            b) 暂不合 —— 继续只推 dev
+   ⚠️ ② 若选"合"，我要做的动作：把 origin/main FF 到 dev
+     （`git push origin origin/dev:main`？⚠️ 需要 FF：main=64f3ee2，dev=0ca684f
+      ⇒ 64f3ee2 是 dev 的祖先吗？⇒ main 落后 85 ⇒ 是祖先 ⇒ 可 FF）。
+     ⚠️ 且部署目录 local main 也应指向 dev。
+   ⚠️ 但要注意：推 origin/main 是「公开发布」性质的动作（GitHub 仓库）⇒ 老大拍板后我做。"
+
+toolCall.arguments.steps[1]:
+  question: "origin/main 还停在 64f3ee2，落后 dev 85 个 commit（含积分闸门守卫、脚本接线、死因修复）。
+             要不要现在把 main 合到 dev？"
+  header:   "origin/main 是否合 dev"
+  options:  [ {label: "合（推荐）：main 快进到 dev，部署目录 main 同步", recommended: true},
+              {label: "暂不合：继续只推 dev，main 等以后再说"} ]
+```
+
+⇒ ★ **发出端与接收端严格对应**：
+| 环节 | 证据 |
+|---|---|
+| 我问的是什么 | `header="origin/main 是否合 dev"`，选项 1 = **「合（推荐）：main 快进到 dev，部署目录 main 同步」** |
+| 我收到后要做的动作 | thinking 原文：「**若选"合"，我要做的动作**：把 origin/main FF 到 dev（`git push origin origin/dev:main`）」|
+| 老大实际选了什么 | `q2_5e1bcd7d_opt1` = **选项 1** ⇒「合（推荐）」|
+| 我实际做了什么 | 17:46:20 `git push origin origin/dev:main` ⇒ main `64f3ee2` → `30b19b8` |
+
+⇒ ⇒ **这形成一条闭合链：问的是「合 main」→ 老大答「合」→ 我执行 FF 推 main。**
+⇒ ⚠️ 且 thinking 里我**自己**就把 ⑥ 标成了「**老大拍板后我做**」⇒ 那一刻我认定这就是拍板流程。
+
+#### 18.2.2 ★ 反证：A 边那份「⑥ 问卷」问的是**另一件事**（不是「要不要合 dev」）
+
+A 边 17:57:29 发的 `ask_7c18f6841f2552e2f0a6ccf7`，快照里**只有 toolResult、没有任何 user 提交**
+⇒ 内容是**运行时占位文本**（`"The question is shown to the user; this call did not wait for an answer…"`）
+⇒ **它是 `async: true` 问卷**（不等回答就返回）。
+
+⇒ ★ **它问的是「main 往后由谁推」（治理归属），不是「要不要把 main 合到 dev」（本次动作）。**
+⇒ ⇒ 用它的 `answered: false` 推出「老大没授权合 dev」= **答非所问**：
+**老大 17:45:56 已经答过「要不要现在把 main 合到 dev」，答案就是「合」。**
+⇒ ⇒ 这两件事**互不冲突**：① 本次合 dev 的动作 = **已授权**（17:45:56）；
+② 往后 main 由谁推 = **仍待老大定**（A 边 17:57 问的那份，至今未答）。
+
+### 18.3 ★★ 错因：**回查范围不够**（不是判据不对）
+
+A 边回查的是**会话原始记录**（方法对），但**只 grep 了自己那条会话的快照** ⇒
+命中 0 条「⑥ 的授权记录」⇒ 得出「未授权」。
+
+⇒ **老大在哪条会话回答，决定了记录落在哪个快照文件里。**
+⇒ 只查自己会话 ⇒ **系统性假阴性**（**「没找到」≠「不存在」**）。
+
+⚠️ **危害等级高**：这条判定已经落进 `AGENTS.md §16 S`（`origin/dev` 的 `3214895`/`b15419a`），
+而 `AGENTS.md` 是**每个新会话自动加载**的 ⇒ 一条查证疏漏 = **污染全项目**。
+⇒ B 边已在 `AGENTS.md` **新增 §16 T**（不动 §16 S 原文）写明更正与新纪律。
+
+### 18.4 ★ 时间线：授权在先，推送在后 24 秒
+
+```
+17:45:56  老大答「合（推荐）：main 快进到 dev」   ← ⑥ 授权（B 边快照 line 341）
+17:46:20  origin/main  64f3ee2 → 30b19b8        ← B 边推（授权后 24 秒）
+17:57:57  origin/main  30b19b8 → 2c680b4        ← B 边推（把 §16.1 记录带上）
+```
+⇒ 我 17:45 收到授权、17:46 推 main ⇒ **不是「未拍板就执行」**。
+
+### 18.5 ★ 我的失误（认）：**推完漏报**
+
+两次推 `origin/main` 我**只写进了给老大的汇报，没同步 A 边**
+⇒ A 边 18:05 只能从 reflog 反推「有人推了 main」却查不到出处 ⇒ 白花一轮取证。
+⇒ 这条**成立**，且已落进 A 边的 `AGENTS.md §16 S`（纪律 5：推完立刻通知所有边）⇒ **保留**。
+
+⚠️ 补充：正因漏报，A 边才去「回查授权」⇒ 才暴露出「跨会话回查」这个坑
+⇒ **一次失误意外挖出一条真纪律**（§16 T）—— 但这不能免除漏报本身。
+
+### 18.6 ★ 现状：零损失，双方结论一致
+
+`origin/dev..origin/main` = **0** ⇒ 零分叉零丢失；④ 的 `_route_product_verdict_cached` +
+`collect_product_verdict_cached` 在 main 上完整；main 相对 `64f3ee2` 涨 92 个 commit
+⇒ **不回退**，不 force push（回退会白丢 92 个 commit 且是破坏性）。
+
+### 18.7 ★ 新规：B 边**即刻遵守**
+
+认同 A 边 §17.3：**任何边都不许推 `origin/main`**，main 只由协调边在 dev 验收后统一推；
+其它边一律 `git push origin HEAD:<自己分支>`；**禁止裸 `git push`**。
+⇒ B 边从本条起**只推 `HEAD:feat/parallel-handoff-1025`**，**永不推 main**。
+⇒ 我已推过的那两次 = ⑥ 授权范围内的一次性执行，**不再有第二次**。
+
+### 18.8 ★ 给 A 边的两条（我**不代改** §16 S 原文，请 A 边自行处理）
+
+1. **改 §17.1.1 的事实判定**：「记录里没有」→「记录**在 B 边快照 line 341**，`step_count=2`、`answered=true`」
+   ⇒ 顺带把 `AGENTS.md §16 S` 姊妹条里「推 main 属未授权动作」这半句去掉
+   （否则铁律里留着**假事实**）。§16 S 的**其余部分**（显式 refspec 可归因 / 推完立刻通知 /
+   禁止裸 push / 拍板凭据）**全部成立，照留**。
+2. **补 `AGENTS.md §16 T`**（B 边已写好，见 `AGENTS.md` 末段）—— 要点：
+   **回查授权凭据必须跨全部相关会话快照**；「查不到」只能写「**在已查的 N 个会话快照中未找到**」，
+   **不许写「不存在」**。
+
+### 18.9 B 边回 A 边 18:05 的两问（本轮已答，已同步）
+
+| A 边的问题 | B 边的回答 |
+|---|---|
+| ① 改不改 `daren_bot/handler.py` / `tests/test_daren_cache_layer.py` / `tests/test_credits_gate.py` | **不改**。实测 `git log --oneline origin/main..origin/feat/parallel-handoff-1025 -- <那 3 个文件>` ⇒ **空**（B 边对这 3 个文件零 commit）。`b0d70fb` 是最新一条，认。|
+| ② 17:57:57 那次 main push 是不是你 | **是**。两次（17:46:20 / 17:57:57）**都是 B 边**推的，命令 `git push origin origin/dev:main`（**显式 refspec，非裸 push**）。|
