@@ -1993,6 +1993,92 @@ def _load_agents(include_archived=False):
     return cleaned
 
 
+# ── OpenClaw workspace 解析（**唯一真源**）────────────────────────────
+#
+# ★ 为什么不能用 `agents.json` 的 `openclawName` 拼路径（2026-10-26 实测事故）：
+#   `openclawName` 是**声明端**字段；OpenClaw 运行时真正使用的目录是
+#   `openclaw.json → agents.entries[agent_id].workspace`（**使用端**）。
+#   木木的 `openclawName='main'`，但它实际跑在 `workspace-emp_1787550091124_1048`
+#   ⇒ 按声明拼路径会读写到**贾维斯自己的** `workspace-main`，后果三条：
+#     ① 木木在飞书里拿不到自己的完整设定（缺「数据源强制约束」「工具使用铁律」，
+#        且那个 workspace 里**没有 TOOLS.md**）⇒ 只会客套，不会查数据/调工具
+#     ② 服务端把木木的 soul 解析成了**贾维斯的** SOUL.md ⇒ 木木被配上别人的灵魂
+#     ③ 一旦写木木的文档 ⇒ **直接覆盖贾维斯的 SOUL.md**
+#   ⇒ 写 / 读 / 解析 soul 三处统一走下面的函数。
+
+OPENCLAW_CONFIG_PATH = os.path.expanduser('~/.openclaw/openclaw.json')
+_OC_WS_CACHE = {'mtime': 0.0, 'entries': {}}
+
+
+def _openclaw_agent_entries():
+    """读 `openclaw.json` 的 `agents.entries`（带 mtime 缓存，配置改动即时生效）。"""
+    try:
+        st = os.stat(OPENCLAW_CONFIG_PATH)
+    except OSError:
+        return {}
+    if _OC_WS_CACHE['mtime'] == st.st_mtime:
+        return _OC_WS_CACHE['entries']
+    entries = {}
+    try:
+        with open(OPENCLAW_CONFIG_PATH, encoding='utf-8') as f:
+            cfg = json.load(f)
+        entries = ((cfg.get('agents') or {}).get('entries') or {})
+    except Exception as e:                                  # noqa: BLE001
+        logger.warning(f'[OpenClawWS] 读取 openclaw.json 失败: {e}')
+        entries = {}
+    _OC_WS_CACHE['mtime'] = st.st_mtime
+    _OC_WS_CACHE['entries'] = entries
+    return entries
+
+
+def _resolve_agent_workspace(agent_id, agent=None):
+    """解析员工在 OpenClaw 里**真正运行**的 workspace 目录（绝对路径）。
+
+    真源 = `openclaw.json` 的 `agents.entries[agent_id].workspace`（使用端）。
+    ⚠️ `openclawName`（声明端）只在**没有 entry** 时兜底 —— 那是"还没被
+    OpenClaw 接管"的新员工场景，而不是"声明错了"的场景。
+    """
+    agent_id = (agent_id or '').strip()
+    entry = (_openclaw_agent_entries() or {}).get(agent_id) or {}
+    ws = (entry.get('workspace') or '').strip()
+    if ws:
+        return os.path.abspath(os.path.expanduser(ws))
+    if agent is None:
+        try:
+            agent = next((a for a in _load_agents() if a.get('id') == agent_id), {})
+        except Exception:                                 # noqa: BLE001
+            agent = {}
+    name = (agent.get('openclawName') or '').strip()
+    fallback = os.path.abspath(
+        os.path.expanduser('~/.openclaw/workspace-' + (name or agent_id)))
+    logger.warning(
+        f'[OpenClawWS] {agent_id} 在 openclaw.json 里没有 entry，'
+        f'回退到声明端拼法 {fallback}')
+    return fallback
+
+
+def _workspace_owner_agent(workspace_path):
+    """这个 workspace 目录属于哪个 agent（按 openclaw.json 的 entry 反查）。"""
+    target = os.path.abspath(workspace_path)
+    for aid, entry in (_openclaw_agent_entries() or {}).items():
+        ws = (entry.get('workspace') or '').strip()
+        if ws and os.path.abspath(os.path.expanduser(ws)) == target:
+            return aid
+    return ''
+
+
+def _workspace_write_conflict(agent_id, workspace_path):
+    """写 workspace 前的归属校验：**返回冲突的 owner agent_id**（空 = 无冲突）。
+
+    ★ 这正是「木木 → 贾维斯 workspace-main」差点覆盖别人 SOUL.md 的那道闸门：
+      目标目录若属于**别的** agent，就不能往里写。
+    """
+    owner = _workspace_owner_agent(workspace_path)
+    if owner and owner != agent_id:
+        return owner
+    return ''
+
+
 # r39-7 智能派单 round-robin 游标 (模块级, 进程内轮询挑 AI 员工代建合作方案)
 _collab_agent_idx = 0
 
@@ -14104,15 +14190,22 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
         import os
         if not workspace_path:
-            # 默认 workspace 路径与 get-agent-docs 保持一致：优先使用 openclawName
+            # 默认 workspace 路径：★ 以 **openclaw.json 的 entry.workspace** 为准
+            #   （使用端真值；按 agents.json 的 openclawName 拼会写错目录 ——
+            #    木木的声明是 'main'，实际跑在 workspace-emp_…）
             agents = _load_agents()
-            openclaw_name = ''
-            for a in agents:
-                if a.get('id') == agent_id:
-                    openclaw_name = a.get('openclawName', '')
-                    break
-            workspace_path = '~/.openclaw/workspace-' + (openclaw_name or agent_id)
+            agent = next((a for a in agents if a.get('id') == agent_id), {})
+            workspace_path = _resolve_agent_workspace(agent_id, agent)
         workspace_path = os.path.expanduser(workspace_path)
+
+        # ★ 写前归属校验：目标目录若属于**别的** agent ⇒ 拒绝写。
+        #   （这正是「木木 → 贾维斯 workspace-main」差点覆盖别人 SOUL.md 的那道闸门）
+        conflict_owner = _workspace_write_conflict(agent_id, workspace_path)
+        if conflict_owner:
+            self._send_json(409, {
+                'error': f'workspace 归属冲突：该目录属于 {conflict_owner}，拒绝写入',
+                'workspace': workspace_path})
+            return
 
         try:
             os.makedirs(workspace_path, exist_ok=True)
@@ -14189,7 +14282,13 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         openclaw_name = agent.get('openclawName', '')
-        if not openclaw_name:
+        # ★ 2026-10-26 修：workspace 目录按 **openclaw.json 的 entry.workspace** 解析
+        #   （使用端真值）；原来按 agents.json 的 openclawName 拼 ⇒ 木木读到的
+        #   是**贾维斯自己的** SOUL.md。
+        workspace_path = _resolve_agent_workspace(agent_id, agent)
+        doc_path = os.path.join(workspace_path, doc_name)
+
+        if not os.path.exists(doc_path) and not openclaw_name:
             # 没有 OpenClaw workspace，返回 agents.json 中的字段
             content = ''
             if doc_name == 'SOUL.md':
@@ -14204,10 +14303,6 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         # 从 workspace 文件读取
-        import os
-        workspace_path = os.path.expanduser('~/.openclaw/workspace-' + openclaw_name)
-        doc_path = os.path.join(workspace_path, doc_name)
-
         if os.path.exists(doc_path):
             try:
                 with open(doc_path, 'r', encoding='utf-8') as f:
@@ -23856,8 +23951,21 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                               'collectTakeover': True, 'collectId': cid})
 
 def _resolve_ai_base_url(api_provider, custom_endpoint=''):
-    """根据 provider 和自定义 endpoint 返回 base URL（不含 /chat/completions）"""
-    if api_provider == 'custom' and custom_endpoint:
+    """根据 provider 和自定义 endpoint 返回 base URL（不含 /chat/completions）
+
+    ★ 2026-10-26 修（声明端 ≠ 使用端，真 bug）：
+      原来**只有** `api_provider == 'custom'` 时才认 custom_endpoint，
+      具名 provider（minimax / zhipu / kimi…）一律用内置 mapping
+      ⇒ settings.json 里配的 `baseUrl` 被**静默忽略**。
+      实测后果：`PatternInduce-Cron` 打 minimax 时，settings 里配的是
+      套餐端点，实际却拼出老开放平台死端点
+      `https://api.minimax.chat/v1/text/chat/completions` → HTTP 404。
+
+      ⇒ 改成：**配置里的 customEndpoint 优先于内置默认**
+        （「自定义端点」本就该覆盖默认值；默认值只作为没配时的兜底）。
+    """
+    custom_endpoint = (custom_endpoint or '').strip()
+    if custom_endpoint:
         return custom_endpoint.rstrip('/')
     mapping = {
         'openai': 'https://api.openai.com/v1',
@@ -23868,12 +23976,12 @@ def _resolve_ai_base_url(api_provider, custom_endpoint=''):
         'zhipu': 'https://open.bigmodel.cn/api/paas/v4',
         'anthropic': 'https://api.anthropic.com/v1',
         'siliconflow': 'https://api.siliconflow.cn/v1',
-        'minimax': 'https://api.minimax.chat/v1/text',
+        # ★ MiniMax **套餐** Anthropic 端点（2026-10-26 实测 200 / 模型=MiniMax-M3）。
+        #   老开放平台端点 api.minimax.chat/v1/text 实测 404，且配的套餐 key 打它也 404。
+        'minimax': 'https://api.minimax.cn/anthropic/v1',
     }
     if api_provider in mapping:
         return mapping[api_provider]
-    if custom_endpoint:
-        return custom_endpoint.rstrip('/')
     return ''
 
 
@@ -23890,7 +23998,9 @@ def _resolve_ai_model(api_provider, api_model=''):
         'zhipu': 'glm-4-flash',
         'anthropic': 'claude-3-5-sonnet-20241022',
         'siliconflow': 'deepseek-ai/DeepSeek-V3',
-        'minimax': 'MiniMax-Text-01',
+        # ★ 2026-10-26：老模型 MiniMax-Text-01 会把 prompt 里的 OpenClaw 元数据标记
+        #   当正文复述（实测漏出 `[[response_to_current]]`）⇒ 统一真 M3。
+        'minimax': 'MiniMax-M3',
     }
     return default_models.get(api_provider, 'gpt-4o-mini')
 
@@ -23917,6 +24027,14 @@ def _call_chat_completion(api_provider, api_key, api_model, custom_endpoint, mes
     # + Bearer，配置 anthropic 必失败——隐患修复）
     if api_provider == 'anthropic':
         return _call_kimicode_messages(base_url, resolved_model, api_key, messages, timeout, max_tokens)
+
+    # ★ 2026-10-26：minimax **套餐**端点同样是 Anthropic Messages 协议
+    #   （api.minimax.cn/anthropic/v1 + /messages + x-api-key），
+    #   走通用 OpenAI 分支会拼出 `/chat/completions` → **HTTP 404**。
+    #   ⇒ 与 kimicode/anthropic 同款，走 adapter 单一真源。
+    if api_provider == 'minimax':
+        return _call_minimax_messages(base_url, resolved_model, api_key, messages,
+                                      timeout=timeout, max_tokens=max_tokens)
 
     req_body = json.dumps({
         'model': resolved_model,
@@ -24016,19 +24134,34 @@ def _call_kimicode_messages(base_url, model, api_key, messages, timeout=300, max
 
 
 def _call_minimax_messages(base_url, model, api_key, messages, timeout=300, max_tokens=4096):
-    """MiniMax chat completion API 调用（OpenAI 兼容格式）。
-    POST {base_url}/chatcompletion_v2，认证用 Authorization: Bearer。
-    响应取 choices[0].message.content。"""
-    body = {'model': model, 'messages': messages, 'max_tokens': max_tokens, 'stream': False}
-    req_body = json.dumps(body).encode('utf-8')
-    headers = {
-        'Content-Type': 'application/json',
-        'Authorization': f'Bearer {api_key}',
-        'Content-Length': str(len(req_body)),
-    }
-    target_url = base_url + '/chatcompletion_v2'
+    """MiniMax 调用 —— **URL / 鉴权头 / 请求体格式全部由 provider_adapters 决定**。
+
+    ★ 2026-10-26 修（真 bug，声明端 ≠ 使用端）：
+      原来这里写死「开放平台 OpenAI 兼容格式」
+      （POST {base_url}/chatcompletion_v2 + Authorization: Bearer），
+      而生产 settings.json 的 minimax 档配的是**套餐 Anthropic 端点**
+      （api.minimax.cn/anthropic/v1 + MiniMax-M3）
+      ⇒ **协议 / 端点 / 模型三者全错位**
+      （实测老端点 `api.minimax.chat/v1/text/chatcompletion_v2` → HTTP 404；
+        规律归纳 cron 因此一直「LLM 调用失败」）。
+
+      ⇒ 现在只做三件事：把 messages 交给 adapter 规范化、拿 adapter 的 URL/头、
+        用 adapter 的解析器抠文本 —— **换 provider 或换端点不用再改这里**
+        （同一份事实只写一份，见 AGENTS.md「取数只写一份」）。
+    """
+    if not api_key:
+        return None
+    adapter = padapters.adapter_for('minimax')
+    body = adapter.prepare_body(
+        {'model': model, 'messages': messages, 'max_tokens': max_tokens, 'stream': False},
+        default_max_tokens=max_tokens)
+    req_body = json.dumps(body, ensure_ascii=False).encode('utf-8')
+    headers = adapter.build_headers(api_key)
+    headers['Content-Length'] = str(len(req_body))
+    target_url = adapter.build_url(base_url)
     masked_key = f'{api_key[:8]}...' if api_key and len(api_key) > 8 else '(none)'
-    logger.info(f'  [API] minimax request: model={model} url={target_url} key={masked_key}')
+    logger.info(f'  [API] minimax request: model={model} url={target_url} '
+                f'protocol={adapter.api_format} key={masked_key}')
     try:
         req = urllib.request.Request(target_url, data=req_body, headers=headers, method='POST')
         ctx = ssl.create_default_context()
@@ -24036,8 +24169,9 @@ def _call_minimax_messages(base_url, model, api_key, messages, timeout=300, max_
         raw = resp.read().decode('utf-8', errors='replace')
         logger.info(f'  [API] minimax response: HTTP {resp.status}')
         resp_data = json.loads(raw)
-        if resp_data.get('choices') and resp_data['choices'][0].get('message'):
-            return resp_data['choices'][0]['message'].get('content', '')
+        content_text, _usage = adapter.parse_response(resp_data)
+        if content_text:
+            return content_text
         logger.info(f'  [API] minimax unexpected format: {raw[:500]}')
     except urllib.error.HTTPError as e:
         error_body = e.read().decode('utf-8', errors='replace')
@@ -24045,7 +24179,6 @@ def _call_minimax_messages(base_url, model, api_key, messages, timeout=300, max_
         logger.error(f'      Response: {error_body}')
     except Exception as e:
         logger.error(f'  ❌ minimax call failed: {e}')
-        traceback.print_exc()
     return None
 
 
@@ -24179,7 +24312,7 @@ def _try_minimax_proxy_fallback(body_json, log_prefix='Proxy', request_format='a
             return None
         api_key = (minimax_cfg.get('apiKey', '') or '').strip()
         base_url = (minimax_cfg.get('baseUrl', '') or '').strip()
-        model = minimax_cfg.get('model', '') or 'MiniMax-Text-01'
+        model = minimax_cfg.get('model', '') or 'MiniMax-M3'
         if not api_key or not base_url:
             logger.info(f'  [{log_prefix}Fallback] minimax 配置缺 apiKey/baseUrl，跳过')
             return None
@@ -24189,17 +24322,42 @@ def _try_minimax_proxy_fallback(body_json, log_prefix='Proxy', request_format='a
 
     adapter = padapters.adapter_for('minimax')
     try:
+        # ★ 2026-10-26：请求体格式必须跟 **adapter 的协议** 一致
+        #   （minimax 档现在是套餐 Anthropic 端点 ⇒ /messages + 顶层 system）。
+        #   原来固定拼 OpenAI 形状（system 混在 messages 里、role=system）
+        #   ⇒ Anthropic 上游会 400（messages[*].role 只能是 user/assistant）。
+        #
+        #   文本归一沿用 `to_openai_messages`（**图片块被丢弃、文本保留**
+        #   —— 既有契约，MiniMax-M3 是纯文本模型，发图片块反而会被拒），
+        #   再把 system 提到顶层满足 Anthropic 规范。
         oai_messages, max_tokens = padapters.to_openai_messages(body_json)
         if not oai_messages:
             logger.info(f'  [{log_prefix}Fallback] 没有可转换的文本消息，跳过')
             return None
 
-        minimax_body = {
-            'model': model,
-            'messages': oai_messages,
-            'max_tokens': max_tokens,
-            'stream': False,
-        }
+        if adapter.api_format == 'anthropic':
+            system_parts = [m.get('content', '') for m in oai_messages
+                            if m.get('role') == 'system']
+            chat_messages = [{'role': m.get('role', 'user'), 'content': m.get('content', '')}
+                             for m in oai_messages if m.get('role') != 'system']
+            minimax_body = {
+                'model': model,
+                'messages': chat_messages,
+                'max_tokens': max_tokens,
+                'stream': False,
+            }
+            if system_parts:
+                minimax_body['system'] = '\n\n'.join(
+                    p for p in system_parts if isinstance(p, str) and p).strip()
+            minimax_body = adapter.prepare_body(
+                minimax_body, default_max_tokens=max_tokens)
+        else:
+            minimax_body = {
+                'model': model,
+                'messages': oai_messages,
+                'max_tokens': max_tokens,
+                'stream': False,
+            }
         req_body = json.dumps(minimax_body, ensure_ascii=False).encode('utf-8')
         target_url = adapter.build_url(base_url)
         headers = adapter.build_headers(api_key)
@@ -24213,12 +24371,13 @@ def _try_minimax_proxy_fallback(body_json, log_prefix='Proxy', request_format='a
         raw = resp.read().decode('utf-8', errors='replace')
         logger.info(f'  [{log_prefix}Fallback] minimax response: HTTP {resp.status}')
         resp_data = json.loads(raw)
-        if not resp_data.get('choices') or not resp_data['choices'][0].get('message'):
-            logger.error(f'  [{log_prefix}Fallback] minimax unexpected format: {raw[:500]}')
-            _mark_provider_failed('minimax')
-            return None
+        # ★ 2026-10-26：格式判定必须跟 **adapter 的协议** 一致
+        #   （原来硬编码检查 OpenAI 的 `choices[0].message`，
+        #     而 minimax 档现在是 Anthropic 端点 ⇒ **正常响应被误判成「格式异常」**）
+        #   ⇒ 交给协议感知的 parser，抠不出文本才算异常。
         content_text, usage = adapter.parse_response(resp_data)
         if not content_text:
+            logger.error(f'  [{log_prefix}Fallback] minimax unexpected format: {raw[:500]}')
             _mark_provider_failed('minimax')
             return None
 
@@ -24414,7 +24573,14 @@ def _call_kimi_vision(image_base64, agent_id=None, role=None):
 
 def _call_minimax_vision_fallback(image_base64, media_type='image/jpeg', role=None):
     """Kimi vision 403 时的 minimax 降级。复用 minimax 的 OpenAI 兼容 chat/completions
-    多模态能力（image_url），失败返回 None。连续失败 3 次后 provider 走 degraded 跳过。"""
+    多模态能力（image_url），失败返回 None。连续失败 3 次后 provider 走 degraded 跳过。
+
+    ⚠️ 2026-10-26 现状说明：这条走的是 **OpenAI 多模态格式**（image_url），
+      而 settings.json 的 minimax 档现在是**套餐 Anthropic 端点**
+      （api.minimax.cn/anthropic/v1，协议不兼容）⇒ 本路需要指向一个
+      **OpenAI 协议的**多模态端点才可用（开放平台余额已耗尽，见 §8 采购）。
+      改造前指向 api.minimax.chat/v1/text 实测同样 404 ⇒ **不构成回归**。
+    """
     if _is_provider_degraded('minimax'):
         logger.info('  [Vision] minimax 已 degraded，跳过 vision 降级')
         return None
@@ -24433,7 +24599,7 @@ def _call_minimax_vision_fallback(image_base64, media_type='image/jpeg', role=No
             return None
         api_key = (minimax_cfg.get('apiKey', '') or '').strip()
         base_url = (minimax_cfg.get('baseUrl', '') or '').strip()
-        model = minimax_cfg.get('model', '') or 'MiniMax-Text-01'
+        model = minimax_cfg.get('model', '') or 'MiniMax-M3'
         if not api_key or not base_url:
             logger.info('  [Vision] minimax 配置缺 apiKey/baseUrl，跳过 vision 降级')
             return None
@@ -24746,7 +24912,8 @@ def _heavy_try_openai_call(system_prompt, user_text, max_tokens, prov_name, mode
 
 def _heavy_minimax_fallback(system_prompt, user_text, max_tokens):
     """Kimi 全部失败后的降级通道：读 settings.json 的 minimax provider 配置，
-    走 _call_minimax_messages（OpenAI 兼容格式）。返回与 _heavy_kimi_call 同构的 dict，失败返回 None。"""
+    走 _call_minimax_messages（协议由 provider_adapters 决定）。
+    返回与 _heavy_kimi_call 同构的 dict，失败返回 None。"""
     try:
         settings = _read_json(SETTINGS_FILE, {}) or {}
         llm = settings.get('llm') or {}
@@ -24760,7 +24927,7 @@ def _heavy_minimax_fallback(system_prompt, user_text, max_tokens):
             return None
         api_key = (minimax_cfg.get('apiKey', '') or '').strip()
         base_url = (minimax_cfg.get('baseUrl', '') or '').strip()
-        model = minimax_cfg.get('model', '') or 'MiniMax-Text-01'
+        model = minimax_cfg.get('model', '') or 'MiniMax-M3'
         if not api_key or not base_url:
             logger.warning('  [HeavyPipe] minimax 配置缺 apiKey/baseUrl，无法降级')
             return None
@@ -24980,18 +25147,24 @@ def _heavy_kimi_call(system_prompt, user_text, max_tokens=4096):
 
 def _resolve_agent_soul(agent):
     """读取员工灵魂全文：优先 OpenClaw workspace 的 SOUL.md（与 _handle_get_agent_docs 一致），
-    文件不存在时回落 agents.json 的 soulDoc/systemPrompt。"""
-    openclaw_name = (agent.get('openclawName') or '').strip()
-    if openclaw_name:
-        soul_path = os.path.join(os.path.expanduser('~/.openclaw/workspace-' + openclaw_name), 'SOUL.md')
-        try:
-            if os.path.isfile(soul_path):
-                with open(soul_path, 'r', encoding='utf-8') as f:
-                    content = f.read().strip()
-                if content:
-                    return content
-        except Exception as e:
-            logger.warning(f'  [HeavyPipe] 读取 workspace SOUL.md 失败: {e}')
+    文件不存在时回落 agents.json 的 soulDoc/systemPrompt。
+
+    ★ 2026-10-26 修（真 bug）：目录必须按 **openclaw.json 的 entry.workspace** 解析
+      （**使用端真值**），不能按 agents.json 的 `openclawName` 拼（**声明端**）。
+      木木的声明是 `'main'` ⇒ 原来这里读到的是**贾维斯自己的** SOUL.md
+      （1306 字「抖音全域数据分析师」）⇒ 木木被配上别人的灵魂，
+      喂给它的业务上下文全是错的分析心智。
+    """
+    agent_id = (agent.get('id') or '').strip()
+    soul_path = os.path.join(_resolve_agent_workspace(agent_id, agent), 'SOUL.md')
+    try:
+        if os.path.isfile(soul_path):
+            with open(soul_path, 'r', encoding='utf-8') as f:
+                content = f.read().strip()
+            if content:
+                return content
+    except Exception as e:
+        logger.warning(f'  [HeavyPipe] 读取 workspace SOUL.md 失败: {e}')
     return (agent.get('soulDoc') or agent.get('systemPrompt') or '').strip()
 
 
@@ -33743,7 +33916,16 @@ def _chain_kimi_key_iter(primary_keys, key_pool):
 
 def _chain_fallback_providers(exclude=('kimi', 'kimicode')):
     """从 settings.json llm.providers 读兜底 provider 列表（priority 升序）。
-    兼容旧单 provider 格式（无 providers 数组）。缺 apiKey/baseUrl 的跳过。"""
+    兼容旧单 provider 格式（无 providers 数组）。缺 apiKey/baseUrl 的跳过。
+
+    ★ 2026-10-26 新增**内置兜底安全网**：settings 里没有 `minimax` 档时，
+      自动补一档**套餐 Anthropic 端点 + MiniMax-M3**（key 只从 .env 实时读）。
+      起因：生产 settings 的 minimax 档曾指向**开放平台老端点**
+      （api.minimax.chat/v1/text）+ 老模型 `MiniMax-Text-01`
+      ⇒ 兜底时文风与 M3 完全不同，且老模型会把 prompt 里的 OpenClaw
+      元数据标记当正文复述（实测漏出 `[[response_to_current]]`）。
+      ⇒ 兜底至少要有一档**真 M3**。
+    """
     try:
         settings = _read_json(SETTINGS_FILE, {}) or {}
     except Exception as e:
@@ -33777,6 +33959,23 @@ def _chain_fallback_providers(exclude=('kimi', 'kimicode')):
             'base_url': base_url,
             'model': (p.get('model') or '').strip() or padapters.adapter_for(name).default_model,
         })
+
+    # ★ 内置兜底安全网（settings 没有 minimax 档时补一档真 M3）
+    #   ⚠️ key **不写死在代码里** —— 实时读 .env（AGENTS.md §7：密钥只进 .env）
+    if not any(p['name'] == 'minimax' for p in out):
+        key = _get_env_override('MINIMAX_CP_API_KEY')
+        if key:
+            out.append({
+                'name': 'minimax',
+                'api_key': key,
+                'base_url': 'https://api.minimax.cn/anthropic/v1',
+                'model': 'MiniMax-M3',
+            })
+            logger.info('  [ProxyChain] 内置兜底 minimax(MiniMax-M3, 套餐端点) 已启用'
+                        '（settings 未配该档）')
+        else:
+            logger.warning('  [ProxyChain] 内置兜底 minimax 未启用：'
+                           '.env 无 MINIMAX_CP_API_KEY')
     return out
 
 
@@ -34602,9 +34801,19 @@ def _handle_proxy_kimi(self):
     agent_api_key = _get_agent_api_key(agent_id) if agent_id else None
     if not agent_api_key:
         agent_api_key = KIMI_KEY_POOL.get_key()
-    if agent_api_key is None:
-        # key 池全部处于拉黑冷却期，无可用 key
-        logger.error('[KimiProxy] Key 池已空，返回 503')
+    if agent_api_key is None and PROXY_ENGINE == 'chain':
+        # ★★ 2026-10-26 修（真故障，木木 15:12 那条直接空回复就是这个）：
+        #   **kimi key 池耗尽 ≠ 整条链不可用** —— 链引擎后面还有兜底 provider
+        #   （minimax 套餐 MiniMax-M3，实测 200 可用）。
+        #   原来在这里直接 503，把「第一环死」写成了「全员死」：
+        #   kimi 月度额度一耗尽 ⇒ 4 把 key 全拉黑 ⇒ **每一个**后续请求
+        #   都在这里被拦掉，根本走不到兜底档。
+        #   ⇒ chain 模式下带着空 primary 进链，由链引擎继续降级；
+        #     链引擎自己处理空池（_chain_kimi_key_iter 池空即止 → 下一 provider）。
+        logger.warning('[KimiProxy] kimi key 池已空，继续走降级链（兜底 provider 接管）')
+    elif agent_api_key is None:
+        # legacy 路径没有 key 无法转发（没有链可退）⇒ 只能 503
+        logger.error('[KimiProxy] Key 池已空且无降级链可用，返回 503')
         self.send_response(503)
         self.send_header('Content-Type', 'application/json')
         self.end_headers()
@@ -35398,6 +35607,17 @@ def _handle_proxy_kimi(self):
         #   - content 全缺失/异常 → 构造 fallback OpenAI 响应(防止 OpenClaw 收到 choices 为空崩)
         if resp_json is not None:
             main_text, reasoning = _extract_kimi_message_content(resp_json)
+            if not main_text:
+                # ★ 2026-10-26 修（legacy 路径的真 bug，此前被 chain 路径掩盖）：
+                #   legacy 转发的是 `{base}/v1/messages` = **Anthropic Messages 端点**
+                #   （Kimi / MiniMax 套餐都是它），响应形状是
+                #   `{'type':'message','content':[{'type':'text','text':…}]}`，
+                #   而 `_extract_kimi_message_content` **只认 OpenAI 形状**
+                #   ⇒ 正常响应被误判成「content 全缺失」，
+                #     走进纯文本垃圾兜底，把好好的回复换成了
+                #     「Kimi 返回非标准格式, 原文片段: …」。
+                #   ⇒ 补一层格式感知解析（OpenAI 行为完全不变）。
+                main_text = _extract_assistant_text_any(resp_json)
             if not main_text and not reasoning:
                 # content 全缺失 (字段名变化 / 选择项为空), 走纯文本 fallback
                 logger.warning(

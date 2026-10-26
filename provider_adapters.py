@@ -704,11 +704,26 @@ class OpenAIChatAdapter(ProviderAdapter):
         return dict(body)
 
 
-class MinimaxAdapter(OpenAIChatAdapter):
-    """MiniMax（OpenAI 兼容格式，path 特殊）。"""
+class MinimaxAdapter(AnthropicMessagesAdapter):
+    """MiniMax **套餐**（M Plan）—— Anthropic 兼容端点。
+
+    ★ 2026-10-26 修（真事故，14:24 木木回复变样）：
+      原来指向**开放平台老端点** `api.minimax.chat/v1/text` + 老模型
+      `MiniMax-Text-01` ⇒ 四个后果：
+        ① 文风/指令遵循跟 MiniMax-M3 完全不同（"跟以前不一样"的观感来源）
+        ② **老模型会把 prompt 里的 OpenClaw 元数据标记当正文复述** ——
+           实测回复开头漏出 `[[response_to_current]]`
+           （该标记由 OpenClaw 插在当前轮 user 消息里，入站 prompt 中确实存在；
+            MiniMax-M3 实测**不会**复述，MiniMax-Text-01 会）
+        ③ OpenAI 格式 ⇒ 兜底必须非流式 + SSE 包装
+        ④ 端点/模型与「套餐」不是一套 ⇒ 拿套餐 key 打老端点只会拿到老模型
+      ⇒ 改指**套餐 Anthropic 端点** `api.minimax.cn/anthropic/v1` + `MiniMax-M3`
+        （2026-10-26 实测：HTTP 200 / 服务端返回模型=MiniMax-M3 / 4.5s /
+          不复述元数据标记 / 同协议可流式）。
+    """
     name = 'minimax'
-    default_model = 'MiniMax-Text-01'
-    chat_path = '/chatcompletion_v2'
+    default_model = 'MiniMax-M3'
+    chat_path = '/messages'
 
 
 def _named(cls, name, **attrs):

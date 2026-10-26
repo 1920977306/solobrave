@@ -131,14 +131,22 @@ def main():
     print('7. 适配器注册表与鉴权')
     check('kimi/kimicode/anthropic 都是 anthropic 格式',
           all(pa.adapter_for(n).api_format == 'anthropic' for n in ('kimi', 'kimicode', 'anthropic')))
-    check('openai/minimax/deepseek 是 openai 格式',
-          all(pa.adapter_for(n).api_format == 'openai' for n in ('openai', 'minimax', 'deepseek')))
+    check('openai/deepseek 是 openai 格式',
+          all(pa.adapter_for(n).api_format == 'openai' for n in ('openai', 'deepseek')))
+    # ★ 2026-10-26：minimax 改指**套餐 Anthropic 端点** + MiniMax-M3
+    #   （原为开放平台老端点 api.minimax.chat/v1/text + 老模型 MiniMax-Text-01
+    #    ⇒ 兜底时文风与 M3 不同，且老模型会把 prompt 里的 OpenClaw 元数据标记
+    #       当正文复述，实测漏出 `[[response_to_current]]`）
+    check('minimax 是 anthropic 格式（套餐端点）',
+          pa.adapter_for('minimax').api_format == 'anthropic')
+    check('minimax 默认模型是 MiniMax-M3',
+          pa.adapter_for('minimax').default_model == 'MiniMax-M3')
     check('anthropic 鉴权头 x-api-key + anthropic-version',
           pa.adapter_for('anthropic').build_headers('k')['x-api-key'] == 'k'
           and 'Authorization' not in pa.adapter_for('anthropic').build_headers('k'))
     check('openai 鉴权头 Bearer', pa.adapter_for('openai').build_headers('k')['Authorization'] == 'Bearer k')
-    check('minimax path /chatcompletion_v2',
-          pa.adapter_for('minimax').build_url('http://x/v1/text') == 'http://x/v1/text/chatcompletion_v2')
+    check('minimax path /messages（套餐 Anthropic 端点）',
+          pa.adapter_for('minimax').build_url('http://x/anthropic/v1') == 'http://x/anthropic/v1/messages')
     check('anthropic path /messages',
           pa.adapter_for('anthropic').build_url('http://x/v1') == 'http://x/v1/messages')
     check('未注册 provider 默认 openai 兼容', pa.adapter_for('some-new').api_format == 'openai')

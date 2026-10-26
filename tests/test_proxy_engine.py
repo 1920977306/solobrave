@@ -85,6 +85,16 @@ class MockUpstream(BaseHTTPRequestHandler):
                 'choices': [{'index': 0, 'message': {'role': 'assistant', 'content': 'minimax 兜底回复'},
                              'finish_reason': 'stop'}],
                 'usage': {'prompt_tokens': 11, 'completion_tokens': 7, 'total_tokens': 18}})
+        elif path.startswith('/ok_minimax'):
+            # ★ 2026-10-26：minimax 兜底 provider 走 **Anthropic Messages 协议**
+            #   （MinimaxAdapter 已改为 anthropic-messages + MiniMax-M3），
+            #   ⇒ mock 必须回 Anthropic 形状，否则 adapter 抠不出文本。
+            #   路径必须排在 /ok_openai 之后、兜底 500 之前。
+            self._json(200, {
+                'id': 'msg_minimax1', 'type': 'message', 'role': 'assistant',
+                'content': [{'type': 'text', 'text': 'minimax 兜底回复'}],
+                'model': 'MiniMax-M3', 'stop_reason': 'end_turn',
+                'usage': {'input_tokens': 11, 'output_tokens': 7}})
         elif path.startswith('/sse_anthropic'):
             payload = anthropic_sse_events('流式回复内容', in_tok=20, out_tok=9)
             self.send_response(200)
@@ -177,7 +187,7 @@ def main():
     threading.Thread(target=mock.serve_forever, daemon=True).start()
     base = f'http://127.0.0.1:{port}'
 
-    FB = [{'name': 'minimax', 'api_key': 'mm-key-0001', 'base_url': f'{base}/ok_openai', 'model': 'MiniMax-Text-01'}]
+    FB = [{'name': 'minimax', 'api_key': 'mm-key-0001', 'base_url': f'{base}/ok_minimax', 'model': 'MiniMax-M3'}]
     KIMI_BODY = {'model': 'kimi-for-coding', 'messages': [{'role': 'user', 'content': 'hi'}]}
 
     # ═══ A. 多 Provider ═══
@@ -575,6 +585,9 @@ def main():
         '_log_proxy_token_usage': lambda *a, **k: usage_logs.append(a),
         '_get_agent_api_key': lambda aid: None,
         '_chain_fallback_providers': lambda exclude=('kimi', 'kimicode'): FB,
+        # ★ mock 跑在 127.0.0.1 ⇒ 会被 SSRF 防护判成私有 IP 拦掉（403 空 body）
+        #   ⇒ 测试期放行（生产防护保持不变）
+        '_is_safe_url': lambda url: (True, ''),
     }
     _g_origs = {k: getattr(srv_mod, k) for k in _g_patches}
     for k, v in _g_patches.items():

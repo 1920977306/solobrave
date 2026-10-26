@@ -55,7 +55,12 @@ def _write_settings(llm_cfg):
 
 
 def _reset_degrade():
-    srv._PROVIDER_FAIL_COUNTS.clear()
+    """清空 provider 冷却/失败计数（★ 2026-10-26：原 `_PROVIDER_FAIL_COUNTS`
+    已被 `_PROVIDER_COOLDOWN`（CooldownTracker）取代，这个文件因此长期报错、
+    实际从没跑过 —— 覆盖是死的）。"""
+    srv._PROVIDER_COOLDOWN._fail_counts.clear()
+    srv._PROVIDER_COOLDOWN._cooldown_until.clear()
+    srv._PROVIDER_COOLDOWN._probe_inflight.clear()
 
 
 def _run(name, fn):
@@ -147,8 +152,8 @@ def test_minimax_fail_kimi_ok():
     assert len(mm.calls) == 1
     assert len(kc.calls) == 1
     # 失败计数：minimax=1
-    assert srv._PROVIDER_FAIL_COUNTS.get('minimax') == 1
-    assert 'kimicode' not in srv._PROVIDER_FAIL_COUNTS
+    assert srv._PROVIDER_COOLDOWN._fail_counts.get('minimax') == 1
+    assert 'kimicode' not in srv._PROVIDER_COOLDOWN._fail_counts
 
 
 # ═══ 测试 3：kimi 失败 + minimax 正常 → 降级到 minimax ═══
@@ -172,7 +177,7 @@ def test_kimi_fail_minimax_ok():
     assert result == 'minimax 接手', f'期望 minimax 回复，实际 {result!r}'
     assert len(kc.calls) == 1
     assert len(mm.calls) == 1
-    assert srv._PROVIDER_FAIL_COUNTS.get('kimicode') == 1
+    assert srv._PROVIDER_COOLDOWN._fail_counts.get('kimicode') == 1
 
 
 # ═══ 测试 4：两个都挂 → 返回 None ═══
@@ -195,8 +200,8 @@ def test_both_fail():
     assert result is None, f'期望 None，实际 {result!r}'
     assert len(mm.calls) == 1
     assert len(kc.calls) == 1
-    assert srv._PROVIDER_FAIL_COUNTS.get('minimax') == 1
-    assert srv._PROVIDER_FAIL_COUNTS.get('kimicode') == 1
+    assert srv._PROVIDER_COOLDOWN._fail_counts.get('minimax') == 1
+    assert srv._PROVIDER_COOLDOWN._fail_counts.get('kimicode') == 1
 
 
 # ═══ 测试 5：连续失败 3 次后 provider 进入 degraded 状态 ═══
@@ -250,13 +255,13 @@ def test_success_resets_count():
     mm.next_response = None
     srv._call_chat_completion_with_fallback(MSGS, timeout=10, max_tokens=100)
     srv._call_chat_completion_with_fallback(MSGS, timeout=10, max_tokens=100)
-    assert srv._PROVIDER_FAIL_COUNTS.get('minimax') == 2
+    assert srv._PROVIDER_COOLDOWN._fail_counts.get('minimax') == 2
 
     # 成功 1 次
     mm.next_response = 'OK'
     result = srv._call_chat_completion_with_fallback(MSGS, timeout=10, max_tokens=100)
     assert result == 'OK'
-    assert 'minimax' not in srv._PROVIDER_FAIL_COUNTS, '成功后失败计数应被清空'
+    assert 'minimax' not in srv._PROVIDER_COOLDOWN._fail_counts, '成功后失败计数应被清空'
     assert not srv._is_provider_degraded('minimax')
 
 
@@ -294,10 +299,14 @@ def test_no_provider():
 
 # ═══ 测试 9：_resolve_ai_base_url / _resolve_ai_model 支持 minimax ═══
 def test_resolve_minimax():
-    assert srv._resolve_ai_base_url('minimax') == 'https://api.minimax.chat/v1/text'
-    assert srv._resolve_ai_model('minimax') == 'MiniMax-Text-01'
+    # ★ 2026-10-26：minimax 默认端点改成**套餐 Anthropic 端点**
+    #   （老开放平台 api.minimax.chat/v1/text 实测 404）
+    assert srv._resolve_ai_base_url('minimax') == 'https://api.minimax.cn/anthropic/v1'
+    assert srv._resolve_ai_model('minimax') == 'MiniMax-M3'
     # 显式传 model 不应被默认覆盖
     assert srv._resolve_ai_model('minimax', 'custom-model') == 'custom-model'
+    # ★ 配置里的 customEndpoint 优先于内置默认（否则 settings 配的 baseUrl 是死的）
+    assert srv._resolve_ai_base_url('minimax', 'https://custom.example/v1') == 'https://custom.example/v1'
 
 
 # ═══ 测试 10：priority 排序正确（priority 数字小的先尝试）═══
@@ -379,11 +388,13 @@ def _patch_urlopen(monkey_target):
 
 
 def _enable_minimax_settings():
+    # ★ 2026-10-26：minimax 档现在是**套餐 Anthropic 端点 + MiniMax-M3**
+    #   （老开放平台端点 api.minimax.chat/v1/text 实测 404）
     _write_settings({
         'mode': 'fallback',
         'providers': [
-            {'name': 'minimax', 'apiKey': 'sk-m-test', 'baseUrl': 'https://api.minimax.chat/v1/text',
-             'model': 'MiniMax-Text-01', 'priority': 1},
+            {'name': 'minimax', 'apiKey': 'sk-m-test', 'baseUrl': 'https://api.minimax.cn/anthropic/v1',
+             'model': 'MiniMax-M3', 'priority': 1},
             {'name': 'kimicode', 'apiKey': 'sk-k-test', 'baseUrl': 'https://api.kimi.com/coding/v1',
              'model': 'kimi-for-coding', 'priority': 2},
         ],
@@ -396,8 +407,10 @@ def test_proxy_fallback_success_text_only():
     target = type('T', (), {})()
     target.status = 200
     target.body = json.dumps({
-        'id': 'minimax-xxx',
-        'choices': [{'message': {'role': 'assistant', 'content': '兜底回复内容'}}],
+        'id': 'msg_minimax',
+        'type': 'message', 'role': 'assistant',
+        'content': [{'type': 'text', 'text': '兜底回复内容'}],
+        'model': 'MiniMax-M3', 'stop_reason': 'end_turn',
         'usage': {'input_tokens': 10, 'output_tokens': 5},
     }).encode('utf-8')
     target.do_raise = None
@@ -423,18 +436,20 @@ def test_proxy_fallback_success_text_only():
     assert parsed['content'][0]['type'] == 'text'
     assert parsed['content'][0]['text'] == '兜底回复内容'
     assert parsed['stop_reason'] == 'end_turn'
-    # 验证发送给 minimax 的 body 是 OpenAI 格式
+    # ★ 2026-10-26：发送给 minimax 的 body 是 **Anthropic Messages 格式**
+    #   （system 提到顶层、messages 里不得有 system role —— Anthropic 规范）
     sent_body = json.loads(cap['last_req'].data.decode('utf-8'))
-    assert sent_body['model'] == 'MiniMax-Text-01'
+    assert sent_body['model'] == 'MiniMax-M3'
     assert sent_body['stream'] is False
     roles = [m['role'] for m in sent_body['messages']]
-    assert roles == ['system', 'user', 'assistant', 'user']
-    assert sent_body['messages'][0]['content'] == '你是 Helen'
-    # 验证 Authorization header 用 Bearer
-    auth = cap['last_req'].headers.get('Authorization')
-    assert auth == 'Bearer sk-m-test', f'Authorization header 不对: {auth}'
+    assert roles == ['user', 'assistant', 'user'], f'roles 不对: {roles}'
+    assert sent_body['system'] == '你是 Helen'
+    # 验证鉴权头用 x-api-key + anthropic-version（Anthropic 协议）
+    hdrs = {k.lower(): v for k, v in cap['last_req'].headers.items()}
+    assert hdrs.get('x-api-key') == 'sk-m-test', f'x-api-key 不对: {hdrs}'
+    assert hdrs.get('anthropic-version') == '2023-06-01', f'anthropic-version 不对: {hdrs}'
     # 验证 URL
-    assert cap['last_req'].full_url == 'https://api.minimax.chat/v1/text/chatcompletion_v2'
+    assert cap['last_req'].full_url == 'https://api.minimax.cn/anthropic/v1/messages'
 
 
 # ═══ 测试 13：proxy 兑底忽略图片块 ═══
@@ -443,7 +458,9 @@ def test_proxy_fallback_strips_images():
     target = type('T', (), {})()
     target.status = 200
     target.body = json.dumps({
-        'choices': [{'message': {'role': 'assistant', 'content': '只看到文本'}}],
+        'id': 'msg_minimax_txt', 'type': 'message', 'role': 'assistant',
+        'content': [{'type': 'text', 'text': '只看到文本'}],
+        'model': 'MiniMax-M3', 'stop_reason': 'end_turn',
     }).encode('utf-8')
     target.do_raise = None
     cap = _patch_urlopen(target)
@@ -478,7 +495,7 @@ def test_proxy_fallback_minimax_http_error():
     body_json = {'messages': [{'role': 'user', 'content': 'hi'}]}
     result = srv._try_minimax_proxy_fallback(body_json, log_prefix='Test')
     assert result is None
-    assert srv._PROVIDER_FAIL_COUNTS.get('minimax') == 1
+    assert srv._PROVIDER_COOLDOWN._fail_counts.get('minimax') == 1
 
 
 # ═══ 测试 15：minimax 返回格式异常 → 返回 None ═══
@@ -492,7 +509,7 @@ def test_proxy_fallback_minimax_bad_format():
 
     result = srv._try_minimax_proxy_fallback({'messages': [{'role': 'user', 'content': 'hi'}]}, log_prefix='Test')
     assert result is None
-    assert srv._PROVIDER_FAIL_COUNTS.get('minimax') == 1
+    assert srv._PROVIDER_COOLDOWN._fail_counts.get('minimax') == 1
 
 
 # ═══ 测试 16：minimax 返回空 content → 返回 None ═══
@@ -546,17 +563,22 @@ def test_proxy_fallback_success_resets_count():
     _enable_minimax_settings()
     srv._mark_provider_failed('minimax')
     srv._mark_provider_failed('minimax')  # 失败 2 次
-    assert srv._PROVIDER_FAIL_COUNTS.get('minimax') == 2
+    assert srv._PROVIDER_COOLDOWN._fail_counts.get('minimax') == 2
 
     target = type('T', (), {})()
     target.status = 200
-    target.body = json.dumps({'choices': [{'message': {'content': 'OK'}}]}).encode('utf-8')
+    target.body = json.dumps({
+        'id': 'msg_minimax_ok', 'type': 'message', 'role': 'assistant',
+        'content': [{'type': 'text', 'text': 'OK'}],
+        'model': 'MiniMax-M3', 'stop_reason': 'end_turn',
+        'usage': {'input_tokens': 1, 'output_tokens': 1},
+    }).encode('utf-8')
     target.do_raise = None
     _patch_urlopen(target)
 
     result = srv._try_minimax_proxy_fallback({'messages': [{'role': 'user', 'content': 'hi'}]}, log_prefix='Test')
     assert result is not None
-    assert 'minimax' not in srv._PROVIDER_FAIL_COUNTS
+    assert 'minimax' not in srv._PROVIDER_COOLDOWN._fail_counts
 
 
 # ═══ 测试 20：body_json 不是 dict → 返回 None ═══

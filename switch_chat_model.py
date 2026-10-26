@@ -25,9 +25,14 @@
 
 minimax 配置（设到 solobrave .env）:
   OPENCLAW_MINIMAX_API_KEY=<your-minimax-key>
-  OPENCLAW_MINIMAX_BASE_URL=https://api.minimaxi.com/anthropic  (国内, 默认)
+  OPENCLAW_MINIMAX_BASE_URL=https://api.minimax.cn/anthropic/v1  (国内套餐端点, 默认)
                        或 https://api.minimax.io/anthropic        (海外)
   OPENCLAW_MINIMAX_MODEL=MiniMax-M3                              (默认; M2 / M2-mini 也行)
+
+★ 2026-10-26 修：默认端点原为 `https://api.minimaxi.com/anthropic` ——
+  实测该 URL **HTTP 404**（端点本身不存在）；
+  套餐 key 可用的 Anthropic 端点是 `https://api.minimax.cn/anthropic/v1`
+  （2026-10-26 实测 200 / 返回模型=MiniMax-M3）。
 
 注: Kimi (coding/) 和 MiniMax (anthropic/) 都是 coding 模型，OpenClaw 协议
     都用 anthropic-messages; zhipu 是通用 chat，用 openai-completions。
@@ -209,7 +214,7 @@ def profile_minimax() -> None:
     """
     key = _read_env("OPENCLAW_MINIMAX_API_KEY")
     # ★ MiniMax Anthropic 兼容 endpoint 是 /anthropic（不是 /coding/，那是 Kimi 的）
-    base_url = _read_env("OPENCLAW_MINIMAX_BASE_URL", required=False) or "https://api.minimaxi.com/anthropic"
+    base_url = _read_env("OPENCLAW_MINIMAX_BASE_URL", required=False) or "https://api.minimax.cn/anthropic/v1"
     model = _read_env("OPENCLAW_MINIMAX_MODEL", required=False) or "MiniMax-M3"
     provider_id = "minimax"
     model_ref = f"{provider_id}/{model}"
