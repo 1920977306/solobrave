@@ -41,9 +41,14 @@ SEL_VQA = "tests/test_vision_qa.py"
 LC = "daren_bot/llm_channels.py"
 PROBE = "daren_bot/tools/probe_llm_channels.py"
 SRV = "solobrave-server.py"
+#: ★ 2026-10-27：Code 订阅凭据/端点的**单一事实来源**已搬到这里
+#:   （daren_bot 侧与代理链侧共用同一份 ⇒ 不许再各写一份）
+CSC = "code_sub_credential.py"
+#: 代理链接 Code 订阅的契约测试（M11~M13 的选择器）
+CSEL = "tests/test_proxy_code_sub_provider.py"
 
 #: 基线自检要跑的全部选择器（每个变异只跑自己那一条）
-BASELINE = [SEL, SEL_VQA]
+BASELINE = [SEL, SEL_VQA, CSEL]
 
 
 def clear_pycache():
@@ -53,12 +58,26 @@ def clear_pycache():
         shutil.rmtree(p, ignore_errors=True)
 
 
-def patch(rel: str, old: str, new: str):
+def patch(rel: str, old, new):
+    """对 rel 做一次变异。
+
+    ★ `old` / `new` 可以是**字符串**（单处替换）或**列表**（多处替换，成对应用）。
+      为什么需要多处：有些缺陷**天然跨两处**（例如「token 被缓存」= 入口读缓存
+      + 出口写缓存）。只改一处 ⇒ 行为其实没变 ⇒ 变异体**恒真**
+      ⇒ 护栏会假装守住、其实什么都没测（2026-10-27 实测踩到：M13 第一版就栽在这）。
+    """
     p = ROOT / rel
     src = p.read_text(encoding="utf-8")
-    assert old in src, f"变异锚点没找到：{rel}\n  {old[:160]}"
+    if isinstance(old, (list, tuple)):
+        pairs = list(zip(old, new))
+    else:
+        pairs = [(old, new)]
     _BACKUPS.setdefault(rel, src)
-    p.write_text(src.replace(old, new, 1), encoding="utf-8")
+    out = src
+    for o, n in pairs:
+        assert o in out, f"变异锚点没找到：{rel}\n  {o[:160]}"
+        out = out.replace(o, n, 1)
+    p.write_text(out, encoding="utf-8")
     time.sleep(1.2)          # ★ 让 mtime 跨秒
     clear_pycache()
 
@@ -181,10 +200,32 @@ CASES = [
 
     # ── 六、能力层的「瞬时错误 skip」不许把真契约错误吞掉 ──
     ("变异M11：Code 订阅 base 写错（404 真契约错误被 skip 吞掉 ⇒ 恒真绿）",
-     LC,
+     CSC,
      "CODE_SUB_BASE = 'https://agent.minimax.cn/mavis/api/v1/llm/v1'\n",
      "CODE_SUB_BASE = 'https://agent.minimax.cn/mavis/api/v1/llm/v1-BROKEN'\n",
-     SEL),
+     CSEL),
+
+    # ── 七、代理链接 Code 订阅的三条新护栏（2026-10-27）──
+    ("变异M12：Code 订阅适配器改回 x-api-key（端点只认 Bearer ⇒ 必 401）",
+     "provider_adapters.py",
+     "            'Authorization': f'Bearer {api_key}',\n"
+     "            'anthropic-version': ANTHROPIC_VERSION,\n",
+     "            'x-api-key': api_key,\n"
+     "            'anthropic-version': ANTHROPIC_VERSION,\n",
+     CSEL),
+    ("变异M13：Code 订阅 token 被缓存（30 分钟量级 ⇒ 必然 401）",
+     CSC,
+     # ★ 三处一起改才是真的「缓存」：模块级变量 + 入口读缓存 + 出口写缓存
+     #   （只改其中一两处 ⇒ 行为没变 ⇒ 变异体恒真 ⇒ 护栏假装守住）
+     ["CODE_SUB_MIN_TTL_MS = 60_000\n",
+      "    now_ms = time.time() * 1000\n",
+      "            if len(tok) > len(best):\n                best = tok\n    return best\n"],
+     ["CODE_SUB_MIN_TTL_MS = 60_000\n\n_CACHED_TOKEN = ''\n",
+      "    global _CACHED_TOKEN\n    if _CACHED_TOKEN:\n        return _CACHED_TOKEN\n"
+      "    now_ms = time.time() * 1000\n",
+      "            if len(tok) > len(best):\n                best = tok\n"
+      "    _CACHED_TOKEN = best\n    return best\n"],
+     CSEL),
 ]
 
 failed = []

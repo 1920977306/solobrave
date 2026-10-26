@@ -726,6 +726,33 @@ class MinimaxAdapter(AnthropicMessagesAdapter):
     chat_path = '/messages'
 
 
+class CodeSubAdapter(AnthropicMessagesAdapter):
+    """MiniMax **Code 订阅**（agent.minimax.cn）—— Anthropic 协议，**Bearer 鉴权**。
+
+    ★★ 为什么必须单列一个适配器（不能直接用 AnthropicMessagesAdapter）：
+      Anthropic 规范形态是 `x-api-key: <key>`，
+      而 Code 订阅端点**只认** `Authorization: Bearer <token>` ——
+      2026-10-27 实测：同一把 OAuth token 发 `x-api-key` ⇒
+      `HTTP 401 {"code":401,"message":"token is required"}`；发 Bearer ⇒ **200 真回复**。
+      ⇒ 鉴权形态**不能靠猜**（AGENTS.md §16：声明端 ≠ 使用端）。
+
+    ⚠️ 协议仍是 Anthropic（打 `/messages`、system 是顶层字段）⇒
+      请求体规范化/max_tokens 补齐完全复用 AnthropicMessagesAdapter 的实现，
+      只有**鉴权头**不同 ⇒ 这里只覆写 build_headers。
+    """
+    name = 'code_sub'
+    default_model = 'MiniMax-M3'
+    chat_path = '/messages'
+
+    def build_headers(self, api_key):
+        # ⚠️ 不发 x-api-key：Code 订阅端点会回 401（实测）。
+        return {
+            'Content-Type': 'application/json',
+            'Authorization': f'Bearer {api_key}',
+            'anthropic-version': ANTHROPIC_VERSION,
+        }
+
+
 def _named(cls, name, **attrs):
     inst = cls()
     inst.name = name
@@ -744,6 +771,10 @@ ADAPTERS = {
     'zhipu': _named(OpenAIChatAdapter, 'zhipu'),
     'siliconflow': _named(OpenAIChatAdapter, 'siliconflow'),
     'minimax': _named(MinimaxAdapter, 'minimax'),
+    # ★ Code 订阅（= 贾维斯自己）—— Anthropic 协议 + **Bearer** 鉴权
+    #   （2026-10-27 实测：x-api-key ⇒ 401，只有 Bearer ⇒ 200）
+    'code_sub': _named(CodeSubAdapter, 'code_sub'),
+    'codesub': _named(CodeSubAdapter, 'codesub'),
 }
 
 

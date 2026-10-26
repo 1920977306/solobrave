@@ -152,6 +152,46 @@ def _classify_dead(detail: str) -> str:
     return '其他'
 
 
+def _ring_of(item):
+    """从 alive/empty/dead 的**条目**里取 provider 描述（ring dict）。
+
+    ⚠️★ 2026-10-27 实锤的**真 bug**（此前每次跑这个探针都崩）：
+       真实调用方 `main()` 存的是 **(ring, detail) 元组**，
+       而历史单测直接传 **ring dict** ⇒ 两种形状都得认。
+       以前这里只认 dict ⇒ 真调用 `_vendor_of((ring, detail))` →
+       `tuple.get(...)` → **AttributeError** ⇒ 探针**每次跑到最后一行必崩**：
+         ① 退出码恒为 1（哪怕有活环）⇒ 谁拿它当闸门都会误判；
+         ② 最关键的「活着的独立服务商 / 额度池」这段结论**从来没打印过**。
+       ⇒ 单测之所以绿，是因为**单测传的形状和真实调用方不一样**
+         （典型的「测试形状 ≠ 生产形状」）。
+    """
+    if isinstance(item, dict):
+        return item
+    if isinstance(item, (tuple, list)) and item:
+        first = item[0]
+        if isinstance(first, dict):
+            return first
+    return {}
+
+
+def _hit_ring_summary(rings: list, alive: list, total: int = 0) -> str:
+    """生成「生产会命中：环N <label>（<model>）」那一行。
+
+    ★ 环号必须是**真实下标**。原来硬编码「环0」，实际命中的是 alive[0] 那一档
+      —— 实测输出「生产会命中：环0 code-sub」，而 code-sub 其实是**环1**
+      ⇒ 运维照着「环0」去查会查错对象（把真命中的当没命中的查）。
+      ⇒ 抽成独立函数是为了**能单测**：留在 print 里就只能靠肉眼盯。
+    """
+    if not alive:
+        return '❌ 没有任何环成功返回内容 —— 问答/选品/识图会直接报错'
+    first = _ring_of(alive[0])
+    first_idx = next((i for i, r in enumerate(rings or []) if r is first), 0)
+    n_alive = len(alive)
+    total = total or n_alive
+    return (f'✅ 可用环 {n_alive}/{total} —— 生产会命中：'
+            f'环{first_idx} {first.get("label")}（{first.get("model")}）')
+
+
 def _independence(rings: list, alive: list, empty: list, dead: list) -> dict:
     """独立服务商 / 独立额度池统计（**纯函数**，可被测试直接调用）。
 
@@ -164,10 +204,12 @@ def _independence(rings: list, alive: list, empty: list, dead: list) -> dict:
        （识图链探针拿 1×1 图去探，模型诚实返回空是**正确行为**）。
     ⚠️ 合并逻辑放在**函数内部**而不是调用方 ——
        放外面的话，调用方漏传 empty 时测试抓不到（恒真闸门）。
+    ⚠️ 入参形状兼容：条目可以是 ring dict，也可以是 (ring, detail) 元组
+       （真实调用方用的就是元组，见 `_ring_of` 的说明）。
     """
-    alive = alive or []
-    empty = empty or []
-    dead = dead or []
+    alive = [_ring_of(x) for x in (alive or [])]
+    empty = [_ring_of(x) for x in (empty or [])]
+    dead = [_ring_of(x) for x in (dead or [])]
     live = alive + empty
     vendors = sorted({_vendor_of(r) for r in live})
     pools = sorted({_pool_of(r) for r in live})
@@ -222,12 +264,8 @@ def main() -> int:
             dead.append((ring, detail))
 
     print("=" * 72)
-    if alive:
-        first = alive[0][0]
-        print(f"✅ 可用环 {len(alive)}/{len(alive) + len(empty) + len(dead)} —— 生产会命中："
-              f"环0 {first.get('label')}（{first.get('model')}）")
-    else:
-        print("❌ 没有任何环成功返回内容 —— 问答/选品/识图会直接报错")
+    total = len(alive) + len(empty) + len(dead)
+    print(_hit_ring_summary(rings, alive, total))
     if empty:
         print(f"⚠️  通道通但本次回复为空 {len(empty)} 个"
               "（如：探针图里没东西可抽 —— **不等于通道死**）")

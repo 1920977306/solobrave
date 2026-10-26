@@ -79,7 +79,6 @@ from __future__ import annotations
 
 import json
 import os
-import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -96,8 +95,21 @@ CP_DEFAULT_MODEL = 'MiniMax-M3'
 CP_MODELS = ('MiniMax-M3', 'MiniMax-M3.1-Flash')
 
 #: Code 订阅通道（= 贾维斯自己）—— Anthropic 协议，Bearer 鉴权
-CODE_SUB_BASE = 'https://agent.minimax.cn/mavis/api/v1/llm/v1'
-CODE_SUB_AUTH_DIR = Path.home() / '.minimax' / 'auth'
+#:
+#: ★ 2026-10-27：常量与**读凭据逻辑**收敛到 `code_sub_credential`（仓库根，单一事实来源）——
+#:   因为 `solobrave-server.py` 的代理 ProviderChain 也要用同一份（救木木那条链），
+#:   两处各写一份 = 又一次「同源同 bug」。
+#:   ⚠️ 本模块仍**保留这两个名字**（从共享模块 import）：
+#:      ① `tests/test_llm_channels.py` 会 monkeypatch `llm_channels.CODE_SUB_AUTH_DIR`
+#:         ⇒ 必须是**本模块的模块级名字**，薄壳 `code_sub_token()` 运行时读它；
+#:      ② `scripts/mutate_llm_ring_guards.py` 的 M11 变异按**字面量**改 base
+#:         ⇒ 变异目标已改指 `code_sub_credential.py`（同一 commit 内改，不留恒真绿）。
+from code_sub_credential import (  # noqa: F401  (CODE_SUB_BASE 供外部引用)
+    CODE_SUB_AUTH_DIR,
+    CODE_SUB_BASE,
+    code_sub_token as _code_sub_token_impl,
+)
+
 CODE_SUB_MODELS = ('MiniMax-M3', 'MiniMax-M3.1-Flash', 'MiniMax-M2.7')
 CODE_SUB_DEFAULT_MODEL = 'MiniMax-M3'
 
@@ -224,36 +236,17 @@ def openclaw_api_key(provider: str) -> str:
 def code_sub_token() -> str:
     """取 MiniMax Code 订阅的 OAuth accessToken（**每次调用实时读盘，绝不缓存**）。
 
+    ★ 薄壳：真正的实现已收敛到 `code_sub_credential.code_sub_token`
+      （仓库根，单一事实来源 —— 代理 ProviderChain 也要用同一份）。
+      本薄壳**运行时读本模块的 `CODE_SUB_AUTH_DIR`**，
+      以保住「monkeypatch `llm_channels.CODE_SUB_AUTH_DIR` 即换凭据盘」的既有契约。
+
     ⚠️ 为什么不能缓存：token 是 30 分钟量级的短期凭据，Code 桌面端会自行
     续期并**重写 auth.json**（旧 token 随之作废）。缓存下来的 token 会在
     下一次调用时变成 401 —— 表现是「刚开始还能用、跑一会儿就全灭」，
     排查时极容易误判成「额度又没了」。
     """
-    now_ms = time.time() * 1000
-    best = ''
-    try:
-        auth_files = sorted(CODE_SUB_AUTH_DIR.glob('**/mcode-public/auth.json'))
-    except Exception:
-        return ''
-    for auth_file in auth_files:
-        try:
-            with open(auth_file, encoding='utf-8') as f:
-                data = json.load(f)
-        except Exception:
-            continue
-        for rec in (data.get('records') or {}).values():
-            if not isinstance(rec, dict):
-                continue
-            tok = rec.get('accessToken') or ''
-            if not tok.startswith('mmoat_'):
-                continue
-            exp = rec.get('expiresAtMs') or 0
-            # 剩余不足 60s 视为过期 —— 宁可跳过这一环，也别让用户等一次 401
-            if exp and exp - now_ms < 60_000:
-                continue
-            if len(tok) > len(best):
-                best = tok
-    return best
+    return _code_sub_token_impl(CODE_SUB_AUTH_DIR)
 
 
 # ───────────────────────── 环构造 ─────────────────────────

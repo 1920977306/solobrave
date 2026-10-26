@@ -117,6 +117,10 @@ def _safe_int(value, default=0):
 # 统一 Provider 适配层（Anthropic/OpenAI 双向转换 + SSE + 错误规范化 + 冷却半开）
 import provider_adapters as padapters
 
+# MiniMax Code 订阅凭据（= 贾维斯自己）—— 与 daren_bot/llm_channels.py **同一份**
+#   （仓库根单一事实来源；token 30 分钟量级 ⇒ 每次调用实时读盘，绝不缓存）
+import code_sub_credential as codesub
+
 # 统一日志（替代散落的 print 调试输出）
 import logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
@@ -34089,6 +34093,19 @@ def _chain_kimi_key_iter(primary_keys, key_pool):
         yield k
 
 
+def _chain_dyn_key_iter():
+    """动态凭据档（Code 订阅）实时读盘迭代器 —— **每次取用都重新读盘，绝不缓存**。
+
+    ⚠️ 为什么必须动态：Code OAuth token 是 30 分钟量级的短期凭据，
+      Code 桌面端会自行续期并**重写 auth.json**（旧 token 随之作废）。
+      ⇒ 把它写进 settings.json = 多一份**必然过期**的副本 ⇒ 必然 401。
+      ⇒ 配置里只放标记 `__CODE_SUB_TOKEN__`，运行时才换成真 token。
+    """
+    tok = codesub.code_sub_token()
+    if tok:
+        yield tok
+
+
 def _chain_fallback_providers(exclude=('kimi', 'kimicode')):
     """从 settings.json llm.providers 读兜底 provider 列表（priority 升序）。
     兼容旧单 provider 格式（无 providers 数组）。缺 apiKey/baseUrl 的跳过。
@@ -34107,7 +34124,7 @@ def _chain_fallback_providers(exclude=('kimi', 'kimicode')):
         logger.error(f'  [ProxyChain] 读 settings.json 失败: {e}')
         return []
     llm = settings.get('llm') or {}
-    provs = llm.get('providers') or []
+    provs = list(llm.get('providers') or [])
     if not provs and (llm.get('apiKey') or llm.get('baseUrl')):
         provs = [{
             'name': llm.get('provider', 'default'),
@@ -34116,12 +34133,25 @@ def _chain_fallback_providers(exclude=('kimi', 'kimicode')):
             'model': llm.get('model', ''),
             'priority': 1,
         }]
+    # ★★ 代理链**专属**档位（2026-10-27 新增）—— 独立于 `llm.providers`。
+    #   ⚠️ 为什么必须独立：`llm.providers` 是**对话链 / 视觉 / 重管道共用**的档位表
+    #     （_call_chat_completion_with_fallback / _try_minimax_proxy_fallback /
+    #      _call_minimax_vision_fallback / _heavy_minimax_fallback /
+    #      _resolve_induce_llm_config 都在读它）
+    #     ⇒ 往里加 Code 订阅档会**波及那 5 条管线**（它们假设 x-api-key 长期凭据）。
+    #   ⇒ 代理链自己的档位走独立 key ⇒ **零波及**；
+    #     且「删掉这个 key」= 完全回退到改动前的行为（可回滚点明确）。
+    provs += list(llm.get('proxyChainProviders') or [])
     out = []
     for p in sorted(provs, key=lambda x: x.get('priority', 99)):
         if not isinstance(p, dict):
             continue
         name = (p.get('name') or '').strip().lower()
         if not name or name in exclude:
+            continue
+        # ★ 显式关闭开关：enabled=false ⇒ 这一档不参与（可回滚点明确）
+        if p.get('enabled') is False:
+            logger.info(f'  [ProxyChain] 兜底 provider {name} 已被显式关闭（enabled=false），跳过')
             continue
         api_key = (p.get('apiKey', '') or '').strip()
         base_url = (p.get('baseUrl', '') or '').strip()
@@ -34151,6 +34181,32 @@ def _chain_fallback_providers(exclude=('kimi', 'kimicode')):
         else:
             logger.warning('  [ProxyChain] 内置兜底 minimax 未启用：'
                            '.env 无 MINIMAX_CP_API_KEY')
+
+    # ★★ 内置兜底安全网 #2：**Code 订阅（= 贾维斯自己）**（2026-10-27 新增）
+    #   起因（真事故，2026-10-26 23:2x）：kimi 月度额度耗尽 + minimax Token Plan 到顶
+    #   ⇒ **木木等 AI 员工的飞书聊天链两个候选全灭**（primary 429 + fallback 429）
+    #   ⇒ 「所有可用 Provider 均失败」⇒ 员工彻底回不出话。
+    #   ⇒ 而 MiniMax **Code 订阅**通道（agent.minimax.cn）当时**实测还活着**，
+    #      只是**没挂在代理链上** ⇒ 补上这一档即可（零成本、openclaw 侧零改动）。
+    #
+    #   ⚠️ 凭据**绝不写死/不落配置**：Code OAuth token 是 30 分钟量级短期凭据，
+    #     客户端续期会重写 auth.json ⇒ 配置里只放**标记**，运行时实时读盘。
+    #   ⚠️ base/模型取自 `code_sub_credential`（与 daren_bot 侧**同一份**）⇒ 不漂移。
+    #   ⚠️ 关掉的办法：settings.llm.proxyChainProviders 里写
+    #     {"name":"code_sub","enabled":false} ⇒ 本安全网就不再补这一档。
+    if not any(p['name'] in ('code_sub', 'codesub') for p in out) \
+            and not any(isinstance(p, dict)
+                        and (p.get('name') or '').strip().lower() in ('code_sub', 'codesub')
+                        and p.get('enabled') is False
+                        for p in provs):
+        out.append({
+            'name': 'code_sub',
+            'api_key': codesub.CODE_SUB_TOKEN_MARKER,
+            'base_url': codesub.CODE_SUB_BASE,
+            'model': 'MiniMax-M3',
+        })
+        logger.info('  [ProxyChain] 内置兜底 code_sub(Code 订阅, Bearer) 已启用'
+                    '（settings 未配该档；凭据运行时实时读盘）')
     return out
 
 
@@ -34203,6 +34259,8 @@ def _proxy_chain_forward(body_json, *, request_format, is_streaming, write_head,
     primary_name = providers[0]['name']
     last_status = None
     last_provider = None
+    # ★ 动态凭据档（Code 订阅）的「重读凭据」重试计数（每次请求内，最多 1 次/档）
+    _dyn_retry = {}
 
     for prov in providers:
         name = prov['name']
@@ -34255,6 +34313,17 @@ def _proxy_chain_forward(body_json, *, request_format, is_streaming, write_head,
                 break
             if not key:
                 continue
+            # ★ 动态凭据档（Code 订阅）：配置里的 apiKey 是**标记**不是真 token ——
+            #   token 30 分钟就过期 ⇒ 这里**每次请求实时读盘**换成真 token（绝不缓存）。
+            #   没有有效凭据 ⇒ **跳过这一档**（别让用户等一次注定 401 的请求）。
+            if key == codesub.CODE_SUB_TOKEN_MARKER:
+                fresh = codesub.code_sub_token()
+                if not fresh:
+                    logger.warning(f'  [{log_prefix}] provider={name} 无有效 Code 订阅凭据'
+                                   f'（Code 桌面端未登录 / 凭据已过期）→ 跳过该档')
+                    result['attempts'].append({'provider': name, 'skipped': 'no_credential'})
+                    break
+                key = fresh
             masked = (key[:10] + '...' + key[-4:]) if len(key) > 14 else '****'
             headers = adapter.build_headers(key)
             req_bytes = json.dumps(upstream_body, ensure_ascii=False).encode('utf-8')
@@ -34277,6 +34346,15 @@ def _proxy_chain_forward(body_json, *, request_format, is_streaming, write_head,
                 if action == padapters.ERROR_ACTION_ROTATE_KEY:
                     if is_primary and key_pool is not None:
                         key_pool.mark_failed(key)
+                    elif prov.get('api_key') == codesub.CODE_SUB_TOKEN_MARKER:
+                        # ★ 动态凭据的 401：多半是「读盘到发请求之间刚好过期」
+                        #   ⇒ **重读一次凭据再试**（同 daren_bot/llm_channels 的 refresh 语义），
+                        #   只重试一次 ⇒ 不拿同一个坏 token 死循环。
+                        if _dyn_retry.get(name, 0) < 1:
+                            _dyn_retry[name] = _dyn_retry.get(name, 0) + 1
+                            logger.info(f'  [{log_prefix}] provider={name} 401 → 重读凭据重试一次')
+                            key_iter = _chain_dyn_key_iter()
+                            continue
                     continue  # 换 key；key 耗尽 StopIteration → 下一 provider
                 if e.code == 400 and repair_400:
                     new_body = repair_400(upstream_body, err_text)

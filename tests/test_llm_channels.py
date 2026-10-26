@@ -558,3 +558,63 @@ def test_probe_counts_empty_channel_as_alive():
     assert stat['dead_pools'] == []
     assert stat['vendor_redundant'] is False, '只有一家时不该判成有冗余'
 
+
+
+# ══════════════════════════════════════════════════════════════
+# 探针工具自身的两个真 bug（2026-10-27 实锤并修复）
+# ══════════════════════════════════════════════════════════════
+
+def test_probe_independence_accepts_real_caller_tuple_shape():
+    """★ `_independence` 必须认**真实调用方传的形状**：(ring, detail) 元组。
+
+    ⚠️★ 这个 bug 让探针**每次跑到最后一行必崩**：
+      真实调用方 `main()` 存的是 `(ring, detail)` 元组，
+      而函数只认 dict ⇒ `tuple.get(...)` → AttributeError ⇒
+        ① 退出码**恒为 1**（哪怕有活环）⇒ 谁拿它当闸门都会误判；
+        ② 最关键的「活着的独立服务商/额度池」结论**从来没打印过**。
+      ⇒ 单测之所以一直是绿的：单测传的形状和真实调用方**不一样**
+        （典型的「测试形状 ≠ 生产形状」—— 探针必须能失败）。
+    """
+    from daren_bot.tools import probe_llm_channels as probe
+    rings = [{'vendor': 'minimax', 'pool': 'code-subscription', 'label': 'code-sub'}]
+    # ★ 真实形状：元组
+    alive = [(rings[0], '1117ms · 回复「可用」')]
+    stat = probe._independence(rings, alive, [], [])
+    assert stat['alive_vendors'] == ['minimax'], stat
+    assert stat['alive_pools'] == ['code-subscription'], stat
+    assert stat['vendor_redundant'] is False, '只有一家时不该判成有冗余'
+
+
+def test_probe_independence_accepts_dict_shape_backward_compatible():
+    """旧形状（直接传 ring dict）仍要认 —— 不许为了修真调用方把单测打死。"""
+    from daren_bot.tools import probe_llm_channels as probe
+    rings = [{'vendor': 'minimax', 'pool': 'code-subscription'}]
+    stat = probe._independence(rings, rings, [], [])
+    assert stat['alive_vendors'] == ['minimax'], stat
+
+
+def test_probe_hit_ring_summary_reports_real_index_not_hardcoded_zero():
+    """★「生产会命中：环N」里的 N 必须是**真实下标**。
+
+    ⚠️ 原来硬编码「环0」，而命中的是 alive[0] 那一档 ⇒ 实测输出
+      「生产会命中：环0 code-sub」，可 code-sub 其实是**环1**
+      ⇒ 运维照着「环0」去查会查错对象（把真命中的当没命中的查）。
+    """
+    from daren_bot.tools import probe_llm_channels as probe
+    rings = [
+        {'label': 'minimax-cp-anthropic', 'model': 'MiniMax-M3',
+         'vendor': 'minimax', 'pool': 'cp-subscription'},
+        {'label': 'code-sub', 'model': 'MiniMax-M3',
+         'vendor': 'minimax', 'pool': 'code-subscription'},
+    ]
+    alive = [(rings[1], '1117ms · 回复「可用」')]
+    out = probe._hit_ring_summary(rings, alive, 2)
+    assert '环1 code-sub' in out, out
+    assert '环0 code-sub' not in out, out
+
+
+def test_probe_hit_ring_summary_no_alive_ring():
+    """一个活环都没有时必须给「全灭」结论，而不是崩或空话。"""
+    from daren_bot.tools import probe_llm_channels as probe
+    out = probe._hit_ring_summary([], [], 6)
+    assert '没有任何环成功返回内容' in out, out

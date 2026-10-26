@@ -3791,3 +3791,111 @@ pbpaste | bash ~/.solobrave-secrets/sync_feishu_db_secret.sh cli_aa420db06a78dcc
 | `docs/PARALLEL-HANDOFF-2026-10-25.md`（§34.4 加更正标注 + §38）| **B 边** | 本轮新增 |
 | `docs/SECRET-ROTATION-RUNBOOK.md`（§2 入口/Step 4-5）| **A 边** | B 边**不动** |
 | `health_check.sh`（仓库脚本）| **A 边** | B 边只做**只读交叉验证**，未改 |
+---
+
+## 39. ★ A 边本轮（2026-10-26 23:3x）：木木根因**坐实** + 把 Code 订阅接进代理链 + 修探针工具两个真 bug
+
+### 39.1 起点
+
+老大问：**「你们处理好木木了吗？」** ⇒ 本节把「木木回不出话」从**推断**升级成**实测双证**，并给出零成本修法。
+
+### 39.2 根因坐实：主备**两个候选全灭**（不是代码问题）
+
+木木（`emp_1787550091124_1048`）的模型配置：
+`{"primary": "kimi_proxy_mumu/k3", "fallbacks": ["minimax/MiniMax-M3"]}`。
+
+| 候选 | 端点 | 实测结果 |
+|---|---|---|
+| primary `kimi_proxy_mumu/k3` | `http://127.0.0.1:8080/api/proxy/kimi` | **HTTP 429**「所有可用 Provider 均失败」（`upstream_status: 429`）|
+| fallback `minimax/MiniMax-M3` | `https://api.minimax.cn/anthropic/v1` | **HTTP 429**「已达到 Token Plan 用量上限 (2056)」|
+
+⇒ **两条独立证据**（不是推断）：
+
+1. **我直连实测**：拿木木自己的 proxy key 打本机 8080 ⇒ 429。
+2. **openclaw 网关日志**：`All models failed (2): kimi_proxy_mumu/k3: 429 | minimax/MiniMax-M3: 429`。
+
+⇒ ⇒ **根因 = 两家上游额度到顶**（kimi 月度额度 + minimax Token Plan），**与本仓库代码无关**。
+
+### 39.3 ★ 唯一还活着的通道：MiniMax **Code 订阅**（= 贾维斯自己）
+
+⇒ 跑 `daren_bot/tools/probe_llm_channels.py`（文字链，6 个环）实测：
+
+| 环 | base | 结果 |
+|---|---|---|
+| 环0 minimax-cp-anthropic | `api.minimax.cn` | ❌ 429 |
+| **环1 code-sub** | **`agent.minimax.cn`** | **✅ 可用（1117ms，真回「可用」）** |
+| 环2 minimax-cp-openai | `api.minimaxi.com` | ❌ 429 |
+| 环3 kimi | `api.kimi.com` | ❌ 429（月度额度耗尽）|
+| 环4/5 minimax-open | `api.minimaxi.com` | ❌ 402（余额不足）|
+
+⇒ ⇒ **服务商级冗余是假的**（探针修好后终于能打印这句）：**6 个环里活着的都来自 MiniMax 一家**，kimi 那家整体额度耗尽。
+
+⚠️ **鉴权形态实测（决定性，不能靠猜）**：
+
+| 头 | 结果 |
+|---|---|
+| `x-api-key: <token>` | **HTTP 401** `{"code":401,"message":"token is required"}` ⇒ **不行** |
+| `Authorization: Bearer <token>` | **HTTP 200**，真回「在」⇒ **行** |
+
+⇒ ⇒ 所以**不能**直接复用 `AnthropicMessagesAdapter`（它发 `x-api-key`）⇒ 必须新增一个 **Bearer 鉴权**的适配器。
+
+### 39.4 改法：给**代理 ProviderChain** 多挂一档（openclaw 侧零改动）
+
+木木的 primary 就是走本机 8080 代理 ⇒ **只需让代理链多一档**，不用改 `openclaw.json`、
+不用改 AI 员工配置、不用往 secret store 里塞任何新凭据。
+
+新增内容：
+
+| 文件 | 改动 |
+|---|---|
+| `code_sub_credential.py`（**新**，仓库根）| Code 订阅凭据的**单一事实来源**：端点常量 + 标记 + **实时读盘**的取 token 逻辑 |
+| `provider_adapters.py` | 新增 `CodeSubAdapter`（Anthropic 协议 + **Bearer** 鉴权），注册 `code_sub` / `codesub` |
+| `solobrave-server.py` | ① `_chain_fallback_providers` 增加**内置兜底安全网 #2**（自动补 code_sub 档）② `_proxy_chain_forward` **发送时**把标记换成实时 token ③ 401 ⇒ **重读凭据再试一次**（只试一次）|
+| `daren_bot/llm_channels.py` | 取 token 的实现改为调用共享模块（**薄壳**，保住既有 monkeypatch 契约）|
+| `tests/test_proxy_code_sub_provider.py`（**新**）| 13 条契约测试（含 live 真打）|
+| `scripts/mutate_llm_ring_guards.py` | M11 改指新模块；**新增 M12/M13** 两条变异 |
+
+### 39.5 ★ 隔离：`llm.providers` **不能碰**（它被 5 条管线共用）
+
+`settings.llm.providers` 同时被这 5 处读：`_call_chat_completion_with_fallback` /
+`_try_minimax_proxy_fallback` / `_call_minimax_vision_fallback` / `_heavy_minimax_fallback` /
+`_resolve_induce_llm_config` ⇒ **往里加 Code 订阅档会波及它们**（它们假设 `x-api-key` 长期凭据）。
+
+⇒ 代理链的专属档位走**独立 key** `settings.llm.proxyChainProviders` ⇒ **零波及**；
+⇒ 且 code_sub 档是**内置安全网**（不用改 `settings.json`）⇒ 新部署/干净 clone 也自动带上；
+⇒ 关掉办法：`proxyChainProviders` 里写 `{"name":"code_sub","enabled":false}`。
+
+### 39.6 ★ 凭据**绝不落配置**（30 分钟量级 ⇒ 写进去必然过期）
+
+Code OAuth token 是 30 分钟量级的短期凭据，Code 桌面端会自行续期并**重写 auth.json**
+⇒ 复制进 `.env` / 代码 / secret store = 多一份**必然过期**的副本。
+
+⇒ 配置里只放**标记** `__CODE_SUB_TOKEN__` ⇒ 运行时**每次请求实时读盘**换真 token（**绝不缓存**）。
+⇒ 与 AGENTS.md §7「第三种密钥形态：客户端自持的凭据」一致。
+
+### 39.7 ★ 顺手修掉探针工具的两个**真 bug**（此前每次跑都崩）
+
+`daren_bot/tools/probe_llm_channels.py`：
+
+1. `_independence()` 收到真实调用方的 `(ring, detail)` **元组**却按 dict 用 ⇒ `tuple.get()` →
+   **AttributeError** ⇒ 探针**每次跑到最后一行必崩** ⇒ ① 退出码**恒为 1**（哪怕有活环）
+   ⇒ ② 最关键的「活着的独立服务商 / 额度池」结论**从来没打印过**。
+   ⇒ **单测一直是绿的是因为单测传的形状和真实调用方不一样**（典型的「测试形状 ≠ 生产形状」）。
+2. 「生产会命中：环N」的 N **硬编码成 0** ⇒ 实测输出「环0 code-sub」，而 code-sub 其实是**环1**
+   ⇒ 运维照着「环0」去查会**查错对象**。
+
+⇒ 修法：① `_ring_of()` 兼容两种形状（归一化放在**函数内部**，与该函数自身的设计一致）
+② 环号取**真实下标**（抽成 `_hit_ring_summary()` 以便单测）⇒ 补 5 条回归测试。
+
+### 39.8 本轮占用登记
+
+| 对象 | 谁占用 | 状态 |
+|---|---|---|
+| `docs/PARALLEL-HANDOFF-2026-10-25.md`（§39）| **A 边** | 本轮新增 |
+| `code_sub_credential.py`（新）| **A 边** | 本轮新增 |
+| `provider_adapters.py`（`CodeSubAdapter`）| **A 边** | 本轮新增 |
+| `solobrave-server.py`（代理链 3 处）| **A 边** | 本轮新增 |
+| `daren_bot/llm_channels.py`（凭据实现收敛）| **A 边** | 本轮新增 |
+| `daren_bot/tools/probe_llm_channels.py`（2 个 bug）| **A 边** | 本轮新增 |
+| `tests/test_proxy_code_sub_provider.py`（新）+ `tests/test_llm_channels.py` | **A 边** | 本轮新增 |
+| `scripts/mutate_llm_ring_guards.py`（M11 改指 + M12/M13）| **A 边** | 本轮新增 |
