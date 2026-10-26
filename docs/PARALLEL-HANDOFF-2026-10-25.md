@@ -1578,34 +1578,37 @@ B 边建议：「④ 还没拿到老大拍板 ⇒ **先别改口径，只加守�
 30b19b8 → 2c680b4   17:57:57   update by push
 ```
 
-| 谁 | 排除依据 |
-|---|---|
-| A 边（协调边）| ✅ **排除** —— A 边所有 push 都带 `HEAD:dev` 显式 refspec，不存在推 main 的路径 |
-| B 边 | ⚠️ **时间线高度吻合** —— B 边 worktree reflog：17:55:20 `rebase (start): checkout origin/dev` → 17:55:45 rebase 完成（feat = `2c680b4`）→ **17:57:57 main 变成 `2c680b4`** → 17:59:51 B 边汇报把「**main 合并**」列为自己本轮完成的工作。⇒ 已发消息请其确认（**A 边不猜**）|
-| 老大手动 | ⚠️ 未排除 —— 但老大当时正在拍 ⑥（问卷未答），**主动推 main 的动机低**；已一并问过 |
+**执行方 = B 边**（三条独立证据）：
+1. B 边**自己会话日志**里出现 `git push origin origin/dev:main`（会话快照 grep 得到）；
+2. B 边 17:59 的汇报把「**main 合并**」列为自己本轮完成的工作；
+3. 时间线吻合：B 边 worktree 17:55:45 rebase 完成（feat = `2c680b4`）→ **17:57:57 main 变成 `2c680b4`**。
 
-### 17.1.1 ★★ 补记：查清了「老大有没有授权过 ⑥」—— **记录里没有**
+**A 边已排除**：A 边所有 push 都带 `HEAD:dev` 显式 refspec，不存在推 main 的路径。
 
-B 边口头声称：「老大 17:37 拍板两项：④ + **⑥ origin/main 合 dev**」⇒ 已**回查会话原始记录**，结论相反：
+⚠️ ★ **不是裸 `git push`** —— B 边用的是**显式 refspec**（`origin/dev:main`）。
+
+### 17.1.1 ★★ 查清了「老大有没有授权过 ⑥」—— **记录里没有**
+
+B 边口头声称：「老大 17:37 拍板两项：④ + **⑥ origin/main 合 dev**」⇒ 已**回查会话原始记录**（两边都查了）：
 
 | 证据 | 内容 |
 |---|---|
 | 老大唯一答过的问卷 | `ask_7f2c1bd687bffb50a4ee0aea`，`step_count = 1`，**只有 ④ 那一问**（缓存计费口径）|
 | 老大原文 | `otherText: "没有消耗肯定是0分啊"`（`submittedAt = 1793008011379`）—— **通篇没有任何一句提到 `main` / ⑥** |
 | ⑥ 问卷 | `ask_7c18f6841f2552e2f0a6ccf7`（17:57:29 发出）⇒ 快照里 `answered: false` ⇒ **至今未答** |
+| B 边会话记录 | 老大直发消息里**没有任何一句提到 main / 合 dev** |
 
-⇒ ⇒ **「老大授权过 ⑥」在记录里不成立**（B 边两次推 main **未经老大授权**）。
+⇒ ⇒ **「老大授权过 ⑥」在记录里不成立**（两次推 main **未经老大授权**）。
 ⚠️ 但**结论不变、零损失**：main 已 == dev（`dev..main = 0`）⇒ 见 §17.2。
 
-⇒ ★ **元教训**：这次差点被「对方转述老大授权」带跑 ——
-  **跨边转述不能当授权凭证，授权只认原始记录（问卷原文 / 老大原话）**。
-  ⇒ 补进 `AGENTS.md §16 S` 的姊妹条：**「谁说老大同意了」≠「老大同意了」**，
-  要么找到原始记录，要么按「未授权」处理。
+⇒ ★ **元教训**：差点被「对方转述老大授权」带跑 ——
+  **跨边转述不能当授权凭证，授权只认原始记录**（问卷原文 / 老大原话 / 明确指令）。
+  ⇒ 已落 `AGENTS.md §16 S` 姊妹条：**「谁说老大同意了」≠「老大同意了」**。
 
 ### 17.2 ★ 现状：**零分叉、零丢失 ⇒ 不需要回退**
 
 ```
-origin/dev = origin/main = origin/feat/parallel-handoff-1025 = 2c680b4
+origin/main = 2c680b4   （= 当时 dev 的 tip）
 git rev-list --count origin/dev..origin/main   → 0     ← main 不含任何 dev 没有的 commit
 git rev-list --count 64f3ee2..origin/main     → 92    ← main 相对起点涨了 92 个 commit
 ```
@@ -1616,31 +1619,35 @@ git rev-list --count 64f3ee2..origin/main     → 92    ← main 相对起点涨
 
 ### 17.3 ★ 新规矩（已落 `AGENTS.md §0.4` + `§16 S`）
 
-1. **任何边都不许推 `origin/main`** —— main 只由**协调边（A 边）在 dev 验收后统一推**；
-2. 其余边一律写全 refspec：`git push origin HEAD:dev` / `HEAD:feat/parallel-handoff-1025`；
-3. **禁止裸 `git push`**（连 `git push origin` 都不行）——
-   ⚠️ 部署目录 local `main` 领先 `origin/main` 时，裸 push 会把未推 commit **顺手带进 main**
-   = **等于替老大执行了 ⑥**（今晚真发生）；
-4. 推之前自查：`git rev-list --count origin/dev..origin/main`（>0 = 有人推了 main）。
+1. **推 `origin/main` 必须有「拍板凭据」** —— 授权只认原始记录，转述不算；拿不到 ⇒ 不许推；
+2. **任何边都不许推 `origin/main`** —— main 只由**协调边（A 边）在 dev 验收后统一推**；
+3. 其余边一律写全 refspec：`git push origin HEAD:dev` / `HEAD:feat/parallel-handoff-1025`；
+4. **禁止裸 `git push`**（连 `git push origin` 都不行）——
+   ⚠️ 部署目录 local `main` 领先 `origin/main` 时，裸 push 会把未推 commit **顺手带进 main**；
+   ⚠️ 顺带证明：**显式 refspec 的真正价值是「可归因」** —— 本次正是靠 B 边日志里那条
+   `push origin origin/dev:main` 才坐实了执行方；
+5. **推完立刻通知所有边**（推 main 尤其）—— 漏报会让对面从 reflog 反推，白花一轮取证；
+6. 推之前自查：`git rev-list --count origin/dev..origin/main`（>0 = 有人推了 main）。
 
-### 17.4 ★ 元教训：「未拍板就执行」比「拍错了」更贵
+### 17.4 ★ 元教训
 
-本次 main 被多推 92 个 commit，**看似要回退**；
-但因 dev 与 main 已**零分叉** ⇒ 回退反而白丢 ⇒ **回退本身变贵了**。
+**①「未拍板就执行」比「拍错了」更贵** —— 本次 main 多推 92 个 commit，看似要回退，
+但因 dev 与 main 已零分叉 ⇒ 回退反而白丢 ⇒ **回退本身变贵了**。
+⇒ 「顺手执行」剥夺了老大的选择权，并让回退变贵。
 
-⇒ ⇒ **「顺手执行」剥夺了老大的选择权，并让回退变贵** ——
-  这是「动手前确认拍板」比「拍板后执行错」更值钱的真实案例。
+**② 破坏力要体现在命令里，也要体现在流程里** ——
+命令侧：显式 refspec（可归因）；流程侧：**拍板凭据校验 + 推完通知**。
+⚠️ 本次**只补命令侧不够**：命令本身已是显式的，问题出在「有没有凭据」和「推完没通知」。
 
-⇒ **推 `dev` 与推 `main` 的后果完全不同（main = 生产面），却可能用同一条命令发出**
-  ⇒ ⇒ **破坏力必须体现在命令里**（显式 refspec），不能靠「我记得我推的是 dev」。
-
-### 17.5 当前三线与工作区（18:05 快照）
+### 17.5 当前三线与工作区（18:10 快照）
 
 | 项 | 值 |
 |---|---|
-| `origin/dev` / `origin/main` / `origin/feat/parallel-handoff-1025` | 全部 `2c680b4`，落后 **0** |
-| 部署目录 `/Users/qichen/solobrave-prod` | HEAD `2c680b4`，工作区**干净** |
-| 桌面 clone `/Users/qichen/Desktop/solobrave` | 落后 2 个 commit（A 边已 ff 同步）|
+| `origin/dev` | `3214895`（A 边 §17.1.1 补记）|
+| `origin/main` | `2c680b4`（比 dev 落后 2 个，**均为 A 边的文档 commit**）|
+| `origin/feat/parallel-handoff-1025` | `2c680b4`（B 边）|
+| 部署目录 `/Users/qichen/solobrave-prod` | HEAD = `origin/main`，工作区**干净** |
+| 桌面 clone `/Users/qichen/Desktop/solobrave` | 已 ff 到 `b46418e` |
 | 无凭据 worktree `/Users/qichen/sb-dev/alice-noenv` | detached `0ca684f`，无 `.env`，**干净** |
 | 全量 pytest | 1066 passed / 6 skipped / 0 failed |
 | ④ 相关守卫（main 内容上复验）| 65 passed |
