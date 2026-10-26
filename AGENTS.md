@@ -79,6 +79,11 @@
        **不为空不等于「内容没合」** ⇒ 要用
        `git merge-base --is-ancestor <commit> origin/dev` 判**身份**，
        用 `git diff` 判**内容** ⇒ **两件事分开判**。
+- ★★ **跨边发消息（`mavis session send`）时，`session_id` 必须同时放在 `args` 里面和顶层** ——
+  ⚠️ **实测（2026-10-26 20:4x，A 边）**：只放在 `args` 里 ⇒ 工具报
+  `session_id: Required`（**参数被静默丢弃**，不是内容问题 —— 同一段内容改放顶层就成功）
+  ⇒ 连续失败 4 次才定位到 ⇒ **报错说「缺参数」时，先怀疑传参方式，不是内容**
+  ⇒ ⇒ **「工具报参数缺失」与「内容被拒」是两回事** ⇒ 换传参位置再试，别改内容。
 - ★★ **重置类操作（`reset --hard` / `checkout -B <分支> <ref>` / `branch -f`）之前，先留 backup 分支**：
   ```bash
   git branch backup/<name>-<YYYYMMDD-HHMM> <ref>   # 一行，成本几乎为零
