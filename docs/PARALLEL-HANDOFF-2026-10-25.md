@@ -1714,3 +1714,61 @@ collect_product_verdict_cached / qa_cached  →  0 条
 ⚠️ 顺带记一笔**命名易踩坑**：`collect_product_cached` 里的 "cached" 指
 **「商品数据缓存命中」**（省了浏览器、LLM 照跑），**不是**「结论缓存命中」——
 后者是 `collect_product_verdict_cached`。⇒ 两者**只差一个 `verdict_`** ⇒ 对账时极易看错 ⇒ 见 §16.2 的两 action 求和统计。
+
+---
+
+## 18. ★ 复用看板的「省了多少」算错了（A 边 18:50）—— 顺带修掉一个长期报错的运营数字
+
+### 18.1 文件占用登记
+
+| 文件 | 谁占用 | 状态 |
+|---|---|---|
+| `daren_bot/tools/cache_probe.py` | **原 = B 边**（`a7b7113` 改的统计口径）→ **A 边本轮接手** | B 边 18:40 明确「本轮收口」⇒ A 边接手并已通知 B 边 |
+| `tests/test_cache_probe_savings.py` | **A 边新增** | — |
+
+### 18.2 ★ 缺陷：两种缓存命中被**合并成一个数**算分
+
+B 边 `a7b7113` 把「商品复用命中数」改成两个 action 求和 —— **计数对**（少算 = 复用率偏低 ✔），
+但**算「省了多少」时也合并了** ⇒ 两处都错：
+
+| 命中类型 | 真实省下的 | 合并后算成 | 错在哪 |
+|---|---|---|---|
+| **结论缓存命中**（`collect_product_verdict_cached`）| **整笔 20 分**（零消耗）+ 采集 + LLM | 15 分 + 采集 + LLM | **每次少算 5 分** |
+| **商品数据缓存命中**（`collect_product_cached`）| 15 分 + 采集（**LLM 照跑**）| 15 分 + 采集 + **LLM** | **把没省的 LLM 也算进「省了 N 次 LLM」** |
+
+⇒ ⇒ 「合计省下 X 积分」与「省了 N 次 LLM」**长期报错**，且**方向不一致**（一个少算、一个多算）。
+⚠️ 与 §16 Q/R 是**同一个病的两种表现**：**「命中缓存」不是一个东西** ⇒ 计数可合并、**算账不能合并**。
+
+### 18.3 修法（最小入侵）
+
+- `cache_probe.py` 抽出**纯函数** `reuse_savings(n_qa_hit, n_p_hit_verdict, n_p_hit_data)`
+  —— 按每种命中**自己的真实消耗**算，返回 `saved` / `saved_llm` / `saved_collect`；
+- 统计段**分两个 action 分别计数**（命中率分子仍是两者之和 ⇒ 口径不变）；
+- 看板打印**分行说明**两种命中各自省什么（并标出商品数据命中「LLM 照跑」）。
+
+### 18.4 守门人（新增 `tests/test_cache_probe_savings.py`，5 条）
+
+| 守卫 | 锁住的事实 |
+|---|---|
+| `test_verdict_cache_hit_saves_full_price_plus_one_collect_and_one_llm` | 结论命中 = 省**整笔**采集价（不是 15 分）+ 采集 + LLM |
+| `test_product_data_cache_hit_saves_price_but_not_llm` | 商品数据命中 **不许**被算成「省了 LLM」|
+| `test_two_hit_kinds_are_not_merged_into_one_average` | 两种命中**不能**被当成一种算分 |
+| `test_qa_cache_hit_saves_qa_price_and_one_llm` | 问答命中的省分口径不变（回归保护）|
+| `test_no_hit_saves_nothing` | 零命中 ⇒ 省 0（防「空统计也报个数字」）|
+
+★ **变异验证 2/2 全抓**（工作区**逐字还原**，md5 一致）：
+
+| 变异 | 期望 | 实测 |
+|---|---|---|
+| M1 把商品数据命中也算成省了 LLM（旧口径）| 红 | ✅ **2 红**（`..._does_not_save_llm` + `..._not_merged`）|
+| M2 结论命中按合并口径 15 分算 | 红 | ✅ **2 红**（`..._full_price...` + `..._not_merged`）|
+
+⇒ ★ 两条变异**各自只让对应的守卫变红**，没有波及无关用例 ⇒ 判据是**精确**的，不是「一律红」。
+
+### 18.5 元教训
+
+**计数可以合并，算账不能合并。**
+⇒ 「两个 action 求和」在**分子**（命中次数）是对的，在**分值**（省多少）上是错的
+⇒ ⇒ **合并的前提是「两者同质」** —— 命中次数同质、消耗量不同质。
+⇒ ⇒ 补进 `AGENTS.md §16 Q`：**「一个 action 只承载一种消耗量」**这条纪律，
+在**报表层**同样成立（不只是流水层）。

@@ -261,6 +261,34 @@ def bot_config_cost_cached():
 
 # ---------------- report：生产复用情况 ----------------
 
+def reuse_savings(n_qa_hit: int, n_p_hit_verdict: int, n_p_hit_data: int) -> dict:
+    """复用层到底省了多少 —— **按每种命中自己的真实消耗算，不能合并成一个数**。
+
+    ★ 2026-10-26 修（B 边的 a7b7113 把两种命中合并统计后暴露的）：原来把
+      「结论缓存命中」与「商品数据缓存命中」合并成一个 n_p_hit，按
+      「省 20-5=15 分 + 一次采集 + 一次 LLM」算 ⇒ **两个都错**：
+
+        · **结论缓存命中**是**零消耗**（0 分，不调浏览器也不调 LLM）
+          ⇒ 省的是**整笔 20 分**（不是 15 分），且**省一次采集 + 一次 LLM**；
+        · **商品数据缓存命中**只省了「开浏览器采集」，**LLM 照跑**
+          ⇒ 省 20-5=**15 分** + 一次采集，**没省 LLM**。
+
+    ⇒ 「省了多少」必须**按消耗量分口径**，否则看板会长期报错。
+
+    返回：saved（省下积分）/ saved_llm（省下 LLM 次数）/ saved_collect（省下采集次数）
+    """
+    saved_product = (
+        n_p_hit_verdict * config.COST_COLLECT_PRODUCT
+        + n_p_hit_data * (config.COST_COLLECT_PRODUCT - config.COST_PRODUCT_CACHED)
+    )
+    return {
+        "saved": n_qa_hit * config.COST_QA + saved_product,
+        # ⚠️ 商品数据缓存命中那部分 LLM 照跑 ⇒ 不计入
+        "saved_llm": n_qa_hit + n_p_hit_verdict,
+        "saved_collect": n_p_hit_verdict + n_p_hit_data,
+    }
+
+
 def mode_report(args) -> int:
     db.init_db()
     tk = args.tenant or ""
@@ -299,28 +327,35 @@ def mode_report(args) -> int:
     prod_total = q("SELECT COUNT(*) c FROM bot_credits_ledger "
                    f"{where}{' AND' if tk else ' WHERE'} action='collect_product'")
     # ★ 2026-10-26：结论缓存命中（0 分）与商品数据缓存命中（5 分）**分两个 action 记流水**
-    #   ⇒ 统计「商品复用命中数」必须**两个都算**，否则会漏掉结论命中那部分。
-    prod_hit = q("SELECT COUNT(*) c FROM bot_credits_ledger "
-                 f"{where}{' AND' if tk else ' WHERE'} "
-                 "action IN ('collect_product_cached','collect_product_verdict_cached')")
+    #   ⇒ 计数**两个都算**（少算 = 复用率偏低），但**算「省了多少」必须分开**（两者消耗量不同）。
+    prod_hit_verdict = q("SELECT COUNT(*) c FROM bot_credits_ledger "
+                         f"{where}{' AND' if tk else ' WHERE'} "
+                         "action='collect_product_verdict_cached'")
+    prod_hit_data = q("SELECT COUNT(*) c FROM bot_credits_ledger "
+                       f"{where}{' AND' if tk else ' WHERE'} "
+                       "action='collect_product_cached'")
     n_qa = qa_total[0]["c"] if qa_total else 0
     n_qa_hit = qa_hit[0]["c"] if qa_hit else 0
     n_p = prod_total[0]["c"] if prod_total else 0
-    n_p_hit = prod_hit[0]["c"] if prod_hit else 0
+    n_p_hit_verdict = prod_hit_verdict[0]["c"] if prod_hit_verdict else 0
+    n_p_hit_data = prod_hit_data[0]["c"] if prod_hit_data else 0
+    n_p_hit = n_p_hit_verdict + n_p_hit_data
+    st = reuse_savings(n_qa_hit, n_p_hit_verdict, n_p_hit_data)
 
     print("\n【复用命中率】")
     print(f"  问答  : 命中 {n_qa_hit} / 共 {n_qa} 次"
           f"（{(n_qa_hit / n_qa * 100 if n_qa else 0):.0f}%）"
           f"  每次命中省 {config.COST_QA} 分 + 一次 LLM")
     print(f"  商品  : 命中 {n_p_hit} / 共 {n_p + n_p_hit} 次"
-          f"（{(n_p_hit / (n_p + n_p_hit) * 100 if (n_p + n_p_hit) else 0):.0f}%）"
-          f"  每次命中省 {config.COST_COLLECT_PRODUCT - config.COST_PRODUCT_CACHED} 分"
-          f" + 一次采集 + 一次 LLM")
+          f"（{(n_p_hit / (n_p + n_p_hit) * 100 if (n_p + n_p_hit) else 0):.0f}%）")
+    print(f"          ├ 结论命中 {n_p_hit_verdict} 次：省 {config.COST_COLLECT_PRODUCT} 分"
+          f"（零消耗）+ 一次采集 + 一次 LLM")
+    print(f"          └ 商品数据命中 {n_p_hit_data} 次：省 "
+          f"{config.COST_COLLECT_PRODUCT - config.COST_PRODUCT_CACHED} 分 + 一次采集"
+          f"（**LLM 照跑** ⇒ 没省 LLM）")
 
-    saved = n_qa_hit * config.COST_QA + \
-        n_p_hit * (config.COST_COLLECT_PRODUCT - config.COST_PRODUCT_CACHED)
-    print(f"\n  合计省下 {saved} 积分"
-          f"（另有 {n_qa_hit} 次 LLM + {n_p_hit} 次采集 + {n_p_hit} 次 LLM 未调用）")
+    print(f"\n  合计省下 {st['saved']} 积分"
+          f"（另有 {st['saved_llm']} 次 LLM + {st['saved_collect']} 次采集 未调用）")
 
     print("\n【缓存存量】")
     for sql, label in (
