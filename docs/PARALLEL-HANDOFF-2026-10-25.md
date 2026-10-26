@@ -3653,4 +3653,31 @@ pbpaste | bash ~/.solobrave-secrets/sync_feishu_db_secret.sh cli_aa420db06a78dcc
 ⇒ 第一遍读了 **623,140 个文件 / 32.5 GB**；**跳过了** `Library/Caches`、`Library/Containers`、
 `Library/CloudStorage`、`Library/Developer`、`CrashReporter`、`.git`、`node_modules`；
 单文件上限 64MB（超限跳过 47 个）。
-⇒ ⇒ ★ **所以「17 文件 / 38 处」同样是下界** ⇒ **第二遍补扫（专扫被跳过的那几棵大树）进行中**，结果待补。
+⇒ ⇒ ★ **所以「17 文件 / 38 处」同样是下界** ⇒ **第二遍补扫（专扫被跳过的那几棵大树）已跑完**：
+
+### 37.6 ★★ 补扫结果：**19 个文件 / 44 处**（口径基本闭合）
+
+⇒ **第二遍**（只跳过 `.git` / `node_modules`）：读了 **768,499 个文件 / 53.06 GB**
+⇒ ⇒ **18 个文件 / 39 处** ⇒ 比第一遍多出第 18 类：
+★ **Safari 的 WebKit 缓存** `Library/Containers/com.apple.Safari/Data/Library/Caches/…/WebKitCache/…/Blobs/…`（1 处）
+⇒ 原因：老大在浏览器里打开过含 PAT 的页面 ⇒ **浏览器缓存也是副本**。
+
+⇒ **第三遍**（对 82 个「> 64MB 被跳过」的大文件改成**流式扫描**）：又挖出 **1 个文件 / 5 处** ——
+★★ **`~/.minimax/v2/sqlite/runtime-state.sqlite`**（**1.8 GB**，mtime 就在当时 ⇒ **活的**）
+⇒ 落点：**3 张表** ⇒ `local_runtime_message_rows.data_json`（5 行）、
+`local_runtime_background_tasks.record_json`（4 行）、`local_runtime_session_clio_state.state_json`（1 行）。
+
+⇒ ⇒ ⇒★★ **这才是本轮最重要的一条结论**：
+**「会话快照」与「runtime 日志」的共同上游是 runtime 自己的 sqlite**
+⇒ ⇒ **任何在对话 / 后台任务里出现过的凭据，事后都会被自动写进这台机器的 1.8GB 库里**
+⇒ ⇒ ⇒ **废纸篓、云盘是「偶发」副本；而这一条是「默认发生」的**
+⇒ ⇒ ⇒ ⇒ **它也解释了 B 边那 18 处 runtime log 的来源**：
+它跑 `security … -g`（密码进 **stderr**）⇒ stderr 被后台任务捕获 ⇒ 写进 `background_tasks/*/output.log` ⇒ 再进 runtime 的 sqlite 与日志。
+
+⇒ ⇒ ⇒★ **给老大的操作硬要求（写进 runbook §1 也更稳）**：
+**换 PAT 时绝不要在对话里粘贴 / 回显明文 PAT** —— 终端里 `security … -w` 的输出若被复制回对话，
+就会立刻进 runtime-state.sqlite ⇒ ⇒ **只贴指纹**（`md5[:12]`）。
+
+⇒ ⇒ ⇒ **最终口径：19 个文件 / 44 处**
+（已覆盖：全盘工作区 + 隐藏文件 + `.Trash` + 云盘 + Spotlight + Safari 缓存 + 1.8GB runtime 库；
+**未覆盖**：`.git` 历史（已单独核 = **0 命中**）、`node_modules`（依赖树）、以及 > 64MB 且流式扫描也读不到的边角）。

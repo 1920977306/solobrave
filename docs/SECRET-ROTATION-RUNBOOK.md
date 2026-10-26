@@ -16,6 +16,19 @@
    清单里每步都标了「✅ 断言」和「❌ 若不满足」。
 5. **轮换完不要立刻删旧 key 的后台记录**，先跑完 §4 的全量复核，
    再在飞书/GitHub 后台撤销（后台撤销是最后一步，不是第一步）。
+6. ★★★ **凭据明文绝不进对话**（2026-10-26 23:1x 实测 ⇒ 交接单 §37.6）：
+   本机 runtime 会把**对话内容与后台任务输出**自动写进
+   `~/.minimax/v2/sqlite/runtime-state.sqlite`（**1.8 GB，活的**）
+   ⇒ ⇒ **任何在对话里出现过的凭据，明文都会自动沉淀在这个库里**
+   （实测现役 PAT 就在 `local_runtime_message_rows.data_json` /
+   `local_runtime_background_tasks.record_json` / `local_runtime_session_clio_state.state_json` 三张表里）
+   ⇒ ⇒ ⇒ **在终端跑命令时，只把「指纹」贴回对话，绝不贴明文**
+   ⇒ ⇒ ★ 连带一条：`security find-internet-password -g` 会把密码打到 **stderr**
+   ⇒ **stderr 会被后台任务捕获并写进日志** ⇒ ⇒ **只用 `-w`，且不要把它的输出复制进对话**。
+7. ★ **作废 > 擦除**：明文残留的风险 = 凭据**仍然有效**时的风险
+   ⇒ 后台**撤销**那一刻，所有副本同时降级为无害历史残留
+   ⇒ ⇒ **有些副本根本擦不掉**（云盘已同步 / Spotlight 索引 / runtime 的 sqlite / 快照）
+   ⇒ ⇒ **先作废，再谈清理**（§16 X 第 6 条）。
 
 ---
 
