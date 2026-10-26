@@ -3899,3 +3899,38 @@ Code OAuth token 是 30 分钟量级的短期凭据，Code 桌面端会自行续
 | `daren_bot/tools/probe_llm_channels.py`（2 个 bug）| **A 边** | 本轮新增 |
 | `tests/test_proxy_code_sub_provider.py`（新）+ `tests/test_llm_channels.py` | **A 边** | 本轮新增 |
 | `scripts/mutate_llm_ring_guards.py`（M11 改指 + M12/M13）| **A 边** | 本轮新增 |
+
+### 39.9 验证结果（全部在 `origin/dev` 那棵树上跑过）
+
+| 项 | 结果 |
+|---|---|
+| 端到端（**木木自己的** proxy key 打 `/api/proxy/kimi/v1/messages`）| **HTTP 200 `provider=code_sub fallback_from=kimi`**，真回「收到」✅ |
+| 降级链日志 | kimi 4 把全 429（月度额度）→ minimax 429（Token Plan）→ **code_sub ✅** |
+| 全量 pytest | **1090 passed / 6 skipped / 0 failed**（62.76s；基线 1071 ⇒ **+19** 条新测试）|
+| `scripts/mutate_llm_ring_guards.py` | **13 条变异全被抓住**（M11 改指向 + 新增 M12/M13）|
+| `scripts/secret_scan.py`（全量）/ `--staged` | 均 **exit 0** ✅ |
+| 重启 | 8080 PID **21160 → 84107**（改动需重启才生效）|
+
+⇒ ★ **M13 我自己连栽两版**（第一版只写缓存不读缓存、第二版只改一处行为没变）⇒
+⇒ 已在 **AGENTS.md §16 Y 第 12 条**沉淀：「**变异体必须真的改变行为**，
+否则它恒真，护栏会假装守住；跨处缺陷要一次改多处；搬实现必须同 commit 搬锚点」。
+
+### 39.10 提交与推送
+
+| 对象 | 值 |
+|---|---|
+| commit | **`4e24100`**（`fix(llm-chain)`）|
+| 推送 | `git push origin HEAD:dev` → `git push origin HEAD:main`（**显式 refspec，未裸推**）|
+| 推送后核对 | `origin/dev == origin/main == 4e24100`（双向 0 笔）｜`dev..feat/parallel-handoff-1025 = 0` 笔 |
+| 桌面 clone | `/Users/qichen/Desktop/solobrave` 已 `ff-only` 到 `4e24100`，改动 0 |
+| B 边通报 | 已发（session `mvs_841d5da86b244c4d9e66d1e50361ed43`，accepted）|
+
+### 39.11 ⚠️ 仍然待办（不因本轮而消失）
+
+1. **老大手动**：飞书 `t_default` 重置 + 一条龙脚本；GitHub PAT 换新 + 作废旧把（`4c7a0e6b974b`）。
+2. **木木的长期解**：本轮是**兜底**（Code 订阅口），**结构性依赖老大 Code 桌面端的登录态**
+   （token 30 分钟量级、由桌面端续期）⇒ 不是长久之计。三个正路仍待老大拍板：
+   ① 充 minimax（最快，改 0 行代码）② 等 kimi **月度**重置（下月 1 号，不是等 1800s 熔断窗口）
+   ③ 加新 kimi key（`.env` 的 `KIMI_API_KEY` 逗号分隔，**改完必须重启 8080**）。
+3. **其它 10 把上游 key**（runbook §3）仍待轮换。
+4. `~/.openclaw/agents/{main,emp_1780199176680}/agent/models.json` 里 14 个 `apiKey` 字段改 store 不会自动跟着变。
