@@ -2276,7 +2276,49 @@ find ~/.minimax/v2/sessions -name '*.jsonl' -path '*snapshots*' -exec grep -l "<
 —— **看起来能跑 ≠ 跑得出结果**；⇒ 命令跑不出结果时，第一反应是
 **「查了 0 个文件」而不是「查了没有」**。
 
-### 21.10 本节不动任何执行口径
+### 21.10 ★★★ 木木 20:2x 复检：**代码已修好，但两家上游额度都到顶了**（2026-10-26 19:2x 实测）
+
+> 老大问「你们处理好木木了吗」⇒ A 边**当场重新实测**（不引用 15:40 的旧结论）。
+
+⇒ **① 6 处根因的修复全部在位**（代码级 + 运行时配置 + 数据面）：
+| 检查项 | 实测 |
+|---|---|
+| `24a7fb9` 是否在 dev/main | ✅ 两边都含 |
+| `_resolve_agent_workspace` 真源 | ✅ = `openclaw.json` 的 `agents.entries[id].workspace`（**使用端**），`openclawName`（声明端）只兜底 |
+| 木木的实际 workspace | ✅ `~/.openclaw/workspace-emp_1787550091124_1048`（**自己的**，不是贾维斯的）|
+| 木木 SOUL.md | ✅ **1458 字节**（原 304，缺的两节已补）|
+| 木木 TOOLS.md | ✅ **已补**（1684 字节，原先根本没有）|
+| 贾维斯 SOUL.md 是否被污染 | ✅ **0 命中**（未被木木覆盖）|
+| 写前归属校验（409 闸门）| ✅ `_workspace_write_conflict()` 在位 |
+| minimax 兜底档配置 | ✅ `https://api.minimax.cn/anthropic/v1` + `MiniMax-M3`（**不是**老端点/`MiniMax-Text-01`）|
+
+⇒ **② 降级链实测在跑（根因⑤修好的直接证据）**：
+```
+[KimiProxy] kimi key 池已空，继续走降级链（兜底 provider 接管）   ← 修复前这里是「直接 503」
+[KimiProxy] trying provider=kimi  format=anthropic url=https://api.kimi.com/coding/v1/messages
+[KimiProxy] trying provider=minimax format=anthropic url=https://api.minimax.cn/anthropic/v1/messages
+[KimiProxy] provider=minimax HTTP 429 ... action=rotate_key
+❌ [KimiProxy] 所有 provider 失败: attempts=[{'provider':'minimax','status':429}]
+```
+⇒ ★ **「key 池空」不再等于「全员死」** —— 兜底档**真的接管了**（`attempts` 里有 minimax 这一跳），
+这正是根因⑤「第一环死 ≠ 全员死」修好的表现。
+
+⇒ **③ 但两家上游额度都到顶了（真凶，不是代码）**：
+| provider | 实测报错 | 判读 |
+|---|---|---|
+| kimi（5 把 key 全部）| `HTTP 429 You've reached your monthly usage limit for this billing...` | **月度额度用尽**（5 把依次被拉黑，各 1800s）|
+| minimax | `HTTP 429 已达到 Token Plan 用量上限：请升级 Token Plan 套餐或购买积分补充用量。(2056)` | **Token Plan 用量到顶** |
+| A 边直打 minimax 端点 | 同上 429 | ⇒ **与木木无关，裸调也是 429** |
+
+⇒ ⇒ **结论**：**木木的代码问题已修好**（6 处根因全部在位、降级链已验证接管），
+**现在它回不出话的唯一原因是两家上游都欠费/到顶** ⇒ **不是 bug，是额度**。
+
+⇒ ★ **要恢复木木能说话，需要老大三选一**：
+1. **给 minimax 套餐充值/加额度**（兜底档，最快 —— 一充就通）；
+2. **等 kimi 月度额度重置**（下月 1 号，池会自愈）；
+3. **再配一把新的 kimi key**（`.env` 的 `KIMI_API_KEY` 逗号分隔 ⇒ **改完必须重启 8080 才生效**）。
+
+### 21.11 本节不动任何执行口径
 
 ⇒ §16 T 第 8 条的**纪律部分全部保留**（过滤器不能判定存在 / 正样本自检 / 与 §16 U 合读），
 **只把「真凶是长度」改成「真凶是 role」**、把行号改对。
