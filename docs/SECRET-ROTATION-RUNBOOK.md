@@ -327,7 +327,43 @@ store 里已有的 `MODEL_APIKEY_*` 条目（轮换时按需改）：
 > ✅ 断言：后台显示新的 secret（32 字符），且**你自己已经复制下来**（只显示一次）。
 > ❌ 若还没复制就去做下一个 app ⇒ 这个 secret 就永远拿不回来了。
 
-**Step 2 — 写入 secret store（官方 CLI）**
+**Step 2 — 写入 secret store（★ `t_default` 连 db 一起写）**
+
+★★ **优先走「一条龙脚本」**（老大在后台只需复制**一次** ⇒ store 与 db **结构上不可能不一致**）：
+
+```bash
+# 2.0 老大在飞书后台把新 secret 复制到剪贴板（★ 复制一次就够，后面不要重复制）
+# 2.1 一条命令：
+pbpaste | bash ~/.solobrave-secrets/rotate_feishu_secret_and_db.sh FEISHU_APPSECRET_T_DEFAULT
+```
+
+⇒ ✅ **两个断言都要看**：
+1. **脚本最后一行是 `★ 哨兵：全部步骤完成`** ⇒ 看到这行 = 脚本跑到底了；
+2. 脚本打印的**新 secret 指纹（md5[:12]）**与它自己写的值一致
+   （输出里还会有「写前验证：飞书已接受（code=0）」「断言(db): length=32 / status=routed / 指纹匹配」）。
+
+> ⚠️⚠️ **不要只看 exit code** —— macOS 自带 **bash 3.2** 的 `trap cleanup EXIT`
+> 会把「意外退出」的退出码洗成 **0** ⇒ **脚本死了也报成功** ⇒ **成功判据 = 末行哨兵**。
+
+⇒ ★★ **四个 app 的 phase 不同**（**其余三个一律 `--phase store`**）：
+
+| app（openclaw 标签）| 条目名 | 怎么跑 | 为什么 |
+|---|---|---|---|
+| **`t_default`（后台名「貂蝉」）** | `FEISHU_APPSECRET_T_DEFAULT` | **默认 `--phase all`** | ★ **部署目录 db 里有它那一行** ⇒ 必须连 db 一起写，否则该租户 Bot 401 |
+| `default` | `FEISHU_APPSECRET_MAIN` | `--phase store` | db 里**没有**它的行 ⇒ 用 `all` 会 exit 6 |
+| `helen` | `FEISHU_APPSECRET_HELEN` | `--phase store` | 同上 |
+| `mumu` | `FEISHU_APPSECRET_MUMU` | `--phase store` | 同上 |
+
+```bash
+# 例：helen（只写 store）
+pbpaste | bash ~/.solobrave-secrets/rotate_feishu_secret_and_db.sh FEISHU_APPSECRET_HELEN --phase store
+```
+
+> ⚠️ **若你改走下面的「官方 CLI」备选路径**：它**只写 store、不写 db**
+> ⇒ **`t_default` 走它之后必须补跑 Step 5**，且 **两次粘贴必须一致**
+> ⇒ 这正是「一条龙脚本」要消灭的那个坑。
+
+**Step 2 备选路径 — 直接用官方 CLI（⚠️ 只写 store，不写 db）**
 
 ⚠️ **secret 类条目没有 `--secret` 参数** ⇒ 必须走 `--value-file`（已用 `--dry-run` 实测确认）：
 
@@ -384,6 +420,10 @@ openclaw secrets reload --timeout 60000
 
 **Step 4 — 行为验证（唯一可靠的验证）**
 
+> ⚠️ **顺序**：`t_default` 的行为验证**必须在 db 写完之后**。
+> ⇒ 走「一条龙脚本 `--phase all`」时 db 已随 Step 2 一起写好 ⇒ 直接做本步；
+> ⇒ 若走的是「官方 CLI」备选路径 ⇒ **先补 Step 5，再做本步**，否则会验出一个**假的 401**。
+
 ```bash
 # 4.1 机器人还活着吗（⚠️ 端点各不同，别用 /health 一把梭）
 cd /Users/qichen/solobrave-prod
@@ -405,29 +445,23 @@ curl -s -o /dev/null -w "worker:%{http_code}\n" http://127.0.0.1:8095/health
 
 **Step 5 — 同步 `data/solobrave.db` 的 `tenant_feishu_config`（只对 `t_default`）**
 
-⚠️ **不要用 `sqlite3 "... UPDATE ... '<secret>'"`** —— secret 会进 shell history。
+★ **正常路径不需要这一步** —— Step 2 的 `--phase all` 已经把 store 与 db **一起写了**。
+⚠️⚠️ **别再重复跑**：若 Step 2 已成功，再用**第二次粘贴**的值覆盖 db
+⇒ **可能与 store 不一致**（这正是「粘贴两次」的原始风险）。
+
+⇒ **仅在 Step 2 中途失败、需要单独补写 db 时**才跑（脚本会自己再向飞书验证一次）：
 
 ```bash
-cd /Users/qichen/solobrave-prod
-mkdir -p ~/.solobrave-backups
-cp data/solobrave.db ~/.solobrave-backups/solobrave.db.bak-$(date +%Y%m%d-%H%M%S)-before-feishu-secret
-
-umask 077 && printf '%s' '<粘贴新secret>' > /tmp/_feishu_secret.txt
-
-# 用参数绑定，不拼进 SQL 文本
-.venv-daren/bin/python - <<'PY'
-import sqlite3, pathlib
-secret = pathlib.Path('/tmp/_feishu_secret.txt').read_text().strip()
-conn = sqlite3.connect('data/solobrave.db')
-conn.execute("UPDATE tenant_feishu_config SET app_secret=?, updated_at=strftime('%s','now') WHERE tenant_id='t_default'",
-             (secret,))
-conn.commit()
-conn.close()
-print("updated")
-PY
-
-shred -u /tmp/_feishu_secret.txt 2>/dev/null || rm -f /tmp/_feishu_secret.txt
+pbpaste | bash ~/.solobrave-secrets/rotate_feishu_secret_and_db.sh FEISHU_APPSECRET_T_DEFAULT --phase db
 ```
+
+⇒ 脚本内部已经做对这几件事（**不要手写 SQL 替代**）：
+① **用 sqlite `backup()` API 取一致性快照** —— ⚠️ **`cp` 一个 WAL 库不是一致性备份**
+（生产库 `data/solobrave.db` 是 WAL 模式，`cp` 可能拷到撕裂快照）；
+② **按不可变 `app_id` 定位**（不是 `tenant_id` 那种可读名）+ `tenant_id` 交叉校验（不一致 ⇒ 拒写）；
+③ **参数绑定**（secret 不进 SQL 文本、不进 shell history）；
+④ **写前向飞书验证**（复制错了 ⇒ 对 db **零破坏**）；
+⑤ 断言 `length=32` + `status` 未变 + 指纹匹配；**只打印指纹，绝不打印明文**。
 
 > ✅ 断言：
 > ```bash
