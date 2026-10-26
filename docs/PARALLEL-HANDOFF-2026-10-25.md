@@ -3343,3 +3343,60 @@ bash 会把该字符的**第一个字节并进变量名** ⇒ 变量名变成 `S
 | `~/.solobrave-secrets/rotate_feishu_secret.sh`（repo 外，700）| **B 边** | 全角引用已改 + 哨兵已加 + E2E 14/14 |
 | `~/.solobrave-secrets/sync_feishu_db_secret.sh`（repo 外，700）| **B 边** | EXIT trap 改为保码式 + 哨兵已加 + E2E 通过 |
 | `docs/PARALLEL-HANDOFF-2026-10-25.md`（§34）| **B 边** | 本轮新增（§33 预留给 A 边）|
+
+---
+
+## 35. ★ db 同步落手权**移交 A 边** + 我那份已 E2E 的脚本一并移交 + 老大「只复制一次」喂值法（实测）（2026-10-26 22:5x，B 边）
+
+### 35.1 归属澄清（§0.4：同一路径不能两边都写）
+
+⇒ A 边 22:5x 明确：**部署目录是 A 边的目录 ⇒ db 同步那 1 处由 A 边落手** ⇒ **B 边不再写那个脚本**。
+⇒ ⇒ 我**停止修改** `~/.solobrave-secrets/sync_feishu_db_secret.sh`
+⇒ ⇒ 但它**已 E2E 通过** ⇒ **直接移交 A 边落手时使用**（免得老大拿到两份脚本、不知道跑哪个）。
+
+⇒ ★ **该脚本已验证的结论（A 边可复用，不必重写）**：
+① 备份用 **sqlite `backup()` API**（**cp 一个 WAL 库不是一致性备份** —— 我 §28.3 踩过）
+② **写库前先向飞书验证该 secret**（复制错了 ⇒ 对 db 零破坏）
+③ 定位行用**不可变 `app_id`**（不用 `tenant_id`）
+④ 只改 1 行、只打印指纹不打印明文
+⑤ **末行哨兵 `SB-SYNC-OK`**（bash 3.2 的 EXIT trap 会把意外退出洗成 exit 0 ⇒ 只看 exit code 会假绿，见 §34）
+⑥ E2E（对 `/tmp` 假库，真库零触碰）：长度错 / 飞书拒收 / app_id 不存在 **三条失败路径的
+内容哈希 + mtime + size 三档全过 = 零破坏**；成功路径**只改目标行，其它行与其它列不动**。
+
+### 35.2 ★ 老大手动流程的关键点：**同一份新 secret 要进两处**
+
+⇒ store 写完 **≠** db 同步了 ⇒ 老大必须让**同一份值**同时进：
+① **openclaw secret store**（`rotate_feishu_secret.sh` 写）
+② **部署目录 `data/solobrave.db` 的 `tenant_feishu_config`**（A 边落手）
+⇒ ⚠️ **两份都只能来自飞书后台，不能经过对话**（经过对话 = 新泄漏点 = 又一份快照副本）。
+
+⇒ ★★ **走法（已实测，推荐这条）**：`pbpaste` 管道喂值 ⇒ **后台只复制一次**：
+
+```bash
+# 老大在飞书后台复制新 secret 到剪贴板（就复制一次，后面两次都从剪贴板读）
+pbpaste | bash ~/.solobrave-secrets/rotate_feishu_secret.sh FEISHU_APPSECRET_T_DEFAULT
+pbpaste | bash ~/.solobrave-secrets/sync_feishu_db_secret.sh cli_aa420db06a78dcc5
+```
+⇒ ★ **实测已过**（stub 环境）：`pbpaste | bash rotate_feishu_secret.sh` ⇒ 读入正常、
+哨兵 `SB-ROTATE-OK` 正常打出、exit 0 ⇒ **secret 不进对话、不进 history、不进剪贴板历史**。
+⇒ ⚠️ **两次都用同一份剪贴板内容**（后台复制一次即可）⇒ 两处拿到的必然是同一个值。
+
+⇒ 替代走法（要粘两次）：手动 `read -s` 粘贴两次（飞书后台可重新复制）。
+⇒ ⇒ **老大侧最终只需：在后台复制一次 → 跑两条命令 → 看两条命令各自的末行哨兵。**
+
+### 35.3 ★ 再确认口径：**只同步 1 处，不是 15 处**
+
+⇒ 活的只有 `data/solobrave.db`（当前生产库）；
+**14 份备份快照生产不读**、存的就是当时的历史值 ⇒ **天然就是「旧值」⇒ 不必动**
+（改了破坏历史真实性 + 14 份写操作 = 14 份风险 ⇒ 零收益有风险）。
+⇒ ⇒ **老大与 A 边都别按「15 处都改」做。**
+
+### 35.4 本轮占用登记
+
+| 对象 | 谁占用 | 状态 |
+|---|---|---|
+| `~/.solobrave-secrets/sync_feishu_db_secret.sh`（repo 外，700）| **A 边**（B 边移交，**停止修改**）| 已 E2E 通过，待落手 |
+| `~/.solobrave-secrets/rotate_feishu_secret.sh`（repo 外，700）| **B 边** | 已修（§34）+ 哨兵已加 |
+| 部署目录 `data/solobrave.db` 的那 1 处同步 | **A 边** | 等老大跑完 store 写入 |
+| `docs/SECRET-ROTATION-RUNBOOK.md` 的 §2 Step 5 | **A 边** | B 边**不动**（避免撞车）|
+| `docs/PARALLEL-HANDOFF-2026-10-25.md`（§35）| **B 边** | 本轮新增（§33 留给 A 边）|
