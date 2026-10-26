@@ -36325,8 +36325,26 @@ def _extract_text_from_garbage(raw):
 
     返回清洗后的纯文本 (str):
       - 空 raw → "Kimi 服务返回空响应, 请稍后重试"
-      - regex 找 error/错误/exception/failed/timeout/4xx/5xx 关键词 → "Kimi 服务提示: ..."
+      - regex 找**结构化**错误 (error/错误/exception/failed/timeout) → "Kimi 服务提示: ..."
       - 否则去 HTML tag + 取前 300 字符 → "Kimi 返回非标准格式, 原文片段: ..."
+
+    ★★★ 2026-10-26 修：散文里的 error 不许当成错误（B 边实测反馈）。
+      原实现的关键词正则 `(?:error|错误|...)\s*[:：\-]?\s*([^\n\r<]{4,200})`
+      **分隔符是可选的** ⇒ 散文里的普通单词会被误判：
+        'The model returned an error in the middle of the sentence.'
+          → 旧: 'Kimi 服务提示: in the middle of the sentence.'   ← 误判
+        'The task failed to complete because of user input.'
+          → 旧: 'Kimi 服务提示: to complete because of user input.' ← 误判
+      ⇒ 误判的代价：把**上游返回的正常内容**说成「Kimi 服务提示」⇒ 达人会以为是服务故障。
+
+      ⇒ 修法（**要求结构化证据**，散文不再命中）：
+        ① 关键词**后面必须跟分隔符**（`:` / `：` / `-` / `=`）**且**后面有内容
+           —— 'error: 502' / '错误：请求超时' 命中；'an error in the middle' 不命中；
+        ② 或者整行**以**关键词**开头**（行首锚定）——
+           'Exception: rate limit' / 'failed to connect' 命中；
+        ③ 或者 JSON 形态（`"error":` / `"code": 4xx` / `"message":`）—— 命中。
+      ⇒ 仍保持「宁可漏也不误判」：判不出错误 ⇒ 走「非标准格式」分支（**如实说看不懂**），
+        那比乱说「服务提示」安全 —— 前者是真的，后者是编造。
     """
     if not raw:
         return 'Kimi 服务返回空响应, 请稍后重试'
@@ -36334,17 +36352,37 @@ def _extract_text_from_garbage(raw):
     raw_str = raw_str.strip()
     if not raw_str:
         return 'Kimi 服务返回空响应, 请稍后重试'
-    # 关键词匹配: 找 "error: 502 Bad Gateway" 这类结构化错误
     import re as _re
-    m = _re.search(r'(?:error|错误|exception|failed|timeout)\s*[:：\-]?\s*([^\n\r<]{4,200})', raw_str, _re.IGNORECASE)
+
+    # ── ①/② 结构化错误关键词（必须带分隔符或行首锚定）────────────────────
+    #    'error: xxx' / '错误：xxx' / 'Exception: xxx' / 行首 'failed to xxx'
+    _err_kw = r'(?:error|错误|exception|failed|timeout)'
+    # 分隔符**必需**：`[:：\-=]`
+    m = _re.search(_err_kw + r'\s*[:：\-=]\s*([^\n\r<]{4,200})', raw_str, _re.IGNORECASE)
+    if not m:
+        # 行首锚定：整行以关键词开头（允许 'failed to connect' 这种没有冒号的真错误）
+        # ⚠️ 捕获组必须是**消息部分**（group(1) 后面统一当 msg 用）⇒ 关键词用非捕获组
+        m = _re.search(r'(?m)^\s*(?:' + _err_kw + r')\b([^\n\r<]{4,200})', raw_str, _re.IGNORECASE)
     if m:
         msg = m.group(1).strip()
         # 截断过长
         if len(msg) > 200:
             msg = msg[:200] + '...'
         return f'Kimi 服务提示: {msg}'
-    # 4xx/5xx 错误码匹配
-    m2 = _re.search(r'\b([45]\d\d)\s*(?:Bad Gateway|Internal Server Error|Service Unavailable|Gateway Timeout|Bad Request|Unauthorized|Forbidden|Not Found)?\b', raw_str)
+
+    # ── ③ JSON 形态的错误（"error": / "message": / "code": 4xx）─────────────
+    m_json = _re.search(r'"(?:error|message|detail)"\s*:\s*"?([^"\n\r]{4,200})', raw_str)
+    if m_json:
+        msg = m_json.group(1).strip()
+        if len(msg) > 200:
+            msg = msg[:200] + '...'
+        return f'Kimi 服务提示: {msg}'
+
+    # 4xx/5xx 错误码匹配（要求是 HTTP 语义词或独立状态码，避免误伤普通数字）
+    m2 = _re.search(
+        r'\b([45]\d\d)\s*(?:Bad Gateway|Internal Server Error|Service Unavailable'
+        r'|Gateway Timeout|Bad Request|Unauthorized|Forbidden|Not Found)?\b',
+        raw_str)
     if m2:
         return f'Kimi 服务提示: HTTP {m2.group(1)}'
     # 去 HTML tag, 取前 300 字符

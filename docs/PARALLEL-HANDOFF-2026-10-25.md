@@ -921,3 +921,129 @@ A 边 `a986b66` 已把死因分成两类，但**判据只兜住了一半**：
 ⇒ 与 A 边**零文件重叠** ⇒ 合入不碰 A 边改动；合并前后已用 **md5 逐字校验**
 `daren_bot/weekly.py` 与本文件**未被改动**（A 边同期的 `docs/SECRET-ROTATION-RUNBOOK.md`
 未跟踪文件也原样保留）。
+
+---
+
+## 13. A 边收口 §12 的两个「属我占用」问题（2026-10-26 17:30）
+
+> §12 是 B 边第 2 轮记录。B 边在 §12.5 / §12.6 报了两个**明确标注「属 A 边占用」**的问题
+> ⇒ A 边本轮**接单修完**，两件都当场实测。
+
+### 13.1 §12.5 死因盲区：判据只兜住一半（B 边说对了，已修）
+
+**B 边报告**：A 边 `a986b66` 把死因分成两类，但判据 `assert rings`（环空）
+**只覆盖「完全没配」，漏了「配了一半」**。
+
+**A 边当场复核（不引用对方报告，自己在无 `.env` 的 worktree 实测）**：
+
+| 链 | 环数 | alive | 判定 |
+|---|---|---|---|
+| text | 0 | — | 旧判据 `assert rings` 兜住 ✔ |
+| **vision** | **1**（`kimi-monthly-quota`）| **空集** | ❌ `rings` 非空 ⇒ 过了 ① ⇒ 落到 ② ⇒ **仍报「服务商集合变了」⇒ 死因误导** |
+
+⇒ **B 边结论正确**。
+
+**修法**：判据从「`rings` 空」改成「**`alive` 空**」（= 没有任何可用的独立服务商）
+⇒ 完全没配 / 半配置 都能说对死因；**仍然让它红**（不许 skip）。
+
+**实测（无 `.env` 的 B worktree，用新判据）**：
+```
+AssertionError: vision 链**没有任何可用的独立服务商** ⇒ **环境未配置**…
+   实测：环数=1，但全部落在已死额度池 ['kimi-monthly-quota', 'minimax-open-balance']
+   ⇒ 这是**配置问题**，不是代码漂移。
+```
+⇒ 死因从「服务商集合变了」变成「**环境未配置 + 报出环数与死池**」✔
+⇒ 有 `.env` 的部署目录仍绿（24 passed）✔
+
+### 13.2 §12.6 C4 真 bug：散文里的 error 被当成错误（已修）
+
+**B 边报告**：`_extract_text_from_garbage()` 的关键词正则把散文里的 "error"
+当成错误 ⇒ 返回 `Kimi 服务提示: but garbage data`。
+
+**A 边当场复现（13 个用例，逐个实测）**：
+
+| 输入 | 旧输出 | 判定 |
+|---|---|---|
+| `The model returned an error in the middle of the sentence.` | `Kimi 服务提示: in the middle of the sentence.` | ❌ 误判 |
+| `The task failed to complete because of user input.` | `Kimi 服务提示: to complete because of user input.` | ❌ 误判 |
+| `that is not an error but garbage data` | `Kimi 服务提示: but garbage data` | ❌ 误判（= B 边报的 C4）|
+| `error: 502 Bad Gateway` | `Kimi 服务提示: 502 Bad Gateway` | ✔ 真错误 |
+| `{"error": {"message": "rate limited"}}` | `Kimi 服务提示: ...` | ✔ 真错误 |
+
+⇒ **根因**：正则的分隔符**是可选的**（`[:：\-]?`）⇒ 散文里的普通单词也被命中。
+
+**修法（要求结构化证据）**：
+1. 关键词后**必须跟分隔符**（`[:：\-=]`）**且**后面有内容；
+2. **或**整行以关键词开头（行首锚定，`(?m)^`）—— 覆盖 `failed to connect` 这类无冒号的真错误；
+3. **或** JSON 形态（`"error":` / `"message":` / `"detail":`）。
+
+⇒ 判不出错误 ⇒ 走「非标准格式」分支（**如实说看不懂**）
+  —— 那比乱说「服务提示」安全：**前者是真的，后者是编造**。
+
+**实测**：13/13 全部符合预期 ✔
+（散文 4 条 → 非标准格式；真错误 8 条 → 服务提示；空 → 空响应）
+
+**新守门人** `tests/test_garbage_error_detection.py`（15 条）：
+- 6 条散文误判反例（双向断言，防「为消误判而把真错误也放过」）
+- 7 条真错误反例（防漏判）
+- 1 条空响应 + 1 条**形态守卫**（AST/行扫描剔除 docstring 与注释后，
+  盯正则形态：分隔符必需 / 行首锚定 / JSON 形态三条判据都在）
+- ⚠️ 形态守卫本身踩了两次坑（见 §13.4）⇒ 修好后才算数
+
+**变异验证（3/3 全抓，工作区逐字还原）**：
+| 变异 | 结果 |
+|---|---|
+| M1 分隔符退回可选 | ✅ 7 红 |
+| M2 删行首锚定 | ✅ 2 红 |
+| M3 删 JSON 判据 | ✅ 2 红 |
+
+### 13.3 ★ 顺手纠一个「降档前没实测」的错
+
+C4 修好后，我一度想把 `tests/test_kimi_response.py` 从 `live` 降到 `env`
+（理由：C4 不再是 bug）。**实测降档 ⇒ 真跑 ⇒ 暴露 3 条 E2E 失败**：
+
+```
+[FAIL] E2E text 字段回落 → content
+[FAIL] E2E Kimi 纯文本降级  [no choices in response: …"model": "MiniMax-M3.1-Flash"…]
+[FAIL] E2E 空响应降级  [no choices]
+```
+
+⇒ 那 3 条要**真打 Kimi 上游**拿 `choices` 字段 ⇒ **降不了** ⇒ 保持 `live`。
+⇒ ★ **纪律：降档前必须真跑一遍** —— 否则「以为能降」会把真上游依赖偷偷带进 CI。
+⇒ 已在 `tests/test_script_suites.py` 的登记理由里写明这次尝试与失败原因（别再试）。
+
+### 13.4 ★ 本轮新踩的坑（比 13.1/13.2 更值得记）
+
+**坑：静态守卫扫到了 docstring 里的「示例老写法」⇒ 误报。**
+
+形态守卫要检查「分隔符不是可选的」，但本函数的 **docstring 里正写着**
+老写法 `\s*[:：\-]?\s*` 用来解释历史坑 ⇒ 扫全文就**必然误报**。
+
+⇒ 第一版修法：用 AST 清空所有字符串常量 ⇒ **连判据本身都扫不到**
+（分隔符 `[:：\-=]` 就写在正则字符串里）⇒ 守卫变成「找不到就报错」的**假闸门**。
+⇒ 第二版修法：逐行剔除 `#` 注释行 + 三引号 docstring 区间，**保留正则字面量** ⇒ 通过。
+
+⇒ ★ **规律：静态扫描要分清「代码」和「解释代码的文档」**。
+   两种极端都会坏：
+   - 不剥离文档 ⇒ **假命中**（注释里的示例被当真代码）；
+   - 连字符串一起清 ⇒ **真命中也扫不到**（判据写在字符串里）。
+   ⇒ 正确做法：**只剥注释与 docstring，保留字符串字面量**。
+
+### 13.5 本轮改动面与验证
+
+| 项 | 值 |
+|---|---|
+| 改动的生产文件 | `solobrave-server.py`（`_extract_text_from_garbage()`）|
+| 改动的测试文件 | `tests/test_llm_channels.py`（死因判据）、`tests/test_script_suites.py`（登记理由）|
+| 新增文件 | `tests/test_garbage_error_detection.py`（15 条）|
+| 部署目录全量 pytest | **1064 passed / 6 skipped / 0 failed**（B 边 1049 ⇒ +15）|
+| 变异 | 3/3 全抓，工作区逐字还原（只比变异动过的文件）|
+
+### 13.6 本轮占用登记
+
+| 文件 | 状态 |
+|---|---|
+| `solobrave-server.py` | A 边（本轮已修 C4）|
+| `tests/test_llm_channels.py` | A 边（本轮已修死因判据）|
+| `tests/test_garbage_error_detection.py` | **A 边独占**（新文件）|
+| `tests/test_script_suites.py` | B 边独占（**A 边只改登记理由文本**，未动逻辑）|

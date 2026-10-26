@@ -475,19 +475,35 @@ def test_current_chain_alive_independent_vendors_is_one():
         ① 链**一个环都没构造出来** ⇒ 报「**环境未配置**」
            （按老大的规矩：配置错误必须让它红，不许 skip —— 但要说清是环境问题）；
         ② 链构造出来了但集合不对 ⇒ 报「独立服务商集合变了」—— 这才是真的代码漂移。
+
+    ★★★ 2026-10-26（B 边第 2 轮再反馈后修正）：**判据要挡「半配置态」**。
+      B 边实测（无 `.env` 的 worktree）：
+        - text 链：环数 0 ⇒ 上面 ① 兜住 ✔
+        - vision 链：**环数 1 但全是已死额度池**（`kimi-monthly-quota`）
+          ⇒ `rings` 非空 ⇒ **过了 ①** ⇒ `alive` 空集 ⇒ 落到 ②
+          ⇒ 仍报「独立服务商集合变了」⇒ **死因依旧误导**。
+
+      ⇒ 根因：**① 的判据（`rings` 空）只覆盖了「完全没配」，漏了「配了一半」。**
+      ⇒ 修法：判据从「`rings` 空」改成「**`alive` 空**」
+        （= 没有任何可用的独立服务商）⇒ 完全没配 / 半配置 都能说对死因；
+        且**仍然让它红**（不许 skip），只是把「该查环境」说清楚。
+      ⇒ ⚠️ 注意别把判据搞反：`alive` 空 ⇒ 是环境问题；
+        `alive` 非空但 ≠ {'minimax'} ⇒ 才是代码漂移。
     """
     # 实测已死的额度池：kimi 月度 429 / 开放平台 402（AGENTS.md §11 环序表）
     dead_pools = {llm_channels.POOL_KIMI_MONTHLY, llm_channels.POOL_MINIMAX_OPEN}
     for name, rings in (('text', llm_channels.text_rings()),
                         ('vision', llm_channels.vision_rings())):
-        assert rings, (
-            f'{name} 链**一个环都没构造出来** ⇒ **环境未配置**'
-            f'（.env 的 MINIMAX_CP_API_KEY / Code 登录态 / OpenClaw key store）'
-            f'⇒ 这条测试无法验证当前的服务商集合。'
-            f'⚠️ 这是**配置错误**，按规矩必须红（不许 skip）；'
-            f'但它**不是**「独立服务商集合变了」——别去查代码，去查环境。')
         alive = {r.get('vendor') for r in rings
                  if r.get('vendor') and r.get('pool') not in dead_pools}
+        # ★ 判据用 `alive` 空（不是 `rings` 空）⇒ 兜住「半配置态」
+        assert alive, (
+            f'{name} 链**没有任何可用的独立服务商** ⇒ **环境未配置**'
+            f'（.env 的 MINIMAX_CP_API_KEY / Code 登录态 / OpenClaw key store）'
+            f'⇒ 这条测试无法验证当前的服务商集合。'
+            f'\n   实测：环数={len(rings)}，但全部落在已死额度池 {sorted(dead_pools)}'
+            f'（或压根没构造出来）⇒ 这是**配置问题**，不是代码漂移。'
+            f'\n   ⚠️ 按规矩必须红（不许 skip）；但**别去查代码，去查环境**。')
         assert alive == {'minimax'}, (
             f'{name} 链能顶的独立服务商变了: {alive} —— '
             f'若已接入第二家，请更新这条断言并在 AGENTS.md §11 更新环序表与「该买第二家 API」的结论')

@@ -45,10 +45,19 @@ SCRIPT_SUITES = [
      "（实测：无 .env 的目录跑出 49/57，红的正是 F1/F2/F3/F8/F9/F10/F11/F12；"
      "有 .env 的目录 57/57）"),
     ("tests/test_kimi_response.py", "live",
-     "含真实上游 E2E（Kimi/minimax）＋ 1 条**已知真 bug**："
-     "C4「HTML 标签去除 + 取前 300 字」—— `_extract_text_from_garbage()` 的关键词正则"
-     "会把散文里的 'error' 当成错误（'…that is not an error but garbage data' ⇒ 返回"
-     " 'Kimi 服务提示: but garbage data'）⇒ **修在 solobrave-server.py（A 边占用中）**"),
+     "A~E 组是**纯函数**断言（`_extract_text_from_garbage()` 的各种形态）⇒ 零外部依赖；"
+     "**F 组是真上游 E2E**（要真打 Kimi/minimax 真实接口）⇒ 整档需 live。"
+     "\n★ 2026-10-26（A 边修完 C4 后更新理由）：原先这里写的是"
+     "「C4 已知真 bug」——`not an error but garbage data` 被关键词正则误判成"
+     "'Kimi 服务提示: but garbage data'。"
+     "该 bug **已修**（`solobrave-server.py::_extract_text_from_garbage()` 的判据改成"
+     "**要求结构化证据**：分隔符必需 / 行首锚定 / JSON 形态），"
+     "并由 `tests/test_garbage_error_detection.py`（15 条 + 3 个变异）锁住。"
+     "\n⚠️ ★ **曾试图把本档降到 env， 实测失败** ⇒ 记下来别再试："
+     "降到 env 后本套件**真跑**了， 暴露出 3 条 E2E 失败"
+     "（'E2E text 字段回落 → content' / 'E2E Kimi 纯文本降级' / 'E2E 空响应降级'）"
+     "⇒ 那 3 条要真上游（打真 Kimi 接口拿 choices 字段）⇒ **降不了** ⇒ 保持 live。"
+     "★ 教训：**降档前必须真跑一遍** —— 否则「以为能降」会把真上游依赖偷偷带进 CI。"),
     ("tests/test_proxy_e2e.py", "live",
      "要起真 server + 真登录态（起本地服务 + 注册登录）"),
 ]
