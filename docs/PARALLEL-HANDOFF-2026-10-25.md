@@ -839,3 +839,85 @@ A 边自己的测试**（`tests/test_failure_text.py::test_fail_refunds_still_ha
 ⇒ **合并后再跑，B 边守卫 9/9 全抓** ⇒ 盲区自动闭合。
 ⇒ **纪律：合并顺序本身就是一道闸门** —— 「守卫在另一个分支上」⇒ 合并前那侧是**结构性裸奔**，
 不是「覆盖率不足」。所以 §7.2 那条「合并顺序要求」不是形式主义，是真需求。
+
+---
+
+## 12. B 边第 2 轮：脚本式测试接进 pytest —— 消除「假覆盖」（2026-10-26 17:15）
+
+> 本轮**只动测试层**：不碰生产代码、不碰数据、不碰凭据。
+
+### 12.1 起因：4 个「脚本式测试」pytest 收集 0 条
+
+A 边 2026-10-26 提示：`tests/` 下有 4 个文件是**脚本式**的
+（`check()` + `main()` + `if __name__ == '__main__'`），断言全在 `main()` 里
+⇒ **pytest 收集到 0 条** ⇒「看着有覆盖，CI 其实跑不到」。
+
+⚠️ 自我提醒的坑：**「我跑过了，57/57 全绿」—— 那是用 `python tests/xxx.py` 跑的，
+而 CI 跑的是 `pytest` ⇒ 两者根本不是同一件事。**
+⇒ 判据只有一个：**`pytest --collect-only` 收集到几条**。
+
+### 12.2 交付物
+
+| 文件 | 作用 |
+|---|---|
+| `tests/test_script_suites.py`（新）| 把 4 个脚本式套件接进 pytest + 登记守卫 |
+| `b9ae50f` | 接进 pytest（子进程包装 + 三态门禁 + 登记守卫）|
+| `7912f8a` | 修正 proxy_engine 门禁理由（死因要说对）|
+
+做法（**不重写脚本、只包一层**）：
+- **子进程**跑脚本 ⇒ 隔离模块级全局状态（provider 冷却/半开状态在 pytest 进程内跑
+  会污染别的测试 ⇒ 顺序依赖型 flaky）；脚本崩了也是红。
+- 三态门禁：`run`（无条件）/ `env`（需仓库根 `.env`）/ `live`（需真环境，
+  `SOLO_BRAVE_LIVE=1` 才跑）⇒ 至少是**看得见的 skip + 有原因**，不是隐形死代码。
+- 失败时逐条列出 `[FAIL]` 检查项 + stdout/stderr 尾部，便于定位。
+- 守卫 `test_every_script_style_test_is_registered`：`tests/` 下任何
+  「没有 `def test_*`」的文件都必须登记 ⇒ 防再死。
+
+### 12.3 两个负向测试（证明本文件**不是恒真闸门**）
+
+| 负向测试 | 期望 | 实测 |
+|---|---|---|
+| 改坏 `test_provider_adapters.py` 1 处断言 | 包装器变红 | ✅ 变红，并报出具体失败项「minimax 默认模型是 MiniMax-M3」|
+| 造 1 个未登记的脚本式测试文件 | 登记守卫变红 | ✅ 变红，并列出该文件名 |
+
+两次均已还原（**逐字 diff 一致**；只比变异动过的文件，不比全仓 diff）。
+
+### 12.4 实测结果
+
+| 环境 | 结果 |
+|---|---|
+| B worktree（**无 .env**）| 2 passed / 3 skipped |
+| 部署目录（**有 .env**）| 3 passed / 2 skipped，proxy_engine **57/57 真跑** |
+| 部署目录全量 | **1049 passed / 6 skipped / 0 failed**（接线前 1046/4 ⇒ 正好 +3/+2）|
+
+### 12.5 ★ 顺手挖出一个真死因盲区（**A 边占用文件，B 边只报不改**）
+
+`tests/test_llm_channels.py::test_current_chain_alive_independent_vendors_is_one`
+在**无 `.env` 的 worktree** 里红，报「识图链能顶的独立服务商变了」。
+A 边 `a986b66` 已把死因分成两类，但**判据只兜住了一半**：
+
+- `assert rings`（环一个都没构造出来 ⇒ 报「环境未配置」）❌ 挡不住**半配置态**；
+- 实测（无 `.env`）：vision 链**构造出了环**，但**全是已死额度池**
+  （`POOL_MINIMAX_OPEN` / `POOL_KIMI_MONTHLY`）⇒ `rings` 非空 ⇒ 过了 `assert rings`
+  ⇒ `alive = set()` ⇒ 落到第二个断言 ⇒ **仍报「服务商集合变了」⇒ 死因误导依旧**；
+- 同一份代码：部署目录（有 `.env`）绿、worktree（无 `.env`）红 ⇒ 纯环境差异；
+- **建议**：把「环境未配置」的判据从 `rings` 空改成 **`alive` 空**
+  （= 没有可用的独立服务商）⇒ 半配置态也能说对死因；仍保持红、不 skip。
+
+### 12.6 仍未修（**属 A 边占用，等 A 边处理**）
+
+`tests/test_kimi_response.py` 的 **C4 是真 bug**：
+`solobrave-server.py` 的 `_extract_text_from_garbage()` 关键词正则把散文里的
+"error" 当成错误 ⇒ 返回 `Kimi 服务提示: but garbage data`。
+⇒ 该套件暂列 `live`（要真上游），**不因为「跑不到」就当它不存在**。
+
+### 12.7 本轮占用登记
+
+| 文件 | 状态 |
+|---|---|
+| `tests/test_script_suites.py` | **B 边独占**（新文件，已合入部署目录）|
+
+★ 合入方式：`origin/feat/parallel-handoff-1025` = `ef98124`（A 边）+ `7912f8a`（B 边）
+⇒ 与 A 边**零文件重叠** ⇒ 合入不碰 A 边改动；合并前后已用 **md5 逐字校验**
+`daren_bot/weekly.py` 与本文件**未被改动**（A 边同期的 `docs/SECRET-ROTATION-RUNBOOK.md`
+未跟踪文件也原样保留）。
