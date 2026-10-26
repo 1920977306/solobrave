@@ -471,6 +471,23 @@ shred -u /tmp/_feishu_secret.txt 2>/dev/null || rm -f /tmp/_feishu_secret.txt
 ⇒ **必须按【内容指纹】全盘 join**（`/Users/qichen` 全域 + `~/.Trash`），
 **只扫部署目录得到的「总数」永远是下界，不是总数**。
 
+> ⚠️⚠️ **A 边 21:4x 定点实测更正（上面那张表的路径归因有两处出入 —— 清理时以本块为准）**：
+>
+> | 位置 | A 边实测（逐库打开、报行数与指纹）| 结论 |
+> |---|---|---|
+> | `/Users/qichen/solobrave-prod/data/` —— **7 个**时间点 backups 目录 × 2 个 db + 根目录 `solobrave-backup-20261012-192929.db` | `tenant_feishu_config.app_secret` = `21e42f04ea54` | ★ **15 处命中全在这里 —— 这就是 t_default 要清的那 15 个** |
+> | `/Users/qichen/Developer/solobrave-code/data/`（8 个时间点 + 根目录）| `user_feishu_config` 表存在但 **行数 = 0（空表）** | ⚠️ **不持有明文，不用清** |
+> | `/Users/qichen/Developer/solubrave-prod/data/solobrave.db` | 同上，**行数 = 0** | ⚠️ **不持有明文** |
+> | `/Users/qichen/Developer/solubrave-test/data/solobrave.db` | `user_feishu_config.app_secret` = `5c3727ab3a85` | 1 处（**另一个 app**）|
+> | `/Users/qichen/Projects/solobrave-test/data/solobrave.db` + `/Users/qichen/Desktop/solobrave-test/data/solobrave.db` | `user_feishu_config.app_secret` = `e36d40e5c0e1` | 2 处（**另一个 app**）|
+>
+> ⚠️ **`~/.Trash` 里有 8 个 db 打不开**（`OperationalError`：6 个 `gate_verify_*/copy.db` + 1 个 `data/solubrave.db`）
+> ⇒ **无法排除那里还有副本** ⇒ 按 §16 U，只能写「**在可打开的 27 个（定点）/ 2184 个（全盘）库中命中**」，
+> **不能断言「只有这些」**。
+> ⚠️⚠️ **注意目录名有拼写变体**：`solobrave-*`（正确）与 **`solubrave-*`（少一个 `o`）** 并存
+> ⇒ ★ **别只扫 `solobrave-*`**（A 边自己就漏了这一片，见交接单 §26.2）⇒
+> **用 `find /Users/qichen -name '*.db'` 真全盘，或把变体一起枚举**。
+
 ⚠️ **两处数量更正（相对 §2 与交接单）**：
 - `data/settings.json` 里是 **5 处**（不是 4）：`.embedding.apiKey` / `.llm.providers[0].apiKey` /
   `.llm.providers[1].apiKey` / `.vision.apiKey` / **`.visionQA.apiKey`**。
