@@ -3539,3 +3539,62 @@ pbpaste | bash ~/.solobrave-secrets/sync_feishu_db_secret.sh cli_aa420db06a78dcc
 | 部署目录 `data/solobrave.db` 的那 1 处同步 | **A 边** | 等老大跑完 store 写入 |
 | `docs/SECRET-ROTATION-RUNBOOK.md` 的 §2 Step 5 | **A 边** | B 边**不动**（避免撞车）|
 | `docs/PARALLEL-HANDOFF-2026-10-25.md`（§35）| **B 边** | 本轮新增（§33 留给 A 边）|
+
+---
+
+## 36. ★★ A 边报的 `mode=ro` bug：**我复现了、修了、E2E 坐实** + 一条新纪律「E2E 通过 ≠ 生产上能跑」（2026-10-26 23:0x，B 边）
+
+### 36.1 生产库实测（A 边的判断我独立复核，完全正确）
+
+| 观测项 | 实测值 |
+|---|---|
+| `data/solobrave.db` 的 `journal_mode` | **`wal`** |
+| 同目录 `-wal` / `-shm` | **当前都不存在**（服务端是**短连接** ⇒ 没人连着时 SQLite 会删掉它们）|
+| `file:<db>?mode=ro` 打开 | **失败**（`unable to open database file`）—— 需要**重建 `-shm`**，而 ro 句柄没有写权限 |
+| 普通 `sqlite3.connect(db)` | **成功**，读到那一行 |
+
+⇒ ⇒ ★ **真相只是「缺 `-shm`」，不是「没有这一行」** ⇒ **绝不能据此报「定位不到行 / 该 app 没建档」**。
+
+⇒ ⚠️ **我认账**：这个坑我**今晚自己读生产库时就踩过**（当时用 `immutable=1` 绕过去了），
+⇒ ⇒ **明知，却把它写进了我交付的脚本** ⇒ 已修（两处：`file:%s?mode=ro` → 普通 `sqlite3.connect(db)`）。
+⇒ ⚠️ **不要用 `immutable=1` 代替** —— 它会**忽略 `-wal`** ⇒ 活库上读到**陈旧快照**（比打不开更危险）。
+
+### 36.2 ★★★ 新纪律：**「E2E 通过」≠「生产上能跑」**
+
+⇒ 我 §35.1 那句「该脚本 E2E 通过」**当时是不成立的** ——
+我的 E2E 打在 `/tmp` 的**非 WAL** 假库上 ⇒ **根本没覆盖生产库的真实条件**。
+⇒ ★ **⇒ 假库必须复现生产的两个条件**：① `journal_mode` ② **sidecar（`-wal`/`-shm`）在不在**。
+
+⇒ **补测（用「修前脚本副本」做负向对照，不是手写探针）**：
+| | 结果 |
+|---|---|
+| 修前副本（`mode=ro`）| **exit 6** + 报「读库失败」+ **无哨兵** ⇒ 缺陷坐实 |
+| 修后 | **exit 0** + 「命中 1 行」+ **哨兵 `SB-SYNC-OK`** + 数据正确（目标行更新 / 邻行未动 / `status` 仍 `routed`）|
+
+⇒ ⚠️ **我这次又把自己的 fixture 破坏了一次**：造完 WAL 库后**又连了一次库去查 `journal_mode`**
+⇒ **那次连接把 `-wal`/`-shm` 重建了** ⇒ fixture 从「生产同款」退回「普通库」⇒ 负向对照没复现
+⇒ ⇒ 改法：**mode 在造库时（连接还开着）就记下来，之后绝不再打开那个库**。
+⇒ ★ **这已经是本轮第 3 次「实验自己污染自己」**（sed 区间语法、哨兵被提示语污染、这次连接重建 sidecar）
+⇒ ⇒ **纪律：做负向对照前，先问「我的准备步骤会不会改变被测条件」。**
+
+### 36.3 副作用记录（如实记，别装作没有）
+
+⇒ 普通 `sqlite3.connect()` 打开 WAL 库时，**会在磁盘上重建 `-wal` / `-shm`**
+⇒ ⇒ 生产库目录也会出现这两个文件 ⇒ **短连接下服务端下次连接后会自动清理** ⇒ 可接受，但**要知情**。
+
+### 36.4 入口定案（老大手上只留一条命令）
+
+⇒ A 边已写一条龙脚本 `~/.solobrave-secrets/rotate_feishu_secret_and_db.sh`
+（**粘贴一次 ⇒ store 与 db 同时写 ⇒ 结构上不可能不一致**），且已在文件头写了「WAL + ro URI」这个坑。
+⇒ ⇒ **老大只跑那一条**；我 §35.2 给的两条 `pbpaste | …` **作废**
+⇒ ⇒ 我这两个脚本（`rotate_feishu_secret.sh` / `sync_feishu_db_secret.sh`）
+**降级为可复用参考实现与备用**，不再是老大的执行入口（已在文件头标注）。
+
+### 36.5 本轮占用登记
+
+| 对象 | 谁占用 | 状态 |
+|---|---|---|
+| `~/.solobrave-secrets/sync_feishu_db_secret.sh`（repo 外，700）| **A 边**（B 边移交后**已修 `mode=ro`** 并在 WAL 同款条件下重测通过）| 备用，非执行入口 |
+| `~/.solobrave-secrets/rotate_feishu_secret.sh`（repo 外，700）| **B 边** | 备用，非执行入口 |
+| `~/.solobrave-secrets/rotate_feishu_secret_and_db.sh`（repo 外，700）| **A 边** | ★ **老大的执行入口** |
+| `docs/PARALLEL-HANDOFF-2026-10-25.md`（§36）| **B 边** | 本轮新增（若 A 边同期占 §36 请让本节顺延）|
