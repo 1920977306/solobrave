@@ -166,8 +166,6 @@ CREATE INDEX IF NOT EXISTS idx_ledger_tenant ON bot_credits_ledger(tenant_key, c
 ⇒ ⇒ **不消耗算力的 action 不许出现在 `COST_TABLE`**（塞进去 = 给白干的路开闸门，
 且 `tests/test_credits_gate.py` 断言表内价格 > 0 ⇒ 两处设计同时被违反）。
 ⇒ ⇒ 流水里能**区分**两种缓存命中 = 对账可分辨「复用了多少结论」与「复用了多少商品数据」。
-```
-```
 
 **图片落盘**（不入库，文件系统）：`data/daren-bot/images/<tenant_key>/<msg_id>_<file_key>.jpg`，收到消息**立刻下载**（im:resource 资源 key 约 3 天过期，异步队列可能几十分钟后才处理，必须收消息即落盘）。
 
