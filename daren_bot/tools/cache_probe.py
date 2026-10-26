@@ -298,8 +298,11 @@ def mode_report(args) -> int:
                f"{where}{' AND' if tk else ' WHERE'} action='qa_cached'")
     prod_total = q("SELECT COUNT(*) c FROM bot_credits_ledger "
                    f"{where}{' AND' if tk else ' WHERE'} action='collect_product'")
+    # ★ 2026-10-26：结论缓存命中（0 分）与商品数据缓存命中（5 分）**分两个 action 记流水**
+    #   ⇒ 统计「商品复用命中数」必须**两个都算**，否则会漏掉结论命中那部分。
     prod_hit = q("SELECT COUNT(*) c FROM bot_credits_ledger "
-                 f"{where}{' AND' if tk else ' WHERE'} action='collect_product_cached'")
+                 f"{where}{' AND' if tk else ' WHERE'} "
+                 "action IN ('collect_product_cached','collect_product_verdict_cached')")
     n_qa = qa_total[0]["c"] if qa_total else 0
     n_qa_hit = qa_hit[0]["c"] if qa_hit else 0
     n_p = prod_total[0]["c"] if prod_total else 0
