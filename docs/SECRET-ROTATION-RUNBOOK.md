@@ -88,6 +88,30 @@ cd /Users/qichen/solobrave-prod && bash scripts/verify_github_pat.sh
 > ⚠️ 该脚本**跑完会删掉 `~/.solobrave_github_pat`**（用完即焚）⇒
 > 后面要再比指纹的话，得重新写一次文件（见 Step 5）。
 
+**Step 3.1 — ⚠️ 「no-op push」**不等于**「有写权限」（2026-10-26 20:1x 实测）**
+
+`scripts/verify_github_pat.sh` 内部是 `git push origin HEAD:dev`；
+若部署目录 `HEAD == origin/dev` ⇒ 实跑结果是 **`Everything up-to-date` 的 no-op**
+⇒ ★ **那只证明了「能认证」，没证明「能写」**（no-op push 不与服务器协商写权限）
+⇒ 而脚本照样打印「✅ 推送成功」⇒ **断言本身也会给假警报**。
+
+⇒ **真正的写权限验证 = 创建一个 ref**（创建分支是**真写**操作）：
+
+```bash
+cd /Users/qichen/solobrave-prod
+PROBE="_pat-write-probe-$(date +%s)"
+git push origin HEAD:refs/heads/$PROBE     # 真写
+git ls-remote --heads origin $PROBE        # 确认它真在远端
+git push origin --delete $PROBE            # 用完即删
+git ls-remote --heads origin $PROBE        # 必须为空（无残留）
+```
+
+> ✅ 断言：第 1 条输出含 **`* [new branch]`**（**不是** `Everything up-to-date`）⇒ **写权限确认**；
+> 第 3 条输出含 **`* [deleted]`**；第 4 条**无输出** ⇒ 远端无残留。
+> ⚠️ 探针名用 `_` 前缀 + 时间戳 ⇒ 不会撞上真业务分支；**测完立刻删**。
+> ❌ 若第 1 条输出 `Everything up-to-date` ⇒ **没测到**（说明推的是已存在的 ref）⇒ 换探针名重来。
+> ★ **2026-10-26 20:1x A 边实测**：输出 `* [new branch]` ⇒ 删除后远端残留 **0 条** ✅
+
 **Step 4 — 把新 PAT 写进 keychain（替换旧条目）**
 
 ⚠️ `-w '<token>'` 会把 token 写进 shell history ⇒ **用交互式提示符**：

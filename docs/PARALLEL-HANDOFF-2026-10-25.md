@@ -2556,3 +2556,31 @@ GitHub PAT（keychain）+ 飞书 4 个 app secret（sqlite store）+ `~/.opencla
 **② `security find-internet-password … -g` 会把密码本体打到 stderr**
 - 我用它「看条目属性」⇒ **明文直接刷进终端记录 / 日志 / 会话快照**（stderr 不是 stdout，`2>&1 >/dev/null` 挡不住）。
 - ⇒ **要看属性只用 `-w` 并立刻接管道**；**别让裸密码单独出现在任何一行输出里**。
+
+### 23.7 ★ 「no-op push」不验证写权限 —— 已补进 runbook §1 Step 3.1（2026-10-26 20:2x，A 边）
+
+**问题**：`scripts/verify_github_pat.sh` 内部是 `git push origin HEAD:dev`；
+若部署目录 `HEAD == origin/dev` ⇒ 实跑结果是 **`Everything up-to-date` 的 no-op**
+⇒ ★ **那只证明了「能认证」，没证明「能写」**（no-op push 根本不与服务器协商写权限）
+⇒ 而脚本照样打印「✅ 推送成功」⇒ **断言本身也会给假警报**。
+
+⇒ **修法**：真正的写权限验证 = **创建一个 ref**（创建分支是**真写**操作），用完即删。
+已写进 **runbook §1 Step 3.1**（A 边自己下笔，零代码）：
+```bash
+PROBE="_pat-write-probe-$(date +%s)"
+git push origin HEAD:refs/heads/$PROBE     # 真写
+git ls-remote --heads origin $PROBE        # 确认它真在远端
+git push origin --delete $PROBE            # 用完即删
+git ls-remote --heads origin $PROBE        # 必须为空（无残留）
+```
+
+⇒ ★ **A 边 20:2x 当场实测**（同时**独立复核了老大新 PAT 的写权限**）：
+`* [new branch] HEAD -> _pat-write-probe-1793017210` ⇒ 删除 ⇒ `* [deleted]`
+⇒ **远端残留 0 条** ✅ ⇒ **老大那把新 PAT 的写权限确认无误**（走的是 keychain 里的 PAT）。
+
+⇒ ★ **可复用的纪律（与 §23.6 同族）**：
+**「✅ 通过」这个结论，必须确认「这个操作真的做了它声称做的事」** ——
+- §23.6 是**口径不一致** ⇒ 断言永远不等 ⇒ 假警报；
+- 这条是**操作退化**（push 变 no-op）⇒ 断言照样通过 ⇒ **假通过**。
+⇒ **两者都是「断言本身有问题」，不是「被测对象有问题」** ⇒
+★ **校验一个验证步骤时，要先问「它真的执行了那个动作吗」，再问「结果对不对」。**
