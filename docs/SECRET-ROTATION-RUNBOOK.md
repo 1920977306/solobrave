@@ -183,14 +183,47 @@ ls -la ~/.solobrave_github_pat 2>&1 | grep -q "No such file" && echo "✅ 临时
 
 ### 现状（2026-10-26 实测）
 
-**4 个飞书 app**（`~/.openclaw/openclaw.json` → `channels.feishu`）：
+**4 个飞书 app**（`~/.openclaw/openclaw.json` → `channels.feishu.accounts`）：
 
-| 账号标签 | app_id | secret store 条目名 | 用途 |
+| openclaw 账号标签 | app_id | secret store 条目名 | openclaw 侧 name（**不是飞书后台应用名**） |
 |---|---|---|---|
-| `default` | `cli_aafb5d7cd6389be4` | `FEISHU_APPSECRET_MAIN` | 貂蝉 / 主机器人 |
+| `default` | `cli_aafb5d7cd6389be4` | `FEISHU_APPSECRET_MAIN` | 貂蝉 |
 | `helen` | `cli_aaf9b98563b99bd7` | `FEISHU_APPSECRET_HELEN` | Helen |
-| `t_default` | `cli_aa420db06a78dcc5` | `FEISHU_APPSECRET_T_DEFAULT` | 租户 Bot |
+| `t_default` | `cli_aa420db06a78dcc5` | `FEISHU_APPSECRET_T_DEFAULT` | 租户Bot |
 | `mumu` | `cli_aa51b1b62a7a9bf6` | `FEISHU_APPSECRET_MUMU` | 木木 |
+
+⚠️⚠️ **最后一列不是飞书后台的应用名**（2026-10-26 21:0x 实测更正）
+—— `name` 是 openclaw 配置里给该账号自定的**显示名**，与后台「应用名称」无关。
+实测：`cli_aa420db06a78dcc5` 在后台叫「**貂蝉**」，
+而 openclaw 里它的 `name` 写着「租户Bot」、账号标签是 `t_default`。
+⇒ ★ **按 `name` 去后台找应用 = 找错应用 = 重置错 app secret = 机器人掉线**。
+⇒ **定位应用唯一可靠的依据 = `app_id` 本身**
+（后台「凭证与基础信息」页顶部「应用凭证 → App ID」）。
+
+**★ 实测（2026-10-26 21:0x）：当前登录的飞书企业（`@飞书个人版`）下，7 个企业自建应用**
+
+| 后台应用名称 | App ID |
+|---|---|
+| 达人1 | `cli_aa461b7cb7fa9cb7` |
+| 貂蝉 | `cli_aa420db06a78dcc5` |
+| 小路 | `cli_a93a8ce3a779dbcb` |
+| 贾维斯 | `cli_aa3617bd2fb91cf8` |
+| 全可传媒小翊的智能助手 | `cli_aafb3ce43878dbd4` |
+| 妍妍 | `cli_a93c6d6a3478dbc0` |
+| 露露 | `cli_a936473c86a11bc4` |
+
+⇒ **4 个待轮换 app 里，只有 `t_default`（= 后台「貂蝉」）在这个企业下**；
+`default` / `helen` / `mumu` 三个 **在另一个飞书企业**
+⇒ ★ **「后台找不到」= 登错企业，不是应用不存在**。
+
+**直达 URL 模板**（实测有效）：
+
+```
+https://open.feishu.cn/app/<app_id>/baseinfo
+```
+
+- 进得去 ⇒ 当前企业有权限，标题栏 `凭证与基础信息 - <应用名> - 开发者后台` 里那个 **就是真实应用名**；
+- 跳 `/exception/403` ⇒ 当前企业看不到它（**不代表应用不存在**）。
 
 **secret 存储位置（真源）**：
 - `~/.openclaw/state/openclaw.sqlite` → 表 `secret_store_entries`
@@ -202,10 +235,15 @@ ls -la ~/.solobrave_github_pat 2>&1 | grep -q "No such file" && echo "✅ 临时
 - `data/solobrave.db` → 表 `tenant_feishu_config` → 1 行 `t_default`，
   `app_secret` 是 **明文 32 字符**（`status='routed'`, `bound_at=2026-10-09`）
   ⇒ **重置 `t_default` 的 secret 后，这张表也要同步更新**，否则两处不一致。
+  ⚠️ `t_default` = 后台应用「**貂蝉**」，在「飞书个人版」这个企业下
+  ⇒ 它是 4 个里**唯一在当前企业打得开**的那一个。
 - `data/daren-bot/daren_bot.db` → 表 `bot_tenants` → 2 行
   （`daren_boss` / `daren_test2`），存的是 **AES-GCM 密文**（`app_secret_enc`，60 字符）
   ⇒ 这两个 app 的 app_id 与上面 4 个**都不同**（`cli_aa461b7cb7fa9cb7` / `cli_aa5b67fd7b799d29`），
   ⇒ **不在这次 4 个之内**。如果老大要一起轮换，需另走 `python3 -m daren_bot.main add-tenant` 流程。
+  ⚠️ 2026-10-26 21:0x 实测：`cli_aa461b7cb7fa9cb7` = 后台应用「**达人1**」
+  （在「飞书个人版」企业下，直达 URL 打得开）；
+  `cli_aa5b67fd7b799d29` **在另一个企业**（当前企业列表里没有 ⇒ 应用名待查）。
 
 **★ 轮换时顺带发现的 13 处明文 key（`openclaw secrets audit` 实测）**：
 
@@ -243,7 +281,11 @@ store 里已有的 `MODEL_APIKEY_*` 条目（轮换时按需改）：
 
 **Step 1 — 在飞书后台重置 secret（老大手动）**
 
-- 位置：飞书开放平台 → 对应应用的「凭证与基础信息」→ **App Secret** → 重置
+- 位置：飞书开放平台 → **先确认企业对得上**（右上角头像/企业名可切换）→ 用 `app_id` 定位应用
+  → 左侧「凭证与基础信息」→ 顶部「应用凭证 → App ID」**核对与上表一致** → **App Secret** → 重置
+- ⚠️ **不要靠应用名找**（见上面的实测更正：openclaw 的 `name` ≠ 后台应用名）。
+- ⚠️ **企业要对上**：`default` / `helen` / `mumu` 不在「飞书个人版」这个企业下
+  ⇒ 登错企业会「找不到」，但**不代表应用不存在**。
 - 逐个 app 做，**不要一次全重置**。
 
 > ✅ 断言：后台显示新的 secret（32 字符），且**你自己已经复制下来**（只显示一次）。
