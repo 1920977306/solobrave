@@ -14,7 +14,7 @@
    写入方式见每一步的「写入命令」。
 4. **每一步都有断言**：命令输出必须出现指定内容，否则**停下来**，不要继续下一步。
    清单里每步都标了「✅ 断言」和「❌ 若不满足」。
-5. **轮换完不要立刻删旧 key 的后台记录**，先跑完 §3 的全量复核，
+5. **轮换完不要立刻删旧 key 的后台记录**，先跑完 §4 的全量复核，
    再在飞书/GitHub 后台撤销（后台撤销是最后一步，不是第一步）。
 
 ---
@@ -196,6 +196,12 @@ plaintext=13, unresolved=0, shadowed=0, storeResidue=0, legacy=0
 - ⚠️ `shadowed=0` ⇒ 现在 store 里的值和明文里的是**同一份**，不是冲突的两份。
   ⇒ 这也说明：**改了 store 里的 `MODEL_APIKEY_*`，这 13 处明文不会自动跟着变** ⇒
   **这才是「两份事实共用一个来源」的隐患**（对应 AGENTS.md §16 F）。
+- ⚠️★ **2026-10-26 19:3x B 边补充**：两个 `models.json` 里实际有 **14 个 `apiKey` 字段**
+  —— 上表的 **13 个真 API key** + **`main/codex`**（值形态 `codex…`，16 字符）
+  ⇒ 那是 **Code 订阅的 OAuth token**，属 `AGENTS.md §7` 第 6 条说的
+  **「第三种密钥形态：客户端自持的凭据」**（Code 桌面端自行续期并重写该文件）
+  ⇒ **不要手动轮换它**，也不要把它算进「要去供应商后台准备的 key 数」。
+  ⇒ 另：两个 agents 的 `kimi-code` 是**两把不同的 key**（指纹不同），不是同一把。
 
 store 里已有的 `MODEL_APIKEY_*` 条目（轮换时按需改）：
 `MODEL_APIKEY_{DEEPSEEK,KIMI,KIMI_PROXY_DIAOCHAN,KIMI_PROXY_HELEN,KIMI_PROXY_KONGMING,KIMI_PROXY_MUMU,KIMI_PROXY_SHANGGUAN,MINIMAX,ZHIPU}`
@@ -318,15 +324,128 @@ shred -u /tmp/_feishu_secret.txt 2>/dev/null || rm -f /tmp/_feishu_secret.txt
 > sqlite3 data/solobrave.db "SELECT tenant_id, length(app_secret), status FROM tenant_feishu_config;"
 > # 必须还是 t_default | 32 | routed
 > ```
-> ⚠️ 这张表是**明文存 secret**（本身就是个隐患，见 §4），但**改 schema 是另一个工程**，
+> ⚠️ 这张表是**明文存 secret**（本身就是个隐患，见 §5），但**改 schema 是另一个工程**，
 > 现在先保证**两处一致**，别在轮换窗口里动 schema。
 > ❌ 若 `length(app_secret)` 不是 32 ⇒ 粘贴时带了空格/换行，重贴。
 
-**Step 6 — 四个 app 全部做完后，跑 §3 的全量复核**
+**Step 6 — 四个 app 全部做完后，跑 §4 的全量复核**
 
 ---
 
-## 3. 全量复核（@贾维斯 可自动执行，也可老大手动跑）
+## 3. ★ LLM / embedding / vision 侧的明文 key（`data/settings.json` 5 处 + `.env` + 与 §2 的副本关系）
+
+> ★ **本节是 2026-10-26 19:3x（B 边）实测补上的** —— 原清单只覆盖了
+> **GitHub PAT + 飞书 4 个 app secret + `~/.openclaw/` 那 13 处**，
+> **漏了 `data/settings.json` 里 5 处明文 key** ⇒ **照原清单做完，磁盘上仍有明文**。
+> ⚠️ **本节与 §2 的「13 处」是同一个病根：同一份凭据在多处留副本，改一处不会自动同步。**
+
+### 3.1 现状（2026-10-26 19:3x 实测；**只出指纹 md5[:12]，不回显明文**）
+
+**判据：一律按【字段名】判定**（`apiKey` / `*_API_KEY` / `token` / `secret`），
+**不按值的形态猜** ⇒ ⚠️ 本轮实测两次栽在「按形态过滤」上
+（先滤掉非 `sk-` 前缀的 kimi 代理 token、再滤掉非 hex 的 zhipu key）
+⇒ **同 `AGENTS.md §16 T` 第 8 条：过滤器会把答案自己滤掉。**
+
+**总账（实测）**：落盘明文凭据 **27 处条目 / 14 把不同凭据**
+= **10 把上游 API key** + **4 把本地代理 token**（不去供应商后台轮换）
+
+**★ 4 把「多副本」的上游 key —— 漏改一处 ⇒ 旧 key 仍在被调用 ⇒ 撤不掉**：
+
+| 指纹 | 副本数 | 副本位置 | 实际生效吗 |
+|---|---|---|---|
+| `67e51cc86d32` | **3** | `.env SOLOBRAVE_EMBEDDING_API_KEY` + `settings.json .visionQA.apiKey` + `models.json emp_…/zhipu.apiKey` | ✅ **= 老大说的「语义用智谱」那把**（`.env` 的 override 是 `provider=zhipu` / `baseUrl=open.bigmodel.cn` / `model=embedding-3`）|
+| `aade0ff2e504` | **3** | `.env MINIMAX_CP_API_KEY` + `.env OPENCLAW_MINIMAX_API_KEY`（**两个变量名同值**）+ `settings.json .llm.providers[0].apiKey` | ✅ Minimax CP |
+| `65b936186621` | **3** | `.env KIMI_API_KEY` **第 4 段** + `settings.json .llm.providers[1].apiKey` + `settings.json .vision.apiKey` | ✅ **同时服务 LLM 与 vision 两条链路** ⇒ **两条都要验** |
+| `dfd27cfdd97f` | **3** | `models.json emp_…/openai-compatible.apiKey` + `models.json main/openai-compatible.apiKey` + `settings.json .embedding.apiKey` | ⚠️ **硅基流动**那把（`settings.json` 的 `embedding` 段 provider=`siliconflow`）⇒ **当前被 env override 覆盖、不生效**，**但仍是明文落盘 ⇒ 轮换要一起处理** |
+
+**单副本的上游 key（6 把，各 1 处）**：`.env` 的 `KIMI_API_KEY` 第 1/2/3 段
+（`4e02915848a8` / `e46e3708d354` / `cfd73ae529eb`）、`.env MINIMAX_API_KEY`（`d3b46fa4d835`）、
+`models.json emp_…/kimi-code`（`7e5d28ed4f89`）、`models.json main/kimi-code`（`721be7956009`）。
+
+**4 把本地代理 token（不去供应商后台轮换）**：`kimi_proxy_{diaochan,helen,kongming,shangguan}`，
+各 2 副本（两个 agents 同名同值）。
+
+⚠️ **两处数量更正（相对 §2 与交接单）**：
+- `data/settings.json` 里是 **5 处**（不是 4）：`.embedding.apiKey` / `.llm.providers[0].apiKey` /
+  `.llm.providers[1].apiKey` / `.vision.apiKey` / **`.visionQA.apiKey`**。
+- `~/.openclaw/agents/*/agent/models.json` 里是 **14 个 `apiKey` 字段** = **13 个真 API key**
+  + **1 个 `main/codex`（Code 订阅的 OAuth token，客户端自持会自行续期 ⇒ 不要手动轮换它）**
+  ⇒ **§2 的「13 处」是对的**（审计工具数的是真 API key），**不是漏算**。
+
+⚠️⚠️ **`.env` 的 `SOLOBRAVE_EMBEDDING_*` 四个 override 变量优先级最高**
+（`get_embedding_config()`：**环境变量 > settings.json**）⇒
+**只改 `settings.json` 的 embedding 段可能不生效** ⇒ **真源在 `.env`**。
+⇒ ⇒ 顺带解释了一个历史现象：`settings.json` 的 `embedding` 段还停在
+`siliconflow` + `BAAI/bge-large-zh-v1.5`，而 `.env` 已经是 `zhipu` + `embedding-3`
+⇒ **老大换过供应商，但旧的那份没清 ⇒ 它就是「旧值仍在盘上」的实例。**
+
+### 3.2 ★ 要不要重启 8080（**两处规则不同**）
+
+| 改哪里 | 要重启吗 | 原因（实测自代码）|
+|---|---|---|
+| `.env` | **必须重启** | ① `_kimi_keys_from_config()` 在**模块导入时**执行一次（模块级 `_env_kimi_keys = …`）⇒ **key 池是启动时构建的**；② `_get_env_override()` 读的是 `os.environ` ⇒ **改 `.env` 不重启就不生效**（它 docstring 里的「实时」是相对模块常量而言，不是相对文件）|
+| `data/settings.json` | **不用重启** | `_read_json(SETTINGS_FILE, …)` **每次调用实时读盘**（embedding / llm providers / vision / visionQA 都走它）|
+| `~/.openclaw/…/models.json` | 按 **§2 Step 3**（优先 `secrets reload`，别急着重启 gateway）| — |
+
+⇒ ⇒ **`.env` 改了要重启、`settings.json` 改了不用 ⇒ 两处都改 ⇒ 重启一次。**
+
+### 3.3 步骤（**一次只做一把**，顺序遵循开头的全局铁律）
+
+**Step 1 — 先只读地确认副本关系没变（只出指纹，不出明文）**
+
+```bash
+cd /Users/qichen/solobrave-prod && python3 - <<'PY'
+import hashlib, json, os, glob
+fp = lambda s: hashlib.md5(s.strip().encode()).hexdigest()[:12]
+d = json.load(open('data/settings.json', encoding='utf-8'))
+print('embedding      ', fp(d['embedding']['apiKey']), '(provider=%s)' % d['embedding'].get('provider'))
+print('llm.providers0 ', fp(d['llm']['providers'][0]['apiKey']))
+print('llm.providers1 ', fp(d['llm']['providers'][1]['apiKey']),
+      '(name=%s)' % d['llm']['providers'][1].get('name'))
+print('vision         ', fp(d['vision']['apiKey']))
+print('visionQA       ', fp(d['visionQA']['apiKey']))
+for f in sorted(glob.glob(os.path.expanduser('~/.openclaw/agents/*/agent/models.json'))):
+    tag = os.path.basename(os.path.dirname(os.path.dirname(f)))
+    for n, v in sorted(((json.load(open(f, encoding='utf-8')).get('providers') or {})).items()):
+        if isinstance(v, dict) and isinstance(v.get('apiKey'), str) and v['apiKey'].strip():
+            print(f'  {tag}:{n:20s}', fp(v['apiKey']))
+PY
+```
+
+> ✅ 断言（两条都对才继续）：
+> ① `llm.providers1` 与 `vision` **指纹相同**；
+> ② `visionQA` 与 `.env` 的 `SOLOBRAVE_EMBEDDING_API_KEY` **指纹相同**。
+> ❌ **指纹对不上 ⇒ 停下来，先查清楚，别写。**
+
+**Step 2 — 生成新的**（铁律同 §2：不进仓库 / 不进 history / 不进 git config）
+
+**Step 3 — 写入（副本表里几处就写几处，一处都不能漏）**
+
+- `data/settings.json` ⇒ **用「临时文件 + `os.replace`」原子替换**（与服务端 `_write_json` 同款，
+  **别原地改**，读者可能读到半截）；**只改对应的 `apiKey` 字段，其它字段一个都不动**。
+- `.env` ⇒ 按副本表改对应变量（`KIMI_API_KEY` 只改第 4 段，**其它 3 段一个字节都不动**）。
+- `~/.openclaw/agents/*/agent/models.json` ⇒ 按 **§2** 的 13 处一起处理。
+
+**Step 4 — 重启 8080**（因为动了 `.env`）
+
+```bash
+launchctl kickstart -k gui/$(id -u)/com.solobrave.daren-bot
+```
+
+> ⚠️ 若这一轮**只**改了 `data/settings.json`、**没碰** `.env` ⇒ **不用重启**。
+
+**Step 5 — 验（这把同时服务 LLM 与 vision ⇒ 两条链路都要验）**
+
+- LLM 链路：跑 **§4** 的降级链复核（能顶的独立服务商 ≥ 1）。
+- vision 链路：跑一次图片分析。
+- ⚠️ **验的是「新 key 生效」，不是「上游有额度」** ⇒ 这两件事**分开判**：
+  ⚠️⚠️ **这 4 把 kimi 的月度额度已用尽**（2026-10-26 19:2x **裸调**实测：4 把**全部** 429
+  `monthly usage limit` ⇒ **上游真死，不是本地熔断假象** ⇒ **等 1800s 熔断窗口没用**）
+  ⇒ ⇒ **换新 key 后若仍 429，说明新 key 也没额度，不是操作失败。**
+
+---
+
+## 4. 全量复核（@贾维斯 可自动执行，也可老大手动跑）
 
 ```bash
 cd /Users/qichen/solobrave-prod
@@ -380,7 +499,7 @@ print('能顶的独立服务商:', {r['vendor'] for r in lc.text_rings() if r['p
 
 ---
 
-## 4. 轮换完之后（可选后续，不在本次窗口做）
+## 5. 轮换完之后（可选后续，不在本次窗口做）
 
 1. **`tenant_feishu_config.app_secret` 改加密存储** —— 现在是明文，
    对齐 `daren_bot` 的 `app_secret_enc` 做法（AES-GCM + 主密钥）。
@@ -392,7 +511,7 @@ print('能顶的独立服务商:', {r['vendor'] for r in lc.text_rings() if r['p
 
 ---
 
-## 5. 回滚手册（任何一步失败，按这个来）
+## 6. 回滚手册（任何一步失败，按这个来）
 
 | 症状 | 立即动作 |
 |---|---|
