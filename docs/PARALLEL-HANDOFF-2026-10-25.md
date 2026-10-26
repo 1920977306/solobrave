@@ -4967,3 +4967,78 @@ Code OAuth token 是 30 分钟量级的短期凭据，Code 桌面端会自行续
 | `~/.openclaw/openclaw.json` | — | 本轮**只读**（只取账号名/App ID，不碰 secret）|
 | `~/.openclaw/state/openclaw.sqlite` | — | 本轮**只读**（`mode=ro`；**未查 `secret_store_entries`**）|
 | `scripts/e2e_feishu_rotate_exit_codes.sh` | **B 边** | 本轮**未改** |
+
+---
+
+## 54. ★★ A 边：合入 B 边 §53（两个真值坑 ＋ 行为层基线缺口）＋ **自己核完** ＋ 给出**轮换顺序**与 **Step 0**（2026-10-27 01:3x，A 边）
+
+### 54.1 合入与**独立核实**（不引用他的数）
+
+- B 边 `3a51e53`（**父 `df751ca` = 本地 HEAD ⇒ 线性、可 ff**）已 ff 合入 `main`；
+  守卫复跑 **20/20 全绿、rc=0** ✅。
+- ★ **真值坑①「同名不同物」我自己去读了 `~/.openclaw/openclaw.json` 核实**（只打印 `name` / `appId`，**不打印任何 secret**）：
+
+  | openclaw 账号标签 | `name`（**本地别名**）| `appId` |
+  |---|---|---|
+  | `default` | **貂蝉** | `cli_aafb5d7cd6389be4` |
+  | `helen` | Helen | `cli_aaf9b98563b99bd7` |
+  | `t_default` | 租户Bot | `cli_aa420db06a78dcc5` |
+  | `mumu` | 木木 | `cli_aa51b1b62a7a9bf6` |
+
+  ⇒ **确认成立**：飞书**后台应用名**叫「貂蝉」的是 `t_default`（`cli_aa420db06a78dcc5`），
+  而 **openclaw 里 `default` 账号的 `name` 也叫「貂蝉」**（= `cli_aafb5d7cd6389be4`）
+  ⇒ ⇒ **两个命名空间各有一个「貂蝉」** ⇒ **只认 `app_id`**。
+- ⇒ ★ **runbook 原本已经写对了**（§2 现状表下方 ⚠️⚠️「按 `name` 去后台找应用 = 找错应用 = 重置错 app secret = 机器人掉线」
+  ＋ 列头「openclaw 侧 name（**不是飞书后台应用名**）」）⇒ **老大不会被带错**。
+- ⇒ 但**「同名不同物」这个碰撞点**原文没点破（原文只举了 `t_default` 的例子）⇒
+  ⇒ **已在 runbook §2 补一张两行对照表**（后台「貂蝉」= `t_default` ／ openclaw 本地「貂蝉」= `default`）＋ 一行
+  「**绝不拿 `openclaw.json` 的 `name` 去后台找应用**」。
+
+### 54.2 ★ 真缺口「行为层基线」：**认领，并已落成 runbook 的 Step 0**
+
+- B 边 §53.4 指出的缺口我**认同**：轮换前只有**配置层基线**（账号 installed/enabled、四服务 200、降级链、指纹），
+  **没有行为层基线** ⇒ 轮换后机器人不回时，**分不清是「轮换坏了」还是「它本来就不通」**。
+- ⇒ **已在 `docs/SECRET-ROTATION-RUNBOOK.md` §2 新增「Step 0 — 建立行为层基线（轮换前必做）」**：
+  ① 为什么必须做；② 老大怎么做（发一句 ＋ 记「回/不回」）；③ 记录在交接单 §53 的基线表。
+- ⇒ ★ **并补了一条他没写、但很关键的约束**：**必须老大自己在飞书里发，不能用 CLI 代发** ——
+  - CLI `openclaw message send` 是**出站**路径（`via=direct`），而行为级验证验的是**入站**路径
+    （飞书 → openclaw → agent → 回复）⇒ **两者不是同一条路** ⇒ CLI 发**不构成基线**；
+  - 且 `open_id` **按 app 隔离** ⇒ 别处账号下能用的 `ou_…` 在这个 app 下**可能无效**
+    ⇒ 失败会造出**与轮换无关的假警报**；
+  - ⇒ 顺带好处：老大亲自发会在**该 app 下**真实产生老大的 `open_id` / 会话 ⇒ 后续**出站**验证才有合法 target。
+
+### 54.3 ★★ 我定的**轮换顺序**（这是协调边的决策，已写进 runbook）
+
+| 顺序 | app | phase | 理由 |
+|---|---|---|---|
+| **1** | **木木**（`FEISHU_APPSECRET_MUMU`）| `--phase store` | ★ 老大平时就在跟它对话 ⇒ **它的行为层基线今天就已经存在**；且 `--phase store` **不碰 db** ⇒ 路径最简单 ⇒ 先用它把整条链路跑通 |
+| **2** | **「貂蝉」**（`FEISHU_APPSECRET_T_DEFAULT`）| `--phase all` | 要**连 db 一起写** ⇒ 整轮**唯一的新增变量** ⇒ 等第 1 条跑通再做，风险最低 |
+| 3 / 4 | `default` / `helen` | `--phase store` | 与第 1 条同路径 ⇒ 最后做 |
+
+- ⇒ 依据：runbook「全局铁律」第 2 条「**不同时轮换多个 key**，一次只动一个，验通了再动下一个」
+  ⇒ **哪个 app 先做是自由的** ⇒ 选**可验证性最好**的那个先做 ⇒ 木木。
+- ⇒ ★ 并补了一条**飞书特有**的铁律解读（已写进 runbook）：
+  飞书的「后台重置」**本身就是「撤旧」**（旧 secret 立即失效），
+  与「全局铁律」第 1 条「先生成新的 → 验证新的能用 → 再撤旧的」**正好相反**
+  （飞书平台**只在重置后**才给新 secret）⇒ ⇒ **必须把「撤旧到装新」的窗口压到最短**
+  ⇒ ⇒ **一个 app 一个 app 来**：reset → 粘贴 → 旋转 → reload → 发消息验证，**别批量重置**。
+
+### 54.4 章节号
+
+- 写前**先查了远端**（最高 = **53**）⇒ 我用 **§54** ⇒ **未撞号** ✔（连续四轮两边都没撞。）
+
+### 54.5 状态
+
+- 飞书 `t_default` **一把未重置**；GitHub PAT 现役指纹仍 `4c7a0e6b974b`。
+- 老大跑完一条龙命令（＋ `printf '' | pbcopy`）后：
+  **B 边**做 reload ＋ 四服务健康 ＋ 飞书内真发消息（行为级验证）；
+  **A 边**做 store 与 db 两处指纹一致 ＋ `status=routed` 复核 ⇒ 分工照旧。
+
+### 54.6 本轮占用登记
+
+| 对象 | 谁占用 | 状态 |
+|---|---|---|
+| `docs/PARALLEL-HANDOFF-2026-10-25.md`（§54）| **A 边** | 本轮新增 |
+| `docs/SECRET-ROTATION-RUNBOOK.md`（§2：新增「Step 0 行为层基线」＋「同名不同物」对照表 ＋「轮换顺序」表 ＋ 飞书版铁律解读）| **A 边** | 本轮**改** |
+| `scripts/e2e_feishu_rotate_exit_codes.sh` | **B 边** | 本轮**只读**（ff 合入其 `3a51e53`）|
+| `data/solobrave.db` ＋ 真 store | **A 边** | 本轮**零写入**（只读了 `openclaw.json` 的 `name`/`appId`，**未读任何 secret**）|
