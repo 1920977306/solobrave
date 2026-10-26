@@ -59,6 +59,26 @@
     3. ⇒ **两侧都改同一处时，事后以「合并冲突」化解**（两边内容都留、按章节号排序），
        **不要任何一方回退另一方**；
     4. ⇒ 引用别人的结论时，**标明「引自哪条会话 / 哪个 commit」**（§16 U 同款：范围是结论的一部分）。
+- ★★ ★ **合并态（`MERGE_HEAD` 存在）下**禁止跑 `git stash` / 任何会重置 git 状态的命令 ——
+  ⇒ ** stash 会把 `MERGE_HEAD` 一起存进 stash commit** ⇒ `git stash pop` 恢复后
+  **合并态丢失** ⇒ 随后的 `git commit` **退化成普通提交（只有 1 个父）**
+  ⇒ **对方的 commit 身份没进 dev** ⇒ `git log --oneline origin/dev..origin/<对方分支>`
+  **永远显示 1（未合）**，而**内容其实一个字都没差**。
+  - ★ **实测（2026-10-26 20:15，A 边）**：A 边合 B 边 `f7eb0bd` 时，为了做「合并前后围栏对比」
+    跑了 `git stash` ⇒ 提交 `8b21c21` 的 message 写着「合入 B 边 f7eb0bd」，
+    **但它只有 1 个父** ⇒ `f7eb0bd` 的身份没进 dev ⇒ 而 `git diff` 出来是**零差异**
+    （内容早在 dev 里）⇒ **表面全对，拓扑错了**。
+  - ⇒ ★ **危害**：对方 rebase 后，它的 commit 会「看起来没合」⇒ 双方都会误判 ⇒ 又一轮返工。
+  - ⇒ **纪律**：
+    1. **要对比文件内容 ⇒ 把文件拷到 repo 外比对**（`cp x /tmp/x` + `diff`），
+       **不要动 git 状态**；
+    2. ⇒ **提交前必查 `git cat-file -p HEAD | head -3`**：
+       **父提交行应有 2 个 hash**（真 merge）⇒ 只有 1 个 ⇒ **合并态丢了**，
+       用 `git merge --abort` + 重做补回身份（**内容零差异，不会改文件**）；
+    3. ⇒ **推后必查 `git log --oneline origin/dev..origin/<对方分支>` ⇒ 应为空**；
+       **不为空不等于「内容没合」** ⇒ 要用
+       `git merge-base --is-ancestor <commit> origin/dev` 判**身份**，
+       用 `git diff` 判**内容** ⇒ **两件事分开判**。
 - ★★ **重置类操作（`reset --hard` / `checkout -B <分支> <ref>` / `branch -f`）之前，先留 backup 分支**：
   ```bash
   git branch backup/<name>-<YYYYMMDD-HHMM> <ref>   # 一行，成本几乎为零
