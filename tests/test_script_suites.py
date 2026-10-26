@@ -40,8 +40,10 @@ SCRIPT_SUITES = [
      "纯模块断言（双向转换 / max_tokens 分场景 / system 抽取 / SSE / 冷却半开 / 注册表），零外部依赖"),
     ("tests/test_proxy_engine.py", "env",
      "A~E 组 49 条走本地 mock（localhost，不打真实上游）；"
-     "F 组 8 条走真实 handler ⇒ **要凭据**（仓库根 .env）"
-     "（实测：无 .env 的目录跑出 49/57，有 .env 的目录 57/57）"),
+     "F 组 12 条是 **handler 级**（上游**仍是本地 mock**，不打真实 API），"
+     "但 handler 自己要从 .env 取 kimi key 才能构造降级链 ⇒ **要凭据**（仓库根 .env）"
+     "（实测：无 .env 的目录跑出 49/57，红的正是 F1/F2/F3/F8/F9/F10/F11/F12；"
+     "有 .env 的目录 57/57）"),
     ("tests/test_kimi_response.py", "live",
      "含真实上游 E2E（Kimi/minimax）＋ 1 条**已知真 bug**："
      "C4「HTML 标签去除 + 取前 300 字」—— `_extract_text_from_garbage()` 的关键词正则"
