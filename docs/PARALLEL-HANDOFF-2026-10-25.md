@@ -323,3 +323,97 @@ B 边 `924ea8a` 记的「上线阻塞」是：
    `503 + direct_route_not_configured` 当成瞬时 ⇒ 恒真绿）。
 4. **降级链是顺序遍历** ⇒ 活环必须排在死环前面。
 5. **不许拿旧数据回答「现在能不能用」** ⇒ 逐环真调一次。
+
+---
+
+## 9. A 边第 5 轮：木木回复变样 / 空回复的 6 处根因（2026-10-26 15:40）
+
+> 触发：老大「木木回复消息，怎么回复跟以前弄的不一样啊」
+> 提交：`24a7fb9`（已推 `origin/dev`；`origin/main` 未动）
+> ⚠️ **B 边：本轮改的是 `solobrave-server.py` / `provider_adapters.py` /
+> `switch_chat_model.py` —— 如果你也在改这几个文件，先说一声再动。**
+
+### 现场取证（当场实测，没引用旧数据）
+
+| 时间 | 现象 | 真相 |
+|---|---|---|
+| 14:24 | 木木回复开头漏出 `[[response_to_current]]` | 降级到老模型 `MiniMax-Text-01`（它会把 prompt 里的元数据标记当正文复述；`MiniMax-M3` 实测不会）|
+| 15:05 / 15:08 | 木木只会说「我试试用图像识别工具重新读一遍」 | 它的 SOUL.md 被截断（304/556 字，缺【数据源强制约束】【工具使用铁律】），且**没有 TOOLS.md** |
+| 15:12 | 木木**空回复** | 我重启服务端时把在途的那一轮打死了（我自己的操作，不是 bug）|
+
+### 6 处根因（全是「声明端 ≠ 使用端」形态）
+
+| # | 根因 | 后果 | 修法 |
+|---|---|---|---|
+| ① | 服务端按 `agents.json` 的 `openclawName` 拼 workspace（**声明端**），OpenClaw 运行时用 `openclaw.json` 的 `entry.workspace`（**使用端**）| 木木（`openclawName='main'`，6 人里唯一错位）读写**贾维斯**的 workspace；写文档会覆盖贾维斯 SOUL.md | `_resolve_agent_workspace()` 为唯一真源 + 写前归属校验（409 拒写）|
+| ② | minimax 兜底档指向开放平台老端点 + 老模型 `MiniMax-Text-01` | 文风突变 + 标记泄漏 | 适配层改**套餐 Anthropic 端点 + MiniMax-M3** |
+| ③ | `_resolve_ai_base_url` 里 `custom_endpoint` 被内置 mapping **覆盖** | settings.json 配的 baseUrl **静默失效** ⇒ minimax 打老端点 → 404 | 改成**配置优先**（默认只作兜底）|
+| ④ | `_call_minimax_messages` / `_try_minimax_proxy_fallback` 写死 OpenAI 协议 | minimax 档换端点后协议/端点/模型全错位 | 统一走 `provider_adapters`（单一协议真源）|
+| ⑤ | kimi key 池耗尽时在**链之前**就 503 | 「第一环死」被写成「全员死」⇒ 兜底档永远没机会接管 | chain 模式带空 primary 进链，由链引擎继续降级 |
+| ⑥ | legacy 路径响应解析只认 OpenAI 形状 | 转发的明明是 Anthropic 端点，正常响应被误判成「格式异常」丢进垃圾兜底 | 补格式感知解析 |
+
+### 实测效果（生产链路，非单测）
+
+```
+15:30:41  POST /api/proxy/kimi/v1/messages → 503   ← 修复前（key 池空就 503）
+15:32:03  trying provider=kimi → 429
+          trying provider=minimax format=anthropic url=https://api.minimax.cn/anthropic/v1/messages
+          ✅ provider=minimax 成功（降级自 kimi）
+15:32:03  POST /api/proxy/kimi/v1/messages → 200   ← 修复后（兜底档接管）
+```
+
+木木端到端（`openclaw agent --agent emp_1787550091124_1048`）：
+回复「我是木木，你的商务助理，负责客户拓展、合作洽谈和商机跟进这一摊事儿。」
+—— 人格正确（不再是被配上的贾维斯灵魂）、**无 `[[response_to_current]]` 泄漏**、带老板口吻。
+
+### 本轮顺带复活的两份「一直死着的覆盖」★
+
+| 文件 | 之前 | 现在 |
+|---|---|---|
+| `tests/test_proxy_engine.py` | 在 C1 就 `KeyError: 'content'` ⇒ 链引擎核心覆盖**从没跑过** | **57/57 全绿** |
+| `test_multi_provider.py`（根目录）| 引用已废弃的 `_PROVIDER_FAIL_COUNTS` ⇒ 长期报错 | **22/22 全绿** |
+
+⚠️ **教训（跨边通用）**：`tests/` 下有 **4 个脚本式文件**（`test_proxy_engine.py` /
+`test_proxy_e2e.py` / `test_provider_adapters.py` / `test_kimi_response.py`）
+**pytest 收集 0 条**（它们是 `main()` + `check()` 风格）⇒ 看着有覆盖，实际 CI 跑不到。
+本轮修好 2 个；另 2 个（`test_proxy_e2e.py` 需真服务器、`test_kimi_response.py` 有 4 条历史失败）
+**仍是脚本式、仍不被收集** —— 建议后续统一改成 pytest 风格。
+
+### 新增/变更文件
+
+| 文件 | 持有方 | 状态 |
+|---|---|---|
+| `solobrave-server.py` | A 边 | ✅ 已交 |
+| `provider_adapters.py` | A 边 | ✅ 已交 |
+| `switch_chat_model.py` | A 边 | ✅ 已交（minimax 默认端点）|
+| `tests/test_openclaw_workspace.py`（新）| A 边 | ✅ 已交（9 条）|
+| `tests/test_minimax_m3_fallback.py`（新）| A 边 | ✅ 已交（9 条）|
+| `tests/test_minimax_protocol_consistency.py`（新）| A 边 | ✅ 已交（6 条）|
+| `scripts/mutate_openclaw_workspace_guards.py`（新）| A 边 | ✅ 已交（W1-W5 全抓住）|
+| `scripts/mutate_minimax_protocol_guards.py`（新）| A 边 | ✅ 已交（M1-M6 全抓住）|
+| `tests/test_proxy_engine.py` / `test_multi_provider.py` / `tests/test_provider_adapters.py` | A 边 | ✅ 已交（复活 + 协议对齐）|
+
+### 运行时配置改动（**不进 git**，data/ 被 ignore）
+
+| 文件 | 改动 |
+|---|---|
+| `data/settings.json` | `llm.providers.minimax` → `https://api.minimax.cn/anthropic/v1` + `MiniMax-M3`；**删掉 zhipu 档**（老大口径：智谱资源包是知识库的 API）|
+| `~/.openclaw/openclaw.json` | `models.providers.minimax.baseUrl` → `https://api.minimax.cn/anthropic/v1`（原值 `api.minimaxi.com/anthropic` 实测 **404**）；**6 个员工的模型链全部去掉 zhipu**，Ray/孔明 primary 从**死的** `zhipu/glm-4.7`（实测 429 code 1113）换成各自的 `kimi_proxy_*/k3` |
+| `~/.openclaw/workspace-emp_1787550091124_1048/` | 补齐 `SOUL.md`（556 字完整）+ 新建 `TOOLS.md`（1238 字）|
+
+### 本轮沉淀（跨边通用）
+
+1. **「声明端 ≠ 使用端」有三种形态**，本轮全踩了一遍：
+   ① 路径拼接用声明字段（`openclawName` vs `entry.workspace`）；
+   ② 配置被代码默认值覆盖（`custom_endpoint` vs 内置 mapping）；
+   ③ 协议写死在调用处（OpenAI vs Anthropic），换端点就错位。
+   ⇒ **凡是要「配置生效」的地方，都要问一句：使用端到底读的是谁？**
+2. **「第一环死」≠「全员死」**：任何在**降级链之前**的早退闸门，
+   都会把「主档位不可用」写成「整条链不可用」。
+   ⇒ 早退闸门必须问：**链后面还有档位吗？**
+3. **恒真绿的死因文案比没有文案更坏**：提前 503 报「Key 池已空」，
+   把真因（请求本身是空的）整整掩盖了 5 天 ⇒ **死因文案要按错误语义写**。
+4. **看着有覆盖 ≠ CI 跑得到**：脚本式测试文件（`main()` + `check()`）
+   在 pytest 下收集 0 条 ⇒ 改动前先确认「这条测试真的会被执行」。
+5. **变异验证是发现「恒真闸门」的唯一可靠手段**：
+   本轮 M5（把「池空继续走链」改回「池空就 503」）立刻变红 ⇒ 闸栏有效。

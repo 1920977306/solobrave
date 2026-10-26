@@ -34853,6 +34853,18 @@ def _handle_proxy_kimi(self):
     body = self._read_body()
     _timing('read_body', _t)
     if not body:
+        # ★ 2026-10-26 可观测性补强：空 body 的请求到底是谁发的？
+        #   （之前它被「key 池空就提前 503」挡在前面 ⇒ 死因被写成「key 池已空」，
+        #     真相「请求本身是空的」完全不可见 ⇒ 每 2 分钟一次，持续很久）
+        #   ⇒ 空 body 直接记下 客户端地址 / UA / Content-Length / 目标路径。
+        try:
+            _cli = self.client_address[0] if getattr(self, 'client_address', None) else '?'
+        except Exception:
+            _cli = '?'
+        logger.warning(
+            f'[KimiProxy] 空 body 请求: from={_cli} ua={self.headers.get("User-Agent", "")[:80]!r} '
+            f'path={self.path!r} len={self.headers.get("Content-Length", "?")} '
+            f'has_api_key={bool(proxy_key)} agent_id={agent_id!r}')
         self._send_json_error(400, 'Empty body')
         return
 
