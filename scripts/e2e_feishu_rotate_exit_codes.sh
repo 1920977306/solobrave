@@ -35,17 +35,21 @@
 REAL_HOME="${HOME}"
 SCRIPT="${REAL_HOME}/.solobrave-secrets/rotate_feishu_secret_and_db.sh"
 STRICT=0
+PRINT_APP=0
 APP_TAG="t_default"
 while [ $# -gt 0 ]; do
   case "$1" in
     --script) SCRIPT="${2:-}"; shift 2 ;;
     --app)    APP_TAG="${2:-}"; shift 2 ;;
     --strict) STRICT=1; shift ;;
+    --print-app) PRINT_APP=1; shift ;;
     *) echo "未知参数: $1" >&2; exit 2 ;;
   esac
 done
 
-if [ ! -f "$SCRIPT" ]; then
+# ★★ A 边 §81.13（2026-10-27）：**被测脚本不存在时的 SKIP 判定，要给 `--print-app` 让路**
+#   ⇒ `--print-app` 是**纯参数管道自检**（不跑用例、不需要被测脚本）⇒ 不该被 SKIP 拦掉
+if [ ! -f "$SCRIPT" ] && [ "$PRINT_APP" != "1" ]; then
   echo "⚠️ SKIP：被测脚本不存在 => $SCRIPT"
   echo "   原因：交付物放在 repo 外（~/.solobrave-secrets/），本机未安装就没有可测对象。"
   echo "   ⚠️ SKIP != PASS。"
@@ -55,7 +59,14 @@ fi
 
 # ★ ★ ★ 被测 app 可切换（--app）：老大轮换顺序是「先木木 → 后貂蝉」⇒ 守卫必须能测任何一个
 #   app_id 与 tenant_id 都取自 ~/.openclaw/openclaw.json（不可变 ID ⇒ 定位靠 ID 不靠名字）
-APP_TAG="t_default"
+#
+# ★★★ **A 边 §81.13 修的真 bug（2026-10-27）** —— 这里**原来有一行 `APP_TAG="t_default"`**：
+#   ⇒ 它在**参数解析之后**无条件把 `--app` 解析出来的值**重置回默认值**
+#   ⇒ ⇒ `--app mumu` / `--app helen` **全部不生效** ⇒ 守卫**永远只测 t_default（貂蝉）**
+#   ⇒ ⇒ ★★ **老大轮换第一步就是「木木」⇒ 木木从来没被这个守卫真正测过**
+#   ⇒ ⇒ ★★ 而 §56.5 / §56.6 里那四行「4 个 app 各 20/20 全绿」⇒ **实际是同一个 app 跑了 4 遍**
+#   ⇒ ⇒ ⇒ **同款「声明端 ≠ 使用端」**（解析端写了、使用端被自己覆盖）⇒ **本行已删除**
+#   ⇒ ⇒ **默认值仍由上面的 `APP_TAG="t_default"` 提供** ⇒ 不传 `--app` 时行为**完全不变** ✔
 case "$APP_TAG" in
   t_default) APP="cli_aa420db06a78dcc5"; TEN="t_default"; NAME="FEISHU_APPSECRET_T_DEFAULT" ;;
   mumu)      APP="cli_aa51b1b62a7a9bf6"; TEN="mumu";      NAME="FEISHU_APPSECRET_MUMU" ;;
@@ -63,13 +74,41 @@ case "$APP_TAG" in
   helen)     APP="cli_aaf9b98563b99bd7"; TEN="helen";     NAME="FEISHU_APPSECRET_HELEN" ;;
   *) echo "未知 app 标签: $APP_TAG" >&2; exit 2 ;;
 esac
-OLD_V="OLDfakeSECRET_${TEN}_00000AAA"
-NEW_V="NEWfakeSECRET_${TEN}_00000BBB"
+
+# ★★★ A 边 §81.13（2026-10-27）修第二层缺陷：fixture 常量长度**必须与 TEN 无关**
+#   ⇒ 原写法：`OLDfakeSECRET_${TEN}_00000AAA` ⇒ 长度 = **23 + len(TEN)**
+#   ⇒ ⇒ **只有 len(TEN)==9 的那一个 tenant 恰好 32 字符** ⇒ 其余 `--app` 一律 `exit 9`
+#   ⇒ ⇒ 实测（修复前）：mumu rc=9 ／ t_default rc=0 ／ default rc=9 ／ helen rc=9
+#   ⇒ ⇒ ⇒ ★★ 所以 `--app` **从来就没有任何一刻是能用的**（第一层 = 参数被重置；第二层 = 本行）
+#   ⇒ ⇒ ⇒ ★★ 顺带证伪 §56.6 那张「4 个 app 各 20/20 全绿」的表 ⇒ **其中 3 行当时根本不可能绿**
+#   ⇒ ⇒ **修法**：用**固定长度**的占位值（tenant 身份由 `TEN` / `NAME` / `APP` 三处承载，
+#   ⇒   不靠这个假密钥值）⇒ 任何 tenant 长度下都恰好 32。
+#   ⇒ ★ 下面的长度断言**保留**（它们仍是有效自检：手改常量时立刻红）。
+#   ⇒ ⇒ ★★★ **而且我自己在改这一行时又踩了一次「手数」**：注释写「13+16+3=32」，
+#   ⇒      **实际写出来是 33** ⇒ 被下面那条长度断言当场拦下（rc=9）⇒ **断言又一次救了场**
+#   ⇒ ⇒ ⇒ ★★ **教训：注释里的算式不是判据**（它和值一样会骗人）⇒ **判据必须是代码里的断言**
+#   ⇒ ⇒ ⇒ ⇒ 所以下面的占位串**用代码算出来**（`printf '%*s'` 生成定长填充）⇒ **不手数**。
+_pad16="$(printf '%*s' 16 '' | tr ' ' 'x')"      # 恰好 16 个 x（按宽度生成，不手数）
+OLD_V="OLDfakeSECRET${_pad16}AAA"              # 13 + 16 + 3 = 32
+NEW_V="NEWfakeSECRET${_pad16}BBB"              # 13 + 16 + 3 = 32
 # ★ 长度自洽：直接按 NEW_V 截 31 字符 ⇒ 不手数（手数过一次，写成 30 实际 30 ⇒ 守卫自己 exit 9）
 BAD_V="${NEW_V:0:31}"                                # 31 字符 ⇒ 触发长度闸
 [ "${#OLD_V}" -eq 32 ] || { echo "fixture 常量长度 ${#OLD_V} != 32" >&2; exit 9; }
 [ "${#NEW_V}" -eq 32 ] || { echo "fixture 常量长度 ${#NEW_V} != 32" >&2; exit 9; }
 [ "${#BAD_V}" -eq 31 ] || { echo "fixture 常量长度 ${#BAD_V} != 31" >&2; exit 9; }
+[ "$OLD_V" != "$NEW_V" ] || { echo "fixture OLD_V == NEW_V（必须不同）" >&2; exit 9; }
+
+# ★★ A 边 §81.13：`--print-app` **快通道** —— 解析参数 + 映射 app + 校验 fixture 长度，
+#   **不跑任何用例**（秒级）⇒ 用途：给回归守卫 `tests/test_guard_app_plumbing.py` 用
+#   ⇒ ★ 位置很关键：**放在 fixture 长度断言之后** ⇒ 这样它**同时覆盖两层缺陷**：
+#   ① 参数被重置（映射结果会自报）；② fixture 长度与 TEN 有关（长度闸会 exit 9）
+#   ⇒ ★ 为什么需要它：那行被覆盖的重置**潜伏了 6 个多小时**、还写进了 §56 的「实测全绿」
+#   ⇒ ⇒ 只有把「参数管道」变成**可执行断言**，这类 bug 才不会再潜伏
+if [ "$PRINT_APP" = "1" ]; then
+  echo "${APP_TAG} ${APP} ${TEN} ${NAME} ${#OLD_V} ${#NEW_V} ${#BAD_V}"
+  exit 0
+fi
+
 
 SANDBOX="$(mktemp -d /private/tmp/.sbfb-guard.XXXXXXXX)"
 cleanup() {
@@ -91,14 +130,22 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# ★★ B 边 §80.12（2026-10-27 13:1x）：真备份目录的**指纹**（不是纯计数）
+#   ⇒ 为什么不用纯计数：① 目录不存在时两边都是 0 ⇒ 相等 ⇒ 判绿 ⇒ **恒真**
+#                     ② 「删一个 + 加一个」计数不变 ⇒ 也漏
+#   ⇒ 指纹 = 「文件名 + 大小」排序输出 ⇒ 能抓到新增/删除/改名/size 变化
+#   ⇒ 目录不存在 ⇒ 返回 __MISSING__ ⇒ 由调用方**判红**（不许静默 0=0）
+real_bak_fp() {
+  [ -d "$1" ] || { echo "__MISSING__"; return 0; }
+  ls -l "$1" 2>/dev/null | awk 'NR>1 {print $5, $9}' | sort
+}
+
 # ★ HOME 改到 sandbox ⇒ 脚本默认备份目录随之进 sandbox
 export HOME="${SANDBOX}/home"
 mkdir -p "${HOME}" "${SANDBOX}/bin" "${SANDBOX}/bak"
 REAL_BAK="${REAL_HOME}/.solobrave-backups"
-REAL_BAK_BEFORE=0
-if [ -d "${REAL_BAK}" ]; then
-  REAL_BAK_BEFORE="$(ls "${REAL_BAK}" | wc -l | tr -d ' ')"
-fi
+# ★★ B 边 §80.12：改用**指纹**（原来用纯计数 ⇒ 目录不存在时 0=0 ⇒ 恒真）
+REAL_BAK_BEFORE="$(real_bak_fp "${REAL_BAK}")"
 SBFB_STORE="${SANDBOX}/store.db"
 APP_DB="${SANDBOX}/app.db"
 
@@ -287,6 +334,7 @@ NEW_FP="$(fp_of "$NEW_V")"
 
 PASS=0
 FAIL=0
+CASE_DONE=0                # ★★ B 边 §80.12：实际执行了几个 case（用于「漏跑就判红」）
 ok()  { PASS=$((PASS+1)); echo "  ✅ $1"; }
 bad() { FAIL=$((FAIL+1)); echo "  ❌ $1"; }
 
@@ -296,6 +344,7 @@ bad() { FAIL=$((FAIL+1)); echo "  ❌ $1"; }
 run_case() {
   local name="$1" stub_code="$2" infile="$3" exp_rc="$4" exp_store="$5" exp_db="$6" variant="$7"
   local rc out store_before db_before store_after db_after sentinel bad_items=""
+  CASE_DONE=$((CASE_DONE+1))     # ★★ B 边 §80.12：实际执行计数（供「case 数守恒」断言）
   make_fixture "$variant"
   store_before="$(read_store_state)"
   db_before="$(db_state_of)"
@@ -421,14 +470,26 @@ fi
 
 echo ""
 echo "--- 生产隔离断言 ---"
-REAL_BAK_AFTER=0
-if [ -d "${REAL_BAK}" ]; then
-  REAL_BAK_AFTER="$(ls "${REAL_BAK}" | wc -l | tr -d ' ')"
-fi
-if [ "$REAL_BAK_BEFORE" = "$REAL_BAK_AFTER" ]; then
-  ok "真备份目录零增长（${REAL_BAK_BEFORE} -> ${REAL_BAK_AFTER}）"
+REAL_BAK_AFTER="$(real_bak_fp "${REAL_BAK}")"
+if [ "$REAL_BAK_BEFORE" = "__MISSING__" ] || [ "$REAL_BAK_AFTER" = "__MISSING__" ]; then
+  # ★★ B 边 §80.12：**探针失效不许落到通过分支** —— 目录不存在 ⇒ 这条断言**无法判定**
+  #   ⇒ 原来这里是 BEFORE=0 / AFTER=0 ⇒ 相等 ⇒ 判绿 ⇒ **恒真**（测不出隔离有没有生效）
+  bad "真备份目录不存在（${REAL_BAK}）⇒ 这条断言**无法判定**（不能拿 0=0 当通过）⇒ 请先创建该目录或改判据"
+elif [ "$REAL_BAK_BEFORE" = "$REAL_BAK_AFTER" ]; then
+  ok "真备份目录零变化（条目+大小指纹一致，$(printf '%s\n' "$REAL_BAK_AFTER" | wc -l | tr -d ' ') 项）"
 else
-  bad "真备份目录增长了（${REAL_BAK_BEFORE} -> ${REAL_BAK_AFTER}）⇒ 台架漏了隔离"
+  bad "真备份目录被改动了（${REAL_BAK}）⇒ 台架漏了隔离"
+fi
+
+# ★★ B 边 §80.12：**case 数守恒** —— 漏跑一个 case 只会让「通过数」变小，**不会变红**
+#   ⇒ 期望值**硬编码**（不是从脚本自身 grep ⇒ 那样删调用时两边同步变 ⇒ 反而恒真）
+#   ⇒ ★ 纪律：**新增/删除 case 必须同步改这一行**（宁红勿漏 —— 红了只说明要同步，绿了才说明真跑到了）
+#   ⇒ 16 = 12 个正向用例（S1~S5g ＋ S5d 复跑）＋ 4 个负向对照（N1~N4）
+EXPECTED_CASES=16
+if [ "$CASE_DONE" -eq "$EXPECTED_CASES" ]; then
+  ok "case 数守恒（实际执行 ${CASE_DONE} == 期望 ${EXPECTED_CASES}，无漏跑）"
+else
+  bad "case 数不守恒（实际执行 ${CASE_DONE} != 期望 ${EXPECTED_CASES}）⇒ 有 case 没跑到 ⇒ 断言覆盖不全"
 fi
 # ★★ B 边 §64：增量口径 —— 只查「本次运行**新增**的」被测脚本 workdir（并发时别人的目录不算我的）
 #   ⇒ ★★ B 边 §77 已把 glob 改成**宽度无关**的唯一列举函数 `_sbfb_list()`
