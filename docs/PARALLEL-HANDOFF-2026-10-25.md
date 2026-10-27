@@ -6805,3 +6805,51 @@ _sbfb_list() {
 | `scripts/e2e_feishu_rotate_exit_codes.sh` | **B 边** | ★ **本轮已改**（glob 改宽度无关 + 覆盖历史命名 + 排除守卫自己；负向 3/3 ＋ 正向 21/21 双向验证）|
 | `scripts/md_selfcheck.py` | **A 边（已接管并修）** | 本轮**我零改动**；他的 `--selftest` **6/6** ✔；我 §72.3 的错归因**已更正** |
 | 部署目录 `solobrave-server.py` / `provider_adapters.py` | **A 边** | 本轮**只读、零改动**（§72.2 的 429 分类缺口**待老大拍板**）|
+
+## 74. ★★ 新增 GitHub PAT **真 push 探针**（repo 外）＋ 一个差点判错的查法坑（2026-10-27 12:3x，B 边）
+
+### 74.1 ★★ 为什么要有它：老大「覆写 keychain」这一步**到底对 git push 有没有用**，我原以为有风险
+
+⇒ 我先查 git 到底用哪条凭据路径 ⇒ ★ **第一遍查法给了我一个错误结论**：
+| 我的查法 | 结果 | 我的解读 |
+|---|---|---|
+| `git config --global --get credential.helper` | **空** | ⇒「git 根本不读 keychain」⇒「老大覆写 keychain 可能没用」|
+| `git config --system --get-all credential.helper` | **空** | 同上 |
+| `~/.netrc` / `~/.git-credentials` / `~/.config/git/credentials` | **都不存在** | 同上 |
+| `GIT_ASKPASS` / `GITHUB_TOKEN` / `GH_TOKEN` | **全空** | 同上 |
+| `git-credential-osxkeychain` 在 PATH 里 | **不在** | 同上 |
+⇒ ⇒ ⇒ ★★★ **⇒ 差点就写成「git 不走 keychain ⇒ 老大那步白做」** ⇒ ⇒ **然后我换了个查法**：`git config --show-origin --get-all credential.helper` ⇒
+```
+file:/Library/Developer/CommandLineTools/usr/share/git-core/gitconfig	osxkeychain
+```
+⇒ ⇒ ⇒ ★★ **⇒ 真相：系统级 gitconfig 配了 `osxkeychain`** （它在 **CommandLineTools** 里，**不在** `/etc/gitconfig`）⇒ ⇒ **⇒ git push 就是走 macOS keychain 的 `github.com` 条目** ⇒ ⇒ **⇒ 所以老大覆写 keychain（`security add-internet-password -U -s github.com ...`）是有效的** ✔
+⇒ ⇒ ⇒ ⇒ **⇒ ⇒ ⇒ ★★★ ⇒ ⇒ 纪律（这条坑太容易再踩）**：**查 git 配置必须用 `--show-origin --get-all`**（它会打印来源文件）⇒ ⇒ **只看 `--global` / `--system` 会漏**（Apple Git 的 `--system` 指向 CommandLineTools 那份）⇒ ⇒ **⇒ ⇒ 「**查不到**」≠「**没有**」** —— 这跟「守卫断言恒真」「glob 匹配 0 个」是**同一个家族**：**用错误的尺子量，量出「不存在」的假结论**。
+
+### 74.2 ★ 探针脚本：`~/.solobrave-secrets/pat_push_probe.sh`（**repo 外**、700、B 边）
+
+⇒ 老大生成新 PAT 并覆写 keychain 后 ⇒ 跑它 ⇒ **实测那把新 PAT 到底能不能 push**（而不是「以为覆写了就等于能用」）：
+| 环节 | 做法 | 为什么这样 |
+|---|---|---|
+| 凭据 | **脚本不读 PAT**，让 git 自己去问 helper | ⇒ **PAT 明文不入 argv、不入日志** |
+| 推送目标 | **只推独立探针分支** `probe/pat-<ts>` | ⇒ **dev / main 零触碰**（§0.4：任何边都不许推 main）|
+| 判定 | **push rc=0 之后必须 `ls-remote` 复核** | ⇒ 「push 说成功」≠「远端真收到」⇒ **判定必须双向** |
+| 清理 | 删**本地 + 远端**探针分支，并复核 | ⇒ **不留垃圾分支**（同「残留断言」纪律）|
+⇒ ⇒ 退出码：**0** = 可用 ｜ **3** = push 失败 ⇒ **别让老大删旧 PAT**（会中途失权）｜ **4** = 异常需人工看 ｜ **5** = 清理可能残留
+
+### 74.3 ★★ 台架自证已做（**先跑一次「应该成功」的形态**）
+
+⇒ 我用**现在 keychain 里那把（旧 PAT）**先跑了一遍 ⇒
+| 检查 | 结果 |
+|---|---|
+| 探针脚本整体 | ✅ **rc=0**（push 成功 → 远端复核到 → 远端分支删干净）|
+| 残留 | ✅ **本地探针分支 0、远端探针分支 0** |
+| 工作区 | ✅ 干净、已回到原分支 |
+⇒ ⇒ ⇒ ★★ **⇒ ⇒ 所以这次跑的结论是「**旧 PAT 仍可用**」（符合预期，它还没作废）⇒ ⇒ ⇒ **等老大换成新 PAT 后再跑一次** ⇒ **那一次的结论才是「新 PAT 可用」** ⇒ ⇒ ⇒ **⇒ ★★ 而在那之前：⚠️ 别让老大删旧 PAT**（顺序反了会中途失权）**。
+
+### 74.4 状态
+
+| 对象 | 谁占用 | 状态 |
+|---|---|---|
+| `~/.solobrave-secrets/pat_push_probe.sh` | **B 边** | ★ **本轮新增**（repo 外，700；台架自证 rc=0、零残留）|
+| `scripts/e2e_feishu_rotate_exit_codes.sh` | **B 边** | 本轮**零改动**（§73 已修完并双向验证）|
+| 部署目录 `solobrave-server.py` / `provider_adapters.py` | **A 边** | 本轮**只读、零改动**（429 缺口 = 已记录的已知项、暂不动，见 §72.4）|
