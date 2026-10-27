@@ -54,9 +54,12 @@ STORE_DB = os.path.expanduser("~/.openclaw/state/openclaw.sqlite")
 # ★ 标签 → (app_id, store 条目名, 飞书后台应用名, openclaw 本地别名, 所属飞书账号)
 #   第三列 = 2026-10-27 用飞书 API 实测出来的后台真名（B 边 §80.14.1 第九项 + A 边独立复现 4/4）
 #   ⚠️ 第四列是 openclaw 侧的**本地别名**，**不是**后台应用名（同名不同物，见 runbook §2）
-#   ★ 第五列 = **所属飞书账号**（2026-10-27 16:2x A 边用浏览器**逐账号实测**得出）
+#   ★ 第五列 = **所属飞书账号**（2026-10-27 16:2x A 边浏览器实测 + 16:2x B 边独立复现 12 格矩阵）
 #     测法：飞书开放平台后台按 **App ID** 搜索（URL 参数 filters 驱动）⇒ 命中即该账号下有此 app。
-#     ⇒ 「搜不到」= **该账号下没有**（不是搜索失效 ⇒ 有正向对照：t_default 在 tuz 与 +86157…92 下都命中）。
+#     ⇒ 「搜不到」= **该账号下没有**（不是搜索失效 ⇒ 真正向对照见交接单 §86.5：
+#        **同一个** app_id 在 tuz 身份命中、在 Ayn 与豆包身份不命中 ⇒ 换身份即换结果）。
+#     ⚠️ ★★ 三个已登录身份的「昵称 / 手机号 / 所有者」是三套不同标签，**别按位置认人**
+#        （子菜单顺序随当前账号变）—— 完整对照表见交接单 §86.2 / runbook §2。
 APPS = {
     # 标签        app_id                    store 条目                      后台真名        本地别名    所属飞书账号
     "t_default": ("cli_aa420db06a78dcc5", "FEISHU_APPSECRET_T_DEFAULT", "貂蝉", "租户Bot",
@@ -66,7 +69,7 @@ APPS = {
     "default":   ("cli_aafb5d7cd6389be4", "FEISHU_APPSECRET_MAIN", "貂蝉", "貂蝉",
                   "⚠️ 三个已登录账号下均搜不到 ⇒ 属第四个账号（未登录）"),
     "helen":     ("cli_aaf9b98563b99bd7", "FEISHU_APPSECRET_HELEN", "Ayn的智能助手", "Helen",
-                  "⚠️ 三个已登录账号下均搜不到 ⇒ 属第四个账号（未登录）"),
+                  "Ayn（= +86190******76，所有者 Ayn）"),
 }
 # app_id → 标签（反查）
 BY_APP_ID = {v[0]: k for k, v in APPS.items()}
