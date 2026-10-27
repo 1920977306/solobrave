@@ -619,6 +619,10 @@ def _vision_extract_fields(shots):
         with urllib.request.urlopen(req, timeout=300) as resp:
             data = json.loads(resp.read().decode())
         content = (data.get('choices') or [{}])[0].get('message', {}).get('content') or ''
+        # ★ 2026-10-27: 先剥 think 块再提 JSON。实锤 M3 视觉输出常带 <think> 推理草稿
+        #   → _balanced_json 找不到 JSON → 整批被判失败（昨晚三次采集批7/8 连续中招，
+        #   kimi 环关闭后无活环兜底，直接「放弃」丢一个 tab 的字段）。
+        content = _strip_think(content)
         candidate = _balanced_json(content)
         if not candidate:
             raise LLMError(f'视觉提取输出中无 JSON: {content[:200]}')
