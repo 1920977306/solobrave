@@ -8797,3 +8797,11 @@ CLI 出站发送**不构成**入站基线 ⇒ 这一步**必须老大自己做**
 - 合并改为「每批返回字段 dict、全部完成后按批序 update」——`_try_vision` 签名从「并入 merged 返回 True」改为「返回 dict」，**无其他调用点**（全仓 grep 确认）。
 - 采集器已按 §8.2 纪律重启：graceful-daren → kickstart → /open 拉起团长端，**零扫码**恢复 `logged_in=true`。
 - 回归：buyin/vision/llm 相关 169 过；唯一红 `test_buyin_worker_survives_without_package_key` 为**存量环境问题**（旧代码复跑同样红：盘上 Code 订阅 token 此刻无效）——⚠️ **环1 code-sub 当前失效，运行时靠环0 套餐 key 顶着**，与本次改动无关。
+
+## §91 ★★ 「达人写入失败 http 500」真根因：'10-50' 区间文本炸裸 float()（A 边，2026-10-27 22:1x–22:3x）
+
+- **现象**：两次采集（20:47 / 22:06，含并发化后这次）视觉提取全部跑完，最后一步 `POST /api/talents` **500**：`could not convert string to float: '10-50'`（server.log 实锤）——25 分钟采集在最后写入白干。
+- **根因（同源同 bug 又一例）**：`_parse_number_tolerant`（区间取均值）**早就存在**且 PUT 路径 `_sanitize_talent_numeric_fields` 在用，但 `_dict_to_talent_row`（POST 行构建）一直是裸 `float(t.get(...))`——工具在了、用的地方没换。
+- **修复**（`e97113b`）：行构建 17 个数值列全部走 `_nf()` 包装（区间取均值、脏串置 0 + `[TalentNumGuard]` 警告日志）；服务端已重启生效。
+- **守卫**：`tests/test_talent_numeric_guard.py`（5 条，含 AST 扫描「行构建不许裸转 t.get 输入」——判据收窄为参数树含 t.get，豁免 `int(time.time())`/bool 清理，避免恒红）。
+- **E2E 验证**：22:3x 重新入队木木任务 `bc801e45`，结果待本节补充。
