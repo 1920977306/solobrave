@@ -853,6 +853,37 @@ print('能顶的独立服务商:', {r['vendor'] for r in lc.text_rings() if r['p
 > ```
 > 要能看到 `browser_up` / `daren_browser_up` / `logged_in` 等字段。
 
+### 4.1 ★★ 轮换后「明文残留 + workdir 残留」补偿控制（@贾维斯 执行）
+
+> ⚠️ **为什么要单列这一节**（2026-10-27 A 边 §70.2 实锤）：
+> 守卫 `scripts/e2e_feishu_rotate_exit_codes.sh` 的「本次运行零残留」断言，
+> glob 写的是 `/private/tmp/.sbfb.?????????`（**9 个 ?**），
+> 而被测脚本 `mktemp -d /private/tmp/.sbfb.XXXXXXXX` 产生的是 **8 位**随机名
+> ⇒ **命中恒 0** ⇒ 该断言**恒真 = 判不出任何东西**（假阴性 ⇒ 假绿）。
+> ⇒ ⇒ **轮换后不能只信守卫的「零残留」** ⇒ 必须有一道**独立**复核。
+
+```bash
+cd /Users/qichen/solobrave-prod
+
+# ① 四种命名形状的 workdir 残留（宽度都要覆盖 —— 只查当前那一个形状 = 漏算）
+for p in '/private/tmp/.sbfb.*' '/private/tmp/.sbfb-guard.*' '/private/tmp/sbfb-e2e.*' '/private/tmp/.probebak.*'; do
+  echo "$p => $(ls -d $p 2>/dev/null | wc -l | tr -d ' ')"
+done
+
+# ② 真值扫描：现役明文**只进内存** ⇒ 逐字节找 ⇒ **不回显明文、不回显指纹**
+python3 scripts/secret_residue_scan.py
+
+# ③ 先证明这个扫描器能抓（否则「0 命中」可能只是恒绿）
+python3 scripts/secret_residue_scan.py --selftest
+```
+
+> ✅ 断言：
+> - ① 四行**全是 0**；非 0 ⇒ 先确认是不是并发方在用 ⇒ 再清理
+>   （**批量临时目录用绝对路径删除** —— 本机 PATH 里的 `rm` 是可恢复删除 shim，会静默失败或挂死）
+> - ② 输出 **「✅ 未发现现役明文残留」**；
+>   命中 ⇒ **立刻按 §6 处理，不要继续做下一个 app**（窗口里的明文比顺序更重要）
+> - ③ 自检输出 **「canary 被命中」**；报不出 ⇒ 扫描器坏了 ⇒ ② 的「0 命中」**不作数**
+
 ---
 
 ## 5. 轮换完之后（可选后续，不在本次窗口做）
