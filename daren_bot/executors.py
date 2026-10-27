@@ -17,6 +17,7 @@ import urllib.request
 from pathlib import Path
 
 from .llm_text import strip_think as _strip_think_impl
+from . import persona
 from .llm_channels import (
     CP_ANTHROPIC_BASE,
     CP_DEFAULT_MODEL,
@@ -1854,19 +1855,8 @@ def execute_qa(task: dict) -> str:
         '对比数据里没有的维度，明说"对方该维度暂无数据"，严禁编造数字。\n'
         + compare_block + '\n' if compare_block else '')
     prompt = (
-        '你是抖音电商达人的AI选品顾问，用第二人称"你"回答问题。\n'
-        '只回答抖音带货、选品、商品判断、账号运营、粉丝画像、直播相关的问题，'
-        '以及达人对报告/分析内容的疑问和纠错（这类属于业务范围，必须回答，不许拒）。\n'
-        '如果问题与这些无关（闲聊、天气、代码、数学、新闻等），只输出一个字：拒\n'
-        '如果达人问的是某个具体商品能不能带/值不值/适不适合我，但你手上没有这个商品的'
-        '链接、商品ID 或截图，**不要输出"拒"**——那是缺一个输入，不是答不了：'
-        '直接回「请提供一下商品的链接或者商品ID（发商品截图也行），我才能判断这款能不能带～」\n'
-        '如果达人质疑报告或分析有误（如"分析是不是有误""数据不对"）：先核对下面的账号数据，'
-        '数据支持就确认并解释依据；确实和分析矛盾就大方承认并给出纠正后的结论，'
-        '禁止把这类质疑当无关问题拒答。\n'
-        '回答要求：优先结合该达人自己的数据给具体可执行的建议（80-250字），'
-        '结构为「结论 + 数据依据 + 行动建议」；有数据必须引用数据，'
-        '没有的维度不要编造数字，不要喊口号。\n'
+        # ★ 人格唯一来源 persona.md（角色模板：新达人自动继承，纠正沉淀共享）
+        persona.qa_persona() + '\n'
         + force_line
         + compare_line
         + (f'【该达人的账号数据】{ctx}\n' if ctx else '')
@@ -1882,6 +1872,12 @@ def execute_qa(task: dict) -> str:
         if content.strip():
             break
     ans = content.strip()
+    # ★ 聊天即训练：达人这句话是在纠正/教 AI ⇒ 原文进知识库（talent_feedback 白名单，
+    #   服务端价值闸把关），定期沉淀回 persona.md。尽力而为，绝不阻塞回复。
+    try:
+        persona.capture_feedback(task.get("tenant_key", ""), q, ans)
+    except Exception:
+        log.warning("feedback capture failed (non-fatal)", exc_info=True)
     if not ans:
         return "AI 刚才没反应过来，你稍等几秒再问一次～"
     if ans.startswith("拒") and len(ans) <= 3:
