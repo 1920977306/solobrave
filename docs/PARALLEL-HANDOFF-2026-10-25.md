@@ -7121,3 +7121,63 @@ code_sub ✅ 成功    usage={'input_tokens': 9, 'output_tokens': 3}
 | `solobrave-server.py`（代理链那一个调用点传 body）| **A 边**（部署目录专属）| 本轮**已改**（仅多传一个实参）|
 | `tests/test_proxy_chain_failover.py` | **A 边** | 本轮**已加**第 ⑧ 组 5 条断言（共 12 条）|
 | `scripts/e2e_feishu_rotate_exit_codes.sh` | **B 边** | 本轮**已合入**他的修复（`63ace2f`）＋ 我独立复核三组负向判红、正向 21/21 |
+
+---
+
+## 79. A 边：★ 基点自查（B 边这条是**旧投递**）＋ 独立实测「`credential.helper` 查法坑」⇒ 写进 runbook（老大手动步骤）＋ 新增第 3 条落地纪律（2026-10-27 13:0x）
+
+### 79.1 ★ 基点自查：他那条的**快照已过期**（§0.1.1）
+
+⇒ 他消息里写 `origin/feat = db662ae`、`feat..dev = 0` ⇒ **实测**：
+| 他消息里的快照 | 实测现状 |
+|---|---|
+| `origin/feat = db662ae` | **`b5677d3`**（他后来又推了 §74/§75）|
+| 「你合入零冲突」| **已合入**（`dev = 2be720a`，`dev..feat = **0**`）|
+| 守卫假绿「已修、可以合」| **已在 dev 上**（`_sbfb_list` 3 处）⇒ 且我**已独立复核**（§78.2）|
+| 「429 分类缺口**降级为已知项、暂不动**」| ★ **实际我已经动了**（§78.4：可选参数 + 只代理链传 body + 5 条断言）⇒ **认知差已消除**（我已发消息说明）|
+
+⇒ ⇒ **结论：他这条不需要任何新动作** ⇒ 唯一**新增**的是下面 79.2/79.3 两条。
+
+### 79.2 ★★ 「`credential.helper` 查法坑」—— 他踩到了，我独立实测并写进 **老大手动的步骤**
+
+⇒ 他说：`git config --global/--system` 查 `credential.helper` 都返回空 ⇒ 差点判成「git 不走 keychain ⇒ 老大覆写 keychain 白做」。
+⇒ ★ **我独立实测（口径比他的更细）**：
+| 命令 | 结果 |
+|---|---|
+| `git config --global --get-all credential.helper` | **空**（退出码 1）|
+| `git config --system  --get-all credential.helper` | **也空**（★ 比「只有 --global 空」更严重）|
+| `git config --show-origin --get-all credential.helper` | ✅ **`file:/Library/Developer/CommandLineTools/usr/share/git-core/gitconfig  osxkeychain`** |
+
+⇒ ⇒ **真值在 git 自带的系统配置里**，而 `--system` 指的是 `/etc/gitconfig` ⇒ **查不到** ⇒ **只有 `--show-origin --get-all` 能看到来源**。
+
+⇒ ⇒ ★ **为什么必须写进 runbook**：**Step 4 是老大手动的** ⇒ 若按 `--global`/`--system` 核对
+⇒ ⇒ **会误判「git 不走 keychain ⇒ 覆写白做」⇒ 直接放弃一个正确的步骤**。
+⇒ ⇒ **已改 runbook §1**：
+- 「现状」表里 `credential.helper = osxkeychain`（**全局）** ⇒ 改成「（**在 git 自带的系统配置里**，见下方注）」；
+- 新增注：两条查法的真实输出 + 「**必须 `--show-origin --get-all`**」+ 通用纪律
+  「**查「配置从哪来」⇒ 用 `--show-origin --get-all` ⇒ 别用单来源的 `--global`/`--system`**」；
+- **Step 4** 新增 **4.3**：用正确口径确认「git 到底走不走 keychain」。
+
+### 79.3 ★★ 新增第 3 条落地纪律：**探针自己找不到被测点 ⇒ 必须判「探针失效」（红）**
+
+⇒ **实例**（B 边自曝，2026-10-27）：他第一版**验证探针**用 `grep` 找守卫里的断言行
+⇒ **换了文案后 grep 找不到** ⇒ **落到 `case` 的默认分支判「绿」**
+⇒ ⇒ **三个负向对照全「绿」= 假绿**，而真实现明明报了「新增 **16** 个」
+⇒ ⇒ **修法**：「**找不到 ⇒ 判『探针失效』，不许落到通过分支**」。
+
+⇒ ⇒ ★ **为什么这条要独立成条**（已写进 `AGENTS.md §16 Y 第 16 条` 第 4 条纪律）：
+| 管的是谁 | 失效时的表现 |
+|---|---|
+| 第 1 条（测试能红）／第 2 条（glob 形状）| **被测对象**假绿 |
+| ★ **第 3 条（探针失效）** | **探针自己**失效 ⇒ 它**报告「没问题」** ⇒ **比被测对象假绿更隐蔽**（因为它看起来在正常工作）|
+
+⇒ ⇒ ★ **通用写法**：任何 `grep` / `find` 驱动的探针 ⇒ **「找不到」必须是红**，不能是「无问题」。
+
+### 79.4 占用登记（本节）
+
+| 对象 | 谁占用 | 状态 |
+|---|---|---|
+| `docs/SECRET-ROTATION-RUNBOOK.md`（§1 现状表 + Step 4.3）| **A 边** | 本轮**已改**（`credential.helper` 查法坑 ⇒ 写进**老大手动**的步骤）|
+| `AGENTS.md §16 Y 第 16 条` 第 4 条纪律 | **A 边** | 本轮**已改**（第 3 条落地纪律：探针失效 ⇒ 判红，不许落到通过分支）|
+| `scripts/e2e_feishu_rotate_exit_codes.sh` | **B 边** | 本轮**零改动**（他的修复已在 dev，我已独立复核）|
+| `provider_adapters.py` / `solobrave-server.py` | **A 边** | 本轮**零改动**（429 语义改造已在 §78 落地）|

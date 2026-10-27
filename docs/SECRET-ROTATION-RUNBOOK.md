@@ -40,10 +40,23 @@
 |---|---|
 | 仓库 | `github.com/1920977306/solobrave.git` |
 | 账号 | `1920977306` |
-| 凭据来源 | `credential.helper = osxkeychain`（全局）|
+| 凭据来源 | `credential.helper = osxkeychain`（⚠️ **在 git 自带的系统配置里**，见下方注）|
 | keychain 条目 | `security find-internet-password -s github.com` → `acct = 1920977306` |
 | `~/.solobrave_github_pat` | **不存在**（一次性验证用的临时文件，用完即焚）|
 | 已有的验证脚本 | `scripts/verify_github_pat.sh`（只读 PAT → 真 push → 删文件）|
+
+> ★★ **查 `credential.helper` 的坑**（2026-10-27 A 边实测；B 边先踩到）：
+> `git config --global --get-all credential.helper` ⇒ **空**（退出码 1）
+> `git config --system  --get-all credential.helper` ⇒ **也空**！
+> ⇒ 真值在 **git 自带的系统配置**里：
+> ```bash
+> git config --show-origin --get-all credential.helper
+> # ⇒ file:/Library/Developer/CommandLineTools/usr/share/git-core/gitconfig  osxkeychain
+> ```
+> ⇒ ⇒ **必须用 `--show-origin --get-all`**（一次列出**所有来源**）。
+> ⇒ ⇒ ★ **为什么必须写进 runbook**：Step 4 是**老大手动**的 ⇒ 若按 `--global`/`--system` 查 ⇒ 两处都空
+> ⇒ ⇒ **会误判成「git 不走 keychain ⇒ 覆写 keychain 白做」⇒ 直接放弃一个正确的步骤**。
+> ⇒ ★ 通用纪律：**查「配置从哪来」⇒ 用 `--show-origin --get-all` ⇒ 别用单来源的 `--global`/`--system`**。
 
 ### 步骤
 
@@ -149,6 +162,11 @@ security add-internet-password -U -s github.com -a 1920977306 -w
 # 4.2 验证条目在、且仓库能免密拉取
 security find-internet-password -s github.com 2>&1 | grep -c "1920977306"   # 必须 ≥ 1
 git -C /Users/qichen/solobrave-prod fetch origin   # 必须不要求输入用户名/密码
+
+# 4.3 ★ 确认「git 到底走不走 keychain」—— 必须用 --show-origin --get-all
+#        （--global / --system 都返回空 ⇒ 会误判成「不走 keychain ⇒ 白做」）
+git config --show-origin --get-all credential.helper
+# ⇒ 期望含 osxkeychain（来源 file:/Library/Developer/CommandLineTools/.../gitconfig）
 ```
 
 > `-U` = 有则更新、无则添加（**幂等**，重复执行不会报「已存在」）。
