@@ -24,6 +24,7 @@
 #   bash scripts/e2e_feishu_rotate_exit_codes.sh                  # 用默认被测脚本
 #   bash scripts/e2e_feishu_rotate_exit_codes.sh --script <path>  # 指定被测脚本
 #   bash scripts/e2e_feishu_rotate_exit_codes.sh --strict          # 被测脚本缺失 => exit 1
+#   bash scripts/e2e_feishu_rotate_exit_codes.sh --app mumu       # 换一个被测 app（见下）
 #
 # 被测脚本是交付物、放在 repo 外 ⇒ 本机没装就没有可测对象
 #   ⇒ 默认打印 SKIP 并 exit 0（--strict 则 exit 1）
@@ -34,9 +35,11 @@
 REAL_HOME="${HOME}"
 SCRIPT="${REAL_HOME}/.solobrave-secrets/rotate_feishu_secret_and_db.sh"
 STRICT=0
+APP_TAG="t_default"
 while [ $# -gt 0 ]; do
   case "$1" in
     --script) SCRIPT="${2:-}"; shift 2 ;;
+    --app)    APP_TAG="${2:-}"; shift 2 ;;
     --strict) STRICT=1; shift ;;
     *) echo "未知参数: $1" >&2; exit 2 ;;
   esac
@@ -50,11 +53,18 @@ if [ ! -f "$SCRIPT" ]; then
   exit 0
 fi
 
-APP="cli_aa420db06a78dcc5"
-TEN="t_default"
-NAME="FEISHU_APPSECRET_T_DEFAULT"
-OLD_V='OLDfakeSECRET_t_default_00000AAA'
-NEW_V='NEWfakeSECRET_t_default_00000BBB'
+# ★ ★ ★ 被测 app 可切换（--app）：老大轮换顺序是「先木木 → 后貂蝉」⇒ 守卫必须能测任何一个
+#   app_id 与 tenant_id 都取自 ~/.openclaw/openclaw.json（不可变 ID ⇒ 定位靠 ID 不靠名字）
+APP_TAG="t_default"
+case "$APP_TAG" in
+  t_default) APP="cli_aa420db06a78dcc5"; TEN="t_default"; NAME="FEISHU_APPSECRET_T_DEFAULT" ;;
+  mumu)      APP="cli_aa51b1b62a7a9bf6"; TEN="mumu";      NAME="FEISHU_APPSECRET_MUMU" ;;
+  default)   APP="cli_aafb5d7cd6389be4"; TEN="default";   NAME="FEISHU_APPSECRET_MAIN" ;;
+  helen)     APP="cli_aaf9b98563b99bd7"; TEN="helen";     NAME="FEISHU_APPSECRET_HELEN" ;;
+  *) echo "未知 app 标签: $APP_TAG" >&2; exit 2 ;;
+esac
+OLD_V="OLDfakeSECRET_${TEN}_00000AAA"
+NEW_V="NEWfakeSECRET_${TEN}_00000BBB"
 # ★ 长度自洽：直接按 NEW_V 截 31 字符 ⇒ 不手数（手数过一次，写成 30 实际 30 ⇒ 守卫自己 exit 9）
 BAD_V="${NEW_V:0:31}"                                # 31 字符 ⇒ 触发长度闸
 [ "${#OLD_V}" -eq 32 ] || { echo "fixture 常量长度 ${#OLD_V} != 32" >&2; exit 9; }
@@ -313,6 +323,7 @@ run_case() {
 # ------------------------------------------------------------------ 正式用例
 echo "=== 飞书一条龙脚本 · 退出码契约守卫 ==="
 echo "被测脚本: ${SCRIPT}"
+echo "被测 app : ${APP_TAG}  (app_id=${APP}  tenant=${TEN}  entry=${NAME})"
 echo ""
 printf '%s' "$NEW_V"  > "${SANDBOX}/in_ok.txt"
 printf '%s' "$BAD_V"  > "${SANDBOX}/in_short.txt"

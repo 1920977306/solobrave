@@ -5106,3 +5106,82 @@ Code OAuth token 是 30 分钟量级的短期凭据，Code 桌面端会自行续
 | `docs/SECRET-ROTATION-RUNBOOK.md`（§2）| **A 边** | 本轮**只读**（顺序已在 §54.3 写定，本轮未再改）|
 | `scripts/e2e_feishu_rotate_exit_codes.sh` | **B 边** | 本轮**只读** |
 | `data/solobrave.db` ＋ 真 store | **A 边** | 本轮**零读写** |
+
+## 56. ★★★ 副本地图的**第五次漏项**：部署目录 `data/` 下 **7 份备份 db** 含现役 secret 明文（漏因 = 我沿用了 gitignore 的 `data/` 排除）＋ 老大拍板：**db 权限 777 → 640 已执行并验证** ＋ 守卫**参数化 `--app`**（老大第一步轮换木木 ⇒ 守卫必须能测它）（2026-10-27 01:5x，B 边）
+
+### 56.1 ★★★ 副本地图第五次漏项：部署目录 `data/` 下的 7 份历史备份 db
+
+⇒ 起因：我改权限时顺手 `ls data/*.db` ⇒ 看到 7 份 38MB 的历史备份 ⇒ 扫了一遍
+⇒ ⚠️ 打不开的又踩了 **WAL + 缺 `-shm`** 那个坑（§36 修过的同款）⇒ 改成**把 db + `-wal` + `-shm` 一起拷到临时目录再开**
+（**不用 `immutable=1`** ⇒ 它会忽略 `-wal` 读到陈旧快照）⇒ 扫出来：
+
+| 备份 db | 里面 t_default 的 secret 指纹 |
+|---|---|
+| `solobrave-backup-20261012-192929.db` | `21e42f04ea54` ★**现役** |
+| `solobrave-backup-20261024-201228.db` | 同上 ★**现役** |
+| `solobrave-backup-20261024-202823-before-cart-cleanup.db` | 同上 ★**现役** |
+| `solobrave-backup-20261024-203315-before-cart-cleanup2.db` | 同上 ★**现役** |
+| `solobrave-backup-20261025-152909-before-pool-reschedule.db` | 同上 ★**现役** |
+| `solobrave-backup-20261025-194549-before-ai-cleanup.db` | 同上 ★**现役** |
+| `solobrave-backup-20261026-161634-before-conversion-null.db` | 同上 ★**现役** |
+
+⇒ ⇒ ★ **这 7 份里的明文 = 现役那把 secret** ⇒ ⇒ **一旦后台重置「貂蝉」，这 7 份同时降级为无害历史值**
+　⇒ ⇒ ★★ **这让「作废 > 擦除」的结论更硬**：**重置这一次，就闭合了这一整格**（不用逐个删 7 个 38MB 的文件）。
+⇒ ⇒ ⚠️ **但注意轮换顺序的耦合**：老大第一步轮换的是**木木**（`--phase store`，不碰 db）⇒ **木木轮换不会让这 7 份变历史值** ⇒
+　⇒ **这一格要等第 2 步（貂蝉 / `--phase all`）才闭合**。
+⇒ ⇒ ★★ **漏因（自曝，很典型）**：`.gitignore` 里有 `data/` ⇒ **我（和 A 边）的扫描器都沿用了「排除 data/」的逻辑**
+　⇒ ⇒ ★ **gitignore 是为了「别把数据提交进 git」，不是「这里没有敏感数据」** ⇒ **排除规则不能复用到凭据副本盘点**。
+⇒ ⇒ ⇒ 这是**副本地图的第五次漏项**（前四次：废纸篓 / runtime 日志 / Spotlight 索引 / `~/.solobrave-backups/`）。
+⇒ ⇒ ★ 另：这 7 份 db 权限是 **644**（**other 可读**）⇒ 与老大刚拍的「收紧权限」是**同类问题** ⇒ 处置建议见 §56.6。
+
+### 56.2 ★★ 老大拍板：db 权限 **777 → 640**，**已执行并验证**
+
+⇒ 执行前**先查运行态，不猜**：`launchctl list` ⇒ 5 个 solobrave 服务
+（`daren-bot` / `server` / `daren-cockpit` / `buyin-worker` / `daren-tunnel`）**全部以 `qichen` 用户跑** ⇒ **640 够用**（owner rw ＋ group r）。
+⇒ 执行：`chmod 640 data/solobrave.db`
+⇒ 验证（三档全过）：
+
+| 验证项 | 结果 |
+|---|---|
+| 权限 | `-rw-rw-rw-` → **`-rw-r-----`** ✅ |
+| **内容零变化** | `mtime` 仍是 `Oct 27 03:00:08`（改前改后一致）✅ |
+| **仍能拿写锁** | `BEGIN IMMEDIATE` ＋ `ROLLBACK` 成功（**不改数据**）✅ |
+| **仍能读** | `SELECT COUNT(*) FROM tenant_feishu_config` = **1** ✅ |
+
+⇒ ⇒ ★ 顺带查清一件一直含糊的事：**活库是 `data/solobrave.db`**（`solobrave-prod.db` 是 **0 字节空壳**，历史误建）⇒ 我改的**正是活库** ✅。
+⇒ ⇒ ⚠️ 副作用记录：WAL 模式运行期会新建 `-wal` / `-shm` ⇒ 它们的权限由**目录** umask 决定 ⇒ 目录是 `755`（owner 可写）⇒ 不受影响。
+
+### 56.3 认领 A 边 §54.2：**CLI 代发不构成基线**（他这条我说对了才对）
+
+⇒ 我给老大的问卷里有个选项「我现在发一条自检」⇒ ★ **A 边指出它是错的**，理由成立：
+　CLI `openclaw message send` 是**出站**路径（`via=direct`），而行为级验证验的是**入站**路径（飞书 → openclaw → agent → 回复）
+　⇒ **两者不是同一条路** ⇒ **CLI 发不构成基线**；且 `open_id` **按 app 隔离** ⇒ 失败会造出**与轮换无关的假警报**。
+⇒ ⇒ **老大选的「自己发一句」恰好就是正确做法** ✔ ⇒ 我已在 **§53.3 加更正标注**（原文保留）。
+⇒ ⇒ ⇒ 沉淀：「**验证「入站链路」只能用入站方式做**；出站 CLI 只能验「出站链路」」⇒ 两者**不可互相代替**。
+
+### 56.4 认领 A 边 §54.3 / §55 的**轮换顺序**：**先木木 → 后貂蝉**
+
+⇒ 老大已拍板 ⇒ **我此前所有报告里「先 t_default」的口径作废** ⇒ 现在的顺序是：
+① **木木**（`FEISHU_APPSECRET_MUMU`，`--phase store`）② **「貂蝉」/ t_default**（`--phase all`）③ default ④ helen。
+⇒ ⇒ 理由（我认同）：木木是老大**天天在用**的那个 ⇒ **它的行为层基线今天就已经存在** ⇒ 且 `--phase store` 不碰 db ⇒ 路径最简单 ⇒ 先用它把整条链路跑通。
+
+### 56.5 ★★ 守卫**参数化 `--app`**（因为老大第一步就是轮换木木 ⇒ 守卫必须能测它）
+
+⇒ ⚠️ **发现缺口**：我的守卫原本**写死** `APP=cli_aa420db06a78dcc5` / `TEN=t_default` ⇒ **只能测 t_default**
+　⇒ ⇒ 而老大第一步要轮换的是**木木** ⇒ 守卫**用不上** ⇒ 缺口。
+⇒ ⇒ **修法**：新增 `--app <t_default|mumu|default|helen>`，按**不可变 app_id** 映射 `APP` / `TEN` / `NAME`
+　（`mumu`=`cli_aa51b1b62a7a9bf6`／`default`=`cli_aafb5d7cd6389be4`／`helen`=`cli_aaf9b98563b99bd7`）。
+⇒ ⇒ **实测**：`--app t_default` **20/20 全绿**；`--app mumu` **20/20 全绿**（S1/S5g 等全部用例在新 app 上同样成立）。
+
+### 56.6 本轮占用登记 + **留给老大/A 边的一句话**
+
+| 对象 | 谁占用 | 状态 |
+|---|---|---|
+| `docs/PARALLEL-HANDOFF-2026-10-25.md`（§56）| **B 边** | 本轮新增 |
+| `scripts/e2e_feishu_rotate_exit_codes.sh` | **B 边** | 本轮**改**（参数化 `--app`）|
+| `data/solobrave.db`（**活库**）| **A 边** | 本轮**只改了权限**（777→640），**内容零变化** ✅ |
+| `data/solobrave-backup-*.db`（7 份）| — | 本轮**只读扫描**；**未删未改** ⇒ 处置待老大拍板 |
+| `~/.openclaw/openclaw.json` ＋ state db | — | 本轮**只读**（`mode=ro`；**未查 `secret_store_entries`**）|
+
+⇒ ★ **留给老大的一句话**：那 7 份 38MB 的备份 db **先别删** —— 它们是**回滚点**，而且**等第 2 步重置「貂蝉」之后，里面的明文自动变历史值**（无害）⇒
+⇒ ⇒ 若老大仍想收紧，建议**只把权限从 644 收到 640**（**不动内容、不动删除**）⇒ 我可以一并做，等老大一句话。
