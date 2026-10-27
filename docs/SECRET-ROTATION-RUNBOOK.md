@@ -822,9 +822,14 @@ curl -s -o /dev/null -w "cockpit(7188):%{http_code}\n" http://127.0.0.1:7188/
 .venv-daren/bin/python -c "
 import sys; sys.path.insert(0,'.')
 from daren_bot import llm_channels as lc
-dead={lc.POOL_KIMI_MONTHLY, lc.POOL_MINIMAX_OPEN}
-print('环数:', len(lc.text_rings()))
-print('能顶的独立服务商:', {r['vendor'] for r in lc.text_rings() if r['pool'] not in dead})"
+print('环数:', len(lc.text_rings()))"
+
+# ★★ 2026-10-27 A 边修正：**别用「硬编码 dead 集合」算「能顶几家」** ——
+#   上面那段原本带 `dead={POOL_KIMI_MONTHLY, POOL_MINIMAX_OPEN}`，
+#   那是 **2026-10-26 kimi 月度额度耗尽当时的快照** ⇒ 现在 kimi 已恢复（12:2x 实测 4/4 key 活）
+#   ⇒ 那个集合会把**活着的 kimi 少算成一家** ⇒ **假阴性**（kimi 是唯一活家时会误报 0 ⇒ 误触发回滚）。
+#   ⇒ 改用**活探针**（真打一次上游）作为判据：
+.venv-daren/bin/python daren_bot/tools/probe_llm_channels.py | tail -12
 
 # 全量测试
 .venv-daren/bin/python -m pytest -q --no-header -p no:cacheprovider 2>&1 | tail -3
@@ -833,8 +838,11 @@ print('能顶的独立服务商:', {r['vendor'] for r in lc.text_rings() if r['p
 > ✅ 断言：
 > - 4 行健康检查全是 `200`（**注意 8080 是 `/api/health`、8092 是 `/healthz`**，
 >   用 `/health` 会得 404 —— 那是路径错，不是服务挂了）
-> - 环数 ≥ 3、能顶的独立服务商 ≥ 1
->   （**2026-10-26 基线：环数 6、能顶 = {minimax}**。
+> - **活探针**：可用环 ≥ 3、**活着的独立服务商 ≥ 1**
+>   （**2026-10-27 12:2x 实测基线：可用环 4/6、活着的独立服务商 2 家（kimi + minimax）、
+>   活着的独立额度池 3 个（cp-subscription / code-subscription / kimi-monthly-quota）、
+>   死的只剩 `minimax-open-balance`（402 需充钱）**。
+>   ⇒ 10-26 当时的基线是「环数 6、能顶 = {minimax}」⇒ **kimi 月度额度恢复后多回一家**。
 >   ⇒ 轮换后若「能顶」变成 0 ⇒ **那家 key 填错了，立刻回滚**，别继续做下一个）
 > - pytest **`1071 passed / 6 skipped / 0 failed`**（**2026-10-26 19:3x 当场实测**，
 >   基线 commit = `4a98b4f`；前一个基线是 1064/6/0 @ `959174a` ⇒ 差 7 个 = 新增测试，非回归）
