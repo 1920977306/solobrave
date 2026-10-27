@@ -8790,3 +8790,10 @@ CLI 出站发送**不构成**入站基线 ⇒ 这一步**必须老大自己做**
 - **双超时错配**：daren_bot `JOB_WAIT_TIMEOUT=20min` < buyin_worker `JOB_TIMEOUT=25min` ⇒ daren_bot 先放弃、采集器随后也硬超时，**采集白干、达人白等**。且 402 系**间歇性**（20:47 实测 MiniMax-M3 文字链已恢复 OK）。
 - **修复**（`87155db`）：`daren_bot/executors.py` `JOB_WAIT_TIMEOUT` 20→**35 分钟**（盖过 25min + 8 批串行余量），报错话术「采集超时(20分钟)」同步改 35。daren_bot 已重启，三租户 healthz true。回归 124 条过。
 - **待拍板（采集器侧提速，未动）**：① 视觉提取 8 批**并行化**（buyin_worker，风险中等）；② 换 MiniMax-M3.1-Flash（但 20:46 实测该模型也 402——与 M3 同账户，欠费/限流时一起挂）。
+
+## §90.1 视觉提取并发化已落地（A 边，2026-10-27 21:4x，老大 21:41 拍板）
+
+- `19accc5`：`_vision_extract_fields` 批间串行 `sleep(6)` → **受控并发 ≤3 批 + 启动错峰 1.5s**；每批请求内容与串行版逐字一致（提示词+截图+模型+逐环 2 次重试），按批次序合并保持「后批覆盖前批」语义。整体 20+min → ~10min（8 批 ÷ 3 并发 × 每批 2~4min）。
+- 合并改为「每批返回字段 dict、全部完成后按批序 update」——`_try_vision` 签名从「并入 merged 返回 True」改为「返回 dict」，**无其他调用点**（全仓 grep 确认）。
+- 采集器已按 §8.2 纪律重启：graceful-daren → kickstart → /open 拉起团长端，**零扫码**恢复 `logged_in=true`。
+- 回归：buyin/vision/llm 相关 169 过；唯一红 `test_buyin_worker_survives_without_package_key` 为**存量环境问题**（旧代码复跑同样红：盘上 Code 订阅 token 此刻无效）——⚠️ **环1 code-sub 当前失效，运行时靠环0 套餐 key 顶着**，与本次改动无关。
