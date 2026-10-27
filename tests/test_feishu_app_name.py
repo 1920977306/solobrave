@@ -139,23 +139,34 @@ def test_account_column_present_and_consistent():
     ★ 为什么加这条（2026-10-27 16:2x，A 边实测后加）：
       ① 我给 `APPS` 加第 5 列时，**3 处 4 元组解包全部报 ValueError**
          ⇒ 「加一列」这种改动会**连锁打断**所有解包点 ⇒ 必须有守卫钉住列数
-      ② 本条也钉住**实测结论**：木木/default/helen 在三个已登录账号下都搜不到
+      ② 本条也钉住**实测结论**：木木/default 在三个已登录账号下都搜不到
          ⇒ 老大轮换木木前**必须切到第四个账号**（否则根本找不到那个 app）
          ⇒ ★ 这条是**给老大的操作指引**，不是装饰
 
     ★ 断言必须写「**具体内容**」，不能只写「非空」⇒ 否则改成任意字符串都绿。
+
+    ⚠️★★ 2026-10-27 16:3x（B 边 §86.4）**更正**：本条原先把 `helen` 也断言成「搜不到」
+       ⇒ **那条断言钉的是一条错事实**（「测试全绿」≠「事实对」）
+       ⇒ **实测**：`helen`（`cli_aaf9b98563b99bd7`）在 **Ayn（= +86190…76）** 身份下**命中**
+          ⇒ 根因是账号标签串位（把 `+86190…76` 当成了豆包账号）⇒ 见交接单 §86.2 / §86.4
+       ⇒ 现在：`helen` 断言**含 `Ayn`**；`mumu`/`default` 仍断言含「搜不到」。
     """
     for tag, (_aid, _e, _b, _l, acct) in fan.APPS.items():
         assert acct, "%s 缺「所属飞书账号」" % tag
         assert isinstance(acct, str) and acct.strip(), "%s 的所属账号不是非空字符串" % tag
 
-    # ★ 实测事实钉死（2026-10-27 16:0x–16:2x 浏览器逐账号搜索）：
-    #   tuz / +86157…92（飞书个人版，同一租户，tuz 是所有者）/ +86190…76（豆包账号）
-    #   ⇒ t_default 命中（貂蝉）；mumu / default / helen **三个都搜不到**
+    # ★ 实测事实钉死（2026-10-27 16:0x–16:3x 浏览器逐账号搜索，3 身份 × 4 app_id = 12 格）：
+    #   tuz（= +86157…92，所有者 tuz）/ Ayn（= +86190…76，所有者 Ayn）/ 豆包账号（所有者 悦己）
+    #   ⇒ t_default 命中「貂蝉」(tuz)；helen 命中「Ayn的智能助手」(Ayn)；mumu / default **三个都搜不到**
     accounts = {tag: fan.APPS[tag][4] for tag in fan.APPS}
     assert "tuz" in accounts["t_default"], \
         "t_default 必须在 tuz 账号下（实测命中）"
-    for tag in ("mumu", "default", "helen"):
+    for tag in ("mumu", "default"):
         assert "搜不到" in accounts[tag], (
             "%s 在三个已登录账号下实测均搜不到 ⇒ 表里必须记「搜不到」"
             "（否则老大会照着表去错误的账号找）" % tag)
+    # ★ helen 实测**命中** Ayn 账号（A 边 §85.2 原写「搜不到」是错的 ⇒ B 边 §86.4 更正）
+    assert "搜不到" not in accounts["helen"], \
+        "helen 实测在 Ayn 账号下命中（Ayn的智能助手）⇒ 不得记「搜不到」"
+    assert "Ayn" in accounts["helen"], \
+        "helen 必须在 Ayn 账号下（实测命中，cli_aaf9b98563b99bd7 → Ayn的智能助手）"
