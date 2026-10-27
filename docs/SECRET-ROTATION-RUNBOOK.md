@@ -270,20 +270,36 @@ ls -la ~/.solobrave_github_pat 2>&1 | grep -q "No such file" && echo "✅ 临时
 `+86190…76` / **豆包账号** / `+86157…92`（全为「飞书个人用户」）。
 ⇒ ⇒ **「换企业」会把人带到错的地方找 ⇒ 正确说法是「换账号」。**
 
-**★ 已定位的映射（实测）**：
+**★ 已定位的映射（★ 2026-10-27 14:2x 升级为「API 实测真名」——B 边实测；原表这 2 行写的是「❓未定位」，原文见交接单 §80.14.1 第九项）**：
 
-| 来源 | app_id | 飞书后台应用名 | 在哪个账号下 |
+| 来源 | app_id | **飞书后台应用名（API 实测）** | 在哪个账号下 |
 |---|---|---|---|
 | `t_default`（`FEISHU_APPSECRET_T_DEFAULT`）| `cli_aa420db06a78dcc5` | **貂蝉** | tuz 账号 |
 | `helen`（`FEISHU_APPSECRET_HELEN`）| `cli_aaf9b98563b99bd7` | **Ayn的智能助手** | Ayn 账号 |
-| `default`（`FEISHU_APPSECRET_MAIN`）| `cli_aafb5d7cd6389be4` | ❓未定位 | ❓ 剩下两个账号之一 |
-| `mumu`（`FEISHU_APPSECRET_MUMU`）| `cli_aa51b1b62a7a9bf6` | ❓未定位 | ❓ 同上 |
+| `default`（`FEISHU_APPSECRET_MAIN`）| `cli_aafb5d7cd6389be4` | **貂蝉** ⚠️⚠️ | ❓ 剩下两个账号之一 |
+| `mumu`（`FEISHU_APPSECRET_MUMU`）| `cli_aa51b1b62a7a9bf6` | **木木** | ❓ 同上（**Ayn 账号下实测搜不到**）|
 | `daren_bot.db` 租户 `daren_boss` | `cli_aa461b7cb7fa9cb7` | **达人1** | tuz 账号 |
 | `daren_bot.db` 租户 `daren_test2` | `cli_aa5b67fd7b799d29` | **ayn小助理** | Ayn 账号 |
 
+⇒ ⇒ ★★★ **「貂蝉」在飞书后台对应的是【两个不同的 app】**：`cli_aa420db06a78dcc5`（= `t_default`，tuz 账号）与 `cli_aafb5d7cd6389be4`（= `default`，另一个账号）
+⇒ ⇒ ⇒ **按名字搜「貂蝉」会同时命中两个** ⇒ ⇒ **必须粘 app_id 二次确认**（后台「凭证与基础信息」页顶部「应用凭证 → App ID」）⇒ ⇒ **认错 = 重置错 app 的 secret**。
+⇒ ⇒ ⇒ ★★ 这是**「同名不同物」在飞书后台里的实体版本** ⇒ ⇒ 连「按后台应用名找」都不再安全 ⇒ ⇒ **app_id 是唯一可靠依据**。
+
+⇒ ⇒ ★★★ **「木木」= `cli_aa51b1b62a7a9bf6`（API 实测）** ⇒ ⇒ **Step 1 可以直接搜「木木」**，但**仍要粘 app_id 二次确认** ⇒ ⇒ 且它**不在 Ayn 账号下**（我 14:2x 在 Ayn 账号实测搜该 app_id ⇒ 页面显示「暂无搜索结果」）⇒ ⇒ **要切到豆包账号 / `+86190…76` 账号**。
+
+⇒ ⇒ ★ **这 4 个真名是怎么测出来的（可复现，且不用碰浏览器）**：
+```bash
+# 与轮换脚本验证 secret 用的是同一条接口：先换 tenant_access_token，再问飞书「这个 app 叫什么」
+#   POST https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal  {app_id, app_secret}
+#   GET  https://open.feishu.cn/open-apis/bot/v3/info   Authorization: Bearer <tenant_access_token>
+#   ⇒ 响应里 bot.app_name = 后台应用名
+# ★ 方法可信度自证：t_default → 「貂蝉」、helen → 「Ayn的智能助手」＝ 与本节既有实测记录逐字一致
+```
+⇒ ⇒ ⇒ ⚠️ **不打印 secret / token**：只取 `app_name`；secret 从 store 复制到临时目录后只读（不碰生产库、不回显明文）。
+
 ⇒ ★ **4 个待轮换 app 里，2 个已定位（`t_default` / `helen`）**；
 另 2 个（`default` / `mumu`）在 Ayn 账号与 `+86157…92` 账号下均搜不到
-⇒ **在第三个账号（豆包账号 / `+86190…76`）下。**
+⇒ **在第三个账号（豆包账号 / `+86190…76`）下。**（★ 14:2x 复核：Ayn 账号下搜 `cli_aa51b1b62a7a9bf6` 仍为「暂无搜索结果」✔ 与上表一致）
 
 **★ 定位方法（比「切账号翻列表」快得多，实测可用）**：
 开发者后台应用列表上方有个输入框，placeholder = **「搜索应用名称或 App ID」**
