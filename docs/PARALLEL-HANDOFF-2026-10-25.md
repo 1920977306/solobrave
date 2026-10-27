@@ -4937,6 +4937,15 @@ Code OAuth token 是 30 分钟量级的短期凭据，Code 桌面端会自行续
 
 ### 53.3 ★ 发消息命令形状（已 dry-run 验证，**没真发**）
 
+> ⚠️⚠️ **【2026-10-27 B 边自我更正 — A 边 §54.2】**
+> ⇒ ★ **这段命令形状是对的，但**它**不能用来建立行为层基线** ——
+> CLI `openclaw message send` 是**出站**路径（`via=direct`），而行为级验证验的是**入站**路径
+> （飞书 → openclaw → agent → 回复）⇒ **两者不是同一条路** ⇒ **CLI 发不构成基线**。
+> ⇒ ⇒ 且 `open_id` **按 app 隔离** ⇒ 别处账号下能用的 `ou_…` 在这个 app 下**可能无效**
+> ⇒ 失败会造出**与轮换无关的假警报** ⇒ ⇒ **基线必须老大自己在飞书里发**（runbook §2 的 Step 0）。
+> ⇒ ⇒ **我给老大的问卷里那个「我现在发一条自检」的选项是错的**（A 边纠正后老大选的正是「自己发一句」✔）。
+> ⇒ ⇒ 详见 **§55.4**。
+
 ⇒ 完整命令（**dry-run 已验，没真发**）：`openclaw message send --channel feishu --account t_default --target ou_b96eb50e16247aba1210d4e6ac650e28 -m "..." --dry-run --json`
 
 ⇒ 实测 payload：`channel=feishu, to=ou_b96eb50e16247aba1210d4e6ac650e28, via=direct, dryRun=true` ✅
