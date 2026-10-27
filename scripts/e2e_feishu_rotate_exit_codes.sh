@@ -431,8 +431,13 @@ else
   bad "真备份目录增长了（${REAL_BAK_BEFORE} -> ${REAL_BAK_AFTER}）⇒ 台架漏了隔离"
 fi
 # ★★ B 边 §64：增量口径 —— 只查「本次运行**新增**的」被测脚本 workdir（并发时别人的目录不算我的）
-#   ⇒ ★★ glob 用**精确形状** `/private/tmp/.sbfb.?????????`（9 位随机名）
-#     ⇒ **不能**用 `/private/tmp/.sbfb.*` ⇒ 那个会把**守卫自己的** `.sbfb-guard.*` 也匹配进来 ⇒ 两者互相计数。
+#   ⇒ ★★ B 边 §77 已把 glob 改成**宽度无关**的唯一列举函数 `_sbfb_list()`
+#     （`.sbfb.*` 且**排除守卫自己的** `.sbfb-guard.*` ＋ 旧命名空间 `sbfb-e2e.*`）
+#   ⇒ ⚠️⚠️ **不要再写死位数**：原来的 `/private/tmp/.sbfb.?????????`（9 个 `?`）
+#     与被测脚本模板 `mktemp -d /private/tmp/.sbfb.XXXXXXXX`（**8 位**）不符
+#     ⇒ **命中恒为 0** ⇒ 「本次运行零残留」这条断言**恒真** ⇒ 假绿（A 边 §70.2 实测抓到）。
+#     ⇒ 唯一的列举口径是 `_sbfb_list()`（宽度无关 ＋ 覆盖历史形状 ＋ 排除守卫自己）——
+#        快照与跑后**共用同一个函数** ⇒ 口径永远一致。
 _sbfb_list > "$SBFB_AFTER"
 LEFTOVER="$(comm -13 "$SBFB_SNAP" "$SBFB_AFTER" 2>/dev/null | wc -l | tr -d ' ')"
 if [ "$LEFTOVER" = "0" ]; then
