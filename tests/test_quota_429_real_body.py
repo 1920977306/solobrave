@@ -116,11 +116,13 @@ def _http_error(url, code, body: bytes):
     return urllib.error.HTTPError(url, code, "err", {}, io.BytesIO(body))
 
 
-def _run_chain(srv, monkeypatch, kimi_body: bytes):
+def _run_chain(srv, monkeypatch, kimi_body: bytes, kimi_status: int = 429):
     """跑一次真链：主 = kimi（**3 把 key**：2 主 + 1 池），兜底 = minimax。
 
     ★ 3 把 key 是刻意的：只有 key 池 >1 时，「逐把试」与「不逐把试」才**分得开**
       （A 边 §78 的第 ⑧ 组用的是单把 key ⇒ 测不出这一点）。
+    ★ `kimi_status` 参数化（A 边 16:1x 补）：生产主形态是 **403**（1013 次）
+      ⇒ 需要能在同一台架上复现 **403 + permission_error** 这条路径。
     """
     calls = {"kimi": 0, "minimax": 0}
     pool = _FakeKeyPool(["fake_pool_key_1"])
@@ -129,7 +131,7 @@ def _run_chain(srv, monkeypatch, kimi_body: bytes):
         url = req.full_url
         if "kimi.test" in url:
             calls["kimi"] += 1
-            raise _http_error(url, 429, kimi_body)
+            raise _http_error(url, kimi_status, kimi_body)
         if "minimax.test" in url:
             calls["minimax"] += 1
             return _FakeResp(_anthropic_ok())
@@ -255,6 +257,138 @@ def test_quota_429_assertion_is_sensitive_to_classifier(srv, monkeypatch):
             "分类改坏后额度型 429 应退回逐把试 key（kimi 3 次），实调 %d 次" % calls["kimi"]
     finally:
         monkeypatch.setattr(padapters, "classify_upstream_status", orig)
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# ⑨ ★★★ 生产**主路径**覆盖（2026-10-27 16:1x，A 边独立复核时发现）
+#
+# ★ 为什么必须补：上面 8 条用的真实 body 是 **`type:"rate_limit_error"` 变体**
+#   ⇒ 而**生产日志统计**（`server.log` 逐字 grep，A 边 16:1x 实测）显示：
+#       provider=kimi HTTP 403  → **1013 次**
+#       provider=kimi HTTP 401  →   785 次
+#       provider=kimi HTTP 429  →   119 次
+#       "permission_error"      → **1075 次**
+#   ⇒ ⇒ **真实现场的主形态是 `type:"permission_error"` + HTTP 403**（不是 429）
+#   ⇒ ⇒ 而 403 本来就在 `classify_upstream_status` 的 FALLBACK 状态码表里
+#   ⇒ ⇒ ⇒ **上一组测试覆盖不到生产主路径** ⇒ 「全绿」不代表主路径被测过。
+#
+# ★ 这条与上一组的关系（不是重复）：
+#   上一组测「**429 + rate_limit_error**」⇒ 走 **body 判据**分支
+#   本条测「**403 + permission_error**」⇒ 走 **状态码表**分支（body 判据是双保险）
+#   ⇒ **两条分支都得绿**，否则只堵住了变体、漏了主形态。
+#
+# ★ 附带的**冗余守卫**（本组第 ⑩ 条）：
+#   真实文案在特征表里有 **3 条冗余标记**（'monthly usage limit' /
+#   'quota will be refreshed' / 'purchase extra usage'，**同批加入于 335e921**）
+#   ⇒ **只打坏其中一条，测试仍然全绿**（实测：A 边 16:1x 单条变异 ⇒ 8 passed）
+#   ⇒ ⇒ 「8 条全绿」**无法证明这组标记整体是活的** ⇒ 补第 ⑩ 条守它
+#   ⇒ ⇒ **这是本项目第 5 次「假绿」形态的变种：冗余特征表 ⇒ 掩盖单点失效**。
+#   ⇒ ⇒ ★ 注意：单条冗余是**刻意设计**（同一句文案拆三段 ⇒ 任一段被上游改写都有兜底）
+#     ⇒ ⇒ 第 ⑩ 条断言的是「**整体必需**」，**不是**「每条单独必需」。
+# ══════════════════════════════════════════════════════════════════════════
+
+# ★ 生产日志逐字提取的 **403 + permission_error** 形态（2026-10-27 03:00，`server.log`）
+REAL_QUOTA_403_BODY = (
+    '{"error":{"type":"permission_error","message":"You\'ve reached your monthly usage '
+    'limit for this billing cycle. Your quota will be refreshed in the next cycle. To '
+    'continue now, purchase extra usage or upgrade your plan: '
+    'https://www.kimi.com/membership/subscription?tab=quota"},"type":"error"}'
+)
+
+
+# ── ⑨ 生产主路径：403 + permission_error ⇒ 必须降级（不停）────────────────
+def test_real_quota_403_permission_error_is_fallback(srv):
+    """★★ 生产**主形态**（403 + permission_error，1075/1013 次）⇒ 必须判降级。
+
+    ★ 为什么要单列：403 不在 body 判据的触发条件里（`classify_upstream_status`
+      只在 **status == 429** 时才问 body）⇒ 403 靠**状态码表**兜底
+      ⇒ ⇒ **body 判据对 403 是「双保险」而不是「唯一路径」**
+      ⇒ ⇒ 那就必须两条都测，否则只测 429 变体 = **主形态没被测过**。
+    """
+    pa = srv.padapters
+    assert '"type":"permission_error"' in REAL_QUOTA_403_BODY, "样本前提变了：应带 permission_error"
+    # ① 状态码路径：403 ⇒ FALLBACK（无论 body 是什么）
+    assert pa.classify_upstream_status(403, REAL_QUOTA_403_BODY) == pa.ERROR_ACTION_FALLBACK, \
+        "生产主形态 403 必须判降级 provider（换 key 对共享额度无效）"
+    assert pa.classify_upstream_status(403) == pa.ERROR_ACTION_FALLBACK, \
+        "403 即便不带 body 也必须降级（状态码表兜底）"
+    # ② body 判据路径：额度语义仍应被认出来（双保险，不能因 403 就失效）
+    assert pa.is_quota_exhausted(REAL_QUOTA_403_BODY) is True, \
+        "403 形态的额度文案也必须被识别成额度耗尽（body 判据是双保险）"
+    # ③ 同一条 body 若状态码是 429 ⇒ 仍必须降级（保证「429 + permission_error」也不停）
+    assert pa.classify_upstream_status(429, REAL_QUOTA_403_BODY) == pa.ERROR_ACTION_FALLBACK, \
+        "同一条真实 body 配 429 也必须降级"
+
+
+# ── ⑨-b ★ 链级（生产主路径）：403 + permission_error ⇒ 不逐把试 key，直落 minimax ──
+def test_real_quota_403_chain_does_not_walk_key_pool(srv, monkeypatch):
+    """★★ 生产**主形态**（403 + permission_error，1013 次）在**链级**也必须降级。
+
+    ★ 为什么链级也要单独测（不是重复 ⑨ 的判据级）：
+      判据级只验「分类器说 fallback」⇒ 但链里还有**别的分支**可能绕开它
+      ⇒ 必须真跑一次链 ⇒ 断言 **kimi 只被调 1 次** + **落到 minimax 200**
+      ⇒ 这才是老大 15:3x 问的「**会不会跟着停**」的直接答案。
+    """
+    result, written, calls, pool = _run_chain(
+        srv, monkeypatch, REAL_QUOTA_403_BODY.encode("utf-8"), kimi_status=403)
+
+    assert calls["kimi"] == 1, \
+        "403 额度耗尽不该逐把试 key（kimi 实调 %d 次）" % calls["kimi"]
+    assert result["ok"] is True, "应降级成功（不停服），实得 %r" % (result,)
+    assert result["provider"] == "minimax", "应降级到 minimax，实得 %r" % (result["provider"],)
+    assert result["fallback_from"] == "kimi", \
+        "fallback_from 应记为 kimi，实得 %r" % (result["fallback_from"],)
+    assert written["head"][0] == 200, "对调用方应写出 200，实得 %r" % (written["head"],)
+    assert calls["minimax"] == 1, "minimax 应被调用 1 次，实得 %d" % calls["minimax"]
+
+
+# ── ⑩ ★ 冗余特征表守卫：**整体必需** + **单条冗余是刻意设计** ───────────
+def test_real_body_markers_are_required_as_a_group(srv, monkeypatch):
+    """★★ 证明真实文案的 **3 条标记合起来是必需的**，且**单条冗余是刻意设计**。
+
+    ★ 实测背景（A 边 16:1x）：把 'monthly usage limit' 单独改坏 ⇒
+      `tests/test_quota_429_real_body.py` **8 passed**（全绿！）
+      ⇒ 因为 'quota will be refreshed' / 'purchase extra usage' 兜住了
+      ⇒ ⇒ 「8 条全绿」**证明不了**这组标记整体是活的（⇒ 假绿）
+
+    ★ 三条标记的来源：`335e921`（B 边 §80）**同批加入** ⇒ 是**刻意冗余**
+      （同一句真实文案拆成三段 ⇒ 任何一段被上游改写都还有兜底）
+      ⇒ ⇒ **单条打坏必须仍绿**（这正是冗余的价值）
+      ⇒ ⇒ **全部打坏必须变红**（证明这组标记整体是活的，不是死代码）
+
+    ★ 纪律：断言必须写清「打坏什么 ⇒ 期望什么」，不能只写「rc≠0」
+    """
+    pa = srv.padapters
+    markers = ("monthly usage limit", "quota will be refreshed", "purchase extra usage")
+    orig_markers = pa._QUOTA_BODY_MARKERS
+
+    # ① 单条打坏 ⇒ **仍应判额度耗尽**（冗余生效 ⇒ 这是刻意设计，不是漏洞）
+    for m in markers:
+        mutated = tuple(("__MUTATED__" + x) if x == m else x for x in orig_markers)
+        monkeypatch.setattr(pa, "_QUOTA_BODY_MARKERS", mutated)
+        try:
+            assert pa.is_quota_exhausted(REAL_QUOTA_429_BODY) is True, \
+                ("特征 %r 单独打坏后应仍判额度耗尽（3 条标记是**刻意冗余**，同批加入于 335e921）"
+                 "⇒ 若这里红了，说明冗余被破坏" % m)
+        finally:
+            monkeypatch.setattr(pa, "_QUOTA_BODY_MARKERS", orig_markers)
+
+    # ② **全部打坏** ⇒ 必须变红（证明这组标记整体是活的 ⇒ 堵住「全绿但无覆盖」）
+    all_mutated = tuple(("__MUTATED__" + x) if x in markers else x for x in orig_markers)
+    monkeypatch.setattr(pa, "_QUOTA_BODY_MARKERS", all_mutated)
+    try:
+        assert pa.is_quota_exhausted(REAL_QUOTA_429_BODY) is False, \
+            "3 条真实文案标记全被打坏后，真实额度 body 仍被判成额度耗尽 ⇒ 这组标记**整体是死的**"
+        assert pa.classify_upstream_status(429, REAL_QUOTA_429_BODY) == pa.ERROR_ACTION_ROTATE_KEY, \
+            "3 条标记全打坏后应退回 rotate_key（逐把试 key），实得 %r" \
+            % (pa.classify_upstream_status(429, REAL_QUOTA_429_BODY),)
+    finally:
+        monkeypatch.setattr(pa, "_QUOTA_BODY_MARKERS", orig_markers)
+
+    # ★ 守卫自身自检：全部还原后 ⇒ 必须仍判 fallback（证明上面的「变红」不是恒真）
+    assert pa.is_quota_exhausted(REAL_QUOTA_429_BODY) is True, "守卫自检失败：还原后应判额度耗尽"
+    assert pa.classify_upstream_status(429, REAL_QUOTA_429_BODY) == pa.ERROR_ACTION_FALLBACK, \
+        "守卫自检失败：还原后应判 fallback"
 
 
 if __name__ == "__main__":

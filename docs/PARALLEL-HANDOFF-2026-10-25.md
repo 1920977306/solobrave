@@ -8072,3 +8072,97 @@ python3 scripts/feishu_app_name.py --selftest         # 自检（负向对照必
 | `docs/SECRET-ROTATION-RUNBOOK.md`（§2 加 Step 0.5 ＋ Step 1 ＋ 顺序表补注）| **A 边**（§2 映射表段落仍是 **B 边**的）| 本轮**已改**（**只加不删**）|
 | `docs/PARALLEL-HANDOFF-2026-10-25.md`（§83）| **A 边** | 本轮**新增** |
 | `~/.solobrave-secrets/rotate_feishu_secret_and_db.sh` | — | 本轮**零改动**（只在 **store 副本**上跑测试 ⇒ 生产零风险）|
+
+---
+
+## 84. ★★★ 老大 15:3x「kimi 再耗尽就自动切 minimax」⇒ **我独立实测：机制是真的**；**但发现生产主路径(403)没被测到**（A 边 2026-10-27 16:0x–16:3x）
+
+### 84.1 ★★ 先答老大问的那句：**「现在木木修好了没有」**（实测口径，非引用）
+
+| 观测项 | 手段 | 实测结果 | 结论 |
+|---|---|---|---|
+| 木木真实链路 | `POST 127.0.0.1:8080/api/proxy/kimi/v1/messages`（`X-Agent-Id: emp_1787550091124_1048`＝木木）| **HTTP 200**，响应头 `X-Proxy-Engine: chain` / **`X-Proxy-Provider: kimi`** | ✅ **木木在正常干活**，走 kimi 档 |
+| 生产日志里的木木最近请求 | `server.log` 逐字 | `14:04:05`…`15:32:39` 连续 **`✅ [KimiProxy] provider=kimi 成功`**；`16:07:28` 又一条（= 我这次实打）| ✅ **不是纸上的活**，有真实 usage（input 3k–13k / output 73–509）|
+| 四服务 | 权威路径（`8080 /api/health`、`8092 /`、`8095 /health`、`7188 /`）| **4/4 → 200**（pid 94508 / 27863 / 16149 / 56599）| ✅ 全在 |
+| 四把 secret 现状 | `scripts/feishu_app_name.py --all`（live，只读 store）| MUMU `80d79556cdae` / T_DEFAULT `21e42f04ea54` / MAIN `da64ab857b39` / HELEN `5c3727ab3a85` | ⚠️ **4/4 仍是基线值 ⇒ 一把都还没轮换**（老大侧手动，还没做）|
+| 各 provider 活探针 | `daren_bot/tools/probe_llm_channels.py`（活打）| **可用环 4/6**：环0 minimax-cp-anthropic ✅ / 环1 **code-sub ✅** / 环2 minimax-cp-openai ✅ / 环3 **kimi ✅**；死环 2 个（minimax-open 402 ×2）| ✅ **kimi 活着、code-sub 活着** ⇒ 降级承重档位在线 |
+
+⇒ ⇒ ★★ **一句话**：**木木现在是好的**（链路 200 / 日志连续成功 / 四服务全 200 / kimi+code-sub 双活）；
+⇒ ⇒ ⚠️ **但「好」是因为还没轮换**（4 把 secret 一把没动）⇒ **轮换一旦开始，木木是第一把** ⇒ §83 的 Step 0.5 就是为此准备的。
+
+### 84.2 ★★★ 「kimi 再耗尽 ⇒ 自动切 minimax 而不停」—— **独立实测成立**（不引用任何转述）
+
+⇒ 判据层（**用生产 `server.log` 逐字提取的真实 body**，不是构造样本）：
+```
+真实 body（2026-10-27 03:00 实测）：
+{"error":{"type":"permission_error","message":"You've reached your monthly usage limit
+ for this billing cycle. Your quota will be refreshed in the next cycle. To continue now,
+ purchase extra usage or upgrade your plan: https://www.kimi.com/membership/subscription?tab=quota"},"type":"error"}
+```
+| 输入 | `is_quota_exhausted` | `classify_upstream_status` | 动作 |
+|---|---|---|---|
+| 真实 body ＋ **403**（生产主形态）| **True** | **fallback** | ⇒ **降级下一 provider（不停）** |
+| 真实 body ＋ 429 | **True** | **fallback** | ⇒ **降级下一 provider（不停）** |
+| 普通限流 body ＋ 429（**负向对照**）| **False** | **rotate_key** | ⇒ 换 key 重试（**保守取向不变**）|
+| 无 body ＋ 429（**契约**）| — | **rotate_key** | ⇒ 与历史一致 ⇒ 其它 5 条共用管线**零影响** |
+
+⇒ ⇒ ★★ **档位表实测**（`data/settings.json`）：`kimi(主) → minimax(priority 2) → kimicode(3) → code_sub(5)`
+⇒ ⇒ ⇒ **`code_sub` = `https://agent.minimax.cn/mavis/api/v1/llm/v1`（MiniMax-M3）** ⇒ 活探针实测 ✅
+⇒ ⇒ ⇒ ⇒ **⇒ 老大 15:3x 要的那句「不再跟着停」成立**：kimi 额度耗尽 ⇒ 直接落 minimax/code_sub ⇒ **不空回复**。
+
+### 84.3 ★★★★ 本轮真发现：**生产主路径(403)根本没被测试覆盖** ⇒ 「8 条全绿」是**假绿**
+
+⇒ ★ **实测证据（`server.log` 逐字 grep，生产真实分布）**：
+```
+provider=kimi HTTP 403  →  1013 次   ← ★ 主形态
+provider=kimi HTTP 401  →   785 次
+provider=kimi HTTP 429  →   119 次
+"permission_error"      →  1075 次   ← ★ 与 403 数量吻合
+```
+⇒ ⇒ **`tests/test_quota_429_real_body.py` 的 8 条全用 `type:"rate_limit_error"` 变体**
+⇒ ⇒ ⇒ **生产主形态 `type:"permission_error"` + 403 = 那 8 条一条都没覆盖** ⇒ ⇒ **「8 passed」不代表主路径被测过**。
+
+⇒ ★★ **我自己的负向对照抓到了它**（A 边 16:1x，**第 5 次「假绿」形态**）：
+| 变异 | 结果 | 说明 |
+|---|---|---|
+| 打坏 3 条真实文案标记里的**任意 1 条** | **8 passed（仍全绿）** | 另 2 条兜住了 ⇒ **单点失效被冗余掩盖** |
+| 打坏 **全部 3 条** | **3 failed**（红在正确语义：kimi 实调 3 次 = 逐把试 key）| ⇒ 这组标记**整体是活的** |
+| 从 FALLBACK 状态码表**移除 403** | **2 failed**（新增的 403 两条）| ⇒ ★★ **403 一旦失效 ⇒ `action=client` ⇒ `ok:False` ⇒ 机器人空回复停住** |
+
+⇒ ⇒ ★★★ **结论**：**代码本身是对的**（403 本来就在 FALLBACK 表里）⇒ **缺的是「生产主路径的回归覆盖」**
+⇒ ⇒ ⇒ **这正是本项目铁律「全绿必须先证明能红」的又一次命中**：上一轮（B 边 §80）的 8 条是**按 429 变体写的**，
+⇒ ⇒ ⇒ 而真实流量**绝大部分走 403** ⇒ ⇒ **覆盖的是变体、漏的是主形态**（同 §81.9「样本不真实」那一族，但**这次是我自己新写的测试**）。
+
+### 84.4 ★★ 本轮交付（**只加不改**，`provider_adapters.py` 零改动）
+
+⇒ `tests/test_quota_429_real_body.py`：**8 条 → 11 条**
+| 新增 | 断言 | 守什么 |
+|---|---|---|
+| ⑨ `test_real_quota_403_permission_error_is_fallback` | 403 ⇒ fallback（**含无 body 的状态码兜底**）＋ 403 body ⇒ `is_quota=True` ＋ 同 body 配 429 也 fallback | 生产主形态的**判据级** |
+| ⑨-b `test_real_quota_403_chain_does_not_walk_key_pool` | **链级**：403 ⇒ **kimi 只被调 1 次** ＋ 落 **minimax** ＋ `fallback_from=kimi` ＋ 对外 **200** ＋ minimax 被调 1 次 | **老大 15:3x 那句的直接答案**（会不会停）|
+| ⑩ `test_real_body_markers_are_required_as_a_group` | ① **单条**打坏 ⇒ **仍判额度耗尽**（冗余是**刻意设计**，同批加入于 `335e921`）② **全部**打坏 ⇒ **必须变红**（证明这组标记整体是活的）③ 还原后 ⇒ 仍 fallback（守卫自检，防恒真）| 堵「**冗余特征表 ⇒ 掩盖单点失效**」|
+
+⇒ ⇒ ★ **台架改动**：`_run_chain()` 增加 `kimi_status: int = 429` 参数（**默认值不改任何现有调用语义**）⇒ 同一台架可复现 403。
+⇒ ⇒ ★ **`provider_adapters.py` 零改动**（本轮只**加测试**，不动实现 ⇒ 零回归面）。
+
+⇒ ⇒ ★★★ **变异验证已实跑（能红，红在正确语义）**：
+| 变异 | 期望 | 实得 |
+|---|---|---|
+| 3 条真实文案标记全打坏 | 变红 | **5 failed / 5 passed**（含 ⑩ 的第①段）|
+| FALLBACK 表移除 403 | 403 两条红 | **2 failed / 9 passed**（`ok:False` + `action=client`）|
+⇒ ⇒ ⇒ **两次变异均已用备份副本逐字还原**（`git status` 空 ⇒ 工作区干净）✔
+
+### 84.5 ★★ 一条**诚实记账**：本次交付**没有修任何生产 bug**（因为没有 bug）
+
+⇒ **老大的问题「木木修好了没有」⇒ 答案是「它没坏，也还没被轮换」**；
+⇒ ⇒ **本轮的真正产出是「把生产主路径(403)补进回归覆盖」** ⇒ **这是覆盖率缺口，不是功能缺口**。
+⇒ ⇒ ⚠️ **别把「11 passed」读成「修好了」** —— 它只说明**主路径现在被守住了**，不代表木木已经被轮换过。
+
+### 84.6 本节占用登记
+
+| 文件 | 持有方 | 状态 |
+|---|---|---|
+| `tests/test_quota_429_real_body.py` | **A 边** | 本轮**已改**（8 → 11 条，**只加不改**）⇒ ★ **B 边 §80 那 8 条原文一字未动** |
+| `provider_adapters.py` | **B 边**（§80）| 本轮**零改动** ⇒ 只读 + 备份副本变异（已逐字还原）|
+| `docs/PARALLEL-HANDOFF-2026-10-25.md`（§84）| **A 边** | 本轮**新增** |
+| `solobrave-server.py` | — | 本轮**零改动** |
