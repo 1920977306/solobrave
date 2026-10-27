@@ -422,12 +422,6 @@ def load_cockpit(tenant_key: str):
     if not tenant:
         return None
     dyid = tenant.get("bind_douyin_id") or ""
-    table_ids = {}
-    try:
-        table_ids = json.loads(tenant.get("bitable_table_ids") or "{}")
-    except Exception:
-        pass
-    tb_app = tenant.get("bitable_app_token") or ""
 
     # 本地 talent
     talent = None
@@ -465,69 +459,91 @@ def load_cockpit(tenant_key: str):
     except Exception:
         pass
 
-    # 飞书四路查询并行（串行时冷启动 ~5s，并行后 ~1.3s）
-    futs = {}
-    if tb_app:
-        futs["profile"] = _EXEC.submit(lark_records, tb_app, table_ids.get("profile", ""))
-        futs["log"] = _EXEC.submit(lark_records, tb_app, table_ids.get("log", ""))
-        futs["products"] = _EXEC.submit(lark_records, tb_app, table_ids.get("products", ""))
-    futs["coop"] = _EXEC.submit(lark_records, DEMO_BASE, COOP_TABLE)
-    bundle = {k: f.result() for k, f in futs.items()}
-
-    # 飞书：profile（趋势+结论+摘要）
+    # ────────────────────────────────────────────────────────────
+    # 档案区块（2026-10-27 档案层换代）：租户多维表格（bitable_sync）已下线，
+    # 改读本地库——趋势=周快照 / 结论摘要=talents / 互动=任务计数 / 选品卡=结论档案。
+    # 只有「合作机会」仍读共享样板库（那是共享 base，不在下线范围）。
     trend, verdict, summary, kpi = [], "", "", {}
-    rows = bundle.get("profile")
-    if rows:
-        mine = [r for r in rows if str(r.get("抖音号") or "") == dyid]
-        mine.sort(key=lambda r: str(r.get("日期") or ""))
-        for r in mine:
-            trend.append({"date": _fmt_date(r.get("日期")),
-                          "fans": int(_num(r.get("粉丝")))})
-        if mine:
-            last = mine[-1]
-            verdict = (last.get("评估结论") or [""])
-            verdict = verdict[0] if isinstance(verdict, list) else str(verdict)
-            summary = str(last.get("报告摘要") or "")[:60]
-            kpi = {"fans": int(_num(last.get("粉丝"))),
-                   "gmv_raw": last.get("累计GMV"),
-                   "video_ratio": last.get("视频占比")}
-
-    # 飞书：log（AI 互动分布）
     interact = {}
-    rows = bundle.get("log")
-    if rows:
-        for r in rows:
-            t = str(r.get("类型") or "其他")
-            interact[t] = interact.get(t, 0) + 1
-
-    # 飞书：tenant products（带结论的选品）
-    # ⚠️ 2026-10-21 改版：原来硬截 [:3] 平铺，商品一多就得一直往下划。
-    #   现在**全量返回**（上限 60 条控 payload），前端按「今日精选 / 换一批 / 更多」分层展示。
-    #   is_today 由服务端按本地日期算 —— 「今天的商品推荐」是老大明确要的锚点。
     cards = []
-    rows = bundle.get("products")
+    last_fans = 0
     today_str = time.strftime("%Y-%m-%d")
-    if rows:
-        for r in sorted(rows, key=lambda x: str(x.get("日期") or ""), reverse=True)[:60]:
-            v = r.get("结论") or ""
-            v = v[0] if isinstance(v, list) else str(v)
-            d = _fmt_date(r.get("日期"))
+    try:
+        bcon = sqlite3.connect(str(config.DB_PATH), timeout=30)
+        bcon.execute("PRAGMA query_only=ON")
+        bcon.row_factory = sqlite3.Row
+        # 趋势：周快照（每周一点，粉丝数；collected_at 为 "MM-DD HH:MM" 百应口径）
+        last_fans = 0
+        for r in bcon.execute(
+                "SELECT collected_at, snapshot FROM bot_weekly_snapshots"
+                " WHERE tenant_key=? AND douyin_id=? ORDER BY week_no",
+                (tenant_key, dyid)):
+            try:
+                fans = int((json.loads(r["snapshot"]) or {}).get("followers") or 0)
+            except Exception:
+                fans = 0
+            if fans:
+                ca = str(r["collected_at"] or "")
+                trend.append({"date": ca[:5] if len(ca) >= 5 and ca[2:3] == "-" else _fmt_date(ca),
+                              "fans": fans})
+                last_fans = fans
+        # 互动分布：已完成的任务按类型计数（问答走 qa 缓存表更全，但任务口径已够看板用）
+        _TYPE_LABEL = {"douyin": "账号分析", "product": "商品分析", "qa": "智能问答",
+                       "video": "视频拆解", "weekly_report": "周报生成"}
+        for r in bcon.execute(
+                "SELECT type, COUNT(*) AS n FROM bot_collect_tasks"
+                " WHERE tenant_key=? AND status='done' GROUP BY type",
+                (tenant_key,)):
+            interact[_TYPE_LABEL.get(r["type"], str(r["type"]))] = int(r["n"])
+        # 选品结论卡：结论档案（bot_product_verdicts），每个品只取最新一条
+        seen_names = set()
+        for r in bcon.execute(
+                "SELECT name, verdict, why, analyzed_at, stats_json"
+                " FROM bot_product_verdicts WHERE tenant_key=?"
+                " ORDER BY created_at DESC LIMIT 200", (tenant_key,)):
+            nm = str(r["name"] or "")
+            if not nm or nm in seen_names:
+                continue
+            seen_names.add(nm)
+            price = comm = sales = ""
+            try:
+                st = json.loads(r["stats_json"] or "{}")
+                price = str(st.get("price") or "")
+                comm = str(st.get("commission_rate") or "")
+                sales = str(st.get("sales") or "")
+            except Exception:
+                pass
+            d = _fmt_date(r["analyzed_at"])
             cards.append({
-                "name": str(r.get("商品名") or ""), "verdict": v,
-                "price": str(r.get("价格") or ""),
-                "comm": str(r.get("佣金率") or ""),
-                "sales": str(r.get("销量") or ""),
-                "reason": _clean_reason(r.get("匹配理由")),
+                "name": nm, "verdict": str(r["verdict"] or ""),
+                "price": price, "comm": comm, "sales": sales,
+                "reason": _clean_reason(r["why"]),
                 "date": d,
                 "is_today": bool(d) and d == today_str,
-                "image": "",          # 商品图是 attachment 字段，暂未接入下载通道
+                "image": "",
             })
+            if len(cards) >= 60:
+                break
+        bcon.close()
+    except Exception:
+        logging.exception("local archives read failed: tenant=%s", tenant_key)
+    # 结论 + 摘要：本地达人档案（bitable profile 表原来同步的就是这两样）
+    if talent:
+        verdict = str(talent["risk_rating"] or "")
+        summary = str(talent["ai_summary"] or talent["notes"] or "")[:60]
+        # KPI 粉丝数：以最新周快照为准，未采到时回退档案 followers
+        kpi = {"fans": last_fans or int(_num(talent["followers"])),
+               "gmv_raw": "", "video_ratio": talent["video_ratio"]}
+    # 选品卡兜底：多维表格档案没有 → 退回商品匹配池（原逻辑保留）
     if not cards:
         for p in products_local:
             p.setdefault("image", "")
             p["is_today"] = False
             p["date"] = p.get("date") or ""
         cards = products_local
+
+    # 飞书：样板库合作机会（共享 base，与已下线的租户多维表格无关）
+    bundle = {"coop": lark_records(DEMO_BASE, COOP_TABLE)}
 
     # 飞书：样板库合作机会
     coop = []
