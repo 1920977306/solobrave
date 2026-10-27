@@ -454,46 +454,53 @@ def test_probe_vendor_count_matches_ring_vendor_set():
     assert stat['vendor_redundant'] is (len(real_vendors) >= 2), stat
 
 
-def test_chain_structure_keeps_a_second_vendor_ring():
-    """★ 链**结构**上必须还留着第二家服务商（kimi）的环 —— 这条**不会过期**。
+def test_chain_structure_kimi_gated_and_last(monkeypatch):
+    """★ 2026-10-27 环序新政（老大拍板：kimi 额度留给开发）结构不变量：
 
-    ★★ 为什么不再断言「活着的独立服务商 = 某家」（2026-10-27 A 边实锤的假绿）：
-      这条断言**原本**是「有人接回第二家服务商就变红」的认知触发器
-      ⇒ 但它把「kimi 已死」**写死**进了 `dead_pools`
-      ⇒ ⇒ **结构上就看不见 kimi 额度恢复** ⇒ kimi 恢复后全量测试照样 **1096 passed / 0 failed**
-      ⇒ ⇒ 仓库里一度还写着「独立服务商 = 1 家 ⇒ 冗余归零，该买第二家 API」（**假认知**）。
-
-      ⇒ ★ **纪律**：**判据里凡「写死谁死了」= 一处会过期的假绿** ⇒ **能探就探，别写死**
-        （同款第三例：runbook §4 的 dead 集合、守卫残留断言的 glob 宽度）。
-
-    ⇒ 所以现在这条只断言**结构不变量**（不随额度死活变）：
-      ① 链上必须还有**非 minimax 的 vendor**（= 第二家服务商还在链上，没被摘掉）
-      ② 环境必须已配置（至少有一条环落在「非已死池」里）—— 半配置态也要说清死因
-      ③ **live 状态**（此刻谁活着）一律用 `daren_bot/tools/probe_llm_channels.py` 实测，
-         或跑 `-m live` 的门禁测试 `test_live_chain_has_alive_independent_vendor`
+      ① 默认（不设 DAREN_USE_KIMI）：两条链**没有 kimi 环**（运行时不烧 kimi）
+      ② DAREN_USE_KIMI=1：kimi 环出现且**必须排在所有 minimax 环之后**（应急也是最后兜底）
+      ③ 链上始终有可用环（配置没丢）——「此刻谁活着」仍归 live 探针管，这里不判。
     """
-    # ★ 只把**实测确实死**的池算死：开放平台 402（余额不足）。
-    #   ⚠️ kimi 月度池**已于 2026-10-27 12:2x 恢复**（实测 4/4 key 活）⇒ 不再算死
-    #   ⇒ 若哪天它又耗尽，**别改这里** ⇒ 跑 probe 实测，改的是「认知」不是「判据」。
-    dead_pools = {llm_channels.POOL_MINIMAX_OPEN}
+    # ① 默认关闭
+    monkeypatch.delenv('DAREN_USE_KIMI', raising=False)
     for name, rings in (('text', llm_channels.text_rings()),
                         ('vision', llm_channels.vision_rings())):
         vendors = {r.get('vendor') for r in rings if r.get('vendor')}
-        alive = {r.get('vendor') for r in rings
-                 if r.get('vendor') and r.get('pool') not in dead_pools}
-        # ① 结构不变量：第二家服务商必须还在链上
+        assert llm_channels.VENDOR_KIMI not in vendors, (
+            f'{name} 链默认竟含 kimi 环 ⇒ 运行时又在烧 kimi 额度（开发资源）')
+        assert vendors == {llm_channels.VENDOR_MINIMAX}, (
+            f'{name} 链出现未知 vendor {vendors} ⇒ 环序被改乱了')
+        assert rings, f'{name} 链一个环都没有 ⇒ 配置丢了'
+
+    # ② 放行时 kimi 排最末
+    monkeypatch.setenv('DAREN_USE_KIMI', '1')
+    for name, rings in (('text', llm_channels.text_rings()),
+                        ('vision', llm_channels.vision_rings())):
+        labels = [r.get('label') for r in rings]
+        if 'kimi' in labels:
+            ki = labels.index('kimi')
+            assert all(r.get('vendor') == llm_channels.VENDOR_KIMI or i < ki
+                       for i, r in enumerate(rings)), (
+                f'{name} 链 kimi 不在最末位（{labels}）⇒ 违反「kimi 最后兜底」新政')
+
+
+def test_chain_structure_keeps_a_second_vendor_ring(monkeypatch):
+    """★ 环**结构**上必须还留着第二家服务商（kimi）的环 —— 这条**不会过期**。
+
+    ★★ 2026-10-27 环序新政后：kimi 环默认被 DAREN_USE_KIMI 闸门关闭 ⇒
+      本测试在**放行态**（monkeypatch DAREN_USE_KIMI=1）下断言结构不变量：
+      链上必须还有**非 minimax 的 vendor**（= 第二家服务商还在链上，没被摘掉）。
+      「此刻谁活着」一律用 `daren_bot/tools/probe_llm_channels.py` 实测，
+      能探就探，别写死谁死了（同款纪律：判据里写死死活 = 会过期的假绿）。
+    """
+    monkeypatch.setenv('DAREN_USE_KIMI', '1')
+    for name, rings in (('text', llm_channels.text_rings()),
+                        ('vision', llm_channels.vision_rings())):
+        vendors = {r.get('vendor') for r in rings if r.get('vendor')}
         assert vendors - {llm_channels.VENDOR_MINIMAX}, (
             f'{name} 链上**只剩 minimax 一家 vendor**（{vendors}）⇒ '
             f'第二家服务商的环被摘掉了 ⇒ **冗余真的归零**，该买第二家 API 了'
             f'（若这是有意摘除 ⇒ 请同步更新 AGENTS.md §11 环序表与结论）')
-        # ② 环境已配置（判据用 `alive` 空，不是 `rings` 空 ⇒ 兜住「半配置态」）
-        assert alive, (
-            f'{name} 链**没有任何可用的独立服务商** ⇒ **环境未配置**'
-            f'（.env 的 MINIMAX_CP_API_KEY / Code 登录态 / OpenClaw key store）'
-            f'⇒ 这条测试无法验证链的结构。'
-            f'\n   实测：环数={len(rings)}，但全部落在已死额度池 {sorted(dead_pools)}'
-            f'（或压根没构造出来）⇒ 这是**配置问题**，不是代码漂移。'
-            f'\n   ⚠️ 按规矩必须红（不许 skip）；但**别去查代码，去查环境**。')
 
 
 LIVE_LLM = os.environ.get('SOLO_BRAVE_LIVE', '') == '1'

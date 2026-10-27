@@ -93,6 +93,15 @@ from pathlib import Path
 
 from .llm_text import strip_think
 
+
+def _kimi_enabled() -> bool:
+    """kimi 环总闸（2026-10-27 老大拍板：kimi 月度额度留给开发，16 天烧光一个月的教训）。
+
+    默认**关闭**：daren_bot 运行时的问答/选品/识图全走 minimax 系。
+    只有显式 DAREN_USE_KIMI=1（应急兜底 / live 探针）才放行，
+    且放行时 kimi 也必须排在**所有 minimax 环之后**（最后一位）。"""
+    return os.environ.get('DAREN_USE_KIMI', '').strip() == '1'
+
 # ───────────────────────── 通道常量 ─────────────────────────
 
 #: MiniMax 套餐 API（sk-cp-…）—— Anthropic 协议（官方 M Plan Claude Code base）
@@ -312,26 +321,15 @@ def text_rings(requested_model: str = '') -> list:
     else:
         _warn('文字链 套餐 API(OpenAI 协议冗余环): 无 key → 该环跳过')
 
-    # ---- 环 3+：kimi + minimax 开放平台 ----
+    # ---- 环 3+：minimax 开放平台 + kimi（kimi 默认关：额度留给开发，排最末）----
     #
     # ⚠️ 2026-10-26：原来的环 3/4（智谱 GLM）**已摘除** —— 老大拍板
     #   智谱资源包只做知识库 embedding，不拿来做 LLM 对话。
-    # ★★ 2026-10-27 12:2x 更新：kimi 月度额度**已自行恢复**（实测 4/4 key 活）
-    #   ⇒ 本链**独立服务商数 = 2（minimax + kimi）** ⇒ 冗余恢复 ⇒ 不用买第二家 API。
-    #   ⚠️ 但**别把谁死了写死在这里** ⇒ 开放平台仍 402、套餐池会 429 波动
-    #   ⇒ 此刻谁活着跑 `probe_llm_channels.py`（2026-10-27 12:3x 实测：套餐 429 时
-    #   ⇒ 环1 code-sub 与环3 kimi 自动接管 ⇒ 链没停）。
+    # ★★ 2026-10-27 19:2x 环序调整（老大拍板）：kimi 从「环3」挪到**所有 minimax 环之后**
+    #   且默认整环关闭（DAREN_USE_KIMI=1 才放行）——kimi 月度额度是开发资源，
+    #   运行时（飞书聊天/浏览器抓数分析）不允许烧它。开放平台仍 402 波动，
+    #   ⇒ 此刻谁活着跑 `probe_llm_channels.py`。
     try:
-        kbase, kkey = _kimi_channel()
-        if kkey:
-            rings.append({'protocol': 'openai', 'base': kbase, 'key': kkey,
-                          'model': 'moonshot-v1-32k', 'temp': 1.0,
-                          'models': ('moonshot-v1-32k',), 'auth': 'bearer', 'refresh': False,
-                          'vendor': VENDOR_KIMI,
-                          'pool': POOL_KIMI_MONTHLY,
-                          'max_tokens': DEFAULT_MAX_TOKENS, 'label': 'kimi'})
-        else:
-            _warn('文字链 kimi 无可用 key → 该环跳过')
         mmkey = env_api_key('MINIMAX_API_KEY') or openclaw_api_key('minimax')
         if mmkey:
             for m in ('MiniMax-M3.1-Flash-Preview', 'MiniMax-M3'):
@@ -343,6 +341,19 @@ def text_rings(requested_model: str = '') -> list:
                               'max_tokens': DEFAULT_MAX_TOKENS, 'label': 'minimax-open'})
         else:
             _warn('文字链 minimax 开放平台无可用 key → 该环跳过')
+        if _kimi_enabled():
+            kbase, kkey = _kimi_channel()
+            if kkey:
+                rings.append({'protocol': 'openai', 'base': kbase, 'key': kkey,
+                              'model': 'moonshot-v1-32k', 'temp': 1.0,
+                              'models': ('moonshot-v1-32k',), 'auth': 'bearer', 'refresh': False,
+                              'vendor': VENDOR_KIMI,
+                              'pool': POOL_KIMI_MONTHLY,
+                              'max_tokens': DEFAULT_MAX_TOKENS, 'label': 'kimi'})
+            else:
+                _warn('文字链 kimi 无可用 key → 该环跳过')
+        else:
+            _warn('文字链 kimi 环被 DAREN_USE_KIMI 关闭（kimi 额度留给开发，运行时不走）')
     except Exception as e:                                    # noqa: BLE001
         _warn(f'文字链 openclaw 配置读取失败: {e}')
     return rings
@@ -373,15 +384,6 @@ def vision_rings() -> list:
     #     配置源独立（`settings.visionQA`），见 `solobrave-server.py::_vision_qa_cfg`。
 
     try:
-        kbase, kkey = _kimi_channel()
-        if kkey:
-            rings.append({'protocol': 'openai', 'base': kbase, 'key': kkey,
-                          'model': 'moonshot-v1-8k-vision-preview', 'temp': 1.0,
-                          'vendor': VENDOR_KIMI,
-                          'pool': POOL_KIMI_MONTHLY,
-                          'max_tokens': 1500, 'label': 'kimi'})
-        else:
-            _warn('识图链 kimi 无可用 key → 该环跳过')
         mmkey = env_api_key('MINIMAX_API_KEY') or openclaw_api_key('minimax')
         if mmkey:
             for m in ('MiniMax-M3.1-Flash-Preview', 'MiniMax-M3'):
@@ -392,6 +394,19 @@ def vision_rings() -> list:
                               'max_tokens': 1500, 'label': 'minimax-open'})
         else:
             _warn('识图链 minimax 开放平台无可用 key → 该环跳过')
+        # ★ kimi 排最末且默认关（额度留给开发，见 _kimi_enabled）
+        if _kimi_enabled():
+            kbase, kkey = _kimi_channel()
+            if kkey:
+                rings.append({'protocol': 'openai', 'base': kbase, 'key': kkey,
+                              'model': 'moonshot-v1-8k-vision-preview', 'temp': 1.0,
+                              'vendor': VENDOR_KIMI,
+                              'pool': POOL_KIMI_MONTHLY,
+                              'max_tokens': 1500, 'label': 'kimi'})
+            else:
+                _warn('识图链 kimi 无可用 key → 该环跳过')
+        else:
+            _warn('识图链 kimi 环被 DAREN_USE_KIMI 关闭（kimi 额度留给开发，运行时不走）')
     except Exception as e:                                    # noqa: BLE001
         _warn(f'识图链 openclaw 配置读取失败: {e}')
     return rings
