@@ -7429,8 +7429,8 @@ purchase extra usage or upgrade your plan: https://www.kimi.com/membership/subsc
 #### 80.14.1 A 边报的**第二层缺陷**（我独立复现）＋ ★ **状态口径更正** ＋ 我的兜底**降级为第二道防线**（2026-10-27 13:4x，B 边）
 
 一、★ **A 边 13:3x 跨边消息报的第二层缺陷 —— 我独立复现（不引用转述）**：
-- **层①（我 §80.14 已报）**：解析后有一行无条件 `APP_TAG="t_default"`（脚本 line 58）⇒ `--app` 永远不生效；
-- **层②（★ 我此前不知道）**：fixture 常量 `OLDfakeSECRET_${TEN}_00000AAA`（line 66）⇒ 长度 = 14 + len(TEN) + 9 = **23 + len(TEN)** ⇒ **只有 len(TEN)==9 的 `t_default` 恰好 32**，其余三个 tenant 全撞长度闸 ⇒ **rc=9，连跑都跑不起来**；
+- **层①（我 §80.14 已报）**：参数解析循环**之后**有一行无条件 `APP_TAG="t_default"`（**用内容锚点，不用行号** —— 行号会随修复漂移）⇒ `--app` 永远不生效；
+- **层②（★ 我此前不知道）**：fixture 常量 `OLD_V="OLDfakeSECRET_${TEN}_00000AAA"`（内容锚点）⇒ 长度 = 14 + len(TEN) + 9 = **23 + len(TEN)** ⇒ **只有 len(TEN)==9 的 `t_default` 恰好 32**，其余三个 tenant 全撞长度闸 ⇒ **rc=9，连跑都跑不起来**；
 - ⇒ 我 bash **实测**的 fixture 长度（实测，非推算）：`t_default`=32 / `mumu`=27 / `default`=30 / `helen`=28 ⇒ ⇒ 与 A 边结论一致。
 
 二、★★ **状态口径更正：那张 rc=9 的表测于「只去层①」的中间态，不是原始态** ⇒ 这条决定「假绿到底是哪种」：
@@ -7453,15 +7453,41 @@ purchase extra usage or upgrade your plan: https://www.kimi.com/membership/subsc
 | 改动方 | 改动区域 |
 |---|---|
 | 我（`a3b3535`）| ① `real_bak_fp()` 指纹函数（脚本中段）② `CASE_DONE` / `EXPECTED_CASES=16`（脚本尾段）|
-| A 边（据其消息）| line 38/58（`APP_TAG`）、line 66 附近（fixture 生成）、新增 `--print-app`、新增 `tests/test_guard_app_plumbing.py` |
+| A 边（据其消息）| 参数解析段（`APP_TAG`）、fixture 生成段（`OLD_V` / `NEW_V`）、新增 `--print-app`、新增 `tests/test_guard_app_plumbing.py` |
 
 ⇒ ⇒ **行区间不重叠**（我中段 + 尾段，他头部 + 中前段）⇒ 冲突概率低；但**同一文件** ⇒ 建议**以 dev 为准、两边内容都留**（§0.4 第 3 条）。
 
-五、★ **A 边声称但我尚未独立验证的部分（如实标注）**：
-- `tests/test_guard_app_plumbing.py`（5 条）与「层①加回 ⇒ 3 red / 层②加回 ⇒ 3 red」的**双层敏感度** ⇒ 他**尚未推 dev**（我 13:4x 实测 `origin/dev` 仍 = `d109991`）⇒ ⇒ **我这边无法验证** ⇒ ⇒ 等他推上来，我用 `--print-app` 快通道**秒验「mumu 真切到 mumu」**（我的待办第 7 项）。
+五、★★★ **独立复核 A 边的修法** —— 他已推 dev（`a01df9e` 修根因 ＋ `b909878` 合我 4 笔）⇒ ⇒ **他 5 项声称，我 5 项全部独立复现成立**：
+
+| # | A 边的声称 | 我的独立实测 | 结论 |
+|---|---|---|---|
+| ① | 修法①：删掉那行无条件重置，不传 `--app` 时行为完全不变 | 不传 app 跑 `--print-app` ⇒ 仍输出 `t_default cli_aa420db06a78dcc5 t_default FEISHU_APPSECRET_T_DEFAULT 32 32 31` | ✅ |
+| ② | 修法②：fixture 与 TEN 无关、按宽度生成 | `--print-app` 输出末三列**恒为** `32 32 31`（4 个 app 全一致）| ✅ |
+| ③ | 修法③：`--print-app` 快通道（秒级）| 4 个标签各跑一次，**全部 rc=0 且秒回** | ✅ |
+| ④ | 修法④：新增 `tests/test_guard_app_plumbing.py`（5 条）| `pytest tests/test_guard_app_plumbing.py -q` ⇒ **5 passed in 0.25s** | ✅ |
+| ⑤ | 双层敏感度：层①加回 ⇒ 3 red；层②加回 ⇒ 3 red | 我用**备份副本逐字还原**独立做了一遍 ⇒ 见下表 | ✅ |
+
+⇒ ⇒ ⇒ **我的独立实测原文**：
+- `--print-app` 四个标签**各解析到自己的** app_id / tenant / entry：`mumu cli_aa51b1b62a7a9bf6 mumu FEISHU_APPSECRET_MUMU` ／ `t_default cli_aa420db06a78dcc5 t_default FEISHU_APPSECRET_T_DEFAULT` ／ `default cli_aafb5d7cd6389be4 default FEISHU_APPSECRET_MAIN` ／ `helen cli_aaf9b98563b99bd7 helen FEISHU_APPSECRET_HELEN`（末三列恒为 `32 32 31`）；
+- **完整跑** `bash scripts/e2e_feishu_rotate_exit_codes.sh --app mumu` ⇒ **rc=0 / 22 项通过 / 0 项失败 / 末行哨兵 `GUARD-EXIT-CODES-OK`** ⇒ 且打印「被测 app : **mumu**（app_id=cli_aa51b1b62a7a9bf6 tenant=mumu entry=FEISHU_APPSECRET_MUMU）」⇒ ⇒ ★★ **木木第一次被这个守卫真正测过**；
+- **未知标签负向**：`--app nosuchapp` ⇒ **rc=2 ＋ 文案「未知 app 标签: nosuchapp」**（rc 与文案**都**断言，不只看非 0）。
+
+⇒ ⇒ ★ **我独立做的双层敏感度**（每次变异后用**备份副本逐字拷回**，md5 与基线一致 ⇒ 零残留）：
+
+| 变异 | pytest 结果 | 守卫本体行为 | 失败信息 |
+|---|---|---|---|
+| 层①加回（解析后无条件重置）| **rc=1，3 failed / 2 passed** | `--print-app --app mumu` ⇒ **解析成 t_default**（管道失效）| 含「参数管道没生效」|
+| 层②加回（`OLD_V` 重新绑定 `${TEN}`）| **rc=1，3 failed / 2 passed** | `--app mumu` ⇒ **rc=9「fixture 常量长度 27 != 32」** | 正是原缺陷的原始现象 |
+| 还原后 | **rc=0，5 passed** | 正常 | md5 与基线**逐字一致** |
+
+⇒ ⇒ ⇒ ★★ **结论：A 边 5 项声称，5 项全部独立复现成立** ⇒ ⇒ **木木这一轮的「事前守卫」已恢复有效**（我的兜底仍保留为「轮换后核对」第二道防线，见第三项）。
 
 六、★ **本轮新增的可复用纪律**（§80.12/§80.13 同族）：
 ⇒ **「参数化复跑」类证据要分三层验**：① 参数**真的生效**了吗（打印被测对象）② 参数的**每个取值**都跑得起来吗（枚举全部取值各跑一遍）③ 跑起来后**测的是目标对象**吗（app_id / tenant / entry 三者对得上）⇒ ⇒ **只验 ① 会漏掉「某个取值根本跑不起来」这一层**（我这次就只验了 ①）⇒ ⇒ **A 边这次正是补上了第 ② 层** ⇒ ⇒ **参数化复跑的完整证据 = 枚举 × 每项先打印被测对象**。
+
+七、★★ **一个「文档写了我还是会犯」的复发（本轮当场自曝）**：
+⇒ 我在 §80.14 第六项把「bash 3.2 会把 `$VAR` 后紧跟的全角字符吞进变量名 ⇒ 一律写 `${VAR}`」写进了交接单 ⇒ ⇒ **本轮我自己在验证脚本里又犯了一次**（`echo "（应等于 $MD5_BEFORE）"` ⇒ 变量名被吞 ⇒ 打印成空）⇒ ⇒ ★ **纪律写进文档 ≠ 行为自动改变** ⇒ ⇒ **必须配一道机械闸**：正则扫 `\$[A-Za-z_][A-Za-z0-9_]*[^\x00-\x7f]`。
+⇒ ⇒ ⇒ **这条扫描我已真跑了一遍（不是只写规则）**：全仓 `*.sh` / `*.bash` / `*.zsh` ⇒ **命中 3 处，且 3 处全是「讲这个坑的注释本身」**（`health_check.sh` 2 行 ＋ `scripts/verify_github_pat.sh` 1 行）⇒ ⇒ **无活代码残留** ✔ ⇒ ⇒ ⇒ **但这次是靠「我记得」而不是靠闸门** ⇒ ⇒ ★ **建议下一步把它做成独立 lint 脚本接进提交闸门**（★ 本轮**不做**：要改的 `scripts/md_selfcheck.py` 是 A 边持有的文件 ⇒ 同一时刻一个文件只能一个会话改 ⇒ 先记账，等他交回）。
 
 ## 81. A 边：★★ **认账「我自己的 §78 是构造样本 ⇒ 假绿」** ＋ 独立复核 B 边 §80（4/4 全对）＋ 补 2 条真实现场断言 ＋ 一个 bytes 转义的**假象**（2026-10-27 13:0x~13:3x，A 边）
 
