@@ -495,6 +495,20 @@ def load_cockpit(tenant_key: str):
                 " WHERE tenant_key=? AND status='done' GROUP BY type",
                 (tenant_key,)):
             interact[_TYPE_LABEL.get(r["type"], str(r["type"]))] = int(r["n"])
+        # 零成本直达应答（排品查询/选品推荐/驾驶舱导航）——不建任务不留流水，
+        # 单独一张轻量计数表，在这里并进口径（2026-10-28）。
+        # ⚠️ 单独 try：表由 daren_bot 迁移建，7188 若先于 bot 重启查询会缺表，
+        #    不能让它吃掉后面的选品卡查询。
+        _KIND_LABEL = {"plan_query": "排品查询", "reco_query": "选品推荐",
+                       "cockpit_link": "驾驶舱导航"}
+        try:
+            for r in bcon.execute(
+                    "SELECT kind, COUNT(*) AS n FROM bot_interactions"
+                    " WHERE tenant_key=? GROUP BY kind", (tenant_key,)):
+                lbl = _KIND_LABEL.get(r["kind"], str(r["kind"]))
+                interact[lbl] = interact.get(lbl, 0) + int(r["n"])
+        except sqlite3.OperationalError:
+            pass
         # 选品结论卡：结论档案（bot_product_verdicts），每个品只取最新一条
         seen_names = set()
         for r in bcon.execute(

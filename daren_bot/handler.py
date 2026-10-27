@@ -385,6 +385,7 @@ class Router:
         ⚠️ 日志只记 tenant_key，**不打 k**（k 等同于访问密码）。
         """
         tk = tenant["tenant_key"]
+        db.log_interaction(tk, "cockpit_link")
         link = cockpit_link.tenant_cockpit_link(tk)
         if not link:
             sender.send_text(chat_id,
@@ -427,6 +428,7 @@ class Router:
         """
         from . import plan_notify
         tk = tenant["tenant_key"]
+        db.log_interaction(tk, "plan_query")
         dyid = (db.get_latest_douyin_id(tk) or
                 tenant.get("bind_douyin_id") or "").strip()
         try:
@@ -450,6 +452,7 @@ class Router:
         from . import feishu_card as fc
         from daren_cockpit.tools import reco_source
         tk = tenant["tenant_key"]
+        db.log_interaction(tk, "reco_query")
         dyid = (db.get_latest_douyin_id(tk)
                 or tenant.get("bind_douyin_id") or "").strip()
         if not dyid:
