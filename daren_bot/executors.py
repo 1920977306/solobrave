@@ -46,7 +46,7 @@ log = logging.getLogger("daren-bot.executors")
 BUYIN_CONTROL = "http://127.0.0.1:8095"          # buyin_worker 控制口
 SOLOBRAVE_DB = Path("/Users/qichen/solobrave-prod/data/solobrave.db")
 JOB_POLL_INTERVAL = 5
-JOB_WAIT_TIMEOUT = 20 * 60                        # 比 buyin_worker JOB_TIMEOUT 长，覆盖 429 降级耗时
+JOB_WAIT_TIMEOUT = 35 * 60                        # 盖过 buyin_worker JOB_TIMEOUT(25min) + MiniMax-M3 视觉提取 8 批串行余量
 
 
 def _http_json(method: str, url: str, payload: dict = None, timeout: int = 15) -> dict:
@@ -120,7 +120,7 @@ def execute_douyin_collect(task: dict) -> str:
             return _build_report(job.get("talent_id", ""), douyin_id)
         if status in ("failed", "need_login"):
             raise RuntimeError(job.get("error") or f"采集失败({status})")
-    raise RuntimeError("采集超时(20分钟)，积分已返还，可稍后再试")
+    raise RuntimeError("采集超时(35分钟)，积分已返还，可稍后再试")
 
 
 def _fmt_pct(v) -> str:
