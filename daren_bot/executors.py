@@ -1367,17 +1367,20 @@ def notify_report(sender, chat_id: str, douyin_id: str, report_text: str) -> Non
                 chat_id,
                 f"📊 {name} 的账号数据报告如上　🎯 账号评估：{verdict or '见报告'}")
             _send_text_quiet(sender, chat_id, report_text)
-            try:
-                from . import bitable_sync, db as ddb
-                tenant = ddb.get_tenant_by_douyin(douyin_id)
-                if tenant:
-                    summary = (t.get("ai_summary") or t.get("notes") or "")[:2000]
-                    bitable_sync.sync_profile(
-                        tenant["tenant_key"], t,
-                        t.get("risk_rating") or "", summary,
-                        img_path=str(tmp))
-            except Exception:
-                log.exception("bitable sync profile failed: douyin_id=%s", douyin_id)
+            # ★ 2026-10-27 老大拍板：档案层已换成 mini 做的新功能（达人经营驾驶舱），
+            #   每租户「我的带货助手」多维表格（bitable_sync）链路废弃——
+            #   新达人应用不再有此权限，sync 只会刷 400 噪音。整段停用，模块保留备查。
+            # try:
+            #     from . import bitable_sync, db as ddb
+            #     tenant = ddb.get_tenant_by_douyin(douyin_id)
+            #     if tenant:
+            #         summary = (t.get("ai_summary") or t.get("notes") or "")[:2000]
+            #         bitable_sync.sync_profile(
+            #             tenant["tenant_key"], t,
+            #             t.get("risk_rating") or "", summary,
+            #             img_path=str(tmp))
+            # except Exception:
+            #     log.exception("bitable sync profile failed: douyin_id=%s", douyin_id)
             return
     except Exception:
         log.exception("render card failed, fallback to text: douyin_id=%s", douyin_id)
@@ -1413,11 +1416,12 @@ def notify_qa_card(sender, chat_id: str, question: str, answer: str,
                        link=cockpit_link.tenant_cockpit_link(tenant_key))
         sender.send_image_path(chat_id, str(tmp))
         _send_text_quiet(sender, chat_id, f"💬 {answer}")
-        try:
-            from . import bitable_sync
-            bitable_sync.sync_log(tenant_key, "问答", question, answer)
-        except Exception:
-            log.exception("bitable sync log failed: tenant=%s", tenant_key)
+        # ★ 2026-10-27 档案层已换代（见上方 sync_profile 同因），问答日志同步一并停用。
+        # try:
+        #     from . import bitable_sync
+        #     bitable_sync.sync_log(tenant_key, "问答", question, answer)
+        # except Exception:
+        #     log.exception("bitable sync log failed: tenant=%s", tenant_key)
         return
     except Exception:
         log.exception("render qa card failed, fallback to text: tenant=%s", tenant_key)
@@ -2135,13 +2139,14 @@ def notify_product_card(sender, chat_id: str, title: str, report: str,
             _send_text_quiet(sender, chat_id,
                              f"🛒 {title}\n{_md_to_text(report)}")
             _send_accept_hint(sender, chat_id, product_id)
-        try:
-            from . import bitable_sync
-            bitable_sync.sync_product(
-                tenant_key, stats or {"name": title}, report, source,
-                img_path=str(tmp))
-        except Exception:
-            log.exception("bitable sync product failed: tenant=%s", tenant_key)
+        # ★ 2026-10-27 档案层已换代（bitable_sync 链路废弃，见 notify_douyin_report 同因）。
+        # try:
+        #     from . import bitable_sync
+        #     bitable_sync.sync_product(
+        #         tenant_key, stats or {"name": title}, report, source,
+        #         img_path=str(tmp))
+        # except Exception:
+        #     log.exception("bitable sync product failed: tenant=%s", tenant_key)
         return
     except Exception:
         log.exception("render product card failed, fallback to text: tenant=%s", tenant_key)
@@ -2164,14 +2169,15 @@ def notify_video_card(sender, chat_id: str, result_text: str, tenant_key: str) -
         sender.send_text(chat_id, f"📹 视频拆解完成：{title}")
         _send_text_quiet(sender, chat_id,
                          f"📹 {title}\n{_md_to_text(report)}")
-        try:
-            from . import bitable_sync
-            bitable_sync.sync_log(
-                tenant_key, "视频拆解",
-                (result_text or "").split("\n", 1)[0][:500],
-                _md_to_text(report))
-        except Exception:
-            log.exception("bitable sync log failed: tenant=%s", tenant_key)
+        # ★ 2026-10-27 档案层已换代（bitable_sync 链路废弃，见 notify_douyin_report 同因）。
+        # try:
+        #     from . import bitable_sync
+        #     bitable_sync.sync_log(
+        #         tenant_key, "视频拆解",
+        #         (result_text or "").split("\n", 1)[0][:500],
+        #         _md_to_text(report))
+        # except Exception:
+        #     log.exception("bitable sync log failed: tenant=%s", tenant_key)
         return
     except Exception:
         log.exception("render teardown card failed, fallback to text: tenant=%s", tenant_key)

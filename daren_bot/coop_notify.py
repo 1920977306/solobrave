@@ -1,6 +1,7 @@
 """合作机会 → 主动通知匹配达人（工单 docs/BACKLOG-coop-automation-工单.md，2026-10-21 认领）。
 
-三层分工（DAREN-ARCHITECTURE.md）：触达=daren_bot / 工作台=7188 / 档案=bitable_sync。
+三层分工（DAREN-ARCHITECTURE.md）：触达=daren_bot / 工作台=7188 /
+档案=达人经营驾驶舱（2026-10-27 起；原 bitable_sync 每租户多维表格已废弃）。
 本模块是**触达层**的核心增量：不等达人来问，主动把匹配的合作机会推给合适的达人。
 
 流程：
