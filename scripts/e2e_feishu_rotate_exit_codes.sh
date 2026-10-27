@@ -335,6 +335,12 @@ run_case() {
 }
 
 # ------------------------------------------------------------------ 正式用例
+# ★★ B 边 §64：跑前快照 .sbfb.* 集合 ⇒ 跑后取**差集** ⇒ 只对自己这次产生的负责（并发不假红）
+#   ⇒ ★★ 快照文件**必须放在 /tmp 下、且名字不以 .sbfb 开头** ——
+#     否则它会被下面 `ls -d /private/tmp/.sbfb.*` **自己匹配到** ⇒ 快照里混进自己的路径 ⇒ 差集永远非空。
+SBFB_SNAP="$(mktemp -t b_sbfb_before.XXXXXXXX)"
+SBFB_AFTER="$(mktemp -t b_sbfb_after.XXXXXXXX)"
+ls -d /private/tmp/.sbfb.????????? 2>/dev/null | sort > "$SBFB_SNAP" || true
 echo "=== 飞书一条龙脚本 · 退出码契约守卫 ==="
 echo "被测脚本: ${SCRIPT}"
 echo "被测 app : ${APP_TAG}  (app_id=${APP}  tenant=${TEN}  entry=${NAME})"
@@ -412,12 +418,17 @@ if [ "$REAL_BAK_BEFORE" = "$REAL_BAK_AFTER" ]; then
 else
   bad "真备份目录增长了（${REAL_BAK_BEFORE} -> ${REAL_BAK_AFTER}）⇒ 台架漏了隔离"
 fi
-LEFTOVER="$(ls -d /private/tmp/.sbfb.* 2>/dev/null | wc -l | tr -d ' ')"
+# ★★ B 边 §64：增量口径 —— 只查「本次运行**新增**的」被测脚本 workdir（并发时别人的目录不算我的）
+#   ⇒ ★★ glob 用**精确形状** `/private/tmp/.sbfb.?????????`（9 位随机名）
+#     ⇒ **不能**用 `/private/tmp/.sbfb.*` ⇒ 那个会把**守卫自己的** `.sbfb-guard.*` 也匹配进来 ⇒ 两者互相计数。
+ls -d /private/tmp/.sbfb.????????? 2>/dev/null | sort > "$SBFB_AFTER" || true
+LEFTOVER="$(comm -13 "$SBFB_SNAP" "$SBFB_AFTER" 2>/dev/null | wc -l | tr -d ' ')"
 if [ "$LEFTOVER" = "0" ]; then
-  ok "被测脚本的 /private/tmp/.sbfb.* 零残留"
+  ok "被测脚本本次运行零残留（/private/tmp/.sbfb.????????? 增量口径；全局现存 $(wc -l < "$SBFB_AFTER" | tr -d ' ') 个可能来自并发方）"
 else
-  bad "残留 ${LEFTOVER} 个 /private/tmp/.sbfb.* 工作目录"
+  bad "本次运行新增 ${LEFTOVER} 个 /private/tmp/.sbfb.* 工作目录 ⇒ 被测脚本 cleanup 未生效"
 fi
+
 # ★★ 2026-10-27（B 边 §59）：守卫**自己**的 sandbox 也必须零残留。
 #   ⇒ 这条断言存在的意义：曾实测「每次跑净增 1 个 .sbfb-guard.*」（累计 49 个），
 #     而旧断言只查 `.sbfb.*` ⇒ **查不到自己的残留 ⇒ 缺陷隐身**。
