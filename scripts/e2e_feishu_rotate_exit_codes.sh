@@ -91,14 +91,22 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# ★★ B 边 §80.12（2026-10-27 13:1x）：真备份目录的**指纹**（不是纯计数）
+#   ⇒ 为什么不用纯计数：① 目录不存在时两边都是 0 ⇒ 相等 ⇒ 判绿 ⇒ **恒真**
+#                     ② 「删一个 + 加一个」计数不变 ⇒ 也漏
+#   ⇒ 指纹 = 「文件名 + 大小」排序输出 ⇒ 能抓到新增/删除/改名/size 变化
+#   ⇒ 目录不存在 ⇒ 返回 __MISSING__ ⇒ 由调用方**判红**（不许静默 0=0）
+real_bak_fp() {
+  [ -d "$1" ] || { echo "__MISSING__"; return 0; }
+  ls -l "$1" 2>/dev/null | awk 'NR>1 {print $5, $9}' | sort
+}
+
 # ★ HOME 改到 sandbox ⇒ 脚本默认备份目录随之进 sandbox
 export HOME="${SANDBOX}/home"
 mkdir -p "${HOME}" "${SANDBOX}/bin" "${SANDBOX}/bak"
 REAL_BAK="${REAL_HOME}/.solobrave-backups"
-REAL_BAK_BEFORE=0
-if [ -d "${REAL_BAK}" ]; then
-  REAL_BAK_BEFORE="$(ls "${REAL_BAK}" | wc -l | tr -d ' ')"
-fi
+# ★★ B 边 §80.12：改用**指纹**（原来用纯计数 ⇒ 目录不存在时 0=0 ⇒ 恒真）
+REAL_BAK_BEFORE="$(real_bak_fp "${REAL_BAK}")"
 SBFB_STORE="${SANDBOX}/store.db"
 APP_DB="${SANDBOX}/app.db"
 
@@ -287,6 +295,7 @@ NEW_FP="$(fp_of "$NEW_V")"
 
 PASS=0
 FAIL=0
+CASE_DONE=0                # ★★ B 边 §80.12：实际执行了几个 case（用于「漏跑就判红」）
 ok()  { PASS=$((PASS+1)); echo "  ✅ $1"; }
 bad() { FAIL=$((FAIL+1)); echo "  ❌ $1"; }
 
@@ -296,6 +305,7 @@ bad() { FAIL=$((FAIL+1)); echo "  ❌ $1"; }
 run_case() {
   local name="$1" stub_code="$2" infile="$3" exp_rc="$4" exp_store="$5" exp_db="$6" variant="$7"
   local rc out store_before db_before store_after db_after sentinel bad_items=""
+  CASE_DONE=$((CASE_DONE+1))     # ★★ B 边 §80.12：实际执行计数（供「case 数守恒」断言）
   make_fixture "$variant"
   store_before="$(read_store_state)"
   db_before="$(db_state_of)"
@@ -421,14 +431,26 @@ fi
 
 echo ""
 echo "--- 生产隔离断言 ---"
-REAL_BAK_AFTER=0
-if [ -d "${REAL_BAK}" ]; then
-  REAL_BAK_AFTER="$(ls "${REAL_BAK}" | wc -l | tr -d ' ')"
-fi
-if [ "$REAL_BAK_BEFORE" = "$REAL_BAK_AFTER" ]; then
-  ok "真备份目录零增长（${REAL_BAK_BEFORE} -> ${REAL_BAK_AFTER}）"
+REAL_BAK_AFTER="$(real_bak_fp "${REAL_BAK}")"
+if [ "$REAL_BAK_BEFORE" = "__MISSING__" ] || [ "$REAL_BAK_AFTER" = "__MISSING__" ]; then
+  # ★★ B 边 §80.12：**探针失效不许落到通过分支** —— 目录不存在 ⇒ 这条断言**无法判定**
+  #   ⇒ 原来这里是 BEFORE=0 / AFTER=0 ⇒ 相等 ⇒ 判绿 ⇒ **恒真**（测不出隔离有没有生效）
+  bad "真备份目录不存在（${REAL_BAK}）⇒ 这条断言**无法判定**（不能拿 0=0 当通过）⇒ 请先创建该目录或改判据"
+elif [ "$REAL_BAK_BEFORE" = "$REAL_BAK_AFTER" ]; then
+  ok "真备份目录零变化（条目+大小指纹一致，$(printf '%s\n' "$REAL_BAK_AFTER" | wc -l | tr -d ' ') 项）"
 else
-  bad "真备份目录增长了（${REAL_BAK_BEFORE} -> ${REAL_BAK_AFTER}）⇒ 台架漏了隔离"
+  bad "真备份目录被改动了（${REAL_BAK}）⇒ 台架漏了隔离"
+fi
+
+# ★★ B 边 §80.12：**case 数守恒** —— 漏跑一个 case 只会让「通过数」变小，**不会变红**
+#   ⇒ 期望值**硬编码**（不是从脚本自身 grep ⇒ 那样删调用时两边同步变 ⇒ 反而恒真）
+#   ⇒ ★ 纪律：**新增/删除 case 必须同步改这一行**（宁红勿漏 —— 红了只说明要同步，绿了才说明真跑到了）
+#   ⇒ 16 = 12 个正向用例（S1~S5g ＋ S5d 复跑）＋ 4 个负向对照（N1~N4）
+EXPECTED_CASES=16
+if [ "$CASE_DONE" -eq "$EXPECTED_CASES" ]; then
+  ok "case 数守恒（实际执行 ${CASE_DONE} == 期望 ${EXPECTED_CASES}，无漏跑）"
+else
+  bad "case 数不守恒（实际执行 ${CASE_DONE} != 期望 ${EXPECTED_CASES}）⇒ 有 case 没跑到 ⇒ 断言覆盖不全"
 fi
 # ★★ B 边 §64：增量口径 —— 只查「本次运行**新增**的」被测脚本 workdir（并发时别人的目录不算我的）
 #   ⇒ ★★ B 边 §77 已把 glob 改成**宽度无关**的唯一列举函数 `_sbfb_list()`
