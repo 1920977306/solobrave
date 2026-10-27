@@ -535,10 +535,22 @@ _QUOTA_BODY_MARKERS = (
     'insufficient credit',
     '余额不足', '额度已用尽', '额度耗尽', '额度不足',
     '用量上限', '无可用资源包', '资源包不足',
+    # ★★ 下面三条 = **生产日志里真实出现的 Kimi 月度额度耗尽文案**（B 边 §80 实测）
+    #   "You've reached your monthly usage limit for this billing cycle.
+    #    Your quota will be refreshed in the next cycle. To continue now,
+    #    purchase extra usage or upgrade your plan: ..."
+    'monthly usage limit',
+    'quota will be refreshed',
+    'purchase extra usage',
 )
 # 「速率限制」⇒ 换一把 key 可能有效 ⇒ 维持 rotate_key（保守：宁可慢，不要误判）
 _RATE_BODY_MARKERS = (
-    'rate_limit', 'ratelimit', 'too many requests', 'requests per',
+    # ⚠️⚠️ 'rate_limit' 与 'ratelimit' 已**移除**（B 边 §80）：这两条命中的是 body 里的
+    #   **type 字段**（"type":"rate_limit_error"）⇒ 而 **Kimi 把「额度耗尽」也标成
+    #   rate_limit_error** ⇒ 留着会把真实现场整个挡掉（实测：真实额度型 body 被判成限流）。
+    #   ⇒ ★ 教训：**`error.type` 不能当语义证据**（同名不同物，同款坑再次复发）。
+    #   ⇒ 保留 'rate limit'（带空格）⇒ 它只可能来自 message，不会误伤 type 字段。
+    'too many requests', 'requests per',
     ' rpm', ' tpm', '请求过于频繁', 'rate limit',
 )
 
@@ -555,14 +567,40 @@ def is_quota_exhausted(body_text):
 
       ★ 证据（实测，不是推断）：
         - Kimi 月度额度耗尽 ⇒ `429 exceeded_current_quota_error`（PROGRESS-2026-10-22.md 实测）
+          ⇒ ⚠️ **这条是「构造样本」⇒ 真实现场（字段名与文案都不同）见下方 B 边 §80 补遗**
         - 智谱余额不足 ⇒ `429 {"code":"1113","message":"余额不足或无可用资源包"}`
           （solobrave-server.py:6950 注释：**别按状态码猜原因，必须读 body**）
         - minimax 套餐 Token Plan 到顶 ⇒ 429 +「已达到 Token Plan 用量上限」
 
-      ⚠️ **保守取向**：body 里出现**速率特征**（rate_limit / too many requests / rpm / 请求过于频繁）
+      ⚠️ **保守取向**：body 里出现**速率特征**（too many requests / requests per / rpm / tpm / rate limit / 请求过于频繁）
       ⇒ 一律判为「速率限制」⇒ 维持 rotate_key（**宁可慢一点，也不要把限流误当成额度耗尽**）。
-      ⚠️ minimax 那条 body 同时含 `rate_limit_error` 与「用量上限」⇒ 按本判据归为「速率限制」
-      ⇒ 维持 rotate_key（但它只有一把 key ⇒ 换 key 一步就走完 ⇒ 降级不受影响）。
+      ⚠️⚠️ **下面两段已按 B 边 §80 更正（原文保留在 git 历史里）**：
+        - 速率特征**不再**收 `rate_limit`（**无下划线**那种）⇒ 它命中的是 body 的 **type 字段**
+          ⇒ 而 **Kimi 把「额度耗尽」也标成 `rate_limit_error`** ⇒ 留着会把真实现场整个挡掉；
+          ⇒ （**带空格的 `rate limit` 保留** ⇒ 它只可能来自 message，不会误伤 type 字段）
+        - minimax 套餐 Token Plan 那条（429 +「已达到 Token Plan 用量上限」）⇒ **现在判 FALLBACK**
+          （原判「速率限制 ⇒ 维持 rotate_key」已随上面的修正失效）
+          ⇒ **安全**：minimax 在代理链里是**单 key** ⇒ rotate 与 fallback 对它等价（撞一次就往下走）⇒ **不丢能力**；
+          ⇒ **副作用**：FALLBACK 会让它进 `_PROVIDER_COOLDOWN`（阈值冷却 + 半开探测，非永久禁用）⇒ 实际是**改善**。
+
+      ★★★ **B 边 §80 实测补遗（2026-10-27 13:0x）—— 上面那条 Kimi 证据是「构造样本」，不是真实现场**：
+        - A 边 §78 引用的 Kimi 证据是 `429 exceeded_current_quota_error`（PROGRESS-2026-10-22.md）
+          ⇒ 那用的是 OpenAI 风格的 **`code`** 字段；
+        - 而**生产日志里真实发生的** Kimi 月度额度耗尽（2026-10-27 03:00，`server.log`，4/4 key 同款）是：
+          {"error":{"type":"rate_limit_error","message":"You've reached your monthly usage limit
+           for this billing cycle. Your quota will be refreshed in the next cycle. To continue
+           now, purchase extra usage or upgrade your plan: ..."}}
+          ⇒ **字段名都不同**（`type` vs `code`）、文案是英文；
+        - ⇒ 用真实 body 实测：**改之前** `is_quota_exhausted(真实 body)` = **False**
+          ⇒ 额度耗尽仍被当成限流 ⇒ **逐把试 key 照旧** ⇒ 缺口**没被真正堵上**；
+        - ⇒ 根因两条：① 特征表缺真实现场的文案；② `'rate_limit'` 命中的是 **type 字段**，
+          而 Kimi 把「额度耗尽」也标成 `rate_limit_error`
+          ⇒ ★ **`error.type` 不能当语义证据**（同名不同物，同款坑再次复发）；
+        - ⇒ 修法（已落地，见上方特征表注释）：补 3 条真实文案 ＋ 去掉会被 type 字段污染的两条速率特征。
+        - ⇒ ★ **真实现场还有第二个变体**（A 边实测，`server.log` 逐字统计）：同一条「monthly usage
+          limit」文案也出现在 **HTTP 403 + `"type":"permission_error"`** ⇒
+          但 403 本来就在 `classify_upstream_status` 的 FALLBACK 状态码表里 ⇒ **不受 body 判据影响** ✔
+          ⇒ **记录它，是为了避免「下一个人只查 429」**。
     """
     t = (body_text or '').lower()
     if not t:
