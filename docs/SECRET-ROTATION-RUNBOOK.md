@@ -404,7 +404,7 @@ store 里已有的 `MODEL_APIKEY_*` 条目（轮换时按需改）：
 | 顺序 | app | phase | 为什么放这个位置 |
 |---|---|---|---|
 | **1** | **木木**（`FEISHU_APPSECRET_MUMU`）| `--phase store` | ★ 老大平时就在跟它对话 ⇒ **它的行为层基线今天就已经存在**（不必额外做）；且 `--phase store` **不碰 db** ⇒ 路径最简单 ⇒ 先用它把「reset → 粘贴 → 写 store → reload → 老大发消息 → 机器人回」**整条链路跑通** |
-| **2** | **「貂蝉」**（`FEISHU_APPSECRET_T_DEFAULT`，后台名）| 默认 `--phase all` | 它要**连 db 一起写**（`tenant_feishu_config` 里就那一行）⇒ 是整轮里**唯一的新增变量** ⇒ 等第 1 条链路跑通再做，风险最低 |
+| **2** | **「貂蝉」**（`FEISHU_APPSECRET_T_DEFAULT` = `cli_aa420db06a78dcc5`，⚠️ **后台叫「貂蝉」但共有 2 个 app 叫这名字** ⇒ 见 Step 0.5）| 默认 `--phase all` | 它要**连 db 一起写**（`tenant_feishu_config` 里就那一行）⇒ 是整轮里**唯一的新增变量** ⇒ 等第 1 条链路跑通再做，风险最低 |
 | 3 / 4 | `default`（`FEISHU_APPSECRET_MAIN`）/ `helen`（`FEISHU_APPSECRET_HELEN`）| `--phase store` | db 里没有它们的行 ⇒ 与第 1 条同路径 ⇒ 最后做 |
 
 ⚠️⚠️ **每个 app 都是「后台重置 → 立刻粘贴旋转 → reload → 发消息验证」连着做**，
@@ -413,12 +413,52 @@ store 里已有的 `MODEL_APIKEY_*` 条目（轮换时按需改）：
 「先生成新的 → 验证新的能用 → 再撤旧的」正好相反（飞书平台**只在重置后**才给新 secret），
 ⇒ ⇒ 所以**必须把「撤旧到装新」的窗口压到最短** ⇒ **一个 app 一个 app 来，别批量重置**。
 
+**Step 0.5 — ★★ 机械自检：确认「本轮该找的是哪个 app」（老大手动，10 秒；2026-10-27 A 边落地）**
+
+★★★ **为什么必须做这一小步**：
+「貂蝉」这**两个字在飞书后台对应两个不同的 app**（实测，见上面「同名不同物」段）：
+- `cli_aa420db06a78dcc5`（= `t_default`，tuz 账号）后台名「貂蝉」
+- `cli_aafb5d7cd6389be4`（= `default`，另一个账号）后台名**也是**「貂蝉」
+
+⇒ ⇒ **按应用名去后台搜，会同时命中两个** ⇒ ⇒ **认错 = 重置错 app 的 secret = 另一个机器人掉线**
+⇒ ⇒ ⇒ **「app_id 是唯一可靠依据」**（后台「凭证与基础信息」页顶部「应用凭证 → App ID」）。
+
+⇒ ⇒ ★★ **但「文档里写了警告」拦不住人**（本项目铁律：「纪律写进文档 ≠ 行为自动改变」）
+⇒ ⇒ ⇒ **所以做成了机械闸门**：`scripts/feishu_app_name.py`。
+
+✅ **Step 0.5 怎么做**：
+```bash
+# ★ 每次轮换前先跑这一条 ⇒ 屏幕上会打出「本轮该找的 App ID」，照着这串去后台核对
+# ★ 用**绝对路径**（老大不一定在仓库目录里；脚本本身与 cwd 无关）
+python3 /Users/qichen/solobrave-prod/scripts/feishu_app_name.py --app mumu        # 第 1 步（木木）
+python3 /Users/qichen/solobrave-prod/scripts/feishu_app_name.py --app t_default   # 第 2 步（貂蝉/t_default）
+python3 /Users/qichen/solobrave-prod/scripts/feishu_app_name.py --all              # 想看全表 + 同名冲突时
+```
+输出里那行 `>>> cli_… <<<` 就是**本轮唯一正确的 App ID** ⇒ 老大在后台页面上核对它**逐字一致**，再点重置。
+
+⇒ ★★ **更稳的做法（推荐老大用这个）**：在后台看到 App ID 后，**把它粘回来核对**：
+```bash
+# 把后台页面上看到的 App ID 粘进来（把 cli_xxx 换成你看到的那个）
+python3 /Users/qichen/solobrave-prod/scripts/feishu_app_name.py --check cli_你看到的那个 --app t_default
+```
+- **退出码 0** ⇒ 「就是这个，继续」；
+- **退出码 1** ⇒ **⚠️ 你复制的是别的 app ⇒ 不要重置它**（输出会直接告诉你本轮该找的 App ID）。
+
+⇒ ⇒ ★★★ **好消息：「粘错 secret」已被机械拦住**（A 边 14:2x 实测坐实）：
+轮换脚本在**写入之前**就用 `app_id` 去问飞书「这个 secret 属不属于这个 app」
+⇒ **粘了别的 app 的 secret ⇒ `code=10014 app secret invalid` ⇒ exit 5 ⇒ store 与 db 零写入**。
+⇒ ⇒ **所以最坏情况是「老大白费一轮 + 看到一条看不懂的报错」，不是「机器人掉线」**。
+
+⇒ ★ **取数纪律（这个脚本内置，不可放宽）**：app_secret 从 openclaw store **只读**、
+**只在内存里过**、**绝不落盘**、**绝不回显**；只输出 app_id / 后台应用名 / 指纹 md5[:12]。
+
 **Step 1 — 在飞书后台重置 secret（老大手动）**
 
 - 位置：飞书开放平台 → **先确认账号对得上**（右上角「个人中心 → 切换账号」，共 3 个已登录账号）
   → 用 `app_id` 定位应用（应用列表上方的「**搜索应用名称或 App ID**」框，直接粘 app_id）
   → 左侧「凭证与基础信息」→ 顶部「应用凭证 → App ID」**核对与上表一致** → **App Secret** → 重置
 - ⚠️ **不要靠应用名找**（见上面的实测更正：openclaw 的 `name` ≠ 后台应用名）。
+- ⚠️⚠️ **「貂蝉」在后台有两个** ⇒ **必须粘 app_id 搜 / 核对**（见 Step 0.5）⇒ **别用应用名搜**。
 - ⚠️ **账号要对上**：`default` / `helen` / `mumu` 不在 Ayn 账号下
   ⇒ 换账号能搜到；**搜不到 = 换账号，不是「应用不存在」**。
 - 逐个 app 做，**不要一次全重置**。
