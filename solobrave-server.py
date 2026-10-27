@@ -2589,6 +2589,8 @@ class AuthResult:
         self.managed_team_ids = []  # 管理的小组 ID 列表
         self.group_ids = []      # 所属项目组 ID 列表
         self.managed_group_ids = []  # 管理的项目组 ID 列表
+        self.api_scopes = None   # scoped API token 的权限集合（set）；None = 非 scoped 凭证（JWT/X-Agent-Id），不走 scope 闸门
+        self.api_token_name = '' # scoped token 的显示名（审计用）
 
     @property
     def is_authenticated(self):
@@ -2811,7 +2813,199 @@ def _check_talent_write_permission(auth, talent_id=None):
     return ('只能操作自己子库的达人数据，主库数据仅管理员可修改', 403)
 
 
-def _authenticate(headers, client_ip=None, request_handler=None):
+# ─── Scoped API tokens + 请求审计（2026-10-27，写类 API 开放前置）────────────────
+# 背景：localhost X-Agent-Id 是「本机免签通道」（信任边界=能访问 127.0.0.1 的进程），
+# 8080 又绑定 0.0.0.0（LAN 可达）。要把写类 API 开放给木木这类机器调用方，
+# 前置三件套：①真鉴权（scope 化长期 token，替代裸 header）②审计（谁/何时/什么端点/什么结果）
+# ③按作用域授权（read/write/admin，本文件 _required_api_scope 是唯一判据）。
+# 存储 data/api_tokens.json（.gitignore 内，chmod 600）：只存 sha256 hash，明文 token 只在签发时显示一次。
+API_TOKEN_PREFIX = 'sbk_'
+_API_TOKEN_RE = re.compile(r'^sbk_[0-9a-f]{48}$')
+# 管理面路径：这些即使 GET 也要 admin scope（与 method 判据叠加，取更严的）
+_API_SCOPE_ADMIN_PATH = re.compile(r'^/api/(users|teams|settings|admin|openclaw/config|agents/[^/]+/permanent)(/|$)')
+
+
+def _api_tokens_path():
+    return os.path.join(DATA_DIR, 'api_tokens.json')
+
+
+def _api_token_load():
+    try:
+        with open(_api_tokens_path(), 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except FileNotFoundError:
+        return {}
+    except Exception:
+        logger.warning('[APIAuth] api_tokens.json 读取失败，按空库处理', exc_info=True)
+        return {}
+
+
+def _api_token_save(store):
+    os.makedirs(DATA_DIR, exist_ok=True)
+    path = _api_tokens_path()
+    fd, tmp = tempfile.mkstemp(dir=DATA_DIR, prefix='.api_tokens.', suffix='.tmp')
+    try:
+        with os.fdopen(fd, 'w', encoding='utf-8') as f:
+            json.dump(store, f, ensure_ascii=False, indent=1)
+        os.chmod(tmp, 0o600)
+        os.replace(tmp, path)
+    except Exception:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
+def _api_token_mint(name, user_id, scopes=('read',)):
+    """签发 scoped token → (明文token, record)。明文仅此一次可见，库存 sha256。"""
+    raw = API_TOKEN_PREFIX + secrets.token_hex(24)
+    rec = {
+        'name': (name or '').strip() or 'unnamed',
+        'user_id': (user_id or '').strip(),
+        'scopes': sorted(set(scopes or ['read'])),
+        'created_at': time.time(),
+        'last_used_at': 0,
+        'revoked': False,
+    }
+    store = _api_token_load()
+    store[hashlib.sha256(raw.encode()).hexdigest()] = rec
+    _api_token_save(store)
+    return raw, rec
+
+
+def _api_token_revoke(name):
+    """按显示名吊销 → 吊销条数。"""
+    store = _api_token_load()
+    n = 0
+    for h, rec in store.items():
+        if isinstance(rec, dict) and rec.get('name') == name and not rec.get('revoked'):
+            rec['revoked'] = True
+            n += 1
+    if n:
+        _api_token_save(store)
+    return n
+
+
+def _api_token_lookup(raw_token):
+    """校验 scoped token → record(dict, 带 _hash) 或 None。命中时节流刷新 last_used_at（≥60s 才写盘）。"""
+    if not _API_TOKEN_RE.match(raw_token or ''):
+        return None
+    h = hashlib.sha256(raw_token.encode()).hexdigest()
+    store = _api_token_load()
+    rec = store.get(h)
+    if not isinstance(rec, dict) or rec.get('revoked'):
+        return None
+    now = time.time()
+    if now - float(rec.get('last_used_at', 0) or 0) >= 60:
+        rec['last_used_at'] = now
+        store[h] = rec
+        try:
+            _api_token_save(store)
+        except Exception:
+            logger.warning('[APIAuth] last_used_at 写盘失败（不影响本次认证）', exc_info=True)
+    rec['_hash'] = h
+    return rec
+
+
+def _required_api_scope(method, path):
+    """method+path → 所需 scope（唯一判据）。GET/HEAD=read；其他写方法=write；
+    DELETE 与管理面路径=admin。scoped token 走这里，JWT/X-Agent-Id 不受影响。"""
+    p = (path or '').split('?')[0].rstrip('/') or '/'
+    if _API_SCOPE_ADMIN_PATH.match(p):
+        return 'admin'
+    if (method or '').upper() in ('GET', 'HEAD', 'OPTIONS'):
+        return 'read'
+    return 'admin' if (method or '').upper() == 'DELETE' else 'write'
+
+
+def _api_token_auth_result(raw_token):
+    """Bearer 非 JWT 时回退校验 scoped token → AuthResult（api_scopes 已填）。
+    ★ scoped token 永远 role='user'：即使绑定 admin 用户也不放行 is_admin 检查，
+    它的权力边界只由 api_scopes 决定；user_id 仅用于数据归属默认值。"""
+    rec = _api_token_lookup(raw_token)
+    if rec is None:
+        return None
+    user_id = (rec.get('user_id') or '').strip()
+    if not user_id:
+        return AuthResult(error='该 API token 未绑定 user_id', status=403)
+    result = AuthResult(user_info={'userId': user_id, 'role': 'user'})
+    result.load_user_record()
+    _set_request_tenant(result.tenant_id)
+    result.api_scopes = set(rec.get('scopes') or ['read'])
+    result.api_token_name = rec.get('name', '')
+    return result
+
+
+def _auth_kind(result):
+    if getattr(result, 'api_scopes', None) is not None:
+        return 'scoped'
+    if getattr(result, 'localhost_agent_id', None):
+        return 'agent-id'
+    return 'jwt' if result.is_authenticated else 'anon'
+
+
+def _auth_identity(result):
+    if getattr(result, 'api_scopes', None) is not None:
+        return f"token:{result.api_token_name}"
+    aid = getattr(result, 'localhost_agent_id', None)
+    if aid:
+        return f'agent:{aid}'
+    return f"user:{(result.user_info or {}).get('userId', '')}"
+
+
+# ─── 请求审计 ────────────────────────────────────────────────────────────────
+_API_AUDIT_MAX_BYTES = 10 * 1024 * 1024  # 超过即轮转为 .1（保留一份历史）
+
+
+def _api_audit_path():
+    return os.path.join(DATA_DIR, 'api_audit.jsonl')
+
+
+def _api_audit_write(entry):
+    """审计落盘：任何异常都不许冒到主链路（尽力而为）。"""
+    try:
+        path = _api_audit_path()
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, 'a', encoding='utf-8') as f:
+            f.write(json.dumps(entry, ensure_ascii=False) + '\n')
+        try:
+            if os.path.getsize(path) > _API_AUDIT_MAX_BYTES:
+                os.replace(path, path + '.1')
+        except OSError:
+            pass
+    except Exception:
+        logger.warning('[APIAudit] 审计写盘失败（不阻断请求）', exc_info=True)
+
+
+def _api_audit_emit(handler, method, t0):
+    """在 do_* 的 finally 里调用：只有走了 _authenticate 的 /api 请求才落审计。"""
+    try:
+        info = getattr(handler, '_auth_audit', None)
+        if not info:
+            return
+        path = (getattr(handler, 'path', '') or '')[:200]
+        if not path.startswith('/api'):
+            return
+        status = getattr(handler, '_resp_status', 0) or (200 if info.get('ok') else info.get('status', 0))
+        _api_audit_write({
+            'ts': time.strftime('%Y-%m-%dT%H:%M:%S%z', time.localtime(t0)),
+            'method': method,
+            'path': path,
+            'status': int(status or 0),
+            'dur_ms': int((time.time() - t0) * 1000),
+            'ip': handler.client_address[0] if getattr(handler, 'client_address', None) else '',
+            'ok': bool(info.get('ok')),
+            'kind': info.get('kind', ''),
+            'identity': (info.get('identity') or '')[:80],
+            'scopes': info.get('scopes') or [],
+        })
+    except Exception:
+        logger.warning('[APIAudit] 组装审计行失败（不阻断请求）', exc_info=True)
+
+
+def _authenticate_impl(headers, client_ip=None, request_handler=None):
     """从请求头中提取并验证 token；本地回环地址仅在无 Bearer token 时走内部快捷通道（agent 调用），
     携带 Authorization: Bearer 的请求即使在 localhost 也必须走正常 JWT 验证"""
     auth_header = headers.get('Authorization', '')
@@ -2837,6 +3031,21 @@ def _authenticate(headers, client_ip=None, request_handler=None):
     token = auth_header[7:]
     user_info = verify_token(token)
     if user_info is None:
+        # ★ scoped API token 回退：Bearer 不是用户 JWT 时，试机器调用方 token（_api_token_* 族）
+        scoped = _api_token_auth_result(token)
+        if scoped is not None:
+            method = getattr(request_handler, 'command', '') if request_handler is not None else ''
+            path = getattr(request_handler, 'path', '') if request_handler is not None else ''
+            need = _required_api_scope(method, path)
+            if need not in scoped.api_scopes:
+                logger.warning(f'  [APIAuth] token={scoped.api_token_name!r} 缺少 {need} 权限，拒绝: {method} {path}')
+                denied = AuthResult(error=f'API token 缺少 {need} 权限', status=403)
+                # 保留 token 身份供审计/排障：拒绝也记 token:name，不能丢成 anon
+                denied.api_scopes = scoped.api_scopes
+                denied.api_token_name = scoped.api_token_name
+                return denied
+            logger.info(f'  [APIAuth] scoped token 调用: name={scoped.api_token_name!r} user={scoped.user_info.get("userId")} scopes={sorted(scoped.api_scopes)}')
+            return scoped
         return AuthResult(error='未登录或 token 已过期', status=401)
     # 创建 AuthResult 并加载用户记录以获取 team 信息
     result = AuthResult(user_info=user_info)
@@ -2848,6 +3057,24 @@ def _authenticate(headers, client_ip=None, request_handler=None):
         token_pwd_version = int(user_info.get('pwd', 0))
         if token_pwd_version < current_pwd_version:
             return AuthResult(error='密码已修改，请重新登录', status=401)
+    return result
+
+
+def _authenticate(headers, client_ip=None, request_handler=None):
+    """_authenticate_impl 的包装层：认证完成后把「身份摘要」挂在 request_handler 上供审计。
+    不改任何认证语义；摘要组装失败也不许影响主链路。"""
+    result = _authenticate_impl(headers, client_ip, request_handler)
+    try:
+        if request_handler is not None:
+            request_handler._auth_audit = {
+                'ok': bool(result.is_authenticated),
+                'status': result.status,
+                'kind': _auth_kind(result),
+                'identity': _auth_identity(result),
+                'scopes': sorted(result.api_scopes) if getattr(result, 'api_scopes', None) else [],
+            }
+    except Exception:
+        logger.warning('[APIAudit] 认证摘要组装失败（不影响请求）', exc_info=True)
     return result
 
 
@@ -8540,11 +8767,16 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     # ─── JSON 响应 ─────────────────────────────────────
     def _send_json(self, code, data):
+        self._resp_status = code  # 供 _api_audit_emit 记录响应状态
         self.send_response(code)
         self._add_cors_headers()
         self.send_header('Content-Type', 'application/json; charset=utf-8')
         self.end_headers()
         self.wfile.write(json.dumps(data, ensure_ascii=False).encode('utf-8'))
+
+    def send_error(self, code, message=None, explain=None):
+        self._resp_status = code  # send_error 路径（如 413）也进审计
+        super().send_error(code, message=message, explain=explain)
 
     def _send_json_error(self, code, message):
         self._send_json(code, {'error': {'message': message, 'type': 'proxy_error', 'code': code}})
@@ -8634,6 +8866,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         self._send_cors_preflight()
 
     def do_GET(self):
+        self._resp_status = 0
         _t0 = time.time()
         try:
             self._do_GET()
@@ -8644,6 +8877,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             except:
                 pass
         finally:
+            _api_audit_emit(self, 'GET', _t0)
             _dt = time.time() - _t0
             if _dt > 1.0:
                 logger.warning(f'  [SLOW] GET {self.path} took {_dt:.2f}s')
@@ -9246,6 +9480,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
     def do_POST(self):
         if not self._check_upload_size():
             return
+        self._resp_status = 0
         _t0 = time.time()
         try:
             self._do_POST()
@@ -9257,6 +9492,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             except:
                 pass
         finally:
+            _api_audit_emit(self, 'POST', _t0)
             _dt = time.time() - _t0
             if _dt > 1.0:
                 logger.warning(f'  [SLOW] POST {self.path} took {_dt:.2f}s')
@@ -9766,6 +10002,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
     def do_PUT(self):
         if not self._check_upload_size():
             return
+        self._resp_status = 0
         _t0 = time.time()
         try:
             self._do_PUT()
@@ -9777,6 +10014,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             except:
                 pass
         finally:
+            _api_audit_emit(self, 'PUT', _t0)
             _dt = time.time() - _t0
             if _dt > 1.0:
                 logger.warning(f'  [SLOW] PUT {self.path} took {_dt:.2f}s')
@@ -9960,6 +10198,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
     def do_DELETE(self):
         if not self._check_upload_size():
             return
+        self._resp_status = 0
         _t0 = time.time()
         try:
             self._do_DELETE()
@@ -9970,6 +10209,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             except:
                 pass
         finally:
+            _api_audit_emit(self, 'DELETE', _t0)
             _dt = time.time() - _t0
             if _dt > 1.0:
                 logger.warning(f'  [SLOW] DELETE {self.path} took {_dt:.2f}s')
