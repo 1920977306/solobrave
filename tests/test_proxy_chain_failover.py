@@ -241,10 +241,43 @@ def test_proxy_chain_has_at_least_two_fallback_tiers(srv):
 
 # ── ⑧ 429 的两种语义（2026-10-27 A 边 §78：B 边 §72 提的「真缺口」落地）────
 #   429 在不同上游含义不同：速率限制（换 key 可能有效）vs 额度耗尽（换 key 无效）
+#
+# ⚠️⚠️ **A 边 §81 更正**：下面这个 `KIMI_QUOTA_BODY` 是**构造样本**（`code` 字段 + 中文文案）
+#   ⇒ 与**真实现场**（`type` 字段 + 英文文案）**不同构** ⇒ 它当年绿了，但真实现场是红的
+#   ⇒ 真实现场的回归基线在 **`tests/test_quota_429_real_body.py`**（B 边 §80 建）
+#   ⇒ 这里**保留**构造样本：它是「两条判据同时成立」的回归基线
+#     （B 边的 `test_a_side_constructed_sample_still_fallback` 也钉了它 ⇒ 两边都不许删）
+#
+# ⚠️⚠️⚠️ **别被 `"\u6708"` 骗了**（A 边 §81 实测，pytest 的 DeprecationWarning 引出来的）：
+#   `b'...\u6708...'` 在 **bytes 字面量**里是**无效转义** ⇒ Python 原样保留
+#   ⇒ 里面存的是**字面 6 个字符** `\u6708`，**不是汉字「月」**！
+#   ⇒ ⇒ 所以这条样本命中的是 **`code` 字段**的 `exceeded_current_quota` 特征，
+#      **并没有**命中「额度已用尽」等**中文文案**特征。
+#   ⇒ ⇒ **故意保持原样**（实测：把它换成真中文 ⇒ 两条路径同时命中 ⇒
+#      中文特征坏掉时它仍然绿 ⇒ **敏感度反而下降**）⇒ 只加注释说明，不改字节。
 KIMI_QUOTA_BODY = (b'{"error":{"code":"exceeded_current_quota_error",'
                    b'"message":"\u6708\u8ba1\u8d39\u5468\u671f\u989d\u5ea6\u5df2\u7528\u5c3d"}}')
 KIMI_RATE_BODY = (b'{"error":{"code":"rate_limit_exceeded",'
                   b'"message":"too many requests, please retry later"}}')
+
+# ★★★ 真实现场的**第二变体**（A 边 §81：从生产 `server.log` 逐字提取，2026-10-27）
+#   ⚠️ 只含上游错误文案，不含任何密钥。
+#   ⇒ 同一条「monthly usage limit」文案，在现场**既以 429 出现、也以 403 出现**
+#   ⇒ 本条是 **403 + `type: permission_error`** 变体。
+REAL_KIMI_403_BODY = (
+    '{"error":{"type":"permission_error","message":"You\'ve reached your monthly usage '
+    'limit for this billing cycle. Your quota will be refreshed in the next cycle. To '
+    'continue now, purchase extra usage or upgrade your plan: '
+    'https://www.kimi.com/membership/subscription?tab=quota"},"type":"error"}'
+)
+
+# ★★★ 真实现场的 minimax 套餐 **Token Plan 到顶** body（A 边 §81：server.log 2026-10-26 19:22）
+#   ⚠️ `request_id` 已脱敏（其余逐字）—— 它是上游追踪号，**不是凭据**，但不该永久进 git。
+REAL_MINIMAX_TOKEN_PLAN_429_BODY = (
+    '{"type":"error","error":{"type":"rate_limit_error","message":"\u5df2\u8fbe\u5230 Token '
+    'Plan \u7528\u91cf\u4e0a\u9650\uff1a\u8bf7\u5347\u7ea7 Token Plan \u5957\u9910\u6216'
+    '\u8d2d\u4e70\u79ef\u5206\u8865\u5145\u7528\u91cf\u3002 (2056)"},"request_id":"<redacted>"}'
+)
 
 
 def test_quota_exhausted_429_is_fallback_not_rotate_key(srv):
@@ -255,6 +288,41 @@ def test_quota_exhausted_429_is_fallback_not_rotate_key(srv):
     # 智谱那类（余额不足也报 429）也要认
     assert pa.classify_upstream_status(429, '{"code":"1113","message":"\u4f59\u989d\u4e0d\u8db3\u6216\u65e0\u53ef\u7528\u8d44\u6e90\u5305"}') \
         == pa.ERROR_ACTION_FALLBACK
+
+
+# ★★★ A 边 §81：补两条**真实现场**的断言（B 边 §80 只把它们写进了 docstring，**没写断言**）
+#   ⇒ 它们的价值不是「证明现在是对的」（现在确实对），而是**钉住语义，防止有人改回去**。
+
+def test_real_kimi_403_quota_body_is_fallback(srv):
+    """★★ 真实现场的**第二变体**：**403 + `permission_error`**（A 边 §81 实测：server.log 100 条）。
+
+    ⇒ 403 本来就在 `classify_upstream_status` 的 FALLBACK 状态码表里 ⇒ **不受 body 判据影响** ✔
+    ⇒ ⇒ 那为什么还要断言？
+       因为「额度耗尽只会以 429 出现」是个**会过期的假绿**（同款坑第 N 次）：
+       现场明明还有 403 变体，若没有这条断言，下一个人查证时会只查 429
+       ⇒ 就又会得出「额度耗尽 ⇒ 一定 429」的结论 ⇒ 下一个变体照样漏。
+    ⇒ 本条 = **把「现场有几种形态」钉成可执行事实**，而不是靠人记得。
+    """
+    pa = srv.padapters
+    assert pa.classify_upstream_status(403, REAL_KIMI_403_BODY) == pa.ERROR_ACTION_FALLBACK, \
+        "真实现场的 403 额度变体必须判为 fallback"
+    # 顺带钉住语义：它同时**是**额度耗尽（不是速率限制）
+    assert pa.is_quota_exhausted(REAL_KIMI_403_BODY) is True, \
+        "403 变体的文案是额度耗尽语义（与 429 变体同一段文案）"
+
+
+def test_real_minimax_token_plan_429_is_fallback(srv):
+    """★★ 真实现场的 minimax 套餐 **Token Plan 到顶**（A 边 §81：server.log 2026-10-26 19:22，15 条）。
+
+    ⇒ 旧判据把它当成「速率限制 ⇒ 维持 rotate_key」（docstring 里还这么写着）
+    ⇒ 现已更正为 **FALLBACK**（单 key ⇒ rotate/fallback 等价 ⇒ 不丢能力）
+    ⇒ ⇒ 本条断言的作用是**防止那段 docstring 被改回去**：
+       「文档说 FALLBACK、代码判 ROTATE_KEY」= 又一次**同名不同物**（本项目复发 N 次的坑）。
+    """
+    pa = srv.padapters
+    assert pa.classify_upstream_status(429, REAL_MINIMAX_TOKEN_PLAN_429_BODY) == pa.ERROR_ACTION_FALLBACK, \
+        "minimax 套餐 Token Plan 到顶必须判为 fallback（换 key 对套餐额度无效）"
+    assert pa.is_quota_exhausted(REAL_MINIMAX_TOKEN_PLAN_429_BODY) is True
 
 
 def test_rate_limited_429_still_rotates_key(srv):
