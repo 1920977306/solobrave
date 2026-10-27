@@ -6699,3 +6699,86 @@ done
 | `docs/PARALLEL-HANDOFF-2026-10-25.md`（§71）| **A 边** | 本轮新增 |
 | `daren_bot/llm_channels.py` / `daren_bot/tools/probe_llm_channels.py` | **B 边**（历史占用）| 本轮**零改动**（只跑活探针）|
 | `~/.openclaw/agents/*/agent/models.json`（14 个 apiKey 字段）| — | 本轮**零改动**（只读核实 provider 归属）|
+
+---
+
+## 72. A 边：★ 「kimi 再耗尽要自动切 MiniMax 而不是跟着停」—— 查清三条路径 ＋ 固化成可执行断言 ＋ 抓到一条**假绿**（2026-10-27 12:2x~12:4x）
+
+### 72.1 老大原话与我的结论
+
+> 老大 12:2x：「kimi 是恢复了，那如果再次耗尽就应该自动切换成 mini Max 而不是也跟着停止」
+
+⇒ **结论：会切，不会停。** 而且**不需要新代码** —— 机制早就在（10-26 木木 15:12 空回复那次事故后专门修的）。
+⇒ 本轮的活儿是：**① 查清三条路径各自怎么切 ② 把它固化成可执行断言（以后谁动了降级逻辑，测试立刻红）
+③ 抓到一条「假绿」断言并修掉**。
+
+### 72.2 ★ 三条路径的 failover 机制（逐条查清，不是推断）
+
+| 路径 | 链路 | kimi 耗尽时的行为 | 判据 |
+|---|---|---|---|
+| **A. 飞书机器人（木木等）** | openclaw → `8080 /api/proxy/kimi` → **ProviderChain** | 主 provider = kimi ⇒ 429 ⇒ `classify_upstream_status(429)=ROTATE_KEY` ⇒ 同 provider 内**换 key** ⇒ 池耗尽 ⇒ **换下一 provider（minimax）** ⇒ 写出 200 | `provider_adapters.py:528` + `solobrave-server.py:34214` `_proxy_chain_forward` |
+| **B. daren_bot 问答/选品** | `executors.py:1459` 遍历 `_fallback_rings_daren()` | **kimi 排在环3，前面 3 个都是 minimax** ⇒ kimi 额度波动**根本轮不到它**；即便轮到了且它挂了 ⇒ `except` ⇒ **继续下一环** | `daren_bot/executors.py:1459` |
+| **C. 识图链** | 同 B | 同 B（kimi 在环1，前面是 minimax 环0）| `daren_bot/llm_channels.py` `vision_rings()` |
+
+⇒ ★ **两个关键设计点**：
+1. **A 的兜底 provider 明确 `exclude=('kimi','kimicode')`** ⇒ 兜底就是 minimax ⇒ 不会绕回 kimi 自旋。
+2. **`PROXY_ENGINE` 默认 = `chain`** ⇒ 生产**默认走带降级的引擎**（legacy 才没有降级）。
+
+### 72.3 ★★ 固化成可执行断言：`tests/test_proxy_chain_failover.py`（新增 6 条，全过）
+
+⇒ 用**真链函数** `_proxy_chain_forward`（它的 docstring 本就写着「不持有 HTTP handler，可独立单测」）
+⇒ 只 mock 上游 HTTP，**不 mock 链本身**：
+
+| # | 断言 | 作用 |
+|---|---|---|
+| ① | **kimi 429 ⇒ 自动落 minimax ⇒ 写出 200**（`provider=minimax` / `fallback_from=kimi` / attempts 有 429 痕迹）| ★ 老大的要求本体 |
+| ② | **负向对照**：链上**没有**下一家 ⇒ 整体失败（写出 429）| 证明①**不是恒真** |
+| ③ | **402** ⇒ 直接换 provider、**不换 key**（kimi 只被调 1 次）| 证明 429 与 402 **行为可区分** |
+| ④ | **400** ⇒ **不降级**（minimax 一次都没被调）| 证明不是「所有错误都降级」 |
+| ⑤ | **敏感度守卫**：把分类器改坏 ⇒ ① 立刻不成立 | 证明①的绿灯来自**真机制**而非碰巧 |
+| ⑥ | **分类表契约**：429/401=换 key；402/403/408/5xx=换 provider；400/404=客户端错误 | 把「哪些状态码会降级」钉成显式契约 |
+
+### 72.4 ★★★ 抓到一条**假绿**：那条「第二家回来就变红」的断言，自己看不见第二家回来
+
+⇒ `tests/test_llm_channels.py::test_current_chain_alive_independent_vendors_is_one`
+  本来是**故意**设计成「有人接回第二家服务商就变红 ⇒ 逼着更新认知」的触发器
+⇒ **但它把「kimi 已死」写死进了 `dead_pools`** ⇒ **结构上就看不见 kimi 额度恢复**
+⇒ ⇒ kimi 恢复后全量测试 **1096 passed / 0 failed**（**假绿**）
+⇒ ⇒ 而仓库里当时**还写着**「独立服务商 = 1 家 ⇒ **冗余归零，该买第二家 API**」（**假认知**）。
+
+⇒ **修法**（把「写死快照」换成「结构不变量 + live 门禁」）：
+1. `test_chain_structure_keeps_a_second_vendor_ring`：**结构**上必须还有**非 minimax 的 vendor 环**
+   （第二家服务商没被摘掉）⇒ 这条**不随额度死活过期**；
+2. `test_live_chain_has_alive_independent_vendor`（`-m live`，`SOLO_BRAVE_LIVE=1` 才跑）：
+   **真探针**测此刻谁活着 ⇒ 只断言「≥1 家活」并把**实测集合打出来** ⇒ **live 状态不再写死**；
+3. `AGENTS.md §11` 环序表与「该买第二家 API」的结论**同步更新**。
+
+⇒ ★★★ **纪律（第三例同款）**：**判据里凡「写死谁死了」= 一处会过期的假绿** ⇒ **能探就探，别写死**。
+   同款前两例：runbook §4 的 `dead={POOL_KIMI_MONTHLY, ...}`（已修）、守卫残留断言的 glob 宽度（B 边待修）。
+
+### 72.5 ★★ 顺手撞见的**活证据**：首选环真的挂过一次，而链**没有跟着停**
+
+⇒ 12:3x 跑 live 门禁时的实测（`SOLO_BRAVE_LIVE=1`）：
+
+| 环 | 通道 | 当时状态 |
+|---|---|---|
+| 0 | minimax-cp-anthropic | ❌ **429**（套餐 Token Plan 波动 —— 12:2x 的活探针时它还是 ✅）|
+| 1 | code-sub（Code 订阅）| ✅ alive |
+| 2 | minimax-cp-openai | ❌ 429 |
+| 3 | **kimi** | ✅ **alive 1952ms** |
+| 4/5 | minimax 开放平台 | ❌ 402 |
+
+⇒ **可用环 2/6、活着的独立服务商仍是 2 家（kimi + minimax）⇒ 链没停** ✔
+⇒ ⇒ ★ 这就是老大担心的场景的**真实样本**（不是模拟）：**首选环（minimax 套餐）挂掉 ⇒ 自动落到 code-sub 与 kimi**
+⇒ ⇒ ★★ 也印证了「**`code_sub` 兜底不撤**」这个判断：它**当时正在承重**（环0 挂了，它是首选接管者）。
+
+### 72.6 占用登记（本节）
+
+| 对象 | 谁占用 | 状态 |
+|---|---|---|
+| `tests/test_proxy_chain_failover.py`（新）| **A 边** | 本轮新增（6 条断言，全过）|
+| `tests/test_llm_channels.py`（那条假绿断言）| **A 边** | 本轮**已改**：硬编码快照 → 结构不变量 + live 门禁 |
+| `AGENTS.md §11`（环序表 + 结论）| **A 边** | 本轮**已改**：kimi ❌→✅、1 家→2 家、结论作废 + 记下纪律 |
+| `daren_bot/llm_channels.py`（注释）| **A 边** | 本轮**已改**（只改注释，逻辑零改动）|
+| `docs/SECRET-ROTATION-RUNBOOK.md`（§4 基线）| **A 边** | 本轮**已改**（pytest venv + 新基线）|
+| `scripts/e2e_feishu_rotate_exit_codes.sh` | **B 边** | 本轮**零改动**（glob 宽度待他修）|

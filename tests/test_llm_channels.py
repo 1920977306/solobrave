@@ -454,59 +454,77 @@ def test_probe_vendor_count_matches_ring_vendor_set():
     assert stat['vendor_redundant'] is (len(real_vendors) >= 2), stat
 
 
-def test_current_chain_alive_independent_vendors_is_one():
-    """★ 如实锁住现状：链上**能顶的**独立服务商 = 1（MiniMax）⇒ **冗余归零，该买第二家 API**。
+def test_chain_structure_keeps_a_second_vendor_ring():
+    """★ 链**结构**上必须还留着第二家服务商（kimi）的环 —— 这条**不会过期**。
 
-    ⚠️ 口径要说清（别把「链上有几个环」当「有几家能顶」）：
-      - **结构上** kimi 环仍在链里（保留但不指望 —— 实测 429 月度额度耗尽）；
-      - 但**能顶的**独立服务商只有 MiniMax 一家 ⇒ 一家挂了全线崩。
-      这正是老大问「要再买 API 吗」的真判据 —— 答「不用买」= 假安全感。
+    ★★ 为什么不再断言「活着的独立服务商 = 某家」（2026-10-27 A 边实锤的假绿）：
+      这条断言**原本**是「有人接回第二家服务商就变红」的认知触发器
+      ⇒ 但它把「kimi 已死」**写死**进了 `dead_pools`
+      ⇒ ⇒ **结构上就看不见 kimi 额度恢复** ⇒ kimi 恢复后全量测试照样 **1096 passed / 0 failed**
+      ⇒ ⇒ 仓库里一度还写着「独立服务商 = 1 家 ⇒ 冗余归零，该买第二家 API」（**假认知**）。
 
-    ⚠️ 这条不是「期望 1 家」，是**把已知的冗余缺口钉在测试里**：
-      老大 2026-10-26 拍板把智谱从对话链摘掉的那一刻起就是这样。
-      有人接回第二家服务商时这条会红 ⇒ 逼着更新认知（而不是让它悄悄变好/变坏）。
+      ⇒ ★ **纪律**：**判据里凡「写死谁死了」= 一处会过期的假绿** ⇒ **能探就探，别写死**
+        （同款第三例：runbook §4 的 dead 集合、守卫残留断言的 glob 宽度）。
 
-    ★★ 2026-10-26（B 边实测反馈后修正）：**死因必须说对**。
-      起因：环是**按凭据构造**的 —— 没有 `.env`（套餐 key）/ 没有 Code 登录态
-      ⇒ `text_rings()` 返回**空列表** ⇒ 「能顶的服务商集合」= 空集
-      ⇒ 原写法报「独立服务商集合变了」，**误导**（代码其实没错，是环境没配）。
-
-      ⇒ 现在分两种死因，**都让它红，但红得诚实**：
-        ① 链**一个环都没构造出来** ⇒ 报「**环境未配置**」
-           （按老大的规矩：配置错误必须让它红，不许 skip —— 但要说清是环境问题）；
-        ② 链构造出来了但集合不对 ⇒ 报「独立服务商集合变了」—— 这才是真的代码漂移。
-
-    ★★★ 2026-10-26（B 边第 2 轮再反馈后修正）：**判据要挡「半配置态」**。
-      B 边实测（无 `.env` 的 worktree）：
-        - text 链：环数 0 ⇒ 上面 ① 兜住 ✔
-        - vision 链：**环数 1 但全是已死额度池**（`kimi-monthly-quota`）
-          ⇒ `rings` 非空 ⇒ **过了 ①** ⇒ `alive` 空集 ⇒ 落到 ②
-          ⇒ 仍报「独立服务商集合变了」⇒ **死因依旧误导**。
-
-      ⇒ 根因：**① 的判据（`rings` 空）只覆盖了「完全没配」，漏了「配了一半」。**
-      ⇒ 修法：判据从「`rings` 空」改成「**`alive` 空**」
-        （= 没有任何可用的独立服务商）⇒ 完全没配 / 半配置 都能说对死因；
-        且**仍然让它红**（不许 skip），只是把「该查环境」说清楚。
-      ⇒ ⚠️ 注意别把判据搞反：`alive` 空 ⇒ 是环境问题；
-        `alive` 非空但 ≠ {'minimax'} ⇒ 才是代码漂移。
+    ⇒ 所以现在这条只断言**结构不变量**（不随额度死活变）：
+      ① 链上必须还有**非 minimax 的 vendor**（= 第二家服务商还在链上，没被摘掉）
+      ② 环境必须已配置（至少有一条环落在「非已死池」里）—— 半配置态也要说清死因
+      ③ **live 状态**（此刻谁活着）一律用 `daren_bot/tools/probe_llm_channels.py` 实测，
+         或跑 `-m live` 的门禁测试 `test_live_chain_has_alive_independent_vendor`
     """
-    # 实测已死的额度池：kimi 月度 429 / 开放平台 402（AGENTS.md §11 环序表）
-    dead_pools = {llm_channels.POOL_KIMI_MONTHLY, llm_channels.POOL_MINIMAX_OPEN}
+    # ★ 只把**实测确实死**的池算死：开放平台 402（余额不足）。
+    #   ⚠️ kimi 月度池**已于 2026-10-27 12:2x 恢复**（实测 4/4 key 活）⇒ 不再算死
+    #   ⇒ 若哪天它又耗尽，**别改这里** ⇒ 跑 probe 实测，改的是「认知」不是「判据」。
+    dead_pools = {llm_channels.POOL_MINIMAX_OPEN}
     for name, rings in (('text', llm_channels.text_rings()),
                         ('vision', llm_channels.vision_rings())):
+        vendors = {r.get('vendor') for r in rings if r.get('vendor')}
         alive = {r.get('vendor') for r in rings
                  if r.get('vendor') and r.get('pool') not in dead_pools}
-        # ★ 判据用 `alive` 空（不是 `rings` 空）⇒ 兜住「半配置态」
+        # ① 结构不变量：第二家服务商必须还在链上
+        assert vendors - {llm_channels.VENDOR_MINIMAX}, (
+            f'{name} 链上**只剩 minimax 一家 vendor**（{vendors}）⇒ '
+            f'第二家服务商的环被摘掉了 ⇒ **冗余真的归零**，该买第二家 API 了'
+            f'（若这是有意摘除 ⇒ 请同步更新 AGENTS.md §11 环序表与结论）')
+        # ② 环境已配置（判据用 `alive` 空，不是 `rings` 空 ⇒ 兜住「半配置态」）
         assert alive, (
             f'{name} 链**没有任何可用的独立服务商** ⇒ **环境未配置**'
             f'（.env 的 MINIMAX_CP_API_KEY / Code 登录态 / OpenClaw key store）'
-            f'⇒ 这条测试无法验证当前的服务商集合。'
+            f'⇒ 这条测试无法验证链的结构。'
             f'\n   实测：环数={len(rings)}，但全部落在已死额度池 {sorted(dead_pools)}'
             f'（或压根没构造出来）⇒ 这是**配置问题**，不是代码漂移。'
             f'\n   ⚠️ 按规矩必须红（不许 skip）；但**别去查代码，去查环境**。')
-        assert alive == {'minimax'}, (
-            f'{name} 链能顶的独立服务商变了: {alive} —— '
-            f'若已接入第二家，请更新这条断言并在 AGENTS.md §11 更新环序表与「该买第二家 API」的结论')
+
+
+LIVE_LLM = os.environ.get('SOLO_BRAVE_LIVE', '') == '1'
+
+
+@pytest.mark.live
+@pytest.mark.skipif(not LIVE_LLM, reason='live 门禁：需 SOLO_BRAVE_LIVE=1（真打上游）')
+def test_live_chain_has_alive_independent_vendor():
+    """★ live 门禁：真探针 ⇒ **此刻**活着的独立服务商 ≥ 1（默认 skip，`SOLO_BRAVE_LIVE=1` 才跑）。
+
+    ⇒ **live 状态不写死在任何地方** ⇒ 额度生死由这里**实测**。
+    ⇒ 判据：至少 1 家活 ⇒ 链不是全员死；并把**实测到的集合打出来**（供人核对认知）。
+    """
+    from daren_bot.tools import probe_llm_channels as probe
+    rings = probe.executors._fallback_rings_daren()
+    assert rings, '降级链一个环都没构造出来 ⇒ 环境未配置'
+    alive = []
+    for idx, ring in enumerate(rings):
+        try:
+            status, detail = probe._probe_text_ring(ring, idx)
+        except Exception as e:
+            status, detail = 'dead', '%s: %s' % (type(e).__name__, e)
+        print('  [live] 环%d %-22s ⇒ %s (%s)'
+              % (idx, ring.get('label'), status, detail[:80]))
+        if status == 'alive':
+            alive.append(ring)
+    vendors = {r.get('vendor') for r in alive if r.get('vendor')}
+    print('\n[live] 可用环 %d/%d ｜ 活着的独立服务商: %s'
+          % (len(alive), len(rings), sorted(vendors)))
+    assert vendors, '**没有任何活着的独立服务商** ⇒ 全链不可用（真故障，别 skip）'
+
 
 
 # ─────────────────── E. 探针的「假冗余」判据 ────────────────────

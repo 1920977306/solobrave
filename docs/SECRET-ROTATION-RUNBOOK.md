@@ -832,7 +832,9 @@ print('环数:', len(lc.text_rings()))"
 .venv-daren/bin/python daren_bot/tools/probe_llm_channels.py | tail -12
 
 # 全量测试
-.venv-daren/bin/python -m pytest -q --no-header -p no:cacheprovider 2>&1 | tail -3
+# ★ 2026-10-27 A 边修正：`.venv-daren` **没装 pytest** ⇒ 原来这条命令当前**跑不通**
+#   （实测 "No module named pytest"）⇒ 改用 .venv-test
+.venv-test/bin/python -m pytest -q --no-header -p no:cacheprovider 2>&1 | tail -3
 ```
 
 > ✅ 断言：
@@ -844,8 +846,9 @@ print('环数:', len(lc.text_rings()))"
 >   死的只剩 `minimax-open-balance`（402 需充钱）**。
 >   ⇒ 10-26 当时的基线是「环数 6、能顶 = {minimax}」⇒ **kimi 月度额度恢复后多回一家**。
 >   ⇒ 轮换后若「能顶」变成 0 ⇒ **那家 key 填错了，立刻回滚**，别继续做下一个）
-> - pytest **`1071 passed / 6 skipped / 0 failed`**（**2026-10-26 19:3x 当场实测**，
->   基线 commit = `4a98b4f`；前一个基线是 1064/6/0 @ `959174a` ⇒ 差 7 个 = 新增测试，非回归）
+> - pytest **`1096 passed / 7 skipped / 0 failed`**（**2026-10-27 12:4x 当场实测**，用
+>   `.venv-test/bin/python`；前一个基线 1071/6/0 @ `4a98b4f` ⇒ 差 25 个 = 新增测试，非回归）
+>   ⇒ ★ **skip 从 6 变 7**：新增的是「live 门禁（LLM 链活探针）」⇒ 默认 skip 是**设计**（要真打上游）
 >
 > ⚠️ **基线会随开发前进，别拿旧数字当判据**：
 >   这个数字改一次就过期一次 ⇒ 轮换时若 passed 数不同，**先看是不是「新增了测试」**
@@ -859,8 +862,15 @@ print('环数:', len(lc.text_rings()))"
 > | 1 | `tests/test_mt_p1_ms3_routing.py` | live 沙箱（需 `MT_P0_LIVE=1`）|
 > | 1 | `tests/test_reliability_full_suite.py` | live 派单验收（要打 prod 8080 + 真实计费调用，**属上线前人工验收，不属回归**）|
 > | 2 | `tests/test_script_suites.py` | live 门禁：`test_kimi_response.py`（真打 Kimi 上游）+ `test_proxy_e2e.py`（要真 server + 登录态）|
+> | 1 | `tests/test_llm_channels.py::test_live_chain_has_alive_independent_vendor` | live 门禁：**真探针**测「此刻活着的独立服务商」（`SOLO_BRAVE_LIVE=1` 才跑）⇒ ★ 这是**唯一**能回答「现在还剩几家能顶」的测试 |
 >
-> ⇒ **看到 6 条 skip 不用慌**，那是「需要真环境」的显式登记（不是隐形死代码）。
+> ⇒ **看到 7 条 skip 不用慌**，那是「需要真环境」的显式登记（不是隐形死代码）。
+> ⇒ ★ **想知道「此刻还剩几家能顶」⇒ 别看任何写死的集合，跑探针**：
+> ```bash
+> cd /Users/qichen/solobrave-prod
+> .venv-test/bin/python daren_bot/tools/probe_llm_channels.py | tail -8
+> SOLO_BRAVE_LIVE=1 .venv-test/bin/python -m pytest tests/test_llm_channels.py -m live -q -s
+> ```
 > ⇒ 若 skip 数**变多** ⇒ 有测试被意外 skip 了，要查；**变少** ⇒ 有 live 门禁失效了，也要查。
 >
 > ⚠️ 「HTTP 200 要看响应体」—— 光看状态码不够：

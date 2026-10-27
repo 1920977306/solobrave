@@ -1089,25 +1089,41 @@ prompt 锁死了「🟢 能带」「🟡 慎带」「🔴 别带」三选一，e
 | 0 | MiniMax 套餐 API | Anthropic | `.env` `MINIMAX_CP_API_KEY` | minimax | cp-subscription | ✅ 1.1s |
 | 1 | **Code 订阅(=贾维斯自己)** | Anthropic | `~/.minimax/auth/**/mcode-public/auth.json` | minimax | code-subscription | ✅ 0.9s |
 | 2 | MiniMax 套餐 API | OpenAI | 同环 0(协议冗余) | minimax | cp-subscription | ✅ 1.2s |
-| 3 | kimi moonshot-v1-32k | OpenAI | OpenClaw key store | kimi | kimi-monthly-quota | ❌ 429 月度额度耗尽 |
+| 3 | kimi moonshot-v1-32k | OpenAI | OpenClaw key store | kimi | kimi-monthly-quota | ✅ **2026-10-27 12:2x 已恢复**（4/4 key 活）|
 | 4/5 | minimax 开放平台 | OpenAI | `.env` `MINIMAX_API_KEY` | minimax | minimax-open-balance | ❌ 402 余额不足 |
 
-识图链:环0 MiniMax(✅) → kimi(❌429) → 开放平台(❌402)。
-（原来的环1「智谱 `glm-4v-flash`」**已摘除** ⇒ 识图链也只剩 MiniMax 一家。）
+识图链:环0 MiniMax(✅) → kimi(✅ **2026-10-27 已恢复**) → 开放平台(❌402)。
+（原来的环1「智谱 `glm-4v-flash`」**已摘除** ⇒ 识图链现在是 **MiniMax + kimi 两家**。）
 
-### ⚠️⚠️ 独立服务商 = **1 家**（MiniMax）⇒ **冗余归零，该买第二家 API**（2026-10-26）
+### ⚠️ 独立服务商 = **2 家**（MiniMax + kimi）⇒ **冗余恢复**（2026-10-27 12:2x 更新）
 
 老大 2026-10-26 终审口径：**智谱资源包只做知识库 embedding，不拿来做 LLM 对话**
 ⇒ `daren_bot/llm_channels.py` 的智谱文字环 + 智谱识图环**全部摘除**（含常量/符号一并删，
-防复活后门）。
+防复活后门）。**这条口径不变。**
 
-⇒ **回答老大「要再买 API 吗」：要买。**
-  链上有 5 个环，但 **能顶的独立服务商只有 MiniMax 一家**
-  （环0/1/2 全是 MiniMax 的三条路；环3 kimi 429；环4/5 开放平台 402）
-  ⇒ MiniMax 一家出问题时全线崩 ⇒ **冗余是假的**。
+⇒ ★ **但「能顶几家」这个结论在 2026-10-27 变了**：kimi 月度额度**自行恢复**（实测见下）
+⇒ **能顶的独立服务商从 1 家（MiniMax）变回 2 家（MiniMax + kimi）**
+⇒ ⇒ **回答老大「要再买 API 吗」：现在不用买**（2026-10-26 当时的答案是「要买」）。
+  - 环0/1/2 = MiniMax 三条路（同一个 vendor）
+  - 环3 = **kimi**（第二家服务商，2026-10-27 12:2x 实测 4/4 key 活）
+  - 环4/5 = 开放平台 402（**不影响**套餐与 kimi）
+  ⇒ MiniMax 挂 ⇒ kimi 顶上；kimi 挂 ⇒ MiniMax 顶上 ⇒ **冗余是真的**。
 
-★ 这条「缺口」被**钉在测试里**（`tests/test_llm_channels.py::test_current_chain_alive_independent_vendors_is_one`）：
-  有人接回第二家服务商时该测试会红 ⇒ 逼着同步更新环序表与结论，不让它悄悄变。
+⇒ **活着的独立额度池 = 3 个**：`cp-subscription` / `code-subscription` / `kimi-monthly-quota`
+（死的只剩 `minimax-open-balance`，402 要充钱才活）。
+
+⇒ ★★ **但「live 状态」不要写死在任何地方**：**一律用 `daren_bot/tools/probe_llm_channels.py` 实测**
+（2026-10-27 12:2x 实测：可用环 4/6、活着的独立服务商 2 家、活池 3 个）。
+
+⇒ ★★★ **本条曾被一条「假绿」断言锁住 —— 记下来当反面教材**：
+  `tests/test_llm_channels.py::test_current_chain_alive_independent_vendors_is_one`
+  本来是**故意**设计成「第二家回来就变红」的认知触发器
+  ⇒ **但它把「kimi 已死」写死进了 `dead_pools`** ⇒ **结构上就看不见 kimi 回来**
+  ⇒ 全量测试 **1096 passed / 0 failed**（假绿）⇒ **仓库里一度还写着「冗余归零、该买第二家 API」**。
+  ⇒ ⇒ ★ **纪律**：**判据里凡「写死谁死了」= 一处会过期的假绿** ⇒
+     **能探就探（live 探针），别写死**（同款第三例：runbook §4 的 dead 集合、守卫残留断言的 glob）。
+     ⇒ 该测试已改为：**结构不变量**（链上必须还有非 minimax 的 vendor 环）＋ **live 门禁**（`-m live`），
+     **不再**把「活着的服务商集合」写死成某个快照。
 
 ### ★★「有几环」≠「有几家」(2026-10-25 实测教训)
 
