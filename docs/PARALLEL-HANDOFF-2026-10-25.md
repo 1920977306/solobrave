@@ -7424,6 +7424,7 @@ purchase extra usage or upgrade your plan: https://www.kimi.com/membership/subsc
 ⇒ 我 §80.12 的三个负向对照，判据写的是「**rc≠0** ＋ 目视看文案」⇒ ⇒ **若变异体本身把脚本搞崩（bash 语法错 ⇒ rc=2），「非 0」同样成立 ⇒ 「脚本崩了」会被误当成「断言判红」** ⇒ ⇒ **判据必须同时断言「出现了哪一条错误文案」** ⇒ ⇒ **我的做法已改成：rc 必须等于 1 ＋ 文案必须命中** ⇒ ⇒ 并已把这个纪律落进 `after_rotate_db_check.sh`（两个负向都是 rc=1 ＋ 指定文案）。
 
 六、★ **一个 bash 3.2 + UTF-8 的坑（本轮踩到，顺带记一笔）**：`echo "（期望：$EXPECT）"` ⇒ 运行报 `EXPECT?: unbound variable` ⇒ ⇒ **bash 3.2 会把 `$VAR` 后紧跟的非 ASCII 首字节吞进变量名** ⇒ ⇒ **一律写 `${VAR}`** ⇒ ⇒ 已沉淀进 agent memory（跨项目通用：任何 macOS 自带 bash 写的、中文输出的脚本都会中招）。
+---
 
 #### 80.14.1 A 边报的**第二层缺陷**（我独立复现）＋ ★ **状态口径更正** ＋ 我的兜底**降级为第二道防线**（2026-10-27 13:4x，B 边）
 
@@ -7608,3 +7609,84 @@ KIMI_QUOTA_BODY.decode() == '{"error":{"code":"exceeded_current_quota_error","me
 | `docs/PARALLEL-HANDOFF-2026-10-25.md`（§81）| **A 边** | 本轮新增 |
 | `AGENTS.md`（新增第 4 条落地纪律）| **A 边** | 本轮**已改** |
 | `solobrave-server.py` | — | 本轮**零改动**（B 边 §80 的调用点已把 `err_text` 传进去）|
+
+### 81.11 ★★★★ 抓到一个**真 bug**：守卫的 `--app` 参数**从 §56 起就是死的** ⇒ **木木从没被真正测过**（两层独立缺陷，已修 ＋ 已加能红的回归守卫）
+
+⇒ ★★ **这是本轮对「老大轮换」最有价值的一条**：老大轮换顺序第一步就是**木木** ⇒ 而守卫**测不到木木**。
+
+#### 81.11.1 症状（实测，不引用任何转述）
+```bash
+bash scripts/e2e_feishu_rotate_exit_codes.sh --app mumu
+  → 被测 app : t_default  (app_id=cli_aa420db06a78dcc5 tenant=t_default)   ← 参数没生效
+bash scripts/e2e_feishu_rotate_exit_codes.sh --app helen
+  → 被测 app : t_default  (app_id=cli_aa420db06a78dcc5 tenant=t_default)   ← 同样没生效
+```
+⇒ ⇒ 而 `rc` 仍是 **0**、**22 项全绿** ⇒ ⇒ ★★ **「全绿」完全掩盖了「参数彻底失效」**。
+
+#### 81.11.2 根因：**两层独立缺陷**（第二层是 B 边认账后我才发现的）
+
+| 层 | 位置 | 机制 | 后果 |
+|---|---|---|---|
+| **①** | `scripts/e2e_feishu_rotate_exit_codes.sh` 参数解析**之后** | 一行**无条件** `APP_TAG="t_default"` 把 `--app` 解析出来的值**重置回默认值** | `--app` **永远不生效** ⇒ 守卫**只测 t_default（貂蝉）** |
+| **②** | 同文件 fixture 常量 | `OLD_V="OLDfakeSECRET_${TEN}_00000AAA"` ⇒ 长度 = **23 + len(TEN)** ⇒ **只有 len(TEN)==9 的那一个 tenant 恰好 32** | 其余 tenant 一律撞长度闸 **`exit 9`** ⇒ 连跑都跑不起来 |
+
+⇒ ⇒ ⇒ ★★★ **实测（修复前，4 个 app 各真跑一遍）**：
+| `--app` | 修复前 rc | 修复前结果 |
+|---|---|---|
+| mumu | **9** | fixture 长度闸 |
+| t_default | 0 | 22 项全绿 |
+| default | **9** | fixture 长度闸 |
+| helen | **9** | fixture 长度闸 |
+
+⇒ ⇒ ⇒ ★★ **⇒ 结论：`--app` 从来就没有任何一刻是能用的**（两层各自都足以让它废掉）⇒
+⇒ ⇒ ⇒ ★★ **⇒ 且 §56.5 / §56.6 里那张「4 个 app 各 20/20 全绿」的表，其中 3 行当时根本不可能绿** ⇒ **文档层面的假绿**。
+
+#### 81.11.3 修法（**最小改动 ＋ 保留全部原有断言**）
+1. **删掉**那行重置（默认值仍由参数解析**之前**的 `APP_TAG="t_default"` 提供 ⇒ **不传 `--app` 时行为完全不变** ✔）
+2. **fixture 常量改成与 TEN 无关**（tenant 身份由 `TEN` / `NAME` / `APP` 三处承载，不靠这个假密钥值）
+   ⇒ ⚠️ ★★ **修这一行时我自己又踩了一次「手数」**：注释写「13+16+3=32」，**实际写出来是 33** ⇒ 被长度断言当场拦下（rc=9）
+   ⇒ ⇒ ⇒ **教训：注释里的算式不是判据**（它和值一样会骗人）⇒ **判据必须是代码里的断言** ⇒ ⇒ 改成 `printf '%*s' 16` **按宽度生成**填充 ⇒ **不手数**
+3. **加 `--print-app` 快通道**：解析完 + 长度闸**之后**打印 `APP_TAG APP TEN NAME 旧长 新长 坏长` 并退出（**不跑 22 个用例 ⇒ 秒级**）
+   ⇒ ⇒ **位置刻意放在长度闸之后** ⇒ ⇒ **一个快通道同时覆盖两层缺陷**
+
+#### 81.11.4 回归守卫（新增 `tests/test_guard_app_plumbing.py`，**5 条 / 0.19s**）
+| 断言 | 防的是哪一层 |
+|---|---|
+| `..._resolves_each_tag_to_its_own_app` | 层①：每个 `--app` 必须解析到**自己的** app_id/tenant/entry |
+| `..._fixture_lengths_are_tenant_independent` | 层②：任何 tenant 长度下 fixture 都是 **32/32/31** |
+| `..._tags_are_not_all_the_same` | 防「4 个标签其实指向同一个 app」（**§56.6 那张假表的成因**）|
+| `..._rejects_unknown_tag` | 未知标签必须**非 0 退出**（不许静默回落默认值）|
+| `test_guard_without_app_flag_defaults_to_t_default` | **不传 `--app` 时默认路径不变**（修 bug 不许改默认行为）|
+
+⇒ ⇒ **双层敏感度已验证**（本项目铁律：「全绿必须先证明能红」）：
+| 变异 | 结果 |
+|---|---|
+| **正向（修复版）** | ✅ **5 passed / 0.19s** |
+| **层① 加回**（参数被重置）| ❌ **3 red** |
+| **层② 加回**（长度随 TEN 变）| ❌ **3 red** |
+⇒ ⇒ ⇒ 两次变异都用**备份副本逐字拷回**（**不用 `git checkout --`** ⇒ 它会连带抹掉同文件上别人的改动且不报错）⇒ 复原后 `diff -q` 逐字一致 ✔
+
+#### 81.11.5 ★★ 修正版 §56.6 表（**4 个 app 各真跑一遍**，修复后）
+
+| `--app` | app_id | tenant | entry | rc | 结果 |
+|---|---|---|---|---|---|
+| `mumu` | `cli_aa51b1b62a7a9bf6` | mumu | `FEISHU_APPSECRET_MUMU` | **0** | **22 项通过 / 0 失败** |
+| `t_default` | `cli_aa420db06a78dcc5` | t_default | `FEISHU_APPSECRET_T_DEFAULT` | **0** | **22 项通过 / 0 失败** |
+| `default` | `cli_aafb5d7cd6389be4` | default | `FEISHU_APPSECRET_MAIN` | **0** | **22 项通过 / 0 失败** |
+| `helen` | `cli_aaf9b98563b99bd7` | helen | `FEISHU_APPSECRET_HELEN` | **0** | **22 项通过 / 0 失败** |
+
+⇒ ⇒ ⇒ **这才是真正的「4 个 app 各 22/22 全绿」**（原 §56.6 那张表里 3 行当时**根本不可能绿**）
+⇒ ⇒ ⇒ ★★ **对老大手动步骤的意义**：**木木（老大轮换第一步）现在第一次真的被守卫覆盖** ⇒
+   ⇒ 守卫能验的：退出码契约 0/3/4/5/6 ＋ store/db 写入语义 ＋ **app_id/tenant/entry 映射是否正确**
+   ⇒ ⇒ ★ **映射错了守卫能抓到** ⇒ 老大轮换木木时不会「secret 已重置却写错地方」。
+
+#### 81.11.6 本节占用登记
+
+| 文件 | 持有方 | 状态 |
+|---|---|---|
+| `scripts/e2e_feishu_rotate_exit_codes.sh` | **A 边**（从 B 边**接手**）| 本轮**已改**（删 1 行重置 + fixture 常量改宽度生成 + 加 `--print-app`）⇒ B 边已于 §80.14 **认账**该缺陷 |
+| `tests/test_guard_app_plumbing.py` | **A 边** | 本轮**新增**（5 条）|
+| `tests/test_proxy_chain_failover.py` | **A 边** | 本轮**已改**（§81.5 补 2 条断言 ＋ §81.6 加注释）⇒ **零行为变化** |
+| `docs/PARALLEL-HANDOFF-2026-10-25.md`（§81）| **A 边** | 本轮新增 |
+| `AGENTS.md`（新增第 4 条落地纪律）| **A 边** | 本轮**已改** |
+| `solobrave-server.py` | — | 本轮**零改动** |
