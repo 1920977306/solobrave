@@ -6782,3 +6782,70 @@ done
 | `daren_bot/llm_channels.py`（注释）| **A 边** | 本轮**已改**（只改注释，逻辑零改动）|
 | `docs/SECRET-ROTATION-RUNBOOK.md`（§4 基线）| **A 边** | 本轮**已改**（pytest venv + 新基线）|
 | `scripts/e2e_feishu_rotate_exit_codes.sh` | **B 边** | 本轮**零改动**（glob 宽度待他修）|
+
+---
+
+## 73. A 边：★★ 代理链兜底只有**一档**（单点）⇒ 补上 Code 订阅第三层 ＋ 端到端实测「kimi 429 ⇒ 仍回 200」＋ minimax 套餐**真的**到顶（2026-10-27 12:3x~12:4x）
+
+### 73.1 ★ 缺口：木木那条链的兜底其实**只有 minimax 一档**
+
+⇒ §72 把 failover 机制查清后，顺手查了**生产兜底档表**（`data/settings.json` 的 `llm.proxyChainProviders`）
+⇒ ★ **那张表是空的** ⇒ `_chain_fallback_providers()` 只从 `llm.providers` 里取到 **minimax 一档**
+⇒ ⇒ **木木那条链实际是 `kimi(主) → minimax(唯一兜底)` = 单点**
+⇒ ⇒ 而 `llm.proxyChainProviders` 这张**代理链专属**档位表是 **2026-10-27 新增**的
+（设计意图正是「给代理链加 Code 订阅档，且不波及共用 `llm.providers` 的那 5 条管线」）
+⇒ ⇒ **它建好了但一直没人填** ⇒ ⇒ 这就是缺口一直没被发现的原因。
+
+### 73.2 ★★ 端到端实测（真 ProviderChain + **真**兜底 provider，只 mock kimi 那一路）
+
+```
+kimi     HTTP 429   ← 我 mock 的「额度耗尽」
+minimax  HTTP 429   ← ★★ 真实的！上游原文：
+                    「已达到 Token Plan 用量上限：请升级 Token Plan 套餐或购买积分补充用量。(2056)」
+code_sub ✅ 成功    usage={'input_tokens': 9, 'output_tokens': 3}
+⇒ 写出 HTTP 200，回复「收到」，fallback_from=kimi
+```
+⇒ ★★★ **这就是老大要的那件事的真实样本（不是模拟）**：
+**kimi 耗尽 ⇒ 自动切 MiniMax ⇒ 再切 Code 订阅 ⇒ 照样回「收到」，没有跟着停。**
+⇒ ⇒ ★ 而**在补 code_sub 之前**，这条链今天就会挂（kimi 一挂 + minimax 套餐已到顶 ⇒ 无处可退）。
+
+### 73.3 处置（**运行时配置**，未跟踪 ⇒ 不进 git ⇒ 不会把明文带进仓库）
+
+| 项 | 动作 |
+|---|---|
+| 备份 | `cp data/settings.json /tmp/settings.json.bak-20261027-1250`（字节级；改前 sha256[:16]=`8646bb893956a942`）|
+| 改动 | `llm.proxyChainProviders` 补一档：**`code_sub`** / apiKey=`__CODE_SUB_TOKEN__`（**标记**，运行时实时读盘）/ baseUrl=`https://agent.minimax.cn/mavis/api/v1/llm/v1` / model=`MiniMax-M3` / priority=5（排在 minimax 之后）/ enabled=true |
+| 生效方式 | `_chain_fallback_providers()` **每次请求现读 settings** ⇒ **不需要重启任何服务** |
+| 零副作用核对 | 写盘后逐项断言：`llm.providers` 原两档（minimax/kimicode）**未变**、`vision` 段**未变**、`json.loads` 解析通过才写盘 |
+| 顺手止血 | `data/settings.json` 权限 **644 → 640**（里面是 minimax/kimi/zhipu/硅基流动的**明文 key**）|
+| 回滚 | 改回即字节级还原（备份在 `/tmp/settings.json.bak-20261027-1250`）|
+
+⇒ 兜底档生效验证（读出，不打印 key）：`minimax(MiniMax-M3)` + `code_sub(marker, 18 字符)` = **2 档**；Code 订阅凭据此刻可用（60 字符）。
+
+### 73.4 ★ 新增配置契约断言（防止「唯一兜底」回归）
+
+`tests/test_proxy_chain_failover.py::test_proxy_chain_has_at_least_two_fallback_tiers`
+⇒ 断言 **兜底 ≥ 2 档** 且 **必须含 `code_sub`** ⇒ 谁把兜底档清空/删掉 ⇒ 立即红。
+⇒（本机无 `data/settings.json` 时 skip 并说明是**环境问题**，不是代码问题 —— 按项目规矩不拿 skip 掩盖配置错。）
+
+### 73.5 ★★ 给老大的**新增行动项**：minimax **套餐 Token Plan** 也到顶了（与「开放平台 402」是**两回事**）
+
+⇒ **两个不同的池，两个不同的死法**：
+| 池 | 状态 | 恢复方式 |
+|---|---|---|
+| `minimax-open-balance`（开放平台）| ❌ **402 余额不足** | 充值 |
+| `cp-subscription`（**套餐 Token Plan**）| ❌ **429 用量上限**（2026-10-27 12:3x 实测原文）| **升级套餐** 或 **买积分补充** |
+| `code-subscription`（Code 订阅）| ✅ 活 | 不用管（已买） |
+| `kimi-monthly-quota` | ✅ 活（12:2x 实测 4/4 key）| 不用管 |
+
+⇒ ⇒ **服务没停**（code_sub + kimi 两层在承重，实测回「收到」），
+⇒ ⇒ 但 **首选环（minimax 套餐）是死的** ⇒ 要不要升套餐由老大定（**不影响可用性**）。
+
+### 73.6 占用登记（本节）
+
+| 对象 | 谁占用 | 状态 |
+|---|---|---|
+| `data/settings.json`（`llm.proxyChainProviders`）| **A 边** | 本轮**已改**（补 `code_sub` 一档）—— ⚠️ **运行时配置、未跟踪** ⇒ 不进 git ⇒ 备份在 `/tmp/settings.json.bak-20261027-1250` |
+| `tests/test_proxy_chain_failover.py` | **A 边** | 本轮**已加**第 ⑦ 条配置契约断言（7/7 过）|
+| `scripts/e2e_feishu_rotate_exit_codes.sh` | **B 边** | 本轮**零改动**（glob 宽度待他修）|
+| `AGENTS.md §11` / `daren_bot/llm_channels.py` / runbook §4 | **A 边** | 本轮**已改**（见 §72）|

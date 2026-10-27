@@ -203,3 +203,34 @@ def test_status_classification_contract(srv):
 
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-v", "--no-header", "-p", "no:cacheprovider"]))
+
+
+# ── ⑦ 配置契约：代理链兜底档 ≥ 2（防止「唯一兜底」回归）────────────────
+def test_proxy_chain_has_at_least_two_fallback_tiers(srv):
+    """★ 8080 代理链（飞书机器人走的那条）的兜底**必须 ≥ 2 档**。
+
+    ★★ 为什么要有这条（2026-10-27 A 边 §73 实锤）：
+      `data/settings.json` 的 `llm.proxyChainProviders`（代理链专属档位表）
+      **一直是空的** ⇒ 兜底只有 `llm.providers` 里那**一档 minimax**
+      ⇒ 木木那条链实际是 `kimi(主) → minimax(唯一兜底)` ⇒ **单点**
+      ⇒ 而 **2026-10-27 12:3x minimax 套餐 Token Plan 真的 429 到顶**（真实报错
+        「已达到 Token Plan 用量上限」）⇒ 若 kimi 同时耗尽 ⇒ **机器人会停**
+      ⇒ 补了 `code_sub`（Code 订阅，标记式动态凭据）作为第二档兜底
+      ⇒ 端到端实测：kimi 429 → minimax 429 → **code_sub 200，回复「收到」** ⇒ 没停 ✔
+
+    ⇒ 这条断言的作用：**以后谁把兜底档清空/删掉，立即红**。
+    """
+    settings = os.path.join(REPO, "data", "settings.json")
+    if not os.path.isfile(settings):
+        pytest.skip("本机无 data/settings.json（运行时配置不在本机）⇒ 不是代码问题")
+    fb = srv._chain_fallback_providers()
+    names = [p.get("name") for p in fb]
+    assert len(fb) >= 2, (
+        "代理链兜底档只有 %d 档（%s）⇒ **单点故障** ⇒ "
+        "kimi 一挂、minimax 套餐一 429，机器人就停"
+        "（2026-10-27 12:3x 实测过 minimax 套餐真的 429）"
+        "⇒ 请在 settings.json 的 llm.proxyChainProviders 补档"
+        % (len(fb), names))
+    assert "code_sub" in names, (
+        "兜底档里没有 code_sub（Code 订阅）⇒ 只剩 minimax 一族 ⇒ "
+        "换 minimax 的 key / 套餐 / 开放平台，全都会一起死（%s）" % (names,))
