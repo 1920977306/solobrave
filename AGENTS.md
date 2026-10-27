@@ -1117,35 +1117,28 @@ prompt 锁死了「🟢 能带」「🟡 慎带」「🔴 别带」三选一，e
 `_text_fallback_cfgs` / `_fallback_cfgs` **全是薄壳**,只做转发。
 **别再在任何一个文件里手写环。**
 
-### 环序(LIFO,最稳的排最前) —— **2026-10-26 当场实测**(老大拍板摘除智谱后)
+### 环序(LIFO,最稳的排最前) —— **2026-10-27 19:2x 新政**（kimi 默认关，额度留给开发）
 
 | 环 | 通道 | 协议 | 凭据 | vendor | pool | 实测 |
 |---|---|---|---|---|---|---|
 | 0 | MiniMax 套餐 API | Anthropic | `.env` `MINIMAX_CP_API_KEY` | minimax | cp-subscription | ✅ 1.1s |
 | 1 | **Code 订阅(=贾维斯自己)** | Anthropic | `~/.minimax/auth/**/mcode-public/auth.json` | minimax | code-subscription | ✅ 0.9s |
 | 2 | MiniMax 套餐 API | OpenAI | 同环 0(协议冗余) | minimax | cp-subscription | ✅ 1.2s |
-| 3 | kimi moonshot-v1-32k | OpenAI | OpenClaw key store | kimi | kimi-monthly-quota | ✅ **2026-10-27 12:2x 已恢复**（4/4 key 活）|
-| 4/5 | minimax 开放平台 | OpenAI | `.env` `MINIMAX_API_KEY` | minimax | minimax-open-balance | ❌ 402 余额不足 |
+| 3/4 | minimax 开放平台 | OpenAI | `.env` `MINIMAX_API_KEY` | minimax | minimax-open-balance | ❌ 402 余额不足 |
+| 5（最末） | kimi moonshot-v1-32k | OpenAI | OpenClaw key store | kimi | kimi-monthly-quota | 🔒 **默认整环关闭**（`DAREN_USE_KIMI=1` 才放行，应急最后兜底）|
 
-识图链:环0 MiniMax(✅) → kimi(✅ **2026-10-27 已恢复**) → 开放平台(❌402)。
-（原来的环1「智谱 `glm-4v-flash`」**已摘除** ⇒ 识图链现在是 **MiniMax + kimi 两家**。）
+识图链同口径：环0 MiniMax(✅) → 开放平台(❌402) → kimi(🔒 默认关，排最末)。
+（原来的环1「智谱 `glm-4v-flash`」**已摘除** ⇒ 识图链 MiniMax 一家 + kimi 兜底。）
 
-### ⚠️ 独立服务商 = **2 家**（MiniMax + kimi）⇒ **冗余恢复**（2026-10-27 12:2x 更新）
+### ⚠️ 独立服务商 = **运行时 1 家（MiniMax）**；kimi 是「关闸的备胎」（2026-10-27 19:2x 更新）
 
-老大 2026-10-26 终审口径：**智谱资源包只做知识库 embedding，不拿来做 LLM 对话**
-⇒ `daren_bot/llm_channels.py` 的智谱文字环 + 智谱识图环**全部摘除**（含常量/符号一并删，
-防复活后门）。**这条口径不变。**
-
-⇒ ★ **但「能顶几家」这个结论在 2026-10-27 变了**：kimi 月度额度**自行恢复**（实测见下）
-⇒ **能顶的独立服务商从 1 家（MiniMax）变回 2 家（MiniMax + kimi）**
-⇒ ⇒ **回答老大「要再买 API 吗」：现在不用买**（2026-10-26 当时的答案是「要买」）。
-  - 环0/1/2 = MiniMax 三条路（同一个 vendor）
-  - 环3 = **kimi**（第二家服务商，2026-10-27 12:2x 实测 4/4 key 活）
-  - 环4/5 = 开放平台 402（**不影响**套餐与 kimi）
-  ⇒ MiniMax 挂 ⇒ kimi 顶上；kimi 挂 ⇒ MiniMax 顶上 ⇒ **冗余是真的**。
-
-⇒ **活着的独立额度池 = 3 个**：`cp-subscription` / `code-subscription` / `kimi-monthly-quota`
-（死的只剩 `minimax-open-balance`，402 要充钱才活）。
+**新政由来（老大拍板）**：kimi 月度额度 **16 天被运行时烧光**（开发没额度用）。
+⇒ daren_bot 运行时（飞书聊天问答/选品结论/识图）**一律不走 kimi**：
+`_kimi_enabled()` 总闸（env `DAREN_USE_KIMI`，默认 0）⇒ 默认**不构造 kimi 环**，
+放行时也必须排在**所有 minimax 环之后**。
+⇒ kimi 额度只留给**开发**（openclaw agent / 办公系统代理）；要应急兜底时
+`DAREN_USE_KIMI=1 python3 daren_bot/tools/probe_llm_channels.py` 再看活环。
+⇒ 结构测试双态断言：默认无 kimi 环 / 放行态 kimi 最末（tests/test_llm_channels.py）。
 
 ⇒ ★★ **但「live 状态」不要写死在任何地方**：**一律用 `daren_bot/tools/probe_llm_channels.py` 实测**
 （2026-10-27 12:2x 实测：可用环 4/6、活着的独立服务商 2 家、活池 3 个）。
