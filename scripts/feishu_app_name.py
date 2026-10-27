@@ -51,14 +51,22 @@ import urllib.request
 FEISHU_BASE = "https://open.feishu.cn"
 STORE_DB = os.path.expanduser("~/.openclaw/state/openclaw.sqlite")
 
-# ★ 标签 → (app_id, store 条目名, 飞书后台应用名)
+# ★ 标签 → (app_id, store 条目名, 飞书后台应用名, openclaw 本地别名, 所属飞书账号)
 #   第三列 = 2026-10-27 用飞书 API 实测出来的后台真名（B 边 §80.14.1 第九项 + A 边独立复现 4/4）
 #   ⚠️ 第四列是 openclaw 侧的**本地别名**，**不是**后台应用名（同名不同物，见 runbook §2）
+#   ★ 第五列 = **所属飞书账号**（2026-10-27 16:2x A 边用浏览器**逐账号实测**得出）
+#     测法：飞书开放平台后台按 **App ID** 搜索（URL 参数 filters 驱动）⇒ 命中即该账号下有此 app。
+#     ⇒ 「搜不到」= **该账号下没有**（不是搜索失效 ⇒ 有正向对照：t_default 在 tuz 与 +86157…92 下都命中）。
 APPS = {
-    "t_default": ("cli_aa420db06a78dcc5", "FEISHU_APPSECRET_T_DEFAULT", "貂蝉", "租户Bot"),
-    "mumu":      ("cli_aa51b1b62a7a9bf6", "FEISHU_APPSECRET_MUMU", "木木", "木木"),
-    "default":   ("cli_aafb5d7cd6389be4", "FEISHU_APPSECRET_MAIN", "貂蝉", "貂蝉"),
-    "helen":     ("cli_aaf9b98563b99bd7", "FEISHU_APPSECRET_HELEN", "Ayn的智能助手", "Helen"),
+    # 标签        app_id                    store 条目                      后台真名        本地别名    所属飞书账号
+    "t_default": ("cli_aa420db06a78dcc5", "FEISHU_APPSECRET_T_DEFAULT", "貂蝉", "租户Bot",
+                  "tuz / +86157******92（同一租户，tuz 是所有者）"),
+    "mumu":      ("cli_aa51b1b62a7a9bf6", "FEISHU_APPSECRET_MUMU", "木木", "木木",
+                  "⚠️ 三个已登录账号下均搜不到 ⇒ 属第四个账号（未登录）"),
+    "default":   ("cli_aafb5d7cd6389be4", "FEISHU_APPSECRET_MAIN", "貂蝉", "貂蝉",
+                  "⚠️ 三个已登录账号下均搜不到 ⇒ 属第四个账号（未登录）"),
+    "helen":     ("cli_aaf9b98563b99bd7", "FEISHU_APPSECRET_HELEN", "Ayn的智能助手", "Helen",
+                  "⚠️ 三个已登录账号下均搜不到 ⇒ 属第四个账号（未登录）"),
 }
 # app_id → 标签（反查）
 BY_APP_ID = {v[0]: k for k, v in APPS.items()}
@@ -119,7 +127,7 @@ def fingerprint(secret):
 def same_name_collisions(name):
     """返回后台真名与 name 相同、但 app_id 不同的其它标签。"""
     out = []
-    for tag, (_aid, _entry, bname, _local) in APPS.items():
+    for tag, (_aid, _entry, bname, _local, _acct) in APPS.items():
         if bname == name:
             out.append(tag)
     return out
@@ -131,11 +139,12 @@ def resolve(app_id):
 
 
 def _fmt_app(tag, secret=None, live_name=None):
-    aid, entry, bname, local = APPS[tag]
+    aid, entry, bname, local, acct = APPS[tag]
     print("  标签 %-11s app_id=%-22s store 条目=%s" % (tag, aid, entry))
     print("     后台应用名 = %s%s" % (
         bname, "" if live_name in (None, bname) else "  ⚠️ 实测=%s" % live_name))
     print("     openclaw 本地别名 = %s   ← ★ 这是本地别名，**不是**后台应用名" % local)
+    print("     ★ 所属飞书账号 = %s" % acct)
     coll = [t for t in same_name_collisions(bname) if t != tag]
     if coll:
         for t in coll:
@@ -166,7 +175,7 @@ def cmd_app(tag, live):
     aid = APPS[tag][0]
     print()
     print("★ 老大在飞书后台的操作：")
-    print("   1) 切到该 app 所属的飞书账号（不是 Ayn 账号）")
+    print("   1) 切到该 app 所属的飞书账号（实测结论见上面「所属飞书账号」那一行）")
     print("   2) 搜应用名（可能命中多个）⇒ **只认下面这串 App ID**：")
     print("      >>> %s <<<" % aid)
     print("   3) 打开「凭证与基础信息」⇒ 核对页面顶部 App ID 与上面这串**逐字一致**")
@@ -181,7 +190,7 @@ def cmd_check(app_id, expect_tag, live):
     if tag is None:
         print("  ❌ 这**不是**本项目 4 个待轮换 app 中的任何一个")
         print("     本项目的 4 个 app_id：")
-        for t, (aid, _e, _b, _l) in APPS.items():
+        for t, (aid, _e, _b, _l, _a) in APPS.items():
             print("       %-11s %s" % (t, aid))
         return 1
     print("  ✅ 命中：标签 %s" % tag)
@@ -268,7 +277,7 @@ def selftest():
 def load_live(only=None):
     """实测后台真名 + 现役指纹。失败则降级为「只用表里的静态值」。"""
     live = {}
-    for tag, (aid, entry, bname, _local) in APPS.items():
+    for tag, (aid, entry, bname, _local, _acct) in APPS.items():
         if only and tag not in only:
             continue
         sec = _read_secret(entry)

@@ -41,7 +41,7 @@ def test_four_apps_and_ids_are_unique():
 
 def test_resolve_is_bidirectional():
     """反查必须双向一致。"""
-    for tag, (aid, _e, _b, _l) in fan.APPS.items():
+    for tag, (aid, _e, _b, _l, _a) in fan.APPS.items():
         assert fan.resolve(aid) == tag
 
 
@@ -63,7 +63,7 @@ def test_mumu_name_is_unique():
 
 def test_every_non_unique_name_is_flagged():
     """★ 通用守卫：**任何**后台名若对应多个 app，都必须能被检出（防止以后新增 app 又造一个同名）。"""
-    for tag, (_aid, _e, bname, _l) in fan.APPS.items():
+    for tag, (_aid, _e, bname, _l, _a) in fan.APPS.items():
         others = [t for t in fan.same_name_collisions(bname) if t != tag]
         if others:
             # 该名字有歧义 ⇒ 必须能列出歧义对象
@@ -122,7 +122,7 @@ def test_live_backend_names_match_table():
 
     ⇒ 表一旦过期（后台改了名 / app 重建了）立刻红。
     """
-    for tag, (aid, entry, bname, _local) in fan.APPS.items():
+    for tag, (aid, entry, bname, _local, _acct) in fan.APPS.items():
         secret = fan._read_secret(entry)
         assert secret, "store 里读不到 %s" % entry
         code, msg, name = fan.fetch_backend_name(aid, secret)
@@ -130,3 +130,32 @@ def test_live_backend_names_match_table():
         assert name == bname, (
             "%s 的后台真名变了：实测=%r 表里=%r ⇒ 改表并同步 runbook"
             % (tag, name, bname))
+
+
+# ── ⑥ ★★ 「所属飞书账号」列必须存在且自洽（结构漂移守卫）──────────────
+def test_account_column_present_and_consistent():
+    """★★ 表里必须有第 5 列「所属飞书账号」⇒ 且内容与 2026-10-27 浏览器实测一致。
+
+    ★ 为什么加这条（2026-10-27 16:2x，A 边实测后加）：
+      ① 我给 `APPS` 加第 5 列时，**3 处 4 元组解包全部报 ValueError**
+         ⇒ 「加一列」这种改动会**连锁打断**所有解包点 ⇒ 必须有守卫钉住列数
+      ② 本条也钉住**实测结论**：木木/default/helen 在三个已登录账号下都搜不到
+         ⇒ 老大轮换木木前**必须切到第四个账号**（否则根本找不到那个 app）
+         ⇒ ★ 这条是**给老大的操作指引**，不是装饰
+
+    ★ 断言必须写「**具体内容**」，不能只写「非空」⇒ 否则改成任意字符串都绿。
+    """
+    for tag, (_aid, _e, _b, _l, acct) in fan.APPS.items():
+        assert acct, "%s 缺「所属飞书账号」" % tag
+        assert isinstance(acct, str) and acct.strip(), "%s 的所属账号不是非空字符串" % tag
+
+    # ★ 实测事实钉死（2026-10-27 16:0x–16:2x 浏览器逐账号搜索）：
+    #   tuz / +86157…92（飞书个人版，同一租户，tuz 是所有者）/ +86190…76（豆包账号）
+    #   ⇒ t_default 命中（貂蝉）；mumu / default / helen **三个都搜不到**
+    accounts = {tag: fan.APPS[tag][4] for tag in fan.APPS}
+    assert "tuz" in accounts["t_default"], \
+        "t_default 必须在 tuz 账号下（实测命中）"
+    for tag in ("mumu", "default", "helen"):
+        assert "搜不到" in accounts[tag], (
+            "%s 在三个已登录账号下实测均搜不到 ⇒ 表里必须记「搜不到」"
+            "（否则老大会照着表去错误的账号找）" % tag)
