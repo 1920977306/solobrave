@@ -174,6 +174,7 @@ curl -s -X POST "http://127.0.0.1:8092/admin/api/plan-scan?token=$TOKEN" \
 | `solobrave-server.py` | A 边 | 2026-10-26 15:50 | ✅ 16:40 已交 | **第 6 轮**：视觉 QA 独立配置源 + 转化率 5 处编造源头 + 修复 pass 拒绝 null |
 | `tests/test_llm_channels.py` + `test_vision_qa.py` + `test_plan_notify.py` + `test_conversion_rate_truth.py`（新）| A 边 | 2026-10-26 15:50 | ✅ 16:40 已交 | 第 6 轮契约反转 + 新增 22 条 |
 | `scripts/mutate_llm_ring_guards.py` | A 边 | 2026-10-26 15:50 | ✅ 16:40 已交 | 变异 M1-M11 重写 |
+| `solobrave-server.py` + `scripts/api_token.py`（新）+ `tests/test_api_scoped_tokens.py`（新）| A 边（prod 目录会话，隧道/7188 边）| 2026-10-27 17:45 | ✅ 18:05 已交（`55c8476`）| **scope 化 API token + 请求审计**（写类 API 开放前置三件套）：`_api_token_*` 族 + `_required_api_scope` 闸门 + `_api_audit_emit` 四 do_ 挂载；CLI 复用服务端同一套实现；13 例守卫 + 真机四路冒烟 200/403/401/403 全过。**写接口仍全部关闭，开放哪些端点待老大逐条拍板** |
 
 > ⚠️ **B 边注意（第 6 轮新增的冲突面）**：
 > `daren_bot/db.py` / `daren_bot/plan_notify.py` / `daren_bot/feishu_card.py`
