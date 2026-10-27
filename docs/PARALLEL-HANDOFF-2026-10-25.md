@@ -8501,3 +8501,92 @@ python3 /Users/qichen/solobrave-prod/scripts/probe_feishu_reply_mode.py --json  
 | `docs/PARALLEL-HANDOFF-2026-10-25.md`（§86）| **A 边** | 本轮**新增** |
 | `daren_bot/ws_manager.py` | — | 本轮**零改动**（负向对照已逐字还原）|
 | `solobrave-server.py` / `provider_adapters.py` / `daren_cockpit/**` | — | 本轮**零改动** |
+
+---
+
+## §88 ★★★ 密钥轮换执行：老大给了 4 把新 secret ⇒ 实为 **2 条不同写入路径**（A 边 2026-10-27 17:1x–17:2x）
+
+### 88.0 老大给的 4 组（**贴进来的是明文 ⇒ 只贴指纹进本节**）
+
+| # | app_id | 我判定它是谁 | 新 secret 指纹 | 写在哪 |
+|---|---|---|---|---|
+| 1 | `cli_aa5b67fd7b799d29` | **daren_bot 租户 `daren_test2`**（ayn小助理）| `b4aa980b35fb` | **daren_bot 密文库**（非 openclaw store）|
+| 2 | `cli_aa420db06a78dcc5` | **`t_default`**（貂蝉，tuz 账号）| `ddede5b3f2e8` | openclaw store `FEISHU_APPSECRET_T_DEFAULT` |
+| 3 | `cli_aa51b1b62a7a9bf6` | **`mumu`**（木木）| `3901275e5561` | openclaw store `FEISHU_APPSECRET_MUMU` |
+| 4 | `cli_aa461b7cb7fa9cb7` | **daren_bot 租户 `daren_boss`**（达人1）| `717084c839a4` | **daren_bot 密文库**（非 openclaw store）|
+
+⇒ ⇒ ⇒ ★★★ **★ 关键发现：老大重置的这 4 个 ≠ 我们的 4 个轮换清单** ⇒ **清单里还剩 2 把没换**（见 §88.3）。
+⇒ ⇒ ⇒ ★ **两条写入路径**（这是本轮最容易踩错的地方）：
+  - **openclaw store**：4 个条目 `FEISHU_APPSECRET_{MAIN,HELEN,T_DEFAULT,MUMU}`（明文，`~/.openclaw/state/openclaw.sqlite`）
+  - **daren_bot 密文库**：`data/daren-bot/daren_bot.db` 的 **`bot_tenants.app_secret_enc`**（**AES-GCM 密文**，主钥 `data/daren-bot/master.key` 0600）
+⇒ ⇒ ⇒ ★★ **轮换脚本 `rotate_feishu_secret_and_db.sh` 只认 openclaw 那 4 个条目** ⇒ **daren_bot 的 2 把不能拿它写**（会把 secret 写错槽位）。
+
+### 88.1 ★★★ 写入前的 4 道取证（全部实测，不靠推断）
+
+| # | 判据 | 结果 |
+|---|---|---|
+| 1 | ★ **新 secret 与 app_id 是否配对**（打 `tenant_access_token`）| **4/4 全部 `code=0 ok`** ⇒ 没贴串行 ✔ |
+| 2 | ★ **老 secret 是否已失效** | `T_DEFAULT` / `MUMU` 老值 = `code=10014 app secret invalid` ⇒ **确是真轮换** ✔；`MAIN`/`HELEN` 老值仍 `code=0` ⇒ **没被重置**（对应 §88.3）|
+| 3 | ★ **daren_bot 的 secret 存在哪** | 真实库 = **`data/daren-bot/daren_bot.db`**（**子目录**）⚠️ 不是 `data/daren_bot.db`（那是 **0 字节空文件**）|
+| 4 | ★ **加密方式** | `crypto_util.encrypt_secret` = **AES-GCM**（`nonce(12) + ct`，base64url）⇒ 更新必须**重新加密**，不能直接写明文 |
+
+### 88.2 ★★ 新交付：`scripts/rotate_daren_tenant_secret.py`（只改 secret，不伤运营数据）
+
+```bash
+printf '%s' "$NEW_SECRET" | python3 /Users/qichen/solobrave-prod/scripts/rotate_daren_tenant_secret.py <app_id> <tenant_key>
+```
+
+⇒ ★ **为什么不用 `daren_bot.cli add-tenant`**：它的 upsert 会**重置 `bind_douyin_id`**（且不碰 bitable 字段）⇒ 会误伤运营数据。
+⇒ ★ **本脚本只 UPDATE `app_secret_enc` + `updated_at`**，其余列一个字节不动。
+⇒ ★ **负向对照已实跑（能红）**：
+  - secret 长度 ≠ 32 ⇒ **rc=3** + 「拒绝写入」
+  - 租户不存在 ⇒ **rc=4** + 「不写入」
+  - ⇒ 两次都**零写入**（db 密文长度仍是 60）
+⇒ ★ **写后自检**：行数不变 + **非目标列零改动** + **解密回读与输入一致** ⇒ 三条都过才 rc=0
+⇒ ★ **secret 只从 stdin 读**，不进 argv、不落日志、不打印（只出指纹）
+
+### 88.3 ★★★ 终态核验（6 把全测）
+
+| 条目 | app_id | 指纹 | code | 状态 |
+|---|---|---|---|---|
+| `FEISHU_APPSECRET_MAIN` | `cli_aafb5d7cd6389be4` | `da64ab857b39` | 0 | ⚠️ **未轮换**（= 老基线）|
+| `FEISHU_APPSECRET_HELEN` | `cli_aaf9b98563b99bd7` | `5c3727ab3a85` | 0 | ⚠️ **未轮换**（= 老基线）|
+| `FEISHU_APPSECRET_T_DEFAULT` | `cli_aa420db06a78dcc5` | `ddede5b3f2e8` | 0 | ✅ **已轮换** |
+| `FEISHU_APPSECRET_MUMU` | `cli_aa51b1b62a7a9bf6` | `3901275e5561` | 0 | ✅ **已轮换** |
+| `daren_bot` / `daren_boss` | `cli_aa461b7cb7fa9cb7` | `717084c839a4` | 0 | ✅ **已轮换** |
+| `daren_bot` / `daren_test2` | `cli_aa5b67fd7b799d29` | `b4aa980b35fb` | 0 | ✅ **已轮换** |
+
+⇒ ⇒ ⇒ ★★★ **还剩 2 把没换：`MAIN`（`cli_aafb5d7cd6389be4`）与 `HELEN`（`cli_aaf9b98563b99bd7`）**
+⇒ ⇒ ⇒ ★ **`HELEN` 的归属已实测 = Ayn 账号（`+86190…76`）⇒ 老大可直接去重置**（§86.4）
+⇒ ⇒ ⇒ ★ **`MAIN`（后台名「貂蝉」）与 `t_default`（后台名也「貂蝉」）是两个不同 app** ⇒ `MAIN` 仍需第 4 个身份（§85.2 / §86.3）
+
+### 88.4 ★★ 已完成的收尾动作
+
+⇒ **daren_bot 已重载**（`launchctl kickstart -k` ⇒ 新 pid 32146）：
+  - 日志：`17:20:23 ws client starting: tenant=daren_boss / daren_test2` ⇒ **两个租户都用新密钥上线**
+  - 健康：`{"ok":true,"ws":{"tenants":2,"detail":{"daren_boss":true,"daren_test2":true}}}`
+  - ★ **17:20 之后零错误**（`app_secret is invalid` 只出现在 **17:15–17:23** 的老密钥窗口；`event loop is already running` 是 **10-16 的历史**，与本次无关）
+  - 租户数据完好：`daren_boss` bind=`hlb725` balance=112｜`daren_test2` bind=`324733241` balance=251
+⇒ ★ **残留扫描抓到我自己造的残留**：我写的临时验证脚本 `/tmp/verify_pair.py` 等 3 个文件**含明文 secret**
+  ⇒ ⇒ 已**逐个清零 + 删除** ⇒ 复扫 **0 处** ⇒ ⇒ **纪律：验证脚本里放明文 ⇒ 必须立刻清零，别等扫描器来报**
+⇒ **备份**：`~/.solobrave-secrets/bak-20261027-171747/`（`store_entries_before.json` + `daren_bot.db.bak`，均 0600）
+
+### 88.5 ★★ 待 B 边做（**openclaw 侧 reload**）
+
+```bash
+openclaw secrets reload --timeout 60000
+```
+⇒ ★ **必须 reload**：`T_DEFAULT` / `MUMU` 的新值已进 store，但 **openclaw 进程还持旧值** ⇒ 不 reload 不会生效。
+⇒ ⇒ ⇒ ⚠️ **reload 后木木会短暂断开重连** ⇒ **别把抖动误判成 reload 失败**（runbook 已写这条）。
+⇒ ⇒ ⇒ ★ **reload 后请做行为级验证**：木木回一句 + `default`/`helen` 仍是老密钥（预期）。
+
+### 88.6 本节占用登记
+
+| 文件 | 持有方 | 状态 |
+|---|---|---|
+| `scripts/rotate_daren_tenant_secret.py` | **A 边** | 本轮**新增** |
+| `docs/PARALLEL-HANDOFF-2026-10-25.md`（§88）| **A 边** | 本轮**新增** |
+| `~/.solobrave-secrets/bak-20261027-171747/` | A 边（repo 外）| 本轮**新增**（0600）|
+| `data/daren-bot/daren_bot.db`（**运行时数据，不进 git**）| — | 本轮**已改**（2 行 `app_secret_enc`）|
+| `~/.openclaw/state/openclaw.sqlite`（**运行时，不进 git**）| — | 本轮**已改**（2 个条目）|
+| `solobrave-server.py` / `provider_adapters.py` / `daren_cockpit/**` | — | 本轮**零改动** |
