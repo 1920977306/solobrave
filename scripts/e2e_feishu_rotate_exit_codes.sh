@@ -73,7 +73,21 @@ BAD_V="${NEW_V:0:31}"                                # 31 字符 ⇒ 触发长�
 
 SANDBOX="$(mktemp -d /private/tmp/.sbfb-guard.XXXXXXXX)"
 cleanup() {
-  [ -n "${SANDBOX:-}" ] && [ -d "${SANDBOX}" ] && rm -rf "${SANDBOX}" 2>/dev/null
+  # ★★ 2026-10-27（B 边 §59）：这里**必须用绝对路径 /bin/rm**，不能用裸 `rm`。
+  #   实测根因：本机 PATH 里的 `rm` 是 MiniMax Code 的**可恢复删除 shim**
+  #   （/Users/qichen/.minimax/shims/rm → mavis-trash）⇒ 它在删除本 sandbox 时
+  #   **静默失败**（rc=0 但目录还在）⇒ 而原写法带 `2>/dev/null` ⇒ **错误被吞掉**
+  #   ⇒ 表现 = 守卫每次跑净增 1 个 /private/tmp/.sbfb-guard.* 残留（实测累计 49 个）
+  #   ⇒ 且守卫自己的断言只查 `/private/tmp/.sbfb.*`（被测脚本的），**查不到自己的残留**。
+  #   ⇒ 修法：① 用 /bin/rm 绝对路径 ② 断言扩展到 .sbfb-guard.*（见下方）
+  [ -n "${SANDBOX:-}" ] && [ -d "${SANDBOX}" ] && /bin/rm -rf "${SANDBOX}" 2>/dev/null
+  # ★ 清理后**实测**自己还在不在 ⇒ 这个值供下方断言用（不是抄跑前快照 ⇒ 不是恒真）
+  #   ⇒ 幂等：已删掉时目录不存在 ⇒ 仍判 "yes" ⇒ exit 时 trap 再调一次也无害。
+  if [ -n "${SANDBOX:-}" ] && [ -d "${SANDBOX}" ]; then
+    CLEANUP_OK="no"
+  else
+    CLEANUP_OK="yes"
+  fi
 }
 trap cleanup EXIT
 
@@ -403,6 +417,19 @@ if [ "$LEFTOVER" = "0" ]; then
   ok "被测脚本的 /private/tmp/.sbfb.* 零残留"
 else
   bad "残留 ${LEFTOVER} 个 /private/tmp/.sbfb.* 工作目录"
+fi
+# ★★ 2026-10-27（B 边 §59）：守卫**自己**的 sandbox 也必须零残留。
+#   ⇒ 这条断言存在的意义：曾实测「每次跑净增 1 个 .sbfb-guard.*」（累计 49 个），
+#     而旧断言只查 `.sbfb.*` ⇒ **查不到自己的残留 ⇒ 缺陷隐身**。
+#   ⇒ ★ 判据 = **实测 cleanup 之后自己的目录还在不在**（`CLEANUP_OK`），
+#     **不是**抄跑前快照 —— 抄快照就是恒真断言（§16 Y 第 10/13 条）。
+#   ⇒ 因为 cleanup 原本只在 `exit` 时由 trap 触发（那时已无法判定），
+#     ⇒ 故在汇总**之前**显式调一次 cleanup，让断言能拿到真值。
+cleanup
+if [ "${CLEANUP_OK:-no}" = "yes" ]; then
+  ok "守卫自身 sandbox 已清理（/private/tmp/.sbfb-guard.* 零残留）"
+else
+  bad "守卫自身 sandbox 清理失败 ⇒ 残留 /private/tmp/.sbfb-guard.*（cleanup 被 rm shim 静默失效）"
 fi
 
 echo ""
