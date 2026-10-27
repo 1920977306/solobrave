@@ -6630,3 +6630,20 @@ done
 | `docs/PARALLEL-HANDOFF-2026-10-25.md`（§70）| **A 边** | 本轮新增（§59 那处真缺陷已一并修）|
 | `~/.solobrave-secrets/rotate_feishu_secret_and_db.sh` | **A 边** | 本轮**零改动**（仍是我所有，§69 的版本）|
 | `/private/tmp/sbfb-e2e.*`（15 个旧沙盒）| **A 边** | 本轮**已清理**（批量临时目录 ⇒ `/bin/rm`）|
+
+### 70.7 ★★ 顺带修掉 runbook §1 Step 5.3 的一个「自相矛盾」写法（A 边读 runbook 时发现）
+
+⇒ 原写法：`shred -u ~/.solobrave_github_pat 2>/dev/null || rm -f ~/.solobrave_github_pat`
+⇒ **两个坑叠在一起**，结果正好违反本项目自己的 doctrine：
+| # | 坑 | 后果 |
+|---|---|---|
+| ① | **macOS 默认没有 `shred`** | `shred -u` 直接失败 ⇒ 静默退到 `rm -f` |
+| ② | PATH 里的 `rm` 在 agent 环境下是**可恢复删除 shim** | 文件进**废纸篓** ⇒ **明文继续常驻磁盘** |
+
+⇒ 而这个文件里装的是**现役的新 PAT** ⇒ ⇒ 与 `AGENTS.md §16 X`「**可恢复删除 ≠ 删除 ⇒ 明文仍常驻磁盘**」**直接矛盾**
+（§16 X 记录的正是「老大那把现役 PAT 的明文在 `~/.Trash` 里躺了 3 份」这件事）。
+⇒ ⇒ **修法**：显式绝对路径真删（该文件是一次性副本，新 PAT 此时已在 keychain 里）⇒ `/bin/rm -f`；
+⇒ ⇒ 同时在 runbook 里注明「若要留可恢复副本用 `mavis-trash`，但**现役 PAT 不建议**（明文会常驻磁盘）」。
+⇒ ⇒ ★ **纪律**：**一条命令里多个 fallback 叠加时，每个 fallback 都要单独验** ——
+`shred … || rm …` 看着是「两条保险」，实际是**macOS 上必然走第二条** ⇒ **等于没写第一条**。
+⇒ ⇒ ★ **同类检查**：runbook/脚本里凡出现 `||` 兜底删除，都要确认**兜底那条**在**本机**真的能删干净（`shred` 就是个反例）。

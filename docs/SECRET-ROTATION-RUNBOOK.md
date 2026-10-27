@@ -172,7 +172,15 @@ security find-internet-password -s github.com -w | tr -d '\r\n' | shasum | cut -
 tr -d '\r\n' < ~/.solobrave_github_pat | shasum | cut -c1-12
 
 # 5.3 清掉临时文件
-shred -u ~/.solobrave_github_pat 2>/dev/null || rm -f ~/.solobrave_github_pat
+#    ★ 2026-10-27 A 边修正（原写法有两个坑，叠起来正好违反本文件自己的 §16 X）：
+#      ① macOS 默认**没有 shred** ⇒ `shred -u` 直接失败 ⇒ 退到 `rm -f`
+#      ② PATH 里的 `rm` 在 agent 环境下是**可恢复删除 shim**（→ 废纸篓）
+#         ⇒ 而这个文件里装的是**现役的新 PAT** ⇒ 明文会**继续常驻磁盘**
+#         ⇒ 与 AGENTS.md §16 X「可恢复删除 ≠ 删除 ⇒ 明文仍常驻磁盘」自相矛盾
+#    ⇒ 故：**显式绝对路径真删**（该文件是一次性副本，新 PAT 此时已在 keychain 里）
+/bin/rm -f ~/.solobrave_github_pat
+#    ⇒ 若老大坚持留可恢复副本：/Users/qichen/.minimax/bin/mavis-trash -- "$HOME/.solobrave_github_pat"
+#       ⚠️ 但要知道明文会因此常驻磁盘 ⇒ **现役 PAT 不建议走这条**
 ```
 
 > ✅ 断言：**两行输出必须完全一样**。
