@@ -5495,6 +5495,22 @@ def _dict_to_talent_row(t):
     #   裸 float() 直接 ValueError → POST /api/talents 500 (实锤). 在字典构建前算好.
     _fg_ok, _fg_n = _parse_number_tolerant(t.get('fan_growth', t.get('fanGrowth', 0)), is_int=True)
     _vsr_ok, _vsr_n = _parse_number_tolerant(t.get('video_settlement_ratio', t.get('videoSettlementRatio', 0)))
+    # ★ 2026-10-27: 全部数值列统一走 _parse_number_tolerant（'10-50' 区间取均值、
+    #   脏字符串丢弃为 0 并记警告）。裸 float()/int() 会把区间文本打成 500 ——
+    #   POST /api/talents 实锤两次（20:47 / 22:06, could not convert string to float: '10-50'），
+    #   一次采集 25 分钟白干。PUT 路径有 _sanitize_talent_numeric_fields 把门，
+    #   POST 行构建是唯一裸转入口（同源同 bug：工具在了、用的地方没换）。
+    def _nf(key, *alts, is_int=False):
+        val = t.get(key)
+        for a in alts:
+            if val in (None, ''):
+                val = t.get(a)
+        ok, n = _parse_number_tolerant(val, is_int=is_int)
+        if not ok:
+            logger.warning('  [TalentNumGuard] 数值列 %s 丢弃脏值 %r（置 0）：%s',
+                           key, val, t.get('name', ''))
+            return 0 if is_int else 0.0
+        return n
     _row = {
         'id': t.get('id') or _generate_talent_id(now),
         'name': t.get('name') or '',
@@ -5506,7 +5522,7 @@ def _dict_to_talent_row(t):
         'email': t.get('email') or t.get('contact_email') or t.get('contactEmail') or '',
         'city': t.get('city') or '',
         'level': t.get('level') or '',
-        'followers': int(t.get('followers', 0) or 0),
+        'followers': _nf('followers', is_int=True),
         'talent_type': t.get('talent_type') or t.get('talentType') or '',
         'location': t.get('location') or '',
         'agency': t.get('agency') or '',
@@ -5519,21 +5535,21 @@ def _dict_to_talent_row(t):
         'contact_email': t.get('contact_email') or t.get('contactEmail') or '',
         'cooperation_status': _normalize_cooperation_status(t.get('cooperation_status') or t.get('cooperationStatus')),
         'follow_up_by': t.get('follow_up_by') or t.get('followUpBy') or '',
-        'next_follow_up_at': int(t.get('next_follow_up_at', t.get('nextFollowUpAt', 0)) or 0),
+        'next_follow_up_at': _nf('next_follow_up_at', 'nextFollowUpAt', is_int=True),
         'follow_up_note': t.get('follow_up_note') or t.get('followUpNote') or '',
-        'commission_requirement': float(t.get('commission_requirement', 0) or 0),
-        'fulfillment_score': float(t.get('fulfillment_score', 0) or 0),
-        'rating_score': float(t.get('rating_score', 0) or 0),
-        'total_gmv': float(t.get('total_gmv', 0) or 0),
-        'total_products': int(t.get('total_products', 0) or 0),
-        'product_count': int(t.get('product_count', t.get('total_products', 0)) or 0),
-        'total_shops': int(t.get('total_shops', 0) or 0),
-        'average_price': float(t.get('average_price', 0) or 0),
-        'live_ratio': float(t.get('live_ratio', 0) or 0),
-        'video_ratio': float(t.get('video_ratio', 0) or 0),
-        'avg_live_gmv': float(t.get('avg_live_gmv', 0) or 0),
-        'live_gpm': float(t.get('live_gpm', 0) or 0),
-        'video_gpm': float(t.get('video_gpm', 0) or 0),
+        'commission_requirement': _nf('commission_requirement'),
+        'fulfillment_score': _nf('fulfillment_score'),
+        'rating_score': _nf('rating_score'),
+        'total_gmv': _nf('total_gmv'),
+        'total_products': _nf('total_products', is_int=True),
+        'product_count': _nf('product_count', 'total_products', is_int=True),
+        'total_shops': _nf('total_shops', is_int=True),
+        'average_price': _nf('average_price'),
+        'live_ratio': _nf('live_ratio'),
+        'video_ratio': _nf('video_ratio'),
+        'avg_live_gmv': _nf('avg_live_gmv'),
+        'live_gpm': _nf('live_gpm'),
+        'video_gpm': _nf('video_gpm'),
         'fan_gender': _dump(t.get('fan_gender', t.get('fanGender', {}))),
         'fan_age': _dump(t.get('fan_age', t.get('fanAge', {}))),
         'fan_region': _dump(t.get('fan_region', t.get('fanRegion', {}))),
@@ -5591,7 +5607,7 @@ def _dict_to_talent_row(t):
         # ★ fix/talent-full-sync-r2: 补 3 列映射 (ALTER TABLE 加了但 _dict_to_talent_row 漏)
         'account_fans_profile': str(t.get('account_fans_profile') or t.get('accountFansProfile') or ''),
         'video_fans_profile': str(t.get('video_fans_profile') or t.get('videoFansProfile') or ''),
-        'cooperation_days': int(t.get('cooperation_days', t.get('cooperationDays', 0)) or 0),
+        'cooperation_days': _nf('cooperation_days', 'cooperationDays', is_int=True),
         'ai_reason': t.get('ai_reason') or t.get('aiReason') or '',
         'risk_rating': t.get('risk_rating') or t.get('riskRating') or '',
         'group_id': t.get('group_id') or t.get('groupId') or '',
@@ -5599,11 +5615,11 @@ def _dict_to_talent_row(t):
         'created_by': t.get('created_by') or t.get('createdBy') or '',
         'platform': t.get('platform') or '抖音',
         'price_unit': t.get('price_unit') or t.get('priceUnit') or '元/条',
-        'avg_views': int(t.get('avg_views', t.get('avgViews', 0)) or 0),
+        'avg_views': _nf('avg_views', 'avgViews', is_int=True),
         'last_cooperation': t.get('last_cooperation') or t.get('lastCooperation') or '',
         'notes': t.get('notes') or '',
         'matched_products': _dump(t.get('matched_products', t.get('matchedProducts', []))),
-        'matched_products_updated_at': int(t.get('matched_products_updated_at', t.get('matchedProductsUpdatedAt', 0)) or 0),
+        'matched_products_updated_at': _nf('matched_products_updated_at', 'matchedProductsUpdatedAt', is_int=True),
         # ★ fix/ocr-full: OCR 全字段入库 (vision_field_maps merge 后 JSON, 不限 schema)
         'ocr_raw_fields': _dump(t.get('ocr_raw_fields', t.get('ocrRawFields', {}))),
         # ★ fix/talent-sync-missing-cols (2026-10-17): 补 10 列映射 (清单/读取端同 commit 修)
