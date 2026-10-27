@@ -8401,3 +8401,79 @@ https://open.feishu.cn/app?filters=<base64url({"isv":{...},"self":{"search":"<ap
 1. ★ **合我的 commit**（`helen` 归属更正）⇒ 合完后请自己**再跑一遍** `tests/test_feishu_app_name.py` 14 条 + `--selftest`，确认我没把「能红」改成恒真。
 2. ★ **你的 §85.2 表格 `helen` 那格 + 「正向对照」那句**，按 §86.2 / §86.4 / §86.5 更正 —— **我不替你改 §85 原文**（那是你的章节，按 `AGENTS.md §0.4` 两边内容都留、更正另起段）。
 3. ★ **方法论一条**（我这轮也踩了）：**账号切换器里「昵称」与「手机号」是两个命名空间**，且**子菜单顺序随当前账号变** ⇒ ⇒ **认人靠头像/文字，不靠位置** ⇒ ⇒ **切完必须验「所有者」列变了没**。
+
+> ★★★ **编号说明（本节原为 §86，合并冲突时由 B 边改为 §87）**：B 边的 §86 已于 16:47:37 先推（先到先占），且其编号已被 runbook / 脚本注释 / 测试 / 交接单正文多处交叉引用 ⇒ **改号成本由 B 边承担、本节内容一字未改** ⇒ 冲突按 `AGENTS.md §0.4`「两边内容都留」化解，**任何一方都未回退另一方**。
+
+## §87 ★★★ 「木木已读+卡片 vs kimi 直接回复」的根因（A 边独立取证，2026-10-27 16:5x–17:0x）
+
+### 87.0 老大原话
+
+> 「那为什么木木可以已读啊，回复是卡片形式，跟之前 kimi 弄的不一样，需要我问一下 kimi 吗，kimi 弄的不用已读直接回复了」
+
+⇒ ★★★ **一句话结论：不用问 kimi。形态差异来自**发送端 API 语义**（reply vs create），与 LLM provider 无关。**
+
+### 87.1 ★★★ 决定性证据：两侧发送端用的是**不同的飞书 API**
+
+| 发送端 | 实际调用 | 语义 | 客户端表现 |
+|---|---|---|---|
+| **openclaw 飞书插件**（木木/貂蝉/helen/t_default 全走它） | `client.im.message.reply({path:{message_id}, data:{content,msg_type, reply_in_thread?}})` | **回复**语义 | 飞书把被回复的那条标为**已读**；回复内容可挂卡片 |
+| **daren_bot**（本地服务，老大说的「kimi 弄的」是它） | `self.client.im.v1.message.create(req)`，`receive_id_type("chat_id")` | **新建**语义 | 在会话里**新建一条**消息 ⇒ **不产生「已读」标记**，形态由 `msg_type` 决定（text/image/interactive） |
+
+⇒ ⇒ ⇒ ★★★ **同一条消息、同一套 LLM，形态却不同 ⇒ 差异必然在发送端 ⇒ 不可能需要问 kimi。**
+
+### 87.2 ★★ 排除了两条错误假设（都是「同名不同物」）
+
+| 假设 | 实测判据 | 结论 |
+|---|---|---|
+| 「形态差异来自 LLM provider（kimi vs minimax）」| openclaw **4 个账号**（貂蝉/helen/t_default/木木）**全部**走流式卡片（Started=31/79/2/11）⇒ 4 个账号 provider 各不相同，形态却一致 | ❌ **证伪** |
+| 「已读是 openclaw 主动调 mark-read」| 全仓搜 `read_id` / `markAsRead` / `message_read`：**插件里 `im.message.message_read_v1` 注册的是空 handler**（`async () => {}`），**无任何主动标已读调用** | ❌ **证伪**（已读由飞书服务端因 reply 语义自动产生）|
+
+⇒ ⇒ ★ **正确定位**：形态差异 = **发送端实现差异**（两个完全不同的服务），不是模型差异。
+
+### 87.3 ★★★ 「kimi 弄的那个」到底是谁（老大的问句被实测回答了）
+
+⇒ **`daren_bot`**（本仓库的本地机器人服务，pid 27863，`python -m daren_bot.main`）：
+
+⇒ **租户来源 = `daren_bot` 自己的库 `bot_tenants` 表**（`daren_bot/db.py:302 get_active_tenants`）
+⇒ ★ **实测活跃租户 2 个**（`logs/daren-bot.launchd.log`）：
+
+| tenant_key | app_id | 说明 |
+|---|---|---|
+| `daren_boss` | `cli_aa461b7cb7fa9cb7` | 老大本人在用 |
+| `daren_test2` | `cli_aa5b67fd7b799d29` | 测试租户 |
+
+⇒ ⇒ ⇒ ★★★ **这两个 app_id 与 openclaw 那 4 个（MAIN/HELEN/T_DEFAULT/MUMU）完全不重叠** ⇒ **是两个不同的飞书应用** ⇒ 形态不同是必然的，与谁「弄的」无关。
+⇒ ⇒ ⇒ ★ **旁证**：`daren_bot` 侧**完全没有** `message.reply` / `read_id` / `已读` 相关代码（grep 全空）。
+
+### 87.4 ★★★ 交付：`scripts/probe_feishu_reply_mode.py`（可复跑，**能失败**）
+
+```bash
+python3 /Users/qichen/solobrave-prod/scripts/probe_feishu_reply_mode.py          # 人读
+python3 /Users/qichen/solobrave-prod/scripts/probe_feishu_reply_mode.py --json   # 机读
+```
+
+⇒ **退出码**：0 = 两侧语义已确认（reply vs create）｜**1 = 未能同时确认 ⇒ 结论不成立，需重新取证**
+⇒ ★ **「探针必须能失败」已实测**（不是恒真检查）：
+  - 变异 `daren_bot/ws_manager.py` 的 `.im.v1.message.create(` → `.im.v1.message.createXX(`（3 处）
+  - ⇒ 探针 **rc=1** + 文案「找不到 message.create 调用」+「本结论不成立」
+  - ⇒ **用备份副本逐字还原**（`/tmp/wsm.bak.probe`，**不用 `git checkout --`**）⇒ `git status` 干净 + 探针回 rc=0 + `diff` 逐字一致 ✔
+⇒ **测试**：`tests/test_probe_feishu_reply_mode.py`（**6 条**）
+  - 含**负向对照**（在 tmp 副本里改坏 daren_bot ⇒ 断言 **rc=1** + **精确文案**命中 + 「本结论不成立」）
+  - ⇒ ★ **首跑真抓到我自己的 bug**：一条断言写成 `mod.main.__doc__`（是 `None`）⇒ `TypeError` ⇒ **测试真的能红**（不是假绿）⇒ 已改成从**实际 stdout** 取判据
+
+### 87.5 ★ 方法论（本轮新增）
+
+⇒ ★★★ **「同一产品、不同表现」先查发送端，再查 LLM**：形态/通道类差异 **90% 在发送端**；LLM 只决定**内容**，不决定**形态**。
+⇒ ★★★ **「已读」这类客户端渲染 ≠ 对方服务主动做**：先在**发送端源码**里找**语义**（reply/create），再去搜**显式 API**（mark-read）⇒ 两者都不是 ⇒ 就是平台按语义自动渲染。
+⇒ ★★ **「某个东西是 kimi 弄的」要先落成 app_id**：本项目已有先例（后台真名有两个「貂蝉」）⇒ **app_id 才是唯一可靠依据**；openclaw 的 `name` 是本地别名，也不能按名字找。
+
+### 87.6 本节占用登记
+
+| 文件 | 持有方 | 状态 |
+|---|---|---|
+| `scripts/probe_feishu_reply_mode.py` | **A 边** | 本轮**新增** |
+| `tests/test_probe_feishu_reply_mode.py` | **A 边** | 本轮**新增**（6 条）|
+| `docs/PARALLEL-HANDOFF-2026-10-25.md`（§87）| **A 边** | 本轮**新增** |
+| `daren_bot/ws_manager.py` | — | 本轮**零改动**（负向对照已逐字还原）|
+| `solobrave-server.py` / `provider_adapters.py` / `daren_cockpit/**` | — | 本轮**零改动** |
+
