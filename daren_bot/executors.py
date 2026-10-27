@@ -997,6 +997,13 @@ def execute_product_collect(task: dict) -> str:
                               md=verdict, stats=stats)
     except Exception:
         log.warning("verdict cache put failed: key=%s", product_key, exc_info=True)
+    # ★ 聊天即知识（2026-10-27）：新算出的选品结论 → 知识库 match_pattern
+    #   （只有新结论才到这；缓存命中分支在前面早退，不会重复推。尽力而为。）
+    try:
+        from . import reflow as _reflow
+        _reflow.push_product_verdict(task.get("tenant_key", ""), title, verdict)
+    except Exception:
+        log.warning("verdict kb push failed (non-fatal)", exc_info=True)
     # 结构化信封：worker 拆包后通知（卡片/文字版用 md+title，表格用 stats）
     return json.dumps({"title": title, "stats": stats, "md": verdict},
                       ensure_ascii=False)
@@ -1876,8 +1883,11 @@ def execute_qa(task: dict) -> str:
     #   服务端价值闸把关），定期沉淀回 persona.md。尽力而为，绝不阻塞回复。
     try:
         persona.capture_feedback(task.get("tenant_key", ""), q, ans)
+        # ★ 聊天即知识：有实质内容的问答整段进知识库（talent_insight，pending 人工审）
+        from . import reflow as _reflow
+        _reflow.push_qa_exchange(task.get("tenant_key", ""), q, ans)
     except Exception:
-        log.warning("feedback capture failed (non-fatal)", exc_info=True)
+        log.warning("kb push failed (non-fatal)", exc_info=True)
     if not ans:
         return "AI 刚才没反应过来，你稍等几秒再问一次～"
     if ans.startswith("拒") and len(ans) <= 3:
