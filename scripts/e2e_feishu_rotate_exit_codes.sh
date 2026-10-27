@@ -340,7 +340,19 @@ run_case() {
 #     否则它会被下面 `ls -d /private/tmp/.sbfb.*` **自己匹配到** ⇒ 快照里混进自己的路径 ⇒ 差集永远非空。
 SBFB_SNAP="$(mktemp -t b_sbfb_before.XXXXXXXX)"
 SBFB_AFTER="$(mktemp -t b_sbfb_after.XXXXXXXX)"
-ls -d /private/tmp/.sbfb.????????? 2>/dev/null | sort > "$SBFB_SNAP" || true
+# ★★ 2026-10-27（B 边 §72 修，A 边 §70.2 实测抓到）：原来的 `/private/tmp/.sbfb.?????????`
+#   是 **9 个 ?** ⇒ 而被测脚本模板是 `mktemp -d /private/tmp/.sbfb.XXXXXXXX` = **8 位**
+#   ⇒ **命中恒为 0** ⇒ 「本次运行零残留」这条断言**恒真** ⇒ 判不出任何东西 ⇒ **假绿**。
+#   ⇒ 修法三条同时满足：① **宽度无关**（不写死位数，mktemp 位数变了也不漏）
+#     ② **覆盖历史命名形状**（旧命名空间 `sbfb-e2e.*` 无前导点）
+#     ③ **排除守卫自己的** `.sbfb-guard.*`（否则与下面「守卫自身零残留」互相计数）
+_sbfb_list() {
+  {
+    ls -d /private/tmp/.sbfb.* 2>/dev/null | grep -v '^/private/tmp/\.sbfb-guard\.'
+    ls -d /private/tmp/sbfb-e2e.* 2>/dev/null
+  } | sort -u
+}
+_sbfb_list > "$SBFB_SNAP"
 echo "=== 飞书一条龙脚本 · 退出码契约守卫 ==="
 echo "被测脚本: ${SCRIPT}"
 echo "被测 app : ${APP_TAG}  (app_id=${APP}  tenant=${TEN}  entry=${NAME})"
@@ -421,12 +433,12 @@ fi
 # ★★ B 边 §64：增量口径 —— 只查「本次运行**新增**的」被测脚本 workdir（并发时别人的目录不算我的）
 #   ⇒ ★★ glob 用**精确形状** `/private/tmp/.sbfb.?????????`（9 位随机名）
 #     ⇒ **不能**用 `/private/tmp/.sbfb.*` ⇒ 那个会把**守卫自己的** `.sbfb-guard.*` 也匹配进来 ⇒ 两者互相计数。
-ls -d /private/tmp/.sbfb.????????? 2>/dev/null | sort > "$SBFB_AFTER" || true
+_sbfb_list > "$SBFB_AFTER"
 LEFTOVER="$(comm -13 "$SBFB_SNAP" "$SBFB_AFTER" 2>/dev/null | wc -l | tr -d ' ')"
 if [ "$LEFTOVER" = "0" ]; then
-  ok "被测脚本本次运行零残留（/private/tmp/.sbfb.????????? 增量口径；全局现存 $(wc -l < "$SBFB_AFTER" | tr -d ' ') 个可能来自并发方）"
+  ok "被测脚本本次运行零残留（宽度无关 glob 增量口径：.sbfb.*（排除 .sbfb-guard.）+ 旧命名空间 sbfb-e2e.*；全局现存 $(wc -l < "$SBFB_AFTER" | tr -d ' ') 个可能来自并发方）"
 else
-  bad "本次运行新增 ${LEFTOVER} 个 /private/tmp/.sbfb.* 工作目录 ⇒ 被测脚本 cleanup 未生效"
+  bad "本次运行新增 ${LEFTOVER} 个被测脚本 workdir（.sbfb.* / sbfb-e2e.*）⇒ 被测脚本 cleanup 未生效"
 fi
 
 # ★★ 2026-10-27（B 边 §59）：守卫**自己**的 sandbox 也必须零残留。
