@@ -524,8 +524,65 @@ ERROR_ACTION_ROTATE_KEY = 'rotate_key'
 ERROR_ACTION_FALLBACK = 'fallback'
 ERROR_ACTION_CLIENT = 'client'
 
+# ── 429 的两种语义（body 级特征）—— 2026-10-27 A 边 §78 ─────────────────
+# 「额度/余额耗尽」⇒ 换 key 无效（同计费周期/同账户共享额度）⇒ 直接降级下一 provider
+_QUOTA_BODY_MARKERS = (
+    'exceeded_current_quota',   # Kimi 月度额度耗尽（实测）
+    'quota_exceeded',
+    'insufficient_quota',
+    'insufficient_balance',
+    'insufficient_credit',
+    'insufficient credit',
+    '余额不足', '额度已用尽', '额度耗尽', '额度不足',
+    '用量上限', '无可用资源包', '资源包不足',
+)
+# 「速率限制」⇒ 换一把 key 可能有效 ⇒ 维持 rotate_key（保守：宁可慢，不要误判）
+_RATE_BODY_MARKERS = (
+    'rate_limit', 'ratelimit', 'too many requests', 'requests per',
+    ' rpm', ' tpm', '请求过于频繁', 'rate limit',
+)
 
-def classify_upstream_status(status):
+
+def is_quota_exhausted(body_text):
+    """body 看起来是「**额度/余额耗尽**」吗？（区别于「速率限制」）
+
+    ★★ 为什么要分这个（2026-10-27，A 边 §78）：
+      429 在不同上游**含义完全不同**：
+        - **速率限制**（rate limit / too many requests / rpm）⇒ **换一把 key 可能有效** ⇒ 维持 rotate_key；
+        - **额度耗尽**（quota exceeded / 余额不足 / 用量上限）⇒ **换 key 无效**
+          （同一计费周期/同一账户的额度是**共享**的）⇒ 换 key 只是白跑 N 次 429 往返
+          ⇒ 应**直接降级到下一 provider**。
+
+      ★ 证据（实测，不是推断）：
+        - Kimi 月度额度耗尽 ⇒ `429 exceeded_current_quota_error`（PROGRESS-2026-10-22.md 实测）
+        - 智谱余额不足 ⇒ `429 {"code":"1113","message":"余额不足或无可用资源包"}`
+          （solobrave-server.py:6950 注释：**别按状态码猜原因，必须读 body**）
+        - minimax 套餐 Token Plan 到顶 ⇒ 429 +「已达到 Token Plan 用量上限」
+
+      ⚠️ **保守取向**：body 里出现**速率特征**（rate_limit / too many requests / rpm / 请求过于频繁）
+      ⇒ 一律判为「速率限制」⇒ 维持 rotate_key（**宁可慢一点，也不要把限流误当成额度耗尽**）。
+      ⚠️ minimax 那条 body 同时含 `rate_limit_error` 与「用量上限」⇒ 按本判据归为「速率限制」
+      ⇒ 维持 rotate_key（但它只有一把 key ⇒ 换 key 一步就走完 ⇒ 降级不受影响）。
+    """
+    t = (body_text or '').lower()
+    if not t:
+        return False
+    if any(m in t for m in _RATE_BODY_MARKERS):
+        return False
+    return any(m in t for m in _QUOTA_BODY_MARKERS)
+
+
+def classify_upstream_status(status, body_text=''):
+    """把上游状态码（+ 可选 body）分类成链的动作。
+
+    ★ `body_text` 是**可选**的 ⇒ **不传时行为与历史完全一致**（429 ⇒ rotate_key）
+      ⇒ 共用本模块的另外 5 条管线（对话链 / 视觉 / 重管道…）**零影响**；
+      只有**代理链**（`solobrave-server.py` 的 `_proxy_chain_forward`）会传 body
+      ⇒ 只有它能识别「额度耗尽型 429 ⇒ 直接降级」。
+    """
+    if status == 429 and is_quota_exhausted(body_text):
+        # 额度耗尽 ⇒ 换 key 无效（同周期共享额度）⇒ 直接降级下一 provider
+        return ERROR_ACTION_FALLBACK
     if status in (401, 429):
         return ERROR_ACTION_ROTATE_KEY
     if status in (402, 403, 408, 425, 500, 502, 503, 504, 529):

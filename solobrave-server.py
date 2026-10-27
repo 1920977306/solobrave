@@ -34339,7 +34339,11 @@ def _proxy_chain_forward(body_json, *, request_format, is_streaming, write_head,
                     err_body = b''
                 err_text = err_body.decode('utf-8', errors='replace')[:500]
                 last_status, last_provider = e.code, name
-                action = padapters.classify_upstream_status(e.code)
+                # ★★ 2026-10-27（A 边 §78）：**把 body 一起给分类器** ——
+                #   429 有两种语义：速率限制（换 key 可能有效）vs **额度耗尽**（换 key 无效，
+                #   同计费周期共享额度）⇒ 后者直接降级下一 provider，省掉 N 次无谓的 429 往返。
+                #   ⚠️ 不传 body 时行为与历史完全一致 ⇒ 共用本模块的其它管线零影响。
+                action = padapters.classify_upstream_status(e.code, err_text)
                 logger.error(f'  [{log_prefix}] provider={name} HTTP {e.code} key={masked} '
                              f'action={action} resp[:500]={err_text!r}')
                 result['attempts'].append({'provider': name, 'status': e.code})

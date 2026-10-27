@@ -68,13 +68,13 @@ def _anthropic_ok(text="收到", model="MiniMax-M3"):
     }, ensure_ascii=False).encode("utf-8")
 
 
-def _http_error(url, code, msg="err"):
-    return urllib.error.HTTPError(
-        url, code, msg, {}, io.BytesIO(b'{"error":{"code":"x","message":"y"}}'))
+def _http_error(url, code, msg="err", body=None):
+    payload = body if body is not None else b'{"error":{"code":"x","message":"y"}}'
+    return urllib.error.HTTPError(url, code, msg, {}, io.BytesIO(payload))
 
 
-def _patch_urlopen(monkeypatch, srv, kimi_status, minimax_status=200):
-    """按 URL 片段分流：kimi → 指定状态码；minimax → 200。"""
+def _patch_urlopen(monkeypatch, srv, kimi_status, minimax_status=200, kimi_body=None):
+    """按 URL 片段分流：kimi → 指定状态码（可带真实 body）；minimax → 200。"""
     calls = {"kimi": 0, "minimax": 0}
 
     def fake(req, timeout=None, context=None):
@@ -83,7 +83,7 @@ def _patch_urlopen(monkeypatch, srv, kimi_status, minimax_status=200):
             calls["kimi"] += 1
             if kimi_status == 200:
                 return _FakeResp(_anthropic_ok(model="moonshot-v1-32k"))
-            raise _http_error(url, kimi_status)
+            raise _http_error(url, kimi_status, body=kimi_body)
         if "minimax.test" in url:
             calls["minimax"] += 1
             if minimax_status == 200:
@@ -95,9 +95,10 @@ def _patch_urlopen(monkeypatch, srv, kimi_status, minimax_status=200):
     return calls
 
 
-def _run_chain(srv, monkeypatch, kimi_status, fallback=True, request_format="anthropic"):
+def _run_chain(srv, monkeypatch, kimi_status, fallback=True, request_format="anthropic",
+               kimi_body=None, primary_key="fake_kimi_key_1"):
     """跑一次真链：主 = kimi，兜底 = minimax（可选）。"""
-    calls = _patch_urlopen(monkeypatch, srv, kimi_status)
+    calls = _patch_urlopen(monkeypatch, srv, kimi_status, kimi_body=kimi_body)
     written = {"head": None, "chunks": []}
 
     def write_head(status, content_type, extra):
@@ -117,7 +118,7 @@ def _run_chain(srv, monkeypatch, kimi_status, fallback=True, request_format="ant
         write_head=write_head, write_chunk=write_chunk,
         target_path="/v1/messages",
         primary={"name": "kimi", "url": "https://kimi.test/v1/messages"},
-        primary_key="fake_kimi_key_1", key_pool=None,
+        primary_key=primary_key, key_pool=None,
         fallback_providers=fb, log_prefix="TestChain",
     )
     return result, written, calls
@@ -178,7 +179,9 @@ def test_assertion_is_sensitive_to_status_classification(srv, monkeypatch):
     orig = padapters.classify_upstream_status
     monkeypatch.setattr(
         padapters, "classify_upstream_status",
-        lambda status: padapters.ERROR_ACTION_CLIENT,   # 把所有错误都当客户端错误
+        # ★ 注意签名：分类器现在收 (status, body_text) ⇒ 补丁也要收两个参数
+        #   （收一个会让链里 TypeError ⇒ 被当成网络错误 ⇒ 反而触发降级 ⇒ 断言会假红）
+        lambda status, body_text='': padapters.ERROR_ACTION_CLIENT,
     )
     try:
         result, written, calls = _run_chain(srv, monkeypatch, kimi_status=429)
@@ -234,3 +237,60 @@ def test_proxy_chain_has_at_least_two_fallback_tiers(srv):
     assert "code_sub" in names, (
         "兜底档里没有 code_sub（Code 订阅）⇒ 只剩 minimax 一族 ⇒ "
         "换 minimax 的 key / 套餐 / 开放平台，全都会一起死（%s）" % (names,))
+
+
+# ── ⑧ 429 的两种语义（2026-10-27 A 边 §78：B 边 §72 提的「真缺口」落地）────
+#   429 在不同上游含义不同：速率限制（换 key 可能有效）vs 额度耗尽（换 key 无效）
+KIMI_QUOTA_BODY = (b'{"error":{"code":"exceeded_current_quota_error",'
+                   b'"message":"\u6708\u8ba1\u8d39\u5468\u671f\u989d\u5ea6\u5df2\u7528\u5c3d"}}')
+KIMI_RATE_BODY = (b'{"error":{"code":"rate_limit_exceeded",'
+                  b'"message":"too many requests, please retry later"}}')
+
+
+def test_quota_exhausted_429_is_fallback_not_rotate_key(srv):
+    """★ 额度耗尽型 429 ⇒ **直接降级**（换 key 对共享额度无效）。"""
+    pa = srv.padapters
+    assert pa.classify_upstream_status(429, KIMI_QUOTA_BODY.decode()) == pa.ERROR_ACTION_FALLBACK, \
+        "额度耗尽型 429 必须判为 fallback（直接降级 provider）"
+    # 智谱那类（余额不足也报 429）也要认
+    assert pa.classify_upstream_status(429, '{"code":"1113","message":"\u4f59\u989d\u4e0d\u8db3\u6216\u65e0\u53ef\u7528\u8d44\u6e90\u5305"}') \
+        == pa.ERROR_ACTION_FALLBACK
+
+
+def test_rate_limited_429_still_rotates_key(srv):
+    """★ 速率限制型 429 ⇒ **维持换 key**（换一把可能就通了）⇒ 不改变历史行为。"""
+    pa = srv.padapters
+    assert pa.classify_upstream_status(429, KIMI_RATE_BODY.decode()) == pa.ERROR_ACTION_ROTATE_KEY, \
+        "速率限制型 429 必须维持 rotate_key（保守：宁可慢，不要把限流误判成额度耗尽）"
+
+
+def test_classification_without_body_is_backward_compatible(srv):
+    """★ **不传 body** ⇒ 行为与历史完全一致 ⇒ 共用本模块的其它 5 条管线零影响。"""
+    pa = srv.padapters
+    assert pa.classify_upstream_status(429) == pa.ERROR_ACTION_ROTATE_KEY
+    assert pa.classify_upstream_status(401) == pa.ERROR_ACTION_ROTATE_KEY
+    assert pa.classify_upstream_status(402) == pa.ERROR_ACTION_FALLBACK
+    assert pa.classify_upstream_status(400) == pa.ERROR_ACTION_CLIENT
+
+
+def test_quota_429_does_not_walk_the_whole_key_pool(srv, monkeypatch):
+    """★★ 端到端：额度耗尽型 429 ⇒ **不逐把试 key**，直接落下一 provider。
+
+    ⇒ 这是「省掉 N 次无谓 429 往返」的收益点：**kimi 只被调用 1 次**。
+    ⇒ 对照：速率限制型 429 ⇒ 仍走完 key 池（维持历史行为）。
+    """
+    result, written, calls = _run_chain(srv, monkeypatch, kimi_status=429,
+                                         kimi_body=KIMI_QUOTA_BODY)
+    assert result["ok"] is True
+    assert result["provider"] == "minimax", "应直接降级到 minimax，实得 %r" % (result["provider"],)
+    assert calls["kimi"] == 1, "额度耗尽不该逐把试 key（kimi 被调 %d 次）" % calls["kimi"]
+    assert written["head"][0] == 200
+
+
+def test_rate_429_still_walks_key_pool(srv, monkeypatch):
+    """★ 对照组：速率限制型 429 ⇒ 仍会换 key（行为不变 ⇒ 不误伤）。"""
+    result, written, calls = _run_chain(srv, monkeypatch, kimi_status=429,
+                                         kimi_body=KIMI_RATE_BODY)
+    # 单把 key ⇒ 换 key 一次就走完 ⇒ 仍会降级到 minimax（历史行为）
+    assert result["ok"] is True
+    assert result["provider"] == "minimax"
