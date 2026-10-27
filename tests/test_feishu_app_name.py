@@ -150,6 +150,16 @@ def test_account_column_present_and_consistent():
        ⇒ **实测**：`helen`（`cli_aaf9b98563b99bd7`）在 **Ayn（= +86190…76）** 身份下**命中**
           ⇒ 根因是账号标签串位（把 `+86190…76` 当成了豆包账号）⇒ 见交接单 §86.2 / §86.4
        ⇒ 现在：`helen` 断言**含 `Ayn`**；`mumu`/`default` 仍断言含「搜不到」。
+
+    ⚠️⚠️⚠️ 2026-10-27 17:2x–17:4x（B 边 §89.2）**第二次更正**：
+       实测证明后台检索**跨租户**（Ayn 身份下能搜到 tuz 的 app）**而且会漏召**
+       （Ayn **自己**租户的「Ayn的智能助手」app_id 都搜不到）
+       ⇒ ⇒ **「搜不到」不能当归属判据**
+       ⇒ ⇒ **「mumu/default 三个都搜不到 ⇒ 属第 4 个账号」是推断，不是实测结论**
+       ⇒ ⇒ 现在：`mumu`/`default` 断言**含「未确证」** 且 **不得含「属第四个账号」**
+          （不可靠结论不许被守卫钉死 —— 见 §89.2）
+       ⇒ ⇒ `helen` 断言**含 `Ayn`**，靠 **API 的 bot.app_name** + **Ayn 身份的应用列表**
+          这**两条与检索无关**的证据（检索那条已不可靠）
     """
     for tag, (_aid, _e, _b, _l, acct) in fan.APPS.items():
         assert acct, "%s 缺「所属飞书账号」" % tag
@@ -161,11 +171,14 @@ def test_account_column_present_and_consistent():
     accounts = {tag: fan.APPS[tag][4] for tag in fan.APPS}
     assert "tuz" in accounts["t_default"], \
         "t_default 必须在 tuz 账号下（实测命中）"
+    # ★★ 2026-10-27 17:2x（B 边 §89.2）**双向断言**：既钉「未确证」，又**禁掉**「属第四个账号」
+    #    这种**由「搜不到」推出来的**不可靠结论 ⇒ 错值与乱填都红。
     for tag in ("mumu", "default"):
-        assert "搜不到" in accounts[tag], (
-            "%s 在三个已登录账号下实测均搜不到 ⇒ 表里必须记「搜不到」"
-            "（否则老大会照着表去错误的账号找）" % tag)
-    # ★ helen 实测**命中** Ayn 账号（A 边 §85.2 原写「搜不到」是错的 ⇒ B 边 §86.4 更正）
+        assert "未确证" in accounts[tag], (
+            "%s 的归属**尚未确证**（两路检索都未召回）⇒ 表里必须写「未确证」" % tag)
+        assert "第四个账号" not in accounts[tag], (
+            "%s 不得断言「属第四个账号」—— 那是拿「搜不到」推出来的，检索会漏召（§89.2）" % tag)
+    # ★ helen 归属 Ayn 账号：靠 **API 的 bot.app_name** + **Ayn 身份的应用列表**（都与检索无关）
     assert "搜不到" not in accounts["helen"], \
         "helen 实测在 Ayn 账号下命中（Ayn的智能助手）⇒ 不得记「搜不到」"
     assert "Ayn" in accounts["helen"], \
