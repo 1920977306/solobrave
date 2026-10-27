@@ -8831,3 +8831,31 @@ CLI 出站发送**不构成**入站基线 ⇒ 这一步**必须老大自己做**
   `DAREN-ARCHITECTURE.md` 档案行 + `coop_notify.py` 头注同步更正。daren_bot 已重启，三租户在线，回归 123 过。
 - ⚠️ **遗留**：7188 驾驶舱 `load_cockpit`（daren_cockpit/server.py:430）还读 `bitable_app_token` 展示档案入口——档案层换代后这个入口指向旧物，
   待确认 mini 新功能的接入形态后再改（不猜、不乱动）。
+
+## §94 ★ 7188 驾驶舱档案区块改读本地库——H5 接管档案视图（A 边，2026-10-28 00:0x）
+
+**起因**：老大 23:34「我记得有个 h5」⇒ 档案层换代（§93）后，7188 H5 驾驶舱本身就是达人看档案的地方，
+但它的「趋势/评估结论/报告摘要/AI互动分布/选品结论卡」五个区块一直读每租户多维表格（bitable_sync 链路，已废弃）。
+**不改的话所有租户的这些区块会陆续变空**（本地库有真数据、多维表格已停同步）。
+
+**执行**（`62ea44e`，`daren_cockpit/server.py` 的 `load_cockpit`）：
+
+| 区块 | 新数据源 | 说明 |
+|---|---|---|
+| 趋势 | `bot_weekly_snapshots`（daren_bot.db）| 按 week_no 排，snapshot 取 followers；collected_at 是 "MM-DD HH:MM" 百应口径，日期取 `ca[:5]` |
+| 评估结论/报告摘要 | 本地 `talents.risk_rating` / `ai_summary or notes` | talent 行前半段已从 solobrave.db 查出，直接复用 |
+| AI 互动分布 | `bot_collect_tasks` 按 type 计数（status='done'）| douyin→账号分析 / product→商品分析 / qa→智能问答 / video→视频拆解 / weekly_report→周报生成 |
+| 选品结论卡 | `bot_product_verdicts` 按 created_at DESC 取 60 条（按商品名去重）| stats_json 取 price/commission_rate/sales；verdict 存裸词，前端 verdictKey() 已兼容 |
+| KPI fans | **以最新周快照为准**，未采到回退 talent.followers | 快照优于档案的语义补回（改之前只在兜底分支装配，丢了） |
+| 合作机会 | 不动：仍读共享样板库 `lark_records(DEMO_BASE, COOP_TABLE)` | 共享 base 不在下线范围 |
+
+顺带清理：`load_cockpit` 头部残留的 `table_ids`/`tb_app` 变量读取删除（bitable 字段无人消费了）。
+
+**验收**（launchd 重启后真机 curl，一人一链鉴权）：
+- `daren_boss`：trend=[10-19:12804, 10-26:12804]，interact={账号分析4, 商品分析1, 智能问答11, 视频拆解1, 周报生成3}，cards=1（慎带），verdict=潜力型，fans=12804（取最新快照）
+- `daren_test2`：trend=[10-18:5251, 10-19:5251]，interact={账号分析7, 商品分析9, 智能问答19, 周报生成2}，cards=5（别带…），fans=5251
+- 回归 `tests/ -k "cockpit or reco"` 132 全绿；secret_scan 干净。
+
+**遗留（不堵，知悉即可）**：
+- 互动分布目前只统计采集任务计数，**问答次数没算进**（`bot_qa_cache` 表在，口径以后想细再补）；
+- 趋势是**周粒度**（周快照每周一点），不如以前多维表格每次采集一个点密——这是数据源的真实粒度，如实呈现。
