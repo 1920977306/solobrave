@@ -1006,12 +1006,19 @@ def has_done_collect_this_week(tenant_key: str, douyin_id: str,
 
 def count_auto_fails_this_week(tenant_key: str, douyin_id: str,
                                week_start_ts: int) -> int:
-    """本周自动采集(payload 含 \"auto\":1)失败次数——重试上限用。"""
+    """本周自动采集(payload 含 "auto":1)失败次数——重试上限用。
+
+    ★ 2026-10-28 修复：原来用 `payload LIKE '%"auto":1%'`，而入队侧
+    `json.dumps({"auto": 1})` 默认带空格（`"auto": 1`）⇒ **永远匹配不上**，
+    失败计数恒 0 ⇒ 窗内重试永不触发、缺失版周报判定失真。
+    改用 json_extract 解析（json_valid 兜底坏 JSON）。
+    """
     with db_ctx() as conn:
         n = conn.execute(
             "SELECT COUNT(*) c FROM bot_collect_tasks WHERE tenant_key=? AND target=? "
             "AND type='douyin' AND status='failed' AND created_at>=? "
-            "AND payload LIKE '%\"auto\":1%'",
+            "AND json_valid(COALESCE(payload,'')) "
+            "AND json_extract(payload, '$.auto') = 1",
             (tenant_key, douyin_id, week_start_ts)).fetchone()
         return int(n["c"])
 

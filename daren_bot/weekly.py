@@ -182,8 +182,14 @@ class WeeklyScheduler(threading.Thread):
             if not dyid:
                 continue
             in_collect_phase = w_start <= now < w_end
-            if in_collect_phase and not self._collected(tk, dyid, week_ts):
-                self._maybe_enqueue_collect(t, dyid, week_ts, now, w_start)
+            if in_collect_phase:
+                if not self._collected(tk, dyid, week_ts):
+                    self._maybe_enqueue_collect(t, dyid, week_ts, now, w_start)
+            else:
+                # 窗后：周采失败且没赶上限前重试的（典型：buyin worker 409
+                # 冲突拖到窗后才败）⇒ 补一次采集，把缺的周快照补上（H5 趋势/
+                # 下周基线），不等下周一（2026-10-28 老大拍板）。
+                self._maybe_compensate_collect(t, dyid, week_ts)
             self._maybe_enqueue_report(t, dyid, week_ts, now, w_start)
         self._maybe_ops_alert(tenants, week_no, now, w_start)
 
@@ -242,6 +248,33 @@ class WeeklyScheduler(threading.Thread):
             return
         log.info("weekly auto collect enqueued: tenant=%s dyid=%s retry=%d",
                  tk, dyid, retry)
+
+    # ---- 窗后补偿：窗内失败且没赶上重试的，窗后补一次采（不等下周一） ----
+    def _maybe_compensate_collect(self, tenant, dyid, week_ts):
+        tk = tenant["tenant_key"]
+        # 已有本周快照 ⇒ 不缺，补什么
+        if db.get_snapshot(dyid, report_week_no()):
+            return
+        fails = db.count_auto_fails_this_week(tk, dyid, week_ts)
+        if fails < 1:
+            return  # 没试过的不打扰（新租户等下个窗）
+        if fails >= MAX_AUTO_FAILS:
+            return  # 两次都败：防无限补，等下周一（数据缺失版周报已覆盖达人侧）
+        if self._collected(tk, dyid, week_ts):
+            return  # 有在跑/已成功的任务（_collected 含 done）
+        chat_id = db.get_latest_chat_id(tk)
+        if not chat_id:
+            return
+        status, _task_id, bal = credits.charge_and_enqueue(
+            tk, "douyin", dyid, "weekly_collect", chat_id=chat_id,
+            payload=json.dumps({"auto": 1, "retry": 99}, ensure_ascii=False))
+        if status == "insufficient":
+            log.warning("weekly compensate collect skipped, insufficient credits: "
+                        "tenant=%s balance=%s", tk, bal)
+            return
+        if status == "duplicate":
+            return
+        log.info("weekly compensate collect enqueued: tenant=%s dyid=%s", tk, dyid)
 
     # ---- 推送编排：窗口结束(周一08:00) + 租户slot → 09:37 前后入队周报 ----
     def _maybe_enqueue_report(self, tenant: dict, dyid, week_ts, now, w_start):
