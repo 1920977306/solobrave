@@ -9181,3 +9181,24 @@ PY
 
 ⇒ ⇒ ★★ **runbook 已按并集口径改完**（第 3 轮，4 处：头部修订说明 / 「检索的作用域」段 / Step 0.5 表 helen 行 / 正向对照补注）⇒ **与本节 98.9 同步**。
 ⇒ ⇒ ★★ **⇒ 对老大：轮换剩余 2 把的操作方式不变**（HELEN 在 Ayn 应用列表里点进去核对 App ID；MAIN 进第 4 个身份的应用列表核对）⇒ **不会因为这次分歧返工**。
+## §97 ★★ 周采窗后补偿落地实录：修出来的两个真 bug + 一个重启竞态（A 边，2026-10-28 11:2x–12:1x）
+
+**① 失败计数口径 bug（`4fbd64d`）**：`count_auto_fails_this_week` 用 `payload LIKE '%"auto":1%'`，
+入队侧 `json.dumps({"auto": 1})` 带空格 ⇒ **恒匹配不上 ⇒ 失败计数恒 0 ⇒ 窗内重试机制从未生效过**。
+改 `json_extract`（`json_valid` 兜底）。真实库实测：daren_test2/daren_boss 周一失败从数不到 → 各数到 1。
+
+**② 窗后补偿（同 commit）**：`_maybe_compensate_collect`——窗外（now≥w_end）无本周快照 +
+失败 1 次（<MAX_AUTO_FAILS）+ 无在跑任务 ⇒ 补采一次（payload retry=99 标记），防无限补。
+
+**③ 重启竞态（`91a0bcb`）**：补偿任务入队 1 秒后被**旧进程**（kill 瞬间）认领 ⇒
+任务卡 collecting、claim 日志随旧进程消失、新进程启动回收又跑在认领**之前** ⇒ 永久卡死。
+僵死回收从「启动时一次」改「每分钟巡检」（30min claimed_at 门槛不变，不会抢在跑任务）。
+
+**生产实测全链路（daren_test2）**：
+11:24:14 补偿入队 + 缺失版周报入队（计数修复后判定正确）→ 11:24:18 周报推送成功 →
+11:54:33 周期回收认领残留并重跑 → 12:04 采集 done → **周快照落库（202644, 10-28 12:04）** →
+7188 趋势三点（10-18/10-19/**10-28**）。守卫 `tests/test_weekly_compensate.py` 9 条全绿。
+
+**⚠️ 运维注意**：`scripts/daren_bot.sh restart` 与 launchd 管理的 daren-bot 可能双开
+（本次实测日志落在 `logs/daren-bot.launchd.log`，脚本管理的 8092 绑定曾撞
+`Address already in use`）——重启后务必 `ps aux | grep daren_bot.main` 确认单实例。
