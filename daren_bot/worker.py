@@ -51,7 +51,21 @@ class Worker(threading.Thread):
             log.warning("reclaimed %d stale collecting task(s) -> pending", n)
         log.info("worker started")
         last_purge = 0.0
+        last_reclaim = 0.0
         while not self._stop_event.is_set():
+            # ★ 2026-10-28：僵死回收从「启动时一次」改为「每分钟巡检」——
+            #   重启竞态（旧进程被 kill 的瞬间认领了任务 ⇒ 任务卡 collecting
+            #   永远不再被领）靠启动时回收盖不住：新进程的回收跑在旧进程
+            #   死前认领**之后**。30 分钟门槛（claimed_at 口径）远长于任何
+            #   正常任务 ⇒ 周期回收不会抢正在跑的任务。
+            if time.time() - last_reclaim > 60:
+                last_reclaim = time.time()
+                try:
+                    n = db.reclaim_stale_collecting()
+                    if n:
+                        log.warning("reclaimed %d stale collecting task(s) -> pending", n)
+                except Exception:
+                    log.exception("reclaim stale collecting failed")
             # feat/daren-reflow 管道 3: 每小时滚动清一次 30 天前老 payload (行保留只清内容)
             if time.time() - last_purge > 3600:
                 last_purge = time.time()
