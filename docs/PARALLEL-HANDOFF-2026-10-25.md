@@ -9202,3 +9202,35 @@ PY
 **⚠️ 运维注意**：`scripts/daren_bot.sh restart` 与 launchd 管理的 daren-bot 可能双开
 （本次实测日志落在 `logs/daren-bot.launchd.log`，脚本管理的 8092 绑定曾撞
 `Address already in use`）——重启后务必 `ps aux | grep daren_bot.main` 确认单实例。
+
+## §99 ★ daren-bot 进程归属收口：`scripts/daren_bot.sh` 改 launchctl 薄包装——launchd 单管杜绝双开（A 边，2026-10-28 13:3x–13:5x）
+
+### 99.1 本节占用登记
+- 文件：`scripts/daren_bot.sh`（已提交 `a27f2e0`）＋ 本节。持有方：A 边；状态：已收口。
+
+### 99.2 改制原因
+`daren_bot.sh` 旧版自己 `nohup` 起进程，与 launchd（`com.solobrave.daren-bot`，KeepAlive）**双管**：
+脚本 `stop` 杀的是 launchd 进程 ⇒ KeepAlive 立刻复活 ⇒ 脚本又 `nohup` 拉一个 ⇒
+双开互撞。**实案**：8092 `Address already in use` + 补偿任务认领竞态卡死（§97 周采窗那条的姊妹事故）。
+
+### 99.3 新语义（CLI 四命令完全兼容）
+| 命令 | 实现 | 关键坑 |
+|---|---|---|
+| `status` | `launchctl print` + healthz | — |
+| `start` | 未加载 ⇒ `bootstrap gui/$(id -u)`；已加载 ⇒ `kickstart` | 重复 start 不许再拉进程 |
+| `stop` | **`bootout`**（不是 kill——KeepAlive 会复活被杀的进程） | 杀进程 = 复活竞态 |
+| `restart` | `kickstart -k` | — |
+
+### 99.4 验收（13:5x 真机）
+- `bash32_lint` 16 脚本全绿（exit 0）。
+- `status`：LOADED pid=75182，healthz 三租户（daren_boss/daren_test2/mumu）true。
+- `restart`：kickstart -k 生效，新 pid=78657，healthz 复测三租户 true，`ps` 确认**单实例**。
+- 调用方核对：`grep -rn 'daren_bot.sh' scripts/ docs/` 全仓仅本节上文 §97 一处**文字告警**（说的就是这双开坑，现已被本节机制性消除），**无任何脚本/流程依赖旧 nohup 行为**。
+- `secret_scan --staged` exit 0；推 main+dev 零分叉。
+
+### 99.5 边界声明（不顺手动别的）
+buyin-worker 等其他 5 个 launchd 服务**没有**脚本双开问题（它们的脚本本来就没有自起逻辑），本次**只改 daren_bot.sh**。若以后要统一风格，逐个单独评估。
+
+### 99.6 遗留口（非本次任务）
+- 双浏览器互斥 409 是采集器既有问题（本次靠补偿兜底，未根治）。
+- §97（周采窗补偿）的 duplicate 章节号（8946 vs 9184 两处 §97）是历史撞号，**留给协调边下次顺手册时合并**，本节不动它。
