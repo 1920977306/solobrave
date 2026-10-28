@@ -9677,3 +9677,40 @@ buyin-worker 等其他 5 个 launchd 服务**没有**脚本双开问题（它们
 ① 木木里发一张带一句话的截图 ⇒ 出报告卡（不再有「没看懂」假阴性）；
 ② 发商品 ID → 结论卡后，回「专属佣金20%」⇒ 重算新卡；
 ③ 发过商品链接/ID 后追问「这个品适合我吗」⇒ **直接答，不再要商品 ID**。
+
+## §107 飞书助理平台化：租户角色分流，商务助理上线（A 边，2026-10-28 21:0x–22:2x，commit `36861d5` + `7749dc7`）
+
+### 107.0 本节占用登记
+- 文件：`daren_bot/{config,db,persona,handler,executors,weekly,cli,main}.py` + `daren_bot/personas/{daren.md, commerce.md}`（persona.md 平移）+ `tests/test_commerce_role.py`（新增 22 条）。持有方：A 边；状态：已推送（main/dev 零分叉）。
+
+### 107.1 背景（老大 22:05 拍板）
+「达人助理」扩成「飞书助理」项目：**一个达人一个助理、一个商务一个助理**（商家暂缓）。商务助理能力 = 达人分析 + 查达人数据 + 图片识别（「跟我们系统上的商务一样」= 老 openclaw 商务 emp_1787550091124_1048 那套），**积分正常算**（不免费）。老商务是 openclaw 架构（烧 Kimi 额度），本轮把商务角色**收编进 daren-bot 平台**（MiniMax 环，不碰 Kimi）。
+
+### 107.2 改动地图（骨架不动，只加「角色」一个维度）
+| 层 | 改动 |
+|---|---|
+| db | `bot_tenants` 加 `role` 列（ALTER 迁移幂等，**存量行=daren 零感知**）；`add_tenant` 加 role 参数（UPSERT 同步更新）；CLI `add-tenant --role {daren,commerce}`（main.py 与 cli.py 双入口都加） |
+| 人格 | `persona.md` → `personas/daren.md` 平移；新增 `personas/commerce.md`（商务人格：查达人/建联/选品辅助，干练同事口吻，数据强约束）。`qa_persona(role)` 按角色读文件，**角色文件缺失回退 daren**，角色名白化防路径穿越。训练沉淀（聊天即训练）按角色文件各自积累 |
+| handler | ① `_route_douyin`：商务发抖音号 = 分析**这个达人**——**永不绑定**（商务没有自己的号）、上限放宽 `MAX_PEER_IDS_COMMERCE=30`（查达人是本职工作）、「每号每周 1 次」约束保留；② 达人专属路由对商务关闭（周报订阅/排品/接品/专属佣金/选品推荐/驾驶舱入口——一律落回 QA 由商务人格应答）；③ 开场白/余额话术分角色 |
+| executors | `execute_qa`：商务租户 ⇒ 商务人格 + **问题里点到的抖音号 → 真实档案注入**（`_commerce_talent_block`，≤3 个档案/≤5 次查库，查不到由 prompt 指令要求 AI 明说没有数据、严禁编造）；`【达人问】→【商务问】`；**商务不注入「本人账号画像」语境**（7749dc7，误绑也会误导） |
+| weekly | `_tick` 两处租户循环加角色护栏：**非 daren 租户永不推经营周报**（即便误绑抖音号；防烧算力防穿帮） |
+
+### 107.3 验证
+- 守卫 `tests/test_commerce_role.py` **22 条全绿**；全量回归 **1260 passed / 0 failed**（跑的时候含新文件）。
+- **变异对照 5 处全部确认能红**：handler 商务早退分支失效、prompt 删 commerce_line、weekly 删角色护栏、handler 删订阅周报 is_daren 护栏、executors 删 commerce ctx 清零。
+- **生产实测**（mumu 租户临时切 commerce 角色做探针，完毕已切回 daren）：
+  - 注入真实 QA 任务「hlb725 这个达人最近带货数据怎么样，适合推家居收纳品吗」→ worker 命中环 0 MiniMax-M3 → **push ok 到飞书**（日志 22:20）；
+  - 同步调用 execute_qa 捕获答案原文质检：商务口吻、引用真实档案（洁洁爱户外 服饰内衣 92.56%、¥200-300 消费档 35.23%、小镇中老年 32.33%、粉丝 12,804）、**如实说「没有近30天 GMV 数据」不编造**、给建联话术建议 ⇒ 查达人档案注入真链路生效；
+  - 服务重启后 healthz 三租户全 true；生产库角色列迁移正确（3 个存量租户全 daren）。
+
+### 107.4 商务助理开通 SOP（给新商务开助理）
+1. 飞书开发者后台建企业自建应用（命名如「XX 的商务助理」），权限 `im:message` 等（照抄达人助理那套），事件订阅长连接 `im.message.receive_v1`，发布；
+2. 本机执行：`.venv-daren/bin/python -m daren_bot.cli add-tenant <tenant_key> <app_id> --role commerce`（secret 交互输入不回显）；
+3. 服务每 5s 自动收敛新租户（**无需重启**），healthz 确认后去飞书后台切「使用长连接接收事件」；
+4. 初始积分 500（`INITIAL_CREDITS`），找运营充值。
+
+### 107.5 待办 / 边界（P2 候选，未做）
+- 商务的「对比」类问题会走达人对比块（`_build_compare_block` 注入【你的账号】语境）——商务场景语义勉强（自己的号=空），低优先；
+- 建联跟进记录落多维表格（工单 P2）、商务周报（P2）；
+- 商家角色（merchant）config 已留枚举，**老大明确暂缓**；
+- 老大要试商务助理：照 107.4 SOP 建一个真应用即可；或临时把任一测试租户切 commerce（UPDATE bot_tenants SET role=…，ws 每 5s 热收敛）。
