@@ -9636,3 +9636,44 @@ buyin-worker 等其他 5 个 launchd 服务**没有**脚本双开问题（它们
 `bash scripts/daren_bot.sh restart` 后：
 ① 木木聊天里**带一句话发截图**（如「帮我看看这个品」+ 商品图）⇒ 应回「收到截图，识别中～」并出商品结论卡；发罗盘截图应出「截图分析」卡而非废图退分；
 ② 发商品 ID 出结论后回「专属佣金20%」⇒ 应重算出新卡（标题同商品、source=专属佣金重算）。
+
+## §106 截图问答 Markdown 原文通道修复 ＋ 上文商品语境承接（A 边，2026-10-28 17:4x–18:2x，commit `d68d051` / `2079776`）
+
+### 106.0 本节占用登记
+- 文件：`daren_bot/executors.py`（`_vision_call`/`_vision_try`/`_vision_dashboard_qa` 重构 + `_recent_product_block` + `_QA_VOLATILE_WORDS`）、`daren_bot/handler.py`（missing_product_ref 挡板）、`daren_bot/db.py`（`get_latest_product_verdict` / `has_recent_product_context`）、`tests/test_image_intake.py` + 新增上文承接守卫。持有方：A 边；状态：已推送（main/dev 零分叉）。
+
+### 106.1 截图问答的假「没看懂」（`d68d051`）
+§105 上线后自测探针实案：达人发仪表盘截图（非商品提取场景），环 0 minimax-cp **明明正常回答了**，bot 却回达人「截图没看懂」。
+根因：`_vision_dashboard_qa` 复用 `_vision_try` 的 JSON 解析薄壳——dashboard QA 的输出是**自然语言 Markdown 原文**，JSON.loads 必炸 ⇒ 被 catch 成「empty output」。
+修法：拆传输层 `_vision_call`（HTTP + base_resp 检查 + 取 content 原文），`_vision_try` 退化为「传输 + JSON 解析」只做商品提取，`_vision_dashboard_qa` 直取原文。
+教训：**同一 vision 环两种输出契约（JSON vs Markdown），共用一个解析壳必然互踩**。探针不是可选项——这个 bug 只有真跑一次截图问答才会冒出来。
+
+### 106.2 上文商品语境承接（`2079776`，老大 16:5x 原话）
+**「木木的 AI 不能承接上面已经提供的商品链接做下文的回复——上面已经给到了商品链接，下面问其它问题又要给商品 ID」**。四层修复：
+
+| 层 | 改动 | 说明 |
+|---|---|---|
+| ① 挡板 | `handler.missing_product_ref` 分支加 `and not db.has_recent_product_context(tk)` | 近 24h 有过商品分析就**不再触发「请提供商品ID」话术** |
+| ② 语境块 | `executors._recent_product_block(tk, q)` | 指代词 regex（这个品/这款/该商品/本品/它/刚才那个/上面那个/之前那个…）命中时，取 pending stats 优先、回退 `get_latest_product_verdict` 7d 档案，压成 ≤300 字块注入 QA prompt，指令「**绝对禁止再要商品ID或链接**」 |
+| ③ 缓存防污 | `_QA_VOLATILE_WORDS` 加指代词 | 「这个品适合我吗」类问题答案绑死上文商品，**绝不允许命中通用缓存**——否则 A 达人问完 B 达人缓存复用，结论张冠李戴 |
+| ④ 档案查询 | db 新增 `get_latest_product_verdict` + `has_recent_product_context` | 幂等只读，带 7d/24h 窗口 |
+
+判据故意收窄到**指代词命中才注入**：达人问完全无关的新问题时，prompt 不会被旧商品块污染。
+
+### 106.3 验证（全部行为级，非符号扫描）
+- 全量 `/usr/bin/python3 -m pytest tests/ -q --ignore=tests/test_kimi_response.py` → **1239 passed / 10 skipped / 0 failed**；
+- **守卫变异对照 3 处全部确认能红**：删 handler 挡板（红）、删 prompt 的 recent_line（红）、删 `_QA_VOLATILE_WORDS` 指代词（红）；
+- **生产探针三连**（注入真任务到 mumu 租户，日志 16:57–16:58 全 `push ok`）：
+  ① 仪表盘截图 → 商品提取失败 → 截图问答命中环 0 minimax-cp → 卡片推送 ✅（同时验证 106.1 修复）；
+  ② QA「这个品适合我吗」带 pending → 推送 ✅（验证挡板+语境块链路）；
+  ③ commission 任务 rate=20 → 推送 ✅（§105 闭环回归）；
+- **16:49 一条真实用户图片消息成功 push ok**——BytesIO 修复被真实流量（非探针）验证；
+- **QA 语境质量终验**（与线上一模一样的 prompt 真调 `_qa_llm`）：回答明确引用「夏日软底编织人字拖 CAF1021」、结合达人画像（豆鲨包女性 83.8%、视频均价 22.11 vs 品价 159）给出承接建议，**没有再要商品 ID**。
+
+### 106.4 服务状态
+`bash scripts/daren_bot.sh restart` 后 pid 86328，healthz 三租户（daren_boss / daren_test2 / mumu）全 true。当前跑的就是 `2079776` 代码。
+
+### 106.5 待老大实测
+① 木木里发一张带一句话的截图 ⇒ 出报告卡（不再有「没看懂」假阴性）；
+② 发商品 ID → 结论卡后，回「专属佣金20%」⇒ 重算新卡；
+③ 发过商品链接/ID 后追问「这个品适合我吗」⇒ **直接答，不再要商品 ID**。
