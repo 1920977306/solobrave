@@ -44,6 +44,7 @@ COMPUTE_ENTRY_NAMES = {
     "_llm_product_verdict",       # executors：商品结论（绿/黄/红）
     "_vision_extract_product",    # executors：截图识商品
     "_vision_try",                # executors：视觉环的一次尝试
+    "_vision_call",               # executors：vision HTTP 调用（提取/问答共用的传输）
     # 传输层
     "call_ring", "call_ring_messages",
     "call_anthropic", "call_openai",
@@ -120,7 +121,12 @@ COMPUTE_SITES = {
         ACTION_BY_CALLER, 1, 1,
         "非商品截图的通用截图问答（罗盘/数据页，2026-10-28）：由调用方 "
         "execute_image_vision 计费 —— 同一次 image 任务内的识别降级分支，"
-        "不另收费（一次 vision 收费覆盖「商品提取 或 截图问答」两条互斥分支）"),
+        "不另收费（一次 vision 收费覆盖「商品提取 或 截图问答」两条互斥分支）。"
+        "★ 输出是 Markdown 自由文本，走 _vision_call 原文通道，不做 JSON 解析"),
+    ("daren_bot/executors.py", "_vision_try"): (
+        ACTION_TRANSPORT, 1, 1,
+        "vision HTTP 调用的 JSON 字段解析薄壳（商品提取协议）：由上层漏斗计费 "
+        "（_vision_extract_product → execute_image_vision=vision）"),
     ("daren_bot/executors.py", "execute_commission_recalc"): (
         "commission", 1, 1,
         "专属佣金重算（2026-10-28 老大拍板：公开佣金≠达人后台专属佣金）"

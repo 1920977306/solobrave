@@ -1240,18 +1240,16 @@ def _img_mime(b64: str) -> str:
     return 'image/jpeg'
 
 
-def _vision_try(base: str, key: str, model: str, b64: str,
-                temperature: float = 0.1,
-                prompt_text=None) -> dict:
-    """OpenAI 协议的 vision 调用，返回提取字段（无 name 返回 {}）。
-    kimi coding 端点限 temperature=1。
-    prompt_text: 默认取 VISION_PRODUCT_PROMPT（商品字段提取）；传别的即通用截图问答。"""
+def _vision_call(base: str, key: str, model: str, b64: str,
+                 temperature: float, prompt_text: str):
+    """vision 环的 HTTP 调用：请求 + base_resp 检查 + 取 content 原文。
+    返回 content 文本（未做 JSON 解析 —— 解析是调用方的事）。"""
     req = urllib.request.Request(
         base + '/chat/completions',
         data=json.dumps({
             'model': model,
             'messages': [{'role': 'user', 'content': [
-                {'type': 'text', 'text': prompt_text or VISION_PRODUCT_PROMPT},
+                {'type': 'text', 'text': prompt_text},
                 {'type': 'image_url',
                  'image_url': {'url': f'data:{_img_mime(b64)};base64,{b64}'}},
             ]}],
@@ -1270,7 +1268,17 @@ def _vision_try(base: str, key: str, model: str, b64: str,
     bresp = data.get('base_resp') or {}
     if bresp.get('status_code'):
         raise RuntimeError(str(bresp.get('status_msg') or bresp.get('status_code')))
-    content = (data.get('choices') or [{}])[0].get('message', {}).get('content') or ''
+    return (data.get('choices') or [{}])[0].get('message', {}).get('content') or ''
+
+
+def _vision_try(base: str, key: str, model: str, b64: str,
+                temperature: float = 0.1,
+                prompt_text=None) -> dict:
+    """OpenAI 协议的 vision 调用，返回提取字段（无 name 返回 {}）。
+    kimi coding 端点限 temperature=1。
+    prompt_text: 默认取 VISION_PRODUCT_PROMPT（商品字段提取）；传别的即通用截图问答。"""
+    content = _vision_call(base, key, model, b64, temperature,
+                           prompt_text or VISION_PRODUCT_PROMPT)
     return _extract_json_obj(_strip_think(content))
 
 
@@ -1361,7 +1369,12 @@ VISION_DASHBOARD_PROMPT = '''你是抖音电商数据分析师。用户发来一
 
 
 def _vision_dashboard_qa(b64: str, caption: str) -> str:
-    """非商品截图（罗盘/数据页等）→ 通用截图问答（降级环与商品识别共用）。"""
+    """非商品截图（罗盘/数据页等）→ 通用截图问答（降级环与商品识别共用）。
+
+    ★ 输出是 **Markdown 自由文本**（VISION_DASHBOARD_PROMPT 要求 md），
+    不走 _vision_try 的 JSON 字段解析 —— 那是商品提取的协议，套在这里会把
+    正常的 markdown 回答解析成 {} 误判「empty output」（2026-10-28 自测实案）。
+    """
     rings = _vision_rings()
     if not rings:
         raise RuntimeError('AI 视觉暂时不可用（没有可用通道），可以换一张清晰截图再发')
@@ -1370,17 +1383,13 @@ def _vision_dashboard_qa(b64: str, caption: str) -> str:
     errors = []
     for idx, ring in enumerate(rings):
         try:
-            d = _vision_try(ring['base'], ring['key'], ring['model'], b64,
-                            temperature=ring['temp'], prompt_text=prompt)
-            text = (d.get("md") or d.get("answer") or d.get("analysis")
-                    or d.get("text") or "")
-            if not text and d:
-                # 模型没按 md 字段返回时，把 JSON 里的字符串值拼起来兜底
-                text = "\n".join(str(v) for v in d.values() if isinstance(v, str))
-            if text.strip():
+            text = _strip_think(_vision_call(ring['base'], ring['key'],
+                                             ring['model'], b64,
+                                             ring['temp'], prompt)).strip()
+            if text:
                 log.info("[vision] 截图问答命中环%d channel=%s model=%s",
                          idx, ring['label'], ring['model'])
-                return text.strip()
+                return text
             errors.append(f"{ring['label']} empty output")
         except Exception as e:
             errors.append(f"{ring['label']}: {str(e)[:80]}")

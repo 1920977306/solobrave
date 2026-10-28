@@ -398,6 +398,42 @@ class TestCommissionRecalc:
         assert ddb.get_commission_pending(TK) is None
 
 
+# ---------------- ⑤ 截图问答：Markdown 原文通道（JSON 解析 bug 回归） ----------------
+
+class TestDashboardQA:
+    def test_markdown_answer_returned_verbatim(self, bot, monkeypatch):
+        """截图问答的输出是 Markdown 自由文本，必须原文返回 —— 走 JSON 字段
+        解析的老实现会把 markdown 解析成 {} 误判「empty output」
+        （2026-10-28 自测实案：minimax-cp 明明答了却报没看懂）。
+        对照：把 _vision_dashboard_qa 改回调 _vision_try ⇒ 本用例红。"""
+        ex = bot["executors"]
+        md = "## 截图里有什么\n- GMV 12,345（照抄）\n## 解读\n- 环比上涨"
+        monkeypatch.setattr(ex, "_vision_rings",
+                            lambda: [{"base": "http://x", "key": "k",
+                                      "model": "m", "temp": 0.1,
+                                      "label": "fake"}])
+        monkeypatch.setattr(ex, "_vision_call", lambda *a, **kw: md)
+        out = ex._vision_dashboard_qa("aGVsbG8=", "帮我看看这张图")
+        assert out == md.strip()
+
+    def test_caption_becomes_question(self, bot, monkeypatch):
+        """达人随图发的那句话必须拼进 prompt 当问题。"""
+        ex = bot["executors"]
+        captured = {}
+        monkeypatch.setattr(ex, "_vision_rings",
+                            lambda: [{"base": "http://x", "key": "k",
+                                      "model": "m", "temp": 0.1,
+                                      "label": "fake"}])
+
+        def fake_call(base, key, model, b64, temp, prompt):
+            captured["prompt"] = prompt
+            return "ok"
+
+        monkeypatch.setattr(ex, "_vision_call", fake_call)
+        ex._vision_dashboard_qa("aGVsbG8=", "这个品佣金多少")
+        assert "这个品佣金多少" in captured["prompt"]
+
+
 def _spy_charge(bot, monkeypatch):
     """照抄 test_product_intent._spy 口径：盯原子入口 enqueue_task_charged。"""
     db = bot["db"]
