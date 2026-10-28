@@ -9597,3 +9597,42 @@ buyin-worker 等其他 5 个 launchd 服务**没有**脚本双开问题（它们
 
 ### 104.5 行为层复测（待老大）
 老大再给木木发一句话 ⇒ 应只收到**达人助理口径**回复（带积分余额、走 daren-bot 选品/分析链路）⇒ 若还出现 `emp_` 卡头即为未断干净，立刻报。
+
+## §105 图片识别修通（BytesIO/post/压缩/截图问答）＋ 专属佣金问达人重算闭环（A 边，2026-10-28 16:1x–17:4x，commit `625d45b`）
+
+### 105.0 本节占用登记
+- 文件：`daren_bot/{ws_manager,config,db,executors,handler,worker}.py` + `tests/test_image_intake.py`（新增）+ `tests/test_credits_gate_adversarial.py`（登记表补两行）。持有方：A 边；状态：已推送（main/dev 零分叉）。
+
+### 105.1 图片链路：三个叠加 bug 让「发截图出报告」自上线起就是空头支票
+老大 15:31 拍板「把图片识别功能也弄了」，起因是 15:28 实案：木木承诺达人「发 5 页罗盘截图出报告」，达人真发截图时回「这类消息我还处理不了」。拆出来**三层故障叠加**：
+
+| # | 故障 | 根因 | 修法 |
+|---|---|---|---|
+| 1 | **所有图片消息 100% 下载失败** | lark SDK 的 `resp.file` 是 **BytesIO**（注解写的是 bytes），`handler.write_bytes(BytesIO)` ⇒ TypeError ⇒ 回「图片下载失败」。**此路径自上线从未被测过** | `download_image` 里 `hasattr(data,'read')` 归一成 bytes |
+| 2 | 「图片+一句话」掉兜底话术 | 达人手机端图+文组合在飞书是 **post 消息**，`_dispatch` 只认 image/text | 新增 post 分支：`_parse_post` 拆 caption + image_key，caption 进任务 payload 当视觉上下文 |
+| 3 | 手机原图烧 token | 达人常发 3-4MB 原图 | `_img_b64` 统一降采样（长边 1280 / JPEG q80，PIL 缺失回退原字节） |
+
+另：商品提取失败的截图（罗盘/数据页）不再算「废图」，转**通用截图问答**（`_vision_dashboard_qa`，复用同一 vision 降级环，caption 作问题）——废图返还逻辑只对真·识别不出生效。
+
+### 105.2 专属佣金闭环（老大 16:11 拍板）
+**「佣金是需要问达人的——专属佣金是商家给的，平台接口看不到」**：商品结论卡曾因「公开佣金率仅 5%」判 🔴 别带，但达人后台可能挂着 20% 的专属佣金。
+- 结论 prompt 加**规则 5**：佣金低判黄/红时，行动建议必须带原话「这个品你后台如果有商家给的专属佣金，把百分比数字发我，我按你的专属佣金重新算一版」；
+- 商品/截图分析成功后 `stats` 登记 `bot_commission_pending`（**24h TTL、同租户覆盖**——第二次分析顶掉第一次）；
+- 达人报数（如「专属佣金20%」）⇒ `_route_commission` 判据：**百分号 +（含「佣」字或 ≤12 字）+ 确有 pending + 0<rate≤95** ⇒ 入队 `commission`（1 积分）重算出新结论卡；
+- **判据收紧理由**（防误吃普通问答）：「毛利率有20%吗」这类句子无 pending 一律不拦截；有 pending 时也要短句/含佣字才拦。
+
+### 105.3 两个差点带上线的新 bug（自擒）
+1. **参数错位**：`charge_and_enqueue` 第 4 位是 **action**（计费口径）不是 payload——照直觉把 caption JSON 塞第 4 位，action 就变成了一段 JSON，`cost_of(action)` 会 KeyError。**新代码不自测就上线，积分链路当场炸**。被新测试的 action 断言抓住后修正（payload 走关键字参数）。
+2. **Python 3.9 注解**：`dict | None` / `str | Path` 在 `/usr/bin/python3`（3.9）import 期即 TypeError（生产 venv 是 3.12 所以本地发现不了）⇒ 测试套件的版本闸门价值兑现。
+
+### 105.4 验证
+- 新守卫 `tests/test_image_intake.py` 18 条：BytesIO 归一（注入假 lark_oapi 做**行为级**测试，不是符号扫描）/ post 解析 4 组 / caption 全链路（含 `_dispatch` 级）/ 佣金路由 6 组（含无 pending 不拦截、长句不误吃、越界 rate 拒收）/ prompt 话术字面 / 降采样 3 场景；
+- **负向对照 3 处变异全部确认能红**：删 BytesIO 归一（红）、删 pending 判据（红）、dispatch 不传 caption（红）；
+- 生产 venv PIL 实测：12MB 噪声图 → 812KB / 1280×1280；
+- 对抗闸门 `COMPUTE_SITES` 补登记两个新消耗点（`_vision_dashboard_qa`=BY_CALLER、`execute_commission_recalc`=commission）+ `ACTION_TASK_TYPES` 加 `commission`；
+- 全量 **1220 passed / 10 skipped / 0 failed**；secret_scan 过；main/dev 推送零分叉。
+
+### 105.5 待老大实测（重启后）
+`bash scripts/daren_bot.sh restart` 后：
+① 木木聊天里**带一句话发截图**（如「帮我看看这个品」+ 商品图）⇒ 应回「收到截图，识别中～」并出商品结论卡；发罗盘截图应出「截图分析」卡而非废图退分；
+② 发商品 ID 出结论后回「专属佣金20%」⇒ 应重算出新卡（标题同商品、source=专属佣金重算）。
