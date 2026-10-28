@@ -988,14 +988,40 @@ def get_latest_product_verdict(tenant_key: str):
         return None
 
 
+def get_recent_done_image_task(tenant_key: str, window_s: int = 86400):
+    """该租户 window 内最近一条**识别完成**的截图任务（达人发过商品截图/罗盘）。
+
+    承接用（2026-10-29 质检实锤）：达人发过截图分析后再追问「这个品/能带吗」，
+    指的就是截图里那个品 —— 也是「上文有商品」的一种形态。
+    返回任务 dict（payload 里可能带截图附言 caption），没有则 None。
+    """
+    try:
+        with db_ctx() as conn:
+            r = conn.execute(
+                """SELECT * FROM bot_collect_tasks
+                   WHERE tenant_key=? AND type='image' AND status='done'
+                     AND done_at IS NOT NULL AND done_at>=?
+                   ORDER BY done_at DESC LIMIT 1""",
+                (tenant_key, now_ts() - window_s)).fetchone()
+            if not r:
+                return None
+            return dict(r)
+    except Exception:
+        log.warning("get_recent_done_image_task failed: tenant=%s",
+                    tenant_key, exc_info=True)
+        return None
+
+
 def has_recent_product_context(tenant_key: str) -> bool:
-    """该租户 24h 内有没有分析过商品（pending）或 7 天内有没有结论档案。
+    """该租户 24h 内有没有分析过商品（pending）、24h 内有没有识别完截图，
+    或 7 天内有没有结论档案。
 
     handler 用它在「要标识话术」前挡一下：上文已经有商品了，追问就该
     承接上文，而不是再要一遍商品ID（2026-10-28 老大实锤）。
     """
     return (get_commission_pending(tenant_key) is not None
-            or get_latest_product_verdict(tenant_key) is not None)
+            or get_latest_product_verdict(tenant_key) is not None
+            or get_recent_done_image_task(tenant_key) is not None)
 
 
 def interaction_counts(tenant_key: str) -> dict:

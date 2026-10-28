@@ -16,6 +16,7 @@ solobrave.db (executors.py 的只读隔离是特性, 本模块不破)。
 """
 import json
 import logging
+import os
 import sqlite3
 import time
 import urllib.request
@@ -25,7 +26,14 @@ from . import executors
 
 log = logging.getLogger("daren-bot.reflow")
 
-SOLO_BASE = "http://127.0.0.1:8080"
+# 可被 DAREN_SOLO_BASE 覆盖（测试 conftest 会把它指向死端口，防止测试污染 prod 知识库；
+# 部署侧不设 = 默认 localhost:8080，行为与改前一致）。**必须运行期读**——模块 import
+# 早于 pytest monkeypatch，顶层常量读不到测试的 env。
+SOLO_BASE_DEFAULT = "http://127.0.0.1:8080"
+
+
+def _solo_base() -> str:
+    return os.environ.get("DAREN_SOLO_BASE", SOLO_BASE_DEFAULT)
 _INTERNAL_SECRET_PATH = executors.SOLOBRAVE_DB.parent / "internal_secret.txt"
 
 # 快照列 = 管道 1 upsert 白名单 (跟 solobrave-server.py 的 _DAREN_UPSERT_COLUMNS 对齐,
@@ -55,7 +63,7 @@ def _internal_secret() -> str:
 
 def _post(path: str, payload: dict):
     req = urllib.request.Request(
-        SOLO_BASE + path,
+        _solo_base() + path,
         data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
         headers={
             "Content-Type": "application/json",

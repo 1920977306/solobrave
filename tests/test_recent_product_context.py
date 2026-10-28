@@ -207,3 +207,86 @@ class TestReferentialNotCached:
         ddb = bot["db"]
         ddb.qa_cache_put(TK, "这个品怎么样", "答：能带")
         assert ddb.qa_cache_get(TK, "这个品怎么样") is None
+
+
+# ---------------- ④ 截图任务也算上文（2026-10-29 质检实锤） ----------------
+#
+# 事故回放：真人会话里达人发罗盘/截图做问答，随后追问「给你啦/你分析啊/带」
+# 被「请提供商品链接或者商品ID」挡回 —— 截图分析不落 commission_pending、
+# 也不写 product_verdicts，前两条判据都看不见它。
+# ★ 每条守卫都做过「能不能红」的变异对照（注释里标了）。
+
+def _make_done_image_task(ddb, caption=""):
+    payload = json.dumps({"caption": caption}, ensure_ascii=False) if caption else ""
+    status, task_id, _bal = ddb.enqueue_task_charged(
+        TK, "image", "/tmp/fake_shot.jpg", 5, "vision", payload=payload)
+    assert status == "ok", f"造截图任务失败: {status}"
+    ddb.mark_task(task_id, "done")
+    return task_id
+
+
+class TestImageTaskCountsAsContext:
+    def test_done_image_task_counts_as_context(self, bot):
+        """24h 内 done 的截图任务 ⇒ has_recent_product_context 为真。
+        （对照：删掉 has_recent_product_context 里 get_recent_done_image_task
+        那一条 ⇒ 本用例红）"""
+        ddb = bot["db"]
+        assert ddb.has_recent_product_context(TK) is False
+        _make_done_image_task(ddb)
+        assert ddb.has_recent_product_context(TK) is True
+
+    def test_old_done_image_task_expires(self, bot, monkeypatch):
+        """超过 24h 的截图任务不算上文（旧截图再追问，本来就该重新给标识）。"""
+        ddb = bot["db"]
+        task_id = _make_done_image_task(ddb)
+        # 把 done_at 拨回 25 小时前
+        with ddb.db_ctx() as conn:
+            conn.execute("UPDATE bot_collect_tasks SET done_at=? WHERE id=?",
+                         (ddb.now_ts() - 25 * 3600, task_id))
+        assert ddb.get_recent_done_image_task(TK) is None
+        assert ddb.has_recent_product_context(TK) is False
+
+    def test_failed_image_task_not_counted(self, bot):
+        """识别失败的截图不算上文（没有结论可承接）。"""
+        ddb = bot["db"]
+        status, task_id, _bal = ddb.enqueue_task_charged(
+            TK, "image", "/tmp/fake_shot.jpg", 5, "vision")
+        assert status == "ok"
+        ddb.mark_task(task_id, "failed")
+        assert ddb.has_recent_product_context(TK) is False
+
+    def test_route_with_image_context_goes_to_qa(self, bot, monkeypatch):
+        """路由层：截图分析后追问指代词，不再要标识，走 QA。
+        （对照：删掉 handler 里 has_recent_product_context 挡板 ⇒ 本用例红）"""
+        from daren_bot import product_intent
+        ddb = bot["db"]
+        _make_done_image_task(ddb, caption="这个品能带吗")
+        hd = bot["handler"]
+        sender = _FakeSender()
+        router, s = _router(hd, sender)
+        seen = []
+        orig = ddb.enqueue_task_charged
+
+        def spy(*a, **kw):
+            seen.append((a, kw))
+            return orig(*a, **kw)
+
+        monkeypatch.setattr(ddb, "enqueue_task_charged", spy)
+        # ★ 真命中 missing_product_ref 的句式（指针词「这款」+ 判断词「可以带」），
+        #   无上下文时走的正是要标识分支 —— 变异（删掉 image 判据）必须让本用例红。
+        _dispatch_text(hd, router, "这款可以带不")
+        assert product_intent.NEED_PRODUCT_REF_REPLY not in s.text, \
+            f"截图上文还在还回要标识话术：{s.text!r}"
+        assert any(a[1] == "qa" for a, _ in seen), f"追问没有走 QA 链：{seen!r}"
+
+    def test_block_from_image_task(self, bot):
+        """语境块第三兜底：没有 pending/结论档案时，用截图任务构造承接块，
+        带截图附言 + 禁止再要 ID 的指令。
+        （对照：删掉 _recent_product_block 里 img 那段 ⇒ 本用例红）"""
+        ddb = bot["db"]
+        _make_done_image_task(ddb, caption="罗盘截图，帮我看看")
+        ex = bot["executors"]
+        block = ex._recent_product_block(TK, "这个品能带吗")
+        assert "截图" in block
+        assert "罗盘截图，帮我看看" in block
+        assert "不要再索要商品链接或商品ID" in block

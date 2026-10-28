@@ -177,3 +177,20 @@ def prod_db_guard(solobrave_root, test_data_dir, monkeypatch):
     monkeypatch.setattr(_sqlite3, 'connect', _guarded_connect)
     yield
     # monkeypatch 自动还原
+
+
+@pytest.fixture(autouse=True)
+def reflow_http_guard(monkeypatch):
+    """autouse 回归闸门 (2026-10-29): 测试期把 daren_bot.reflow 的推送端点指向死端口。
+
+    背景事故: 全量回归跑 execute_qa 时, reflow.push_qa_exchange 真调了
+    localhost:8080 的生产 SoloBrave 服务 ⇒ 约 28 条测试租户(tk_*)的问答
+    被灌进生产知识库 kb_entries (status=pending 无人审)。
+    prod_db_guard 只挡 sqlite 直读, 挡不住「HTTP 推给生产服务」这条侧路。
+
+    判定: reflow._solo_base() 运行期读 DAREN_SOLO_BASE env ⇒ 每个测试
+    monkeypatch 到 http://127.0.0.1:1 (端口 1 连接即拒, push 优雅失败只记日志)。
+    真要验推送链路的测试用 monkeypatch.setenv('DAREN_SOLO_BASE', ...) 覆盖即可。
+    """
+    monkeypatch.setenv('DAREN_SOLO_BASE', 'http://127.0.0.1:1')
+    yield

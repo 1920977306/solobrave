@@ -1739,6 +1739,9 @@ def _recent_product_block(tk: str, q: str) -> str:
     数据来源（先到先用）：
       ① bot_commission_pending（24h 内分析过的商品 stats，字段最全）
       ② bot_product_verdicts 最近一条（7 天内结论档案：名称/结论/理由）
+      ③ bot_collect_tasks 24h 内 done 的截图任务（2026-10-29 质检实锤：
+        达人发罗盘/截图问答后追问碎片词，前两条都可能没有 —— 截图分析
+        不落 pending 也不写结论档案，但达人说的「这个品」就是截图那个）
     返回空串 = 没有可承接的上下文。
     """
     if not _recent_product_ref_re().search(q or ""):
@@ -1770,6 +1773,23 @@ def _recent_product_block(tk: str, q: str) -> str:
         why = (v.get("why") or "").strip()
         if why:
             parts.append(why[:150])
+        return "｜".join(parts)[:300]
+    try:
+        img = db.get_recent_done_image_task(tk)
+    except Exception:
+        img = None
+    if img:
+        caption = ""
+        try:
+            payload = json.loads(img.get("payload") or "{}")
+            caption = (payload.get("caption") or "").strip()
+        except Exception:
+            pass
+        parts = ["上文：达人 24 小时内发过商品截图，已完成识别分析"]
+        if caption:
+            parts.append(f"截图附言「{caption}」")
+        parts.append("追问里的「这个品/它」指截图中的商品，承接上文回答，"
+                     "不要再索要商品链接或商品ID")
         return "｜".join(parts)[:300]
     return ""
 
