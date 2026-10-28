@@ -17,6 +17,7 @@ solobrave.db (executors.py 的只读隔离是特性, 本模块不破)。
 import json
 import logging
 import sqlite3
+import time
 import urllib.request
 
 from . import db
@@ -98,6 +99,31 @@ def push_kb_insight(kind: str, text: str, title: str = "") -> bool:
     except Exception as e:
         log.warning("kb ingest push failed (%s): %s", kind, e)
         return False
+
+
+# ─── 「聊天即知识」：达人助理产生的分析/问答进知识库（2026-10-27 老大拍板）────────
+# 不是消息计数，是聊天里产出的真东西：选品判断结论、账号分析问答。
+# 全部走 push_kb_insight（白名单+价值闸+pending 人工审），拒收不报错只记日志。
+
+def push_product_verdict(tenant_key: str, product_title: str, md: str) -> bool:
+    """选品判断结论 → match_pattern（商品↔达人的匹配规律）。
+    只在**新算出来的结论**处调用（缓存命中不算，没消耗算力也没新知）。"""
+    text = (md or "").strip()
+    if len(text) < 10:
+        return False
+    title = f"[选品判断] {product_title or '商品'}（{tenant_key} {time.strftime('%Y-%m-%d')}）"
+    return push_kb_insight("match_pattern", text, title=title)
+
+
+def push_qa_exchange(tenant_key: str, question: str, answer: str) -> bool:
+    """一次有实质内容的问答 → talent_insight（达人画像/经营洞察）。
+    太短的寒暄、拒答、报错话术不进。"""
+    ans = (answer or "").strip()
+    if len(ans) < 30 or ans.startswith("拒"):
+        return False
+    text = f"达人问：{(question or '').strip()[:300]}\nAI答：{ans[:1600]}"
+    title = f"[问答] {(question or '').strip()[:40]}（{tenant_key}）"
+    return push_kb_insight("talent_insight", text, title=title)
 
 
 def after_douyin_collect(task: dict) -> None:

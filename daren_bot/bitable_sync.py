@@ -399,7 +399,17 @@ def ensure_bitable(tenant_key: str) -> dict:
     body = {"name": APP_NAME}
     if FOLDER_TOKEN:
         body["folder_token"] = FOLDER_TOKEN
-    app_data = _post(tok, "/bitable/v1/apps", body)
+    try:
+        app_data = _post(tok, "/bitable/v1/apps", body)
+    except urllib.error.HTTPError as e:
+        # ★ 2026-10-27: 裸 HTTPError 只有 "Bad Request"，排障要翻栈。
+        #   最常见 = 99991672 应用身份缺 bitable:app 权限（每个达人应用都要单独开）。
+        detail = e.read().decode(errors="replace")[:300] if e.fp else ""
+        log.error("[bitable] 创建多维表格失败 tenant=%s http=%s body=%s",
+                  tenant_key, e.code, detail)
+        raise RuntimeError(
+            f"创建多维表格被拒(tenant={tenant_key}, http={e.code}): {detail} "
+            "—— 若是 99991672/scope 相关，需到飞书开放平台给该应用开通 bitable:app 权限") from e
     app_token = app_data["app"]["app_token"]
     table_ids = {k: _create_table(tok, app_token, k) for k in TABLES}
     db.save_bitable_refs(tenant_key, app_token, table_ids)

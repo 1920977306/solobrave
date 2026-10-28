@@ -26,6 +26,7 @@ import time
 import traceback
 import urllib.request
 import urllib.error
+from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -599,7 +600,7 @@ def _vision_extract_fields(shots):
     merged = {}
 
     def _try_vision(base, key, model, prompt, batch, temperature=0.0):
-        """单次 vision 调用并把通过校验的字段并入 merged，成功返回 True。"""
+        """单次 vision 调用，返回通过校验的字段 dict；无 JSON/调用失败抛异常。"""
         imgs = []
         for p in batch:
             imgs.append({'type': 'image_url',
@@ -618,6 +619,10 @@ def _vision_extract_fields(shots):
         with urllib.request.urlopen(req, timeout=300) as resp:
             data = json.loads(resp.read().decode())
         content = (data.get('choices') or [{}])[0].get('message', {}).get('content') or ''
+        # ★ 2026-10-27: 先剥 think 块再提 JSON。实锤 M3 视觉输出常带 <think> 推理草稿
+        #   → _balanced_json 找不到 JSON → 整批被判失败（昨晚三次采集批7/8 连续中招，
+        #   kimi 环关闭后无活环兜底，直接「放弃」丢一个 tab 的字段）。
+        content = _strip_think(content)
         candidate = _balanced_json(content)
         if not candidate:
             raise LLMError(f'视觉提取输出中无 JSON: {content[:200]}')
@@ -626,7 +631,8 @@ def _vision_extract_fields(shots):
         except json.JSONDecodeError:
             vf = json.loads(_repair_json_text(candidate))
         if not isinstance(vf, dict):
-            return False
+            return None
+        out = {}
         for k, v in vf.items():
             if k in ('name', 'douyin_id'):
                 continue  # 身份字段以 DOM 提取+回填为准，视觉不覆盖
@@ -647,13 +653,15 @@ def _vision_extract_fields(shots):
             if not _vision_text_ok(k, v):
                 continue  # 常识校验不过，保留 DOM 值
             if v not in (None, '', [], {}):
-                merged[k] = v
-        return True
+                out[k] = v
+        return out
 
-    for bidx, (prompt, batch) in enumerate(batches, 1):
-        if bidx > 1:
-            time.sleep(6)               # 批间限速
-        ok = False
+    # ★ 2026-10-27：串行批间 sleep(6) 限速 → 受控并发（≤3 批同时跑、启动错峰 1.5s）。
+    #   每批的请求内容（提示词+截图+模型+重试降级）与串行版逐字一致，只是同时发；
+    #   整体 20+min → ~5min，避免撞 JOB_TIMEOUT(25min) 硬超时导致尾批被放弃。
+    _VISION_CONCURRENCY = 3
+
+    def _run_batch(bidx, prompt, batch):
         # ★ 2026-10-18 老大拍板: 智谱已去掉, 视觉直接走 kimi → minimax
         # ★ 2026-10-22：环从 4 元组改为 dict（唯一事实来源，llm_channels.vision_rings()）
         for ring in _fallback_cfgs():
@@ -661,18 +669,27 @@ def _vision_extract_fields(shots):
             fmodel, ftemp = ring['model'], ring.get('temp', 1.0)
             for attempt in (1, 2):
                 try:
-                    if _try_vision(fbase, fkey, fmodel, prompt, batch, ftemp):
+                    got = _try_vision(fbase, fkey, fmodel, prompt, batch, ftemp)
+                    if got is not None:
                         if fmodel != 'moonshot-v1-8k-vision-preview':
                             log(f'  [LLM] 视觉提取批次{bidx}经 {fmodel} 完成')
-                        ok = True
-                        break
+                        return got
                 except Exception as e:
                     log(f'  [LLM] 视觉提取批次{bidx}({fmodel})第{attempt}次失败: {str(e)[:120]}')
                     time.sleep(5)
-            if ok:
-                break
-        if not ok:
-            log(f'  [LLM] 视觉提取批次{bidx}放弃（非致命）')
+        log(f'  [LLM] 视觉提取批次{bidx}放弃（非致命）')
+        return {}
+
+    results = {}
+    with ThreadPoolExecutor(max_workers=_VISION_CONCURRENCY) as pool:
+        futs = {}
+        for bidx, (prompt, batch) in enumerate(batches, 1):
+            futs[pool.submit(_run_batch, bidx, prompt, batch)] = bidx
+            time.sleep(1.5)            # 错峰启动，避免突发并发触发 429
+        for fut, bidx in futs.items():
+            results[bidx] = fut.result()
+    for bidx in sorted(results):       # 按批次序合并：与串行版「后批覆盖前批」语义一致
+        merged.update(results[bidx])
     return merged
 
 

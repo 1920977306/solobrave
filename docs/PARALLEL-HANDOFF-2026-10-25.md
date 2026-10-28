@@ -174,6 +174,8 @@ curl -s -X POST "http://127.0.0.1:8092/admin/api/plan-scan?token=$TOKEN" \
 | `solobrave-server.py` | A 边 | 2026-10-26 15:50 | ✅ 16:40 已交 | **第 6 轮**：视觉 QA 独立配置源 + 转化率 5 处编造源头 + 修复 pass 拒绝 null |
 | `tests/test_llm_channels.py` + `test_vision_qa.py` + `test_plan_notify.py` + `test_conversion_rate_truth.py`（新）| A 边 | 2026-10-26 15:50 | ✅ 16:40 已交 | 第 6 轮契约反转 + 新增 22 条 |
 | `scripts/mutate_llm_ring_guards.py` | A 边 | 2026-10-26 15:50 | ✅ 16:40 已交 | 变异 M1-M11 重写 |
+| `solobrave-server.py` + `scripts/api_token.py`（新）+ `tests/test_api_scoped_tokens.py`（新）| A 边（prod 目录会话，隧道/7188 边）| 2026-10-27 17:45 | ✅ 18:05 已交（`55c8476`）| **scope 化 API token + 请求审计**（写类 API 开放前置三件套）：`_api_token_*` 族 + `_required_api_scope` 闸门 + `_api_audit_emit` 四 do_ 挂载；CLI 复用服务端同一套实现；13 例守卫 + 真机四路冒烟 200/403/401/403 全过。**写接口仍全部关闭，开放哪些端点待老大逐条拍板** |
+| `daren_bot/persona.py`（新）+ `daren_bot/executors.py` + `tests/test_persona_learning.py`（新）| A 边（prod 目录会话，隧道/7188 边）| 2026-10-27 19:05 | ✅ 19:15 已交（`189cf10`）| **角色模板 + 聊天即训练**：人格唯一来源 `persona.md`（新达人自动继承，解决"新创建的 bot 行为不一样"）；纠正/建议自动捕获→`talent_feedback` 知识库→`distill_learnings` 幂等沉淀进人格模板【达人纠正榜】。守卫 12 + 回归 132 全绿 |
 
 > ⚠️ **B 边注意（第 6 轮新增的冲突面）**：
 > `daren_bot/db.py` / `daren_bot/plan_notify.py` / `daren_bot/feishu_card.py`
@@ -8819,3 +8821,209 @@ CLI 出站发送**不构成**入站基线 ⇒ 这一步**必须老大自己做**
 
 ⇒ ⇒ ★★ **⇒ 交接单 / runbook / 脚本注释里凡是「搜 X ⇒ 命中 ⇒ 就是它」这种写法，一律要改成「列表里找 + 核对 App ID」**
 ⇒ ⇒ ⇒ ★ 我已改 `scripts/feishu_app_name.py` 第五列上方的注释（加「再收紧一档」段）⇒ **runbook 那 3 处请 A 边按 §89.7 + 本节一起改**
+
+## §90 ★★ 木木采集超时（20:19 任务）根因与修复（A 边，2026-10-27 20:5x）
+
+- **现象**：木木租户 20:19:51 收「分析账号 62224890070」→ 入队 douyin 采集 → **20:39:56 daren_bot 判超时(20分钟)退款**；采集器侧 MiniMax-M3 视觉提取 **8 批串行、每批 2~4 分钟**（20:26 批1 → 20:44 批8 首次失败），批8 重试时撞上 **MiniMax 短时 402（Payment Required，20:46）** 放弃（非致命），最终 20:47:09 达人写入失败 http 500，任务整体失败。
+- **双超时错配**：daren_bot `JOB_WAIT_TIMEOUT=20min` < buyin_worker `JOB_TIMEOUT=25min` ⇒ daren_bot 先放弃、采集器随后也硬超时，**采集白干、达人白等**。且 402 系**间歇性**（20:47 实测 MiniMax-M3 文字链已恢复 OK）。
+- **修复**（`87155db`）：`daren_bot/executors.py` `JOB_WAIT_TIMEOUT` 20→**35 分钟**（盖过 25min + 8 批串行余量），报错话术「采集超时(20分钟)」同步改 35。daren_bot 已重启，三租户 healthz true。回归 124 条过。
+- **待拍板（采集器侧提速，未动）**：① 视觉提取 8 批**并行化**（buyin_worker，风险中等）；② 换 MiniMax-M3.1-Flash（但 20:46 实测该模型也 402——与 M3 同账户，欠费/限流时一起挂）。
+
+## §90.1 视觉提取并发化已落地（A 边，2026-10-27 21:4x，老大 21:41 拍板）
+
+- `19accc5`：`_vision_extract_fields` 批间串行 `sleep(6)` → **受控并发 ≤3 批 + 启动错峰 1.5s**；每批请求内容与串行版逐字一致（提示词+截图+模型+逐环 2 次重试），按批次序合并保持「后批覆盖前批」语义。整体 20+min → ~10min（8 批 ÷ 3 并发 × 每批 2~4min）。
+- 合并改为「每批返回字段 dict、全部完成后按批序 update」——`_try_vision` 签名从「并入 merged 返回 True」改为「返回 dict」，**无其他调用点**（全仓 grep 确认）。
+- 采集器已按 §8.2 纪律重启：graceful-daren → kickstart → /open 拉起团长端，**零扫码**恢复 `logged_in=true`。
+- 回归：buyin/vision/llm 相关 169 过；唯一红 `test_buyin_worker_survives_without_package_key` 为**存量环境问题**（旧代码复跑同样红：盘上 Code 订阅 token 此刻无效）——⚠️ **环1 code-sub 当前失效，运行时靠环0 套餐 key 顶着**，与本次改动无关。
+
+## §91 ★★ 「达人写入失败 http 500」真根因：'10-50' 区间文本炸裸 float()（A 边，2026-10-27 22:1x–22:3x）
+
+- **现象**：两次采集（20:47 / 22:06，含并发化后这次）视觉提取全部跑完，最后一步 `POST /api/talents` **500**：`could not convert string to float: '10-50'`（server.log 实锤）——25 分钟采集在最后写入白干。
+- **根因（同源同 bug 又一例）**：`_parse_number_tolerant`（区间取均值）**早就存在**且 PUT 路径 `_sanitize_talent_numeric_fields` 在用，但 `_dict_to_talent_row`（POST 行构建）一直是裸 `float(t.get(...))`——工具在了、用的地方没换。
+- **修复**（`e97113b`）：行构建 17 个数值列全部走 `_nf()` 包装（区间取均值、脏串置 0 + `[TalentNumGuard]` 警告日志）；服务端已重启生效。
+- **守卫**：`tests/test_talent_numeric_guard.py`（5 条，含 AST 扫描「行构建不许裸转 t.get 输入」——判据收窄为参数树含 t.get，豁免 `int(time.time())`/bool 清理，避免恒红）。
+- **E2E 验证**：22:3x 重新入队木木任务 `bc801e45`，结果待本节补充。
+
+## §92 ★★ E2E 验证通过 + 两个附带修复（A 边，2026-10-27 22:3x–22:5x）
+
+**E2E 全链路验收（木木任务 `bc801e45`）**：22:12:55 入队 → 22:28:17 完成 = **15.5 分钟**（昨晚失败跑 25 分钟还白干）。
+- ✅ 并发批次生效（1/2/3/4/5/9 穿插完成）；✅ `POST /api/talents` **200**（§91 修复生效）；
+  ✅ 建档 `tal_1793111296985_cf5cee`（豆鲨包，粉丝 43050，average_price 22.66 = 区间容错解析入库）；
+  ✅ 报告卡片+文字推送木木飞书会话；任务状态 done。
+
+**附带发现 ①**：`bitable_sync.ensure_bitable` 400 —— 根因**不是代码**：木木飞书应用 `cli_aa51b1b62a7a9bf6` 缺 **`bitable:app` 权限**（99991672，error body 实锤）。
+⇒ **需老大到飞书开放平台给该应用开通 bitable:app 权限并发布**（代码修不了；其他两个测试号应用已开通所以没事）。
+⇒ 代码侧已改善（`0f85d5b`）：创建被拒时读 error body 记日志 + 抛带权限提示的 RuntimeError（原来裸 "Bad Request" 要翻栈）。
+
+**附带发现 ②**：视觉提取批7/8 连续「无 JSON」失败的根因 = **M3 输出带 `<think>` 推理草稿**，`_balanced_json` 提不到 JSON；kimi 环 10-27 新政关闭后无活环兜底 → 整批放弃。
+⇒ 已修（`0f85d5b`）：`_try_vision` 先走 `llm_text.strip_think` 再提 JSON（复用唯一实现）。
+⇒ ⚠️ 启示：**kimi 环默认关闭后，视觉链路的活环只剩 MiniMax 套餐一家**，套餐 key 挂了 = 识图全灭。已知悉，未动。
+
+**采集器已重启生效**（团长端零扫码恢复）。回归 129 条过。
+
+## §93 ★ 更正 §92 的「需开通 bitable 权限」建议——档案层已换代，链路直接下线（A 边，2026-10-27 23:0x）
+
+- **老大拍板**：多维表格档案层已换成 **mini 做的新功能（达人经营驾驶舱）**，每租户「我的带货助手」是旧链路。
+- ⇒ §92 里「需老大到开放平台开通 bitable:app 权限」**作废，无需开通**。
+- **执行**（`7183947`）：`executors.py` 四处 bitable_sync 调用（采集报告/问答/商品/视频拆解）全部停用（注释保留，模块不动）；
+  `DAREN-ARCHITECTURE.md` 档案行 + `coop_notify.py` 头注同步更正。daren_bot 已重启，三租户在线，回归 123 过。
+- ⚠️ **遗留**：7188 驾驶舱 `load_cockpit`（daren_cockpit/server.py:430）还读 `bitable_app_token` 展示档案入口——档案层换代后这个入口指向旧物，
+  待确认 mini 新功能的接入形态后再改（不猜、不乱动）。
+
+## §94 ★ 7188 驾驶舱档案区块改读本地库——H5 接管档案视图（A 边，2026-10-28 00:0x）
+
+**起因**：老大 23:34「我记得有个 h5」⇒ 档案层换代（§93）后，7188 H5 驾驶舱本身就是达人看档案的地方，
+但它的「趋势/评估结论/报告摘要/AI互动分布/选品结论卡」五个区块一直读每租户多维表格（bitable_sync 链路，已废弃）。
+**不改的话所有租户的这些区块会陆续变空**（本地库有真数据、多维表格已停同步）。
+
+**执行**（`62ea44e`，`daren_cockpit/server.py` 的 `load_cockpit`）：
+
+| 区块 | 新数据源 | 说明 |
+|---|---|---|
+| 趋势 | `bot_weekly_snapshots`（daren_bot.db）| 按 week_no 排，snapshot 取 followers；collected_at 是 "MM-DD HH:MM" 百应口径，日期取 `ca[:5]` |
+| 评估结论/报告摘要 | 本地 `talents.risk_rating` / `ai_summary or notes` | talent 行前半段已从 solobrave.db 查出，直接复用 |
+| AI 互动分布 | `bot_collect_tasks` 按 type 计数（status='done'）| douyin→账号分析 / product→商品分析 / qa→智能问答 / video→视频拆解 / weekly_report→周报生成 |
+| 选品结论卡 | `bot_product_verdicts` 按 created_at DESC 取 60 条（按商品名去重）| stats_json 取 price/commission_rate/sales；verdict 存裸词，前端 verdictKey() 已兼容 |
+| KPI fans | **以最新周快照为准**，未采到回退 talent.followers | 快照优于档案的语义补回（改之前只在兜底分支装配，丢了） |
+| 合作机会 | 不动：仍读共享样板库 `lark_records(DEMO_BASE, COOP_TABLE)` | 共享 base 不在下线范围 |
+
+顺带清理：`load_cockpit` 头部残留的 `table_ids`/`tb_app` 变量读取删除（bitable 字段无人消费了）。
+
+**验收**（launchd 重启后真机 curl，一人一链鉴权）：
+- `daren_boss`：trend=[10-19:12804, 10-26:12804]，interact={账号分析4, 商品分析1, 智能问答11, 视频拆解1, 周报生成3}，cards=1（慎带），verdict=潜力型，fans=12804（取最新快照）
+- `daren_test2`：trend=[10-18:5251, 10-19:5251]，interact={账号分析7, 商品分析9, 智能问答19, 周报生成2}，cards=5（别带…），fans=5251
+- 回归 `tests/ -k "cockpit or reco"` 132 全绿；secret_scan 干净。
+
+**遗留（不堵，知悉即可）**：
+- 互动分布目前只统计采集任务计数，**问答次数没算进**（`bot_qa_cache` 表在，口径以后想细再补）；
+- 趋势是**周粒度**（周快照每周一点），不如以前多维表格每次采集一个点密——这是数据源的真实粒度，如实呈现。
+
+## §95 ★ 互动分布补全：零成本直达应答计入口径（A 边，2026-10-28 00:3x）
+
+**起因**：§94 遗留「问答次数没算进」——核查后**更正**：智能问答本就由任务计数覆盖
+（缓存命中也走 `enqueue_free` 入队任务，任务口径已完整）。真正不可见的是
+**排品查询 / 选品推荐 / 驾驶舱导航**——零成本直达回答，不建任务、不写积分流水，看板里完全没有。
+
+**执行**（`a64dc07`）：
+- `daren_bot/db.py`：新增 `bot_interactions` 轻量计数表（init_db 幂等建）+
+  `log_interaction()`（写库失败 log 不冒主链路——这只是看板口径）+ `interaction_counts()`。
+- `daren_bot/handler.py`：三条零成本路由（`_route_plan_query` / `_route_reco_query` / `_route_cockpit_link`）各挂一行留痕。
+- `daren_cockpit/server.py`：`load_cockpit` 的 interact 并入计数，⚠️ **单独 try 兜缺表**
+  （表由 daren_bot 迁移建，7188 若先于 bot 重启查询会 OperationalError——没兜住会连带吃掉后面的选品卡查询）。
+
+**验证**：回归 360 过；守卫 `tests/test_interaction_log.py` 4 条（含缺表变异验证——
+去掉兜底 try 后缺表用例真红）；daren_bot + 7188 均重启，真机 curl 实测
+`{'…周报生成': 3, '排品查询': 1, '选品推荐': 1}` 并入库后**已清理测试留痕**。
+
+**教训（自罚）**：本轮变异还原时用了 `git checkout -- daren_cockpit/server.py`，
+把同文件上**未提交的并进口径改动一起抹掉**（§0.5 明令禁止的操作，方向反了——
+这次是 A 边在自己的目录里抹自己）。已逐字重做 + 复跑测试确认无损。
+**还原一律用备份副本逐字拷回，不用 git checkout。**
+
+## §96 ★ 档案接管后首次巡检（周二 11:0x，周一采集窗后）
+
+**结论：接管本身健康——三个租户的结论/摘要/互动/选品卡区块都有真数据、无空块。**
+
+| 租户 | 趋势 | 结论/摘要 | 互动 | 选品卡 |
+|---|---|---|---|---|
+| daren_boss（洁洁爱户外，真达人）| 10-19/10-26 两点 ✅ | 潜力型+摘要 ✅ | 20 次 ✅ | 1 张（10-24）✅ |
+| daren_test2（测试号）| **停在 10-19** ⚠️ | ✅ | 37 次 ✅ | 5 张（最新 10-27）✅ |
+| mumu（豆鲨包）| 10-27 一点 ✅ | 潜力型+摘要 ✅ | 1 次 ✅ | 0 张（如实，没分析过商品）✅ |
+
+**两件实事**：
+1. **mumu 补发了驾驶舱 key**（`tenant_link_key` 首次访问自动生成）——昨晚 E2E 建档的豆鲨包现在能打开自己的 H5 了：粉丝 43050、潜力型、趋势 10-27。key 已验通。
+2. **daren_test2 趋势停在 10-19 的真因**：周一窗 07:47 自动采集入队 → 08:04 失败
+   `RuntimeError: 认领失败: HTTP Error 409: Conflict`（buyin worker 浏览器互斥冲突）——
+   失败时刻已过采集窗（08:00 截止）⇒ 窗内无重试机会。系统当天 11:37 已自动给运营发过
+   「1 tenant gap」告警（机制工作正常）。**与档案接管无关**，属采集器并发冲突的既有问题。
+
+**backlog（未动，报老大定）**：周采任务失败时刻若已过窗，可以**窗后补一次重试**
+（现在窗内才重试）——否则租户周快照会缺一周。修法小（weekly.py 的失败补偿分支），
+但动的是采集调度，等拍板。
+
+## §97 ★★★ 【事故】飞书「木木」通道从 openclaw 配置里消失 16.6 小时 ⇒ 昨日轮换成果被架空（B 边 2026-10-28 11:1x–11:2x）
+
+> **占用登记（§0.4）**：文件 `~/.openclaw/openclaw.json`（**仓库外·生产运行时配置**）｜持有方 **B 边**｜时段 2026-10-28 11:21–11:23｜状态 **已完成（通道已恢复）**｜备份 `~/.solobrave-backups/openclaw.json.bak-20261028-112157-before-mumu-restore`
+
+### 97.0 现象（B 边 10-28 11:1x 巡检发现）
+
+跑 `bash ~/.solobrave-secrets/after_rotate_check.sh` ⇒ **rc=1**（昨天 17:52 是 rc=0）：
+`❌ 通道列表里看不到 mumu` ⇒ `openclaw channels list` 只剩 `default / helen / t_default` **三个**通道。
+
+### 97.1 根因（**键级 diff 坐实**，不是推演）
+
+`~/.openclaw/openclaw.json` 的**滚动备份**把现场完整留下来了（三份快照，结构级 diff）：
+
+| 快照 | mtime | `accounts` | `bindings` |
+|---|---|---|---|
+| `openclaw.json.bak.1` | 10-27 **18:45** | d/h/t/**mumu** | d/h/t/**mumu**（4 条）|
+| `openclaw.json.bak` | 10-27 **18:48** | d/h/t/**mumu** | d/h/t（**3 条**）|
+| `openclaw.json`（事发时）| 10-27 **18:48** | d/h/t（**3 个**）| d/h/t（3 条）|
+
+⇒ ★★★ **是两次写、每次各删一处**：
+- **W1（18:45）删掉 `bindings[3]`**（`{agentId: emp_1787550091124_1048, match: {channel: feishu, accountId: mumu}}`）⇒ 木木 agent **不再被路由**；
+- **W2（18:48）删掉整个 `channels.feishu.accounts.mumu`** ⇒ 通道**连凭据都没了**；
+- ⇒ 两次写之间**只隔 3 分钟**，且**除这两处外逐字未变**（diff：新增 0 / 改值 0）。
+
+### 97.2 不可达窗口（**openclaw 自己的入站事件表**，`channel_ingress_events`）
+
+mumu 通道入站记录（最后一笔）：
+```
+10-27 17:30:37  completed   ← 木木 agent 有 agent_run（17:30:38–17:30:52）
+10-27 18:25:10  completed   ← 木木 agent 有 agent_run（18:25:12–18:25:22）
+10-27 18:36:40  completed   ← 木木 agent 有 agent_run（18:36:41–18:36:50）
+（之后再无任何 mumu 入站记录）
+```
+⇒ ★★★ **最后一次成功入站 18:36:40** ⇒ 恰在 W1（18:45）之前 ⇒
+⇒ **木木从 10-27 18:45 起进不来消息，直到 10-28 11:22 恢复 ⇒ 不可达 ≈ 16.6 小时**。
+⇒ ⇒ ★★ **这意味着：老大 17:20 轮换的 mumu App Secret（`3901275e5561`）虽然换成功了，但通道随后被删 ⇒ 轮换成果被架空**（secret 正确、通道不存在 ⇒ 机器人不在线）。
+⇒ ⇒ ★ **不是「消息被拒」**：网关压根没有 mumu 这个 channel 在监听 ⇒ 飞书侧根本不会把消息投进来。
+
+### 97.3 归因边界（**只到证据边界，不猜人**）
+
+- ★ 两个 Agent 会话的 runtime log（`~/.minimax/v2/observability/logs/sessions/mvs_841d…/runtime-10-27.log` 与 `mvs_eb2d…/runtime-10-27.log`）**mtime 均为 10-27 17:52** ⇒ **18:45/18:48 那两次写不在任何 Agent 会话里**；
+- ★ `~/.zsh_sessions/*.history`（按 epoch 过滤 18:30–19:10）**无任何命令** ⇒ 不是终端敲的；
+- ★ `openclaw` 的 `audit_events` 在该窗口**只有 heartbeat 类 `agent_run`，无配置写事件** ⇒ openclaw 自身审计也没记；
+- ⇒ ⇒ **结论只到「一次不留痕的 openclaw 配置写」**：最可能是 **openclaw Dashboard（`http://127.0.0.1:18789/`）上的操作**（既不进 shell history、也不进 agent log）⇒ ★ **归因到此为止，不指认具体人**。
+
+### 97.4 ★★ 同名不同物（第 8 次复发）—— 差点用错证据
+
+A 边 §90 写「**木木租户** 20:19:51 收『分析账号 62224890070』」⇒ **不能用它证明飞书木木当时可用**：
+- **`mumu` 这个名字同时指两样东西**：① **飞书木木机器人**（openclaw `account_id=mumu` + agent `emp_1787550091124_1048`）② **daren_bot 的 `mumu` 租户（豆鲨包）**（A 边 §96 明确写「mumu（豆鲨包）」）；
+- ⇒ §90 的「木木租户」是 **daren_bot 的租户**（走 `tenant_feishu_config` 那条线，该表**只有 t_default 一行**）⇒ 与飞书木木**不是一路**；
+- ⇒ ★ **凡是引用「木木」二字，必须先说清是「飞书木木机器人」还是「daren_bot 的 mumu 租户」**。
+
+### 97.5 恢复动作（B 边 11:21–11:23，`~/.openclaw/openclaw.json`）
+
+1. **备份**：`~/.solobrave-backups/openclaw.json.bak-20261028-112157-before-mumu-restore`（600）；
+2. **前置闸门**：patch 前比 md5（`58c385f2973d…`）⇒ 确认期间**没被他人改过**才动手；
+3. **回填用 `openclaw config patch --stdin`**（★ 走官方入口 ⇒ 自带 `.bak` 滚动 + 格式规范）：
+   - `channels.feishu.accounts.mumu` = 8 键，**逐字等于 `openclaw.json.last-good` 里的权威形态**（与 `bind_feishu_mumu.py` 的 patch 一致：`appId=cli_aa51b1b62a7a9bf6` / secret 走 store 引用 `FEISHU_APPSECRET_MUMU` / `groupPolicy=allowlist` / `allowFrom=["*"]` / `groupAllowFrom=[]`）；
+   - `bindings` **全量 4 条**（★ 必须全量：数组是覆盖语义，传残缺数组 = 再删一个通道 ⇒ 见 97.1 的 W1）；
+4. **验收（结构级 diff 相对「删光 mumu」状态）：新增 9 键 / 删除 0 键 / 改值 0 键** ⇒ **纯增量，没碰任何既有配置**；
+5. **回读校验**：`config get channels.feishu.accounts.mumu.appId` = `cli_aa51b1b62a7a9bf6`；`channels list` 出现 `- Feishu mumu: installed, configured, enabled`；
+6. **`after_rotate_check.sh` ⇒ rc=0，16 项全绿、跳过 0**；
+7. ★ `openclaw.json.last-good` 已刷新为**含 mumu 全套**（11:22）⇒ 恢复已纳入 openclaw 健康快照，**不会被自动回滚**。
+
+### 97.6 ★★ 两条可复用的方法论（本次新得）
+
+1. ★★★ **`openclaw config patch` 不是单次原子写** ⇒ **rc=0 ≠ 写全了**。
+   实测：patch 先落一版 `accounts.mumu`（6 键），`allowFrom` / `groupAllowFrom` 是**第二阶段**才补上的 ⇒ 我第一次的键级 diff 正好抓到**中间态**（6 键版）⇒ **diff 少报了 `allowFrom`**。
+   ⇒ ⇒ ★ **纪律：任何配置写操作，rc=0 之后必须「回读 + 与权威副本逐字对照」**（本例权威副本 = `openclaw.json.last-good`）⇒ **diff 工具的输出不能单独当验收依据**。
+   ⇒ ⇒ ★ **这条同时说明**：昨天 §89 里「用结构级 diff 判『只删了这一处』」这个方法本身没错，但**它有中间态风险** ⇒ 结论必须配「回读 + 逐字对照」才成立。
+2. ★★★ **「通道能不能用」要由「四通道清单」判，不能由「单把 secret 换没换」判**。
+   ⇒ 昨天的 Step 4 **只在轮换后跑**（10-27 17:52 rc=0）⇒ 通道 18:45 被删后**到 10-28 11:09 无人发现（约 16.6 小时）**；
+   ⇒ ⇒ ★ **建议（待老大拍板，本轮未做）**：把「四通道清单 + 服务健康」做成**每日**巡检（可复用 `after_rotate_check.sh` 的第 2/3 项）⇒ 故障暴露时间从 16.6 小时压到 ≤24 小时，理想是 hourly。
+
+### 97.7 防复发（★ 两条硬纪律，写给下一个改 openclaw 配置的人）
+
+1. ★★★ **写 `openclaw.json` 的 `channels.feishu.accounts` / `bindings` 一律 read-modify-write 全量** ⇒ 现有 `bind_feishu_mumu.py` 已是这个写法（先 `config get bindings` 再加）⇒ **照它抄，不要手拼数组**；
+   ⇒ ★★ **尤其**：数组是**覆盖**语义 ⇒ 传 3 条就是「删掉第 4 个」（97.1 的 W1 就是这个形态）。
+2. ★★ **改完必跑 `after_rotate_check.sh` 并看 rc**（不是看「✅ 打印了几行」）⇒ ★ **本轮第一版探针就栽在这**：`bash script | tail -35; echo RC=$?` 取到的是 **`tail` 的退出码** ⇒ 把 rc=1 报成了 rc=0 ⇒ ★ **管道会吃掉退出码 ⇒ 取退出码要直接取**（已记入 memory）。
+
+### 97.8 还没做的（**待老大 / A 边**）
+
+- ★ **行为层验证**：`openclaw` 侧已恢复（通道 enabled），但「老大在飞书里真给木木发一句话 ⇒ 它回不回」这一层**仍未做**（CLI 出站发送**不构成**入站基线）⇒ **需老大亲自在飞书里发一句**；
+- ★ **runbook 3 处**（§89.7 + §89.10 一起）**A 边仍未改**（10-28 11:1x 实测 dev 上第 244 / 292 / 300 / 452 行仍是旧写法）；
+- ★ **daily 巡检作业**（97.6-2）待老大拍板（涉及加 launchd 作业 ⇒ 不擅自加）；
+- ★ 残留面（现役 `default`/`helen` 明文散布面）仍待老大拍板，详见 §89 相关与 A 边 §88。

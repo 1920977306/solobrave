@@ -96,6 +96,18 @@ def cmd_serve(_args):
     login_watcher = LoginWatcher()
     login_watcher.start()
 
+    # ★ 训练沉淀（2026-10-27 老大：聊天即训练）——占位线程：
+    #   达人纠正已实时进知识库（persona.capture_feedback）；
+    #   本线程预留「定期把提炼结论合并回 persona.md」的入口（persona.distill_learnings）。
+    def _learning_loop():
+        import time as _time  # 本文件顶层不 import time（下面 while 里才局部导入）
+        while True:
+            _time.sleep(3600)
+            # TODO(沉淀器)：从知识库拉 talent_feedback → 提炼成行为规则 → distill_learnings(items)
+            # 现在保持空转：先积累反馈数据，沉淀规则的老大审批口径定了再开。
+    threading.Thread(target=_learning_loop, daemon=True,
+                     name="persona-learning").start()
+
     # 绑 0.0.0.0：运营后台要局域网访问（/admin?token=…），healthz 同端口保留
     handler = admin.make_handler(_STATE)
     httpd = ThreadingHTTPServer(("0.0.0.0", config.HTTP_PORT), handler)

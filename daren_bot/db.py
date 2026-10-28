@@ -214,12 +214,27 @@ CREATE TABLE IF NOT EXISTS bot_plan_notice_log (
 );
 """
 
+# 零成本直达应答的互动留痕（2026-10-28）：
+#   排品查询 / 选品推荐 / 驾驶舱导航这类**零成本直达回答**不建任务也不写积分流水，
+#   原来在「AI 互动分布」里完全看不见。这里单独留一张轻量计数表，
+#   只服务看板口径，不参与计费。
+DDL_INTERACTIONS = """
+CREATE TABLE IF NOT EXISTS bot_interactions (
+  tenant_key TEXT NOT NULL,
+  kind       TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_interactions_tenant
+  ON bot_interactions(tenant_key, kind, created_at);
+"""
+
 
 def init_db():
     config.DATA_DIR.mkdir(parents=True, exist_ok=True)
     config.IMAGE_DIR.mkdir(parents=True, exist_ok=True)
     with db_ctx() as conn:
         conn.executescript(DDL)
+        conn.executescript(DDL_INTERACTIONS)
         # 轻量迁移：tasks 表补 payload 列（存名字提示等任务负载，JSON）
         cols = {r[1] for r in conn.execute("PRAGMA table_info(bot_collect_tasks)")}
         if "payload" not in cols:
@@ -835,6 +850,31 @@ def qa_cache_put(tenant_key: str, question: str, answer: str) -> None:
             (tenant_key, _qhash(question), (question or "")[:200], answer, now_ts()))
 
 
+# ---------- 零成本直达应答的互动留痕（看板「AI 互动分布」用） ----------
+
+def log_interaction(tenant_key: str, kind: str) -> None:
+    """记一条零成本直达应答（排品查询/选品推荐/驾驶舱导航）。
+
+    写库失败不许冒到主链路 —— 这只是看板口径，不是业务数据。
+    """
+    try:
+        with db_ctx() as conn:
+            conn.execute(
+                "INSERT INTO bot_interactions (tenant_key, kind, created_at)"
+                " VALUES (?,?,?)", (tenant_key, kind, now_ts()))
+    except Exception:
+        log.warning("log_interaction failed: tenant=%s kind=%s",
+                    tenant_key, kind, exc_info=True)
+
+
+def interaction_counts(tenant_key: str) -> dict:
+    """{kind: n}——某租户的零成本直达应答计数。"""
+    with db_ctx() as conn:
+        return {r["kind"]: int(r["n"]) for r in conn.execute(
+            "SELECT kind, COUNT(*) AS n FROM bot_interactions"
+            " WHERE tenant_key=? GROUP BY kind", (tenant_key,))}
+
+
 def verdict_cache_get(tenant_key: str, product_key: str):
     """同租户同商品的结论缓存（7 天内直接复用，不重复调 LLM）。"""
     if not product_key:
@@ -966,12 +1006,19 @@ def has_done_collect_this_week(tenant_key: str, douyin_id: str,
 
 def count_auto_fails_this_week(tenant_key: str, douyin_id: str,
                                week_start_ts: int) -> int:
-    """本周自动采集(payload 含 \"auto\":1)失败次数——重试上限用。"""
+    """本周自动采集(payload 含 "auto":1)失败次数——重试上限用。
+
+    ★ 2026-10-28 修复：原来用 `payload LIKE '%"auto":1%'`，而入队侧
+    `json.dumps({"auto": 1})` 默认带空格（`"auto": 1`）⇒ **永远匹配不上**，
+    失败计数恒 0 ⇒ 窗内重试永不触发、缺失版周报判定失真。
+    改用 json_extract 解析（json_valid 兜底坏 JSON）。
+    """
     with db_ctx() as conn:
         n = conn.execute(
             "SELECT COUNT(*) c FROM bot_collect_tasks WHERE tenant_key=? AND target=? "
             "AND type='douyin' AND status='failed' AND created_at>=? "
-            "AND payload LIKE '%\"auto\":1%'",
+            "AND json_valid(COALESCE(payload,'')) "
+            "AND json_extract(payload, '$.auto') = 1",
             (tenant_key, douyin_id, week_start_ts)).fetchone()
         return int(n["c"])
 

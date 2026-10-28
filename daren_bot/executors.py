@@ -17,6 +17,7 @@ import urllib.request
 from pathlib import Path
 
 from .llm_text import strip_think as _strip_think_impl
+from . import persona
 from .llm_channels import (
     CP_ANTHROPIC_BASE,
     CP_DEFAULT_MODEL,
@@ -45,7 +46,7 @@ log = logging.getLogger("daren-bot.executors")
 BUYIN_CONTROL = "http://127.0.0.1:8095"          # buyin_worker 控制口
 SOLOBRAVE_DB = Path("/Users/qichen/solobrave-prod/data/solobrave.db")
 JOB_POLL_INTERVAL = 5
-JOB_WAIT_TIMEOUT = 20 * 60                        # 比 buyin_worker JOB_TIMEOUT 长，覆盖 429 降级耗时
+JOB_WAIT_TIMEOUT = 35 * 60                        # 盖过 buyin_worker JOB_TIMEOUT(25min) + MiniMax-M3 视觉提取 8 批串行余量
 
 
 def _http_json(method: str, url: str, payload: dict = None, timeout: int = 15) -> dict:
@@ -119,7 +120,7 @@ def execute_douyin_collect(task: dict) -> str:
             return _build_report(job.get("talent_id", ""), douyin_id)
         if status in ("failed", "need_login"):
             raise RuntimeError(job.get("error") or f"采集失败({status})")
-    raise RuntimeError("采集超时(20分钟)，积分已返还，可稍后再试")
+    raise RuntimeError("采集超时(35分钟)，积分已返还，可稍后再试")
 
 
 def _fmt_pct(v) -> str:
@@ -996,6 +997,13 @@ def execute_product_collect(task: dict) -> str:
                               md=verdict, stats=stats)
     except Exception:
         log.warning("verdict cache put failed: key=%s", product_key, exc_info=True)
+    # ★ 聊天即知识（2026-10-27）：新算出的选品结论 → 知识库 match_pattern
+    #   （只有新结论才到这；缓存命中分支在前面早退，不会重复推。尽力而为。）
+    try:
+        from . import reflow as _reflow
+        _reflow.push_product_verdict(task.get("tenant_key", ""), title, verdict)
+    except Exception:
+        log.warning("verdict kb push failed (non-fatal)", exc_info=True)
     # 结构化信封：worker 拆包后通知（卡片/文字版用 md+title，表格用 stats）
     return json.dumps({"title": title, "stats": stats, "md": verdict},
                       ensure_ascii=False)
@@ -1359,17 +1367,20 @@ def notify_report(sender, chat_id: str, douyin_id: str, report_text: str) -> Non
                 chat_id,
                 f"📊 {name} 的账号数据报告如上　🎯 账号评估：{verdict or '见报告'}")
             _send_text_quiet(sender, chat_id, report_text)
-            try:
-                from . import bitable_sync, db as ddb
-                tenant = ddb.get_tenant_by_douyin(douyin_id)
-                if tenant:
-                    summary = (t.get("ai_summary") or t.get("notes") or "")[:2000]
-                    bitable_sync.sync_profile(
-                        tenant["tenant_key"], t,
-                        t.get("risk_rating") or "", summary,
-                        img_path=str(tmp))
-            except Exception:
-                log.exception("bitable sync profile failed: douyin_id=%s", douyin_id)
+            # ★ 2026-10-27 老大拍板：档案层已换成 mini 做的新功能（达人经营驾驶舱），
+            #   每租户「我的带货助手」多维表格（bitable_sync）链路废弃——
+            #   新达人应用不再有此权限，sync 只会刷 400 噪音。整段停用，模块保留备查。
+            # try:
+            #     from . import bitable_sync, db as ddb
+            #     tenant = ddb.get_tenant_by_douyin(douyin_id)
+            #     if tenant:
+            #         summary = (t.get("ai_summary") or t.get("notes") or "")[:2000]
+            #         bitable_sync.sync_profile(
+            #             tenant["tenant_key"], t,
+            #             t.get("risk_rating") or "", summary,
+            #             img_path=str(tmp))
+            # except Exception:
+            #     log.exception("bitable sync profile failed: douyin_id=%s", douyin_id)
             return
     except Exception:
         log.exception("render card failed, fallback to text: douyin_id=%s", douyin_id)
@@ -1405,11 +1416,12 @@ def notify_qa_card(sender, chat_id: str, question: str, answer: str,
                        link=cockpit_link.tenant_cockpit_link(tenant_key))
         sender.send_image_path(chat_id, str(tmp))
         _send_text_quiet(sender, chat_id, f"💬 {answer}")
-        try:
-            from . import bitable_sync
-            bitable_sync.sync_log(tenant_key, "问答", question, answer)
-        except Exception:
-            log.exception("bitable sync log failed: tenant=%s", tenant_key)
+        # ★ 2026-10-27 档案层已换代（见上方 sync_profile 同因），问答日志同步一并停用。
+        # try:
+        #     from . import bitable_sync
+        #     bitable_sync.sync_log(tenant_key, "问答", question, answer)
+        # except Exception:
+        #     log.exception("bitable sync log failed: tenant=%s", tenant_key)
         return
     except Exception:
         log.exception("render qa card failed, fallback to text: tenant=%s", tenant_key)
@@ -1854,19 +1866,8 @@ def execute_qa(task: dict) -> str:
         '对比数据里没有的维度，明说"对方该维度暂无数据"，严禁编造数字。\n'
         + compare_block + '\n' if compare_block else '')
     prompt = (
-        '你是抖音电商达人的AI选品顾问，用第二人称"你"回答问题。\n'
-        '只回答抖音带货、选品、商品判断、账号运营、粉丝画像、直播相关的问题，'
-        '以及达人对报告/分析内容的疑问和纠错（这类属于业务范围，必须回答，不许拒）。\n'
-        '如果问题与这些无关（闲聊、天气、代码、数学、新闻等），只输出一个字：拒\n'
-        '如果达人问的是某个具体商品能不能带/值不值/适不适合我，但你手上没有这个商品的'
-        '链接、商品ID 或截图，**不要输出"拒"**——那是缺一个输入，不是答不了：'
-        '直接回「请提供一下商品的链接或者商品ID（发商品截图也行），我才能判断这款能不能带～」\n'
-        '如果达人质疑报告或分析有误（如"分析是不是有误""数据不对"）：先核对下面的账号数据，'
-        '数据支持就确认并解释依据；确实和分析矛盾就大方承认并给出纠正后的结论，'
-        '禁止把这类质疑当无关问题拒答。\n'
-        '回答要求：优先结合该达人自己的数据给具体可执行的建议（80-250字），'
-        '结构为「结论 + 数据依据 + 行动建议」；有数据必须引用数据，'
-        '没有的维度不要编造数字，不要喊口号。\n'
+        # ★ 人格唯一来源 persona.md（角色模板：新达人自动继承，纠正沉淀共享）
+        persona.qa_persona() + '\n'
         + force_line
         + compare_line
         + (f'【该达人的账号数据】{ctx}\n' if ctx else '')
@@ -1882,6 +1883,15 @@ def execute_qa(task: dict) -> str:
         if content.strip():
             break
     ans = content.strip()
+    # ★ 聊天即训练：达人这句话是在纠正/教 AI ⇒ 原文进知识库（talent_feedback 白名单，
+    #   服务端价值闸把关），定期沉淀回 persona.md。尽力而为，绝不阻塞回复。
+    try:
+        persona.capture_feedback(task.get("tenant_key", ""), q, ans)
+        # ★ 聊天即知识：有实质内容的问答整段进知识库（talent_insight，pending 人工审）
+        from . import reflow as _reflow
+        _reflow.push_qa_exchange(task.get("tenant_key", ""), q, ans)
+    except Exception:
+        log.warning("kb push failed (non-fatal)", exc_info=True)
     if not ans:
         return "AI 刚才没反应过来，你稍等几秒再问一次～"
     if ans.startswith("拒") and len(ans) <= 3:
@@ -2129,13 +2139,14 @@ def notify_product_card(sender, chat_id: str, title: str, report: str,
             _send_text_quiet(sender, chat_id,
                              f"🛒 {title}\n{_md_to_text(report)}")
             _send_accept_hint(sender, chat_id, product_id)
-        try:
-            from . import bitable_sync
-            bitable_sync.sync_product(
-                tenant_key, stats or {"name": title}, report, source,
-                img_path=str(tmp))
-        except Exception:
-            log.exception("bitable sync product failed: tenant=%s", tenant_key)
+        # ★ 2026-10-27 档案层已换代（bitable_sync 链路废弃，见 notify_douyin_report 同因）。
+        # try:
+        #     from . import bitable_sync
+        #     bitable_sync.sync_product(
+        #         tenant_key, stats or {"name": title}, report, source,
+        #         img_path=str(tmp))
+        # except Exception:
+        #     log.exception("bitable sync product failed: tenant=%s", tenant_key)
         return
     except Exception:
         log.exception("render product card failed, fallback to text: tenant=%s", tenant_key)
@@ -2158,14 +2169,15 @@ def notify_video_card(sender, chat_id: str, result_text: str, tenant_key: str) -
         sender.send_text(chat_id, f"📹 视频拆解完成：{title}")
         _send_text_quiet(sender, chat_id,
                          f"📹 {title}\n{_md_to_text(report)}")
-        try:
-            from . import bitable_sync
-            bitable_sync.sync_log(
-                tenant_key, "视频拆解",
-                (result_text or "").split("\n", 1)[0][:500],
-                _md_to_text(report))
-        except Exception:
-            log.exception("bitable sync log failed: tenant=%s", tenant_key)
+        # ★ 2026-10-27 档案层已换代（bitable_sync 链路废弃，见 notify_douyin_report 同因）。
+        # try:
+        #     from . import bitable_sync
+        #     bitable_sync.sync_log(
+        #         tenant_key, "视频拆解",
+        #         (result_text or "").split("\n", 1)[0][:500],
+        #         _md_to_text(report))
+        # except Exception:
+        #     log.exception("bitable sync log failed: tenant=%s", tenant_key)
         return
     except Exception:
         log.exception("render teardown card failed, fallback to text: tenant=%s", tenant_key)
