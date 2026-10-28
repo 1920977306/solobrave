@@ -2089,6 +2089,9 @@ def execute_qa(task: dict) -> str:
         _role = (_tenant_row or {}).get("role") or ""
     except Exception:
         _role = ""
+    # 「本人账号画像」是达人语境：商务没有自己的号，注入反而误导
+    if _role == "commerce":
+        ctx = ""
     commerce_block = ""
     if _role == "commerce":
         commerce_block = _commerce_talent_block(q)

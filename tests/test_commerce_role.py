@@ -267,6 +267,23 @@ class TestCommerceTalentBlock:
         assert "提问的是商务人员" not in p
         assert "【商务问】" not in p
 
+    def test_commerce_bound_talent_not_injected(self, bot, monkeypatch):
+        """商务租户即便误绑了抖音号，QA 也不注入「本人账号画像」（那是达人语境）。
+        （对照：executors 里 commerce ctx 清零删了 ⇒ 本用例红）"""
+        _add(bot, TK_COMM, "commerce")
+        bot["db"].bind_douyin_id(TK_COMM, DYID)
+        ex = bot["executors"]
+        monkeypatch.setattr(ex, "_read_talent",
+                            lambda _uid, dyid: {"name": "误绑达人", "douyin_id": dyid})
+        captured = {}
+        monkeypatch.setattr(ex, "_qa_llm",
+                            lambda prompt: captured.setdefault("p", prompt)
+                            or "答：可以建联")
+        task = {"tenant_key": TK_COMM, "target": "这个月建联话术怎么写",
+                "chat_id": "", "payload": ""}
+        ex.execute_qa(task)
+        assert "【该达人的账号数据】" not in captured.get("p", "")
+
 
 # ---------------- ⑤ weekly 调度跳过非达人租户 ----------------
 
