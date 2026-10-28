@@ -27,14 +27,18 @@ def cmd_add_tenant(args) -> None:
     if secret != confirm:
         print("ABORT: 两次输入不一致", file=sys.stderr)
         sys.exit(1)
-    douyin_id = input("绑定抖音号(可回车跳过, 之后发消息时自动绑定): ").strip()
+    role = getattr(args, "role", None) or config.ROLE_DAREN
+    douyin_id = ""
+    if role == config.ROLE_DAREN:
+        douyin_id = input("绑定抖音号(可回车跳过, 之后发消息时自动绑定): ").strip()
 
     key = crypto_util.load_or_create_master_key()
     enc = crypto_util.encrypt_secret(key, secret)
-    db.add_tenant(args.app_id, args.tenant_key, enc, bind_douyin_id=douyin_id)
-    print(f"OK tenant={args.tenant_key} app_id={_mask(args.app_id)} "
+    db.add_tenant(args.app_id, args.tenant_key, enc,
+                  bind_douyin_id=douyin_id, role=role)
+    print(f"OK tenant={args.tenant_key} role={role} app_id={_mask(args.app_id)} "
           f"bind_douyin_id={douyin_id or '(未绑定)'} 初始积分={config.INITIAL_CREDITS}")
-    print("下一步: 确认 daren-bot 服务在跑 (scripts/daren_bot.sh status)，"
+    print("下一步: daren-bot 服务每 5s 自动收敛新租户（无需重启），"
           "client 在线后去飞书后台切「使用长连接接收事件」保存。")
 
 
@@ -46,7 +50,8 @@ def cmd_list(_args) -> None:
         return
     for t in tenants:
         bal = db.get_balance(t["tenant_key"])
-        print(f"{t['tenant_key']:20s} app_id={_mask(t['app_id'])} "
+        print(f"{t['tenant_key']:20s} role={t.get('role') or 'daren':10s} "
+              f"app_id={_mask(t['app_id'])} "
               f"bind={t['bind_douyin_id'] or '-':15s} balance={bal} status={t['status']}")
 
 
@@ -78,6 +83,9 @@ def main():
     at = sub.add_parser("add-tenant", help="交互式凭证入库(secret 不回显)")
     at.add_argument("tenant_key")
     at.add_argument("app_id")
+    at.add_argument("--role", choices=(config.ROLE_DAREN, config.ROLE_COMMERCE),
+                    default=config.ROLE_DAREN,
+                    help="助理角色：daren=达人助理 commerce=商务助理")
     sub.add_parser("list", help="租户一览(secret 脱敏)")
     g = sub.add_parser("grant", help="手动发放积分")
     g.add_argument("tenant_key")

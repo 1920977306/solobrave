@@ -46,9 +46,10 @@ def cmd_add_tenant(args):
     db.init_db()
     key = crypto_util.load_or_create_master_key()
     enc = crypto_util.encrypt_secret(key, args.app_secret)
+    role = getattr(args, "role", None) or config.ROLE_DAREN
     db.add_tenant(args.app_id, args.tenant_key, enc,
-                  bind_douyin_id=args.douyin_id or "")
-    print(f"tenant upserted: {args.tenant_key} app_id={args.app_id} "
+                  bind_douyin_id=args.douyin_id or "", role=role)
+    print(f"tenant upserted: {args.tenant_key} role={role} app_id={args.app_id} "
           f"bind_douyin_id={args.douyin_id or '(未绑定)'} "
           f"初始积分={config.INITIAL_CREDITS}")
 
@@ -148,6 +149,8 @@ def main():
     at.add_argument("app_id")
     at.add_argument("app_secret")
     at.add_argument("douyin_id", nargs="?", default="")
+    at.add_argument("--role", choices=(config.ROLE_DAREN, config.ROLE_COMMERCE),
+                    default=config.ROLE_DAREN)
     sub.add_parser("serve")
     args = p.parse_args()
     {"init-db": cmd_init_db,

@@ -100,6 +100,17 @@ COST_TABLE = {
 
 # 对标分析：内测期每个达人最多同时跟踪的对标号数量
 MAX_PEER_IDS = int(os.environ.get("DAREN_MAX_PEER_IDS", "5"))
+# 商务助理：查/分析达人就是本职工作 ⇒ 对标号上限放宽（仍受「每号每周 1 次」约束）
+MAX_PEER_IDS_COMMERCE = int(os.environ.get("DAREN_MAX_PEER_IDS_COMMERCE", "30"))
+
+# ── 租户角色（2026-10-28 飞书助理平台化，老大拍板）──────────────────
+# daren=达人助理（选品/账号分析/佣金，现状）；
+# commerce=商务助理（查达人库/达人分析/图片识别，建联洽谈话术）；
+# merchant=商家助理（**预留，不做**）。
+ROLE_DAREN = "daren"
+ROLE_COMMERCE = "commerce"
+ROLE_MERCHANT = "merchant"
+VALID_ROLES = (ROLE_DAREN, ROLE_COMMERCE, ROLE_MERCHANT)
 
 # ── 运营告警（2026-10-25）──────────────────────────────────────────
 # 运营会话：**留空 = 自动取该租户最近一次会话**

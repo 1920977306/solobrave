@@ -272,6 +272,11 @@ def init_db():
         if "weekly_push_slot" not in cols:
             conn.execute("ALTER TABLE bot_tenants "
                          "ADD COLUMN weekly_push_slot INTEGER NOT NULL DEFAULT 577")
+        # 轻量迁移：租户角色（飞书助理平台化，2026-10-28）。
+        #   存量行一律 'daren'（行为与加列前完全一致）；新开通商务助理写 'commerce'。
+        if "role" not in cols:
+            conn.execute("ALTER TABLE bot_tenants "
+                         "ADD COLUMN role TEXT NOT NULL DEFAULT 'daren'")
         # 轻量迁移：选品结论表补「商品键 + 完整结论 + 商品数据快照」三列
         #   （2026-10-21 加缓存：同商品同达人的结论直接复用，不重复烧 LLM）
         cols = {r[1] for r in conn.execute("PRAGMA table_info(bot_product_verdicts)")}
@@ -308,19 +313,20 @@ def current_week_no() -> int:
 # ---------- 租户 ----------
 
 def add_tenant(app_id: str, tenant_key: str, app_secret_enc: str,
-               bind_douyin_id: str = "") -> None:
+               bind_douyin_id: str = "", role: str = "daren") -> None:
     ts = now_ts()
     with db_ctx() as conn:
         conn.execute(
             """INSERT INTO bot_tenants
-               (app_id, tenant_key, app_secret_enc, bind_douyin_id, status, created_at, updated_at)
-               VALUES (?,?,?,?,'active',?,?)
+               (app_id, tenant_key, app_secret_enc, bind_douyin_id, role, status, created_at, updated_at)
+               VALUES (?,?,?,?,?,'active',?,?)
                ON CONFLICT(app_id) DO UPDATE SET
                  tenant_key=excluded.tenant_key,
                  app_secret_enc=excluded.app_secret_enc,
                  bind_douyin_id=excluded.bind_douyin_id,
+                 role=excluded.role,
                  status='active', updated_at=excluded.updated_at""",
-            (app_id, tenant_key, app_secret_enc, bind_douyin_id, ts, ts))
+            (app_id, tenant_key, app_secret_enc, bind_douyin_id, role, ts, ts))
         conn.execute(
             """INSERT INTO bot_credits_accounts (tenant_key, balance, updated_at)
                VALUES (?,?,?)

@@ -31,6 +31,15 @@ UNRELATED_REPLY = ("我是你的带货选品助手，账号分析、选品建议
                    "其他问题帮不上忙哦～")
 UNSUPPORTED_REPLY = ("这类消息我还处理不了，发我抖音号、商品截图、商品链接或抖音视频链接都可以～")
 GREETING_RE = re.compile(r"^(你好|在吗|在么|您好|hi|hello|嗨|早|早上好|晚上好|下午好|哈喽|在不在)[呀啊呐哦哇~～!！\s]*$", re.I)
+# ★ 角色化开场（2026-10-28 飞书助理平台化）：商务助理的打招呼回复
+GREETING_REPLY_COMMERCE = (
+    "你好，我是你的商务助理。发我抖音号可以查达人档案、发起账号分析，"
+    "发截图我帮你识别数据，选品和建联的问题也能聊～")
+
+
+def _role(tenant: dict) -> str:
+    """租户角色（飞书助理平台化）：缺省 daren —— 存量行/旧调用零感知。"""
+    return (tenant.get("role") or config.ROLE_DAREN)
 BALANCE_RE = re.compile(r"^(余额|积分|我的积分|积分余额|查积分|还有多少积分)[?？!！~～\s]*$")
 WEEKLY_UNSUB_RE = re.compile(r"^(取消订阅|退订|关闭)(每周)?(经营)?周报[呀啊哦~～!！\s]*$")
 WEEKLY_SUB_RE = re.compile(r"^(订阅|开通|恢复)(每周)?(经营)?周报[呀啊哦~～!！\s]*$")
@@ -326,15 +335,21 @@ class Router:
           ① 明确标注「抖音号：xxx」→ 一定是抖音号
           ② 裸商品ID（17-20 位数字）→ 必须在 ③ 之前！否则 DOUYIN_RE 会把它当抖音号抢走
           ③ 整条是一个 alnum 串 → 抖音号
+
+        ★ 2026-10-28 角色分流（飞书助理平台化）：role=commerce 的租户跳过
+          达人专属路由（排品/周报/佣金/驾驶舱/推荐），这些落到达人身上才有意义；
+          抖音号/商品/截图/视频/问答是全角色共用的。
         """
+        role = _role(tenant)
+        is_daren = role == config.ROLE_DAREN
         dy_in_text = DOUYIN_IN_TEXT_RE.search(text)
         dy_only = DOUYIN_RE.match(text)
         bare_pid = self._bare_product_id(tenant, text, dy_only)
         accept = ACCEPT_DEAL_RE.match(text.strip())
-        if cockpit_link.is_cockpit_url(text):
+        if is_daren and cockpit_link.is_cockpit_url(text):
             # 达人把自己收到的驾驶舱链接发回来 → 回入口，别当成商品链接扣 20 分
             self._route_cockpit_link(tenant, chat_id, text, sender)
-        elif accept:
+        elif is_daren and accept:
             # ★「接了 <商品ID>」→ 登记进排品池（必须在裸商品ID 分支之前！）
             self._route_accept_deal(tenant, chat_id, accept.group('pid'), sender)
         elif dy_in_text:
@@ -351,40 +366,49 @@ class Router:
         elif URL_RE.search(text):
             self._route_link(tenant, chat_id, text, sender)
         elif BALANCE_RE.match(text.strip()):
-            sender.send_text(
-                chat_id,
-                f"你的积分余额：{db.get_balance(tenant['tenant_key'])} 分"
-                "（发抖音号查账号 100 分/周，商品链接 20 分，截图 10 分，"
-                "问答 1 分；内测期找运营免费充值）")
-        elif WEEKLY_UNSUB_RE.match(text.strip()):
+            if is_daren:
+                sender.send_text(
+                    chat_id,
+                    f"你的积分余额：{db.get_balance(tenant['tenant_key'])} 分"
+                    "（发抖音号查账号 100 分/周，商品链接 20 分，截图 10 分，"
+                    "问答 1 分；内测期找运营免费充值）")
+            else:
+                sender.send_text(
+                    chat_id,
+                    f"你的积分余额：{db.get_balance(tenant['tenant_key'])} 分"
+                    "（查达人账号分析 100 分/次，商品链接 20 分，截图 10 分，"
+                    "问答 1 分；找运营充值）")
+        elif is_daren and WEEKLY_UNSUB_RE.match(text.strip()):
             db.set_weekly_sub(tenant["tenant_key"], 0)
             sender.send_text(
                 chat_id,
                 "好的，已取消每周经营周报订阅，不会再主动推送。"
                 "想恢复随时发「订阅周报」～")
-        elif WEEKLY_SUB_RE.match(text.strip()):
+        elif is_daren and WEEKLY_SUB_RE.match(text.strip()):
             db.set_weekly_sub(tenant["tenant_key"], 1)
             sender.send_text(
                 chat_id,
                 "已订阅每周经营周报 ✅ 每周一上午我会自动推送你的账号数据变化、"
                 "异常提醒和下周建议，不用你手动查。想取消随时发「取消订阅周报」")
-        elif WEEKLY_STATUS_RE.match(text.strip()):
+        elif is_daren and WEEKLY_STATUS_RE.match(text.strip()):
             sub = db.get_weekly_sub(tenant["tenant_key"])
             sender.send_text(
                 chat_id,
                 ("周报订阅：已开启 ✅ 每周一上午自动推送"
                  if sub else "周报订阅：已关闭。发「订阅周报」可恢复"))
-        elif PLAN_QUERY_RE.match(text.strip()):
+        elif is_daren and PLAN_QUERY_RE.match(text.strip()):
             # 排品表查询（零成本）
             self._route_plan_query(tenant, chat_id, sender)
-        elif TRIAL_WEEKLY_RE.match(text.strip()):
+        elif is_daren and TRIAL_WEEKLY_RE.match(text.strip()):
             self._route_trial_weekly(tenant, chat_id, text, sender)
         elif len(text.strip()) <= 8 and GREETING_RE.search(text):
-            sender.send_text(chat_id, GREETING_REPLY)
-        elif cockpit_link.is_cockpit_link_question(text):
+            sender.send_text(
+                chat_id,
+                GREETING_REPLY_COMMERCE if not is_daren else GREETING_REPLY)
+        elif is_daren and cockpit_link.is_cockpit_link_question(text):
             # 驾驶舱入口导航（2026-10-20 交接项①）：零成本，不扣积分
             self._route_cockpit_link(tenant, chat_id, text, sender)
-        elif product_intent.missing_product_ref_question(text) \
+        elif is_daren and product_intent.missing_product_ref_question(text) \
                 and not db.has_recent_product_context(tenant["tenant_key"]):
             # 商品判断意图 + 没给商品标识（2026-10-22 老大截图实锤）：
             # 以前这种会掉进「其他问题帮不上忙」的通用兜底，达人以为机器人不懂货。
@@ -394,10 +418,10 @@ class Router:
             #   否则会再要一遍商品ID（老大实锤：「上面已经给到了商品链接，
             #   下面问道其它问题又要给商品ID」）。
             sender.send_text(chat_id, product_intent.NEED_PRODUCT_REF_REPLY)
-        elif is_reco_query(text):
+        elif is_daren and is_reco_query(text):
             # 选品推荐（零成本：我方自算的推荐指数，不调 LLM、不扣积分）
             self._route_reco_query(tenant, chat_id, sender)
-        elif self._route_commission(tenant, chat_id, text, sender):
+        elif is_daren and self._route_commission(tenant, chat_id, text, sender):
             # 专属佣金回复（2026-10-28）：达人报了自己后台的专属佣金 ⇒ 重算商品结论
             pass
         else:
@@ -643,6 +667,47 @@ class Router:
 
     def _route_douyin(self, tenant, chat_id, dy_id, sender, name_hint: str = "") -> None:
         tk = tenant["tenant_key"]
+        # ★ 2026-10-28 角色分流（飞书助理平台化）：
+        #   商务助理发抖音号 = 查/分析**这个达人**（商务没有「自己的号」，
+        #   永不绑定），上限放宽到 MAX_PEER_IDS_COMMERCE（查达人是本职工作）；
+        #   每号每周 1 次的约束**对商务同样生效**（防重复采集烧算力）。
+        if _role(tenant) != config.ROLE_DAREN:
+            peers = db.peer_douyin_count(tk, "")
+            if peers >= config.MAX_PEER_IDS_COMMERCE:
+                sender.send_text(
+                    chat_id,
+                    f"最多同时跟踪 {config.MAX_PEER_IDS_COMMERCE} 个达人账号，"
+                    "需要调整联系运营")
+                return
+            if db.get_week_count(tk, dy_id) >= 1:
+                sender.send_text(
+                    chat_id,
+                    "这个号本周已分析过，每个号每周更新 1 次；下周再查")
+                return
+            if db.get_balance(tk) < config.COST_COLLECT_DOUYIN:
+                sender.send_text(
+                    chat_id,
+                    f"这个动作需要 {config.COST_COLLECT_DOUYIN} 积分，余额不够啦。"
+                    "联系运营补充额度")
+                return
+            status, _task_id, bal = credits.charge_and_enqueue(
+                tk, "douyin", dy_id, "collect_douyin",
+                chat_id=chat_id,
+                payload=json.dumps({"name_hint": name_hint},
+                                   ensure_ascii=False) if name_hint else '')
+            if status == "insufficient":
+                sender.send_text(chat_id, credits.insufficient_text("collect_douyin", bal))
+                return
+            if status == "duplicate":
+                sender.send_text(chat_id,
+                                 f"这个号正在采集中啦，报告出来直接发你～（积分余额 {bal}）")
+                return
+            sender.send_text(
+                chat_id,
+                f"已开始采集达人账号 {dy_id}，正常5-8分钟出报告"
+                f"（积分余额 {bal}）")
+            return
+
         bound = tenant.get("bind_douyin_id") or ""
         first_bind = False
         if not bound:

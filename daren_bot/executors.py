@@ -1980,6 +1980,42 @@ def _build_compare_block(tk: str, q: str) -> str:
         return ""
 
 
+# ★ 2026-10-28 飞书助理平台化：商务问答的「查达人」档案注入。
+# 问题里出现的 5-24 位 alnum 串（抖音号形态）逐个查库，命中档案就注入真实摘要。
+_DYID_TOKEN_RE = _re.compile(r"[A-Za-z0-9_]{5,24}")
+_COMMERCE_TALENT_MAX = 3   # 一次问答最多注入几个达人档案（防 prompt 爆炸）
+_COMMERCE_LOOKUP_MAX = 5   # 最多尝试查库几次（防长句里英文词浪费查询）
+
+
+def _commerce_talent_block(q: str) -> str:
+    """商务问答：问题里点到的抖音号 → 该达人的真实档案摘要（≤3 个）。
+
+    查达人数据是商务的本职工作（老大 2026-10-28：商务需要达人分析、查达人数据）。
+    查不到档案的号不注入（prompt 指令会要求 AI 明说没有数据，严禁编造）。"""
+    seen: set = set()
+    out = []
+    lookups = 0
+    for m in _DYID_TOKEN_RE.finditer(q or ""):
+        dyid = m.group(0)
+        if dyid in seen:
+            continue
+        seen.add(dyid)
+        lookups += 1
+        if lookups > _COMMERCE_LOOKUP_MAX:
+            break
+        try:
+            t = _read_talent("", dyid)
+        except Exception:
+            log.warning("commerce talent lookup failed dyid=%s", dyid,
+                        exc_info=True)
+            t = None
+        if t:
+            out.append(f"【达人 {dyid}】" + _fmt_compare_brief(t))
+        if len(out) >= _COMMERCE_TALENT_MAX:
+            break
+    return "\n".join(out)[:900]
+
+
 def execute_qa(task: dict) -> str:
     """业务问答：结合该达人绑定的账号画像回答；超出带货范围由模型拒答。
     对报告/分析的质疑类问题强制走回答路径（弱模型爱把质疑当无关问题拒答）。"""
@@ -2046,6 +2082,23 @@ def execute_qa(task: dict) -> str:
         '就是指下面这个商品。基于它回答，**绝对禁止再要商品ID或链接**；'
         '商品块里没有的维度，明说「这个维度我这边没有数据」，严禁编造。\n'
         + recent_product + '\n' if recent_product else '')
+    # ★ 2026-10-28 飞书助理平台化：商务租户问答用商务人格 + 查达人档案注入
+    _role = ""
+    try:
+        _tenant_row = _db.get_tenant(task.get("tenant_key", ""))
+        _role = (_tenant_row or {}).get("role") or ""
+    except Exception:
+        _role = ""
+    commerce_block = ""
+    if _role == "commerce":
+        commerce_block = _commerce_talent_block(q)
+    commerce_line = (
+        '【系统指令】提问的是商务人员，这是TA问题里点到的达人的真实档案数据。'
+        '必须基于这些数据回答，绝对禁止编造粉丝数/GMV/佣金/类目等数字；'
+        '档案里没有的维度明说「这个维度我这边没有数据」。'
+        '如果问题点到的达人没有档案数据，直接说「这个达人还没有档案，'
+        '发我TA的抖音号，我采集分析完再给你完整数据」。\n'
+        + commerce_block + '\n' if commerce_block else '')
     compare_line = (
         '【系统指令】达人在要求做账号对比，这是核心业务问题，必须基于下面的对比数据回答，'
         '绝对禁止输出"拒"。回答结构：先并排列出各方核心数据（粉丝/类目/GMV/GPM/等级/城市/粉丝画像），'
@@ -2053,13 +2106,14 @@ def execute_qa(task: dict) -> str:
         '对比数据里没有的维度，明说"对方该维度暂无数据"，严禁编造数字。\n'
         + compare_block + '\n' if compare_block else '')
     prompt = (
-        # ★ 人格唯一来源 persona.md（角色模板：新达人自动继承，纠正沉淀共享）
-        persona.qa_persona() + '\n'
+        # ★ 人格唯一来源 personas/<role>.md（角色模板：新租户自动继承，纠正沉淀共享）
+        persona.qa_persona(_role) + '\n'
         + force_line
         + recent_line
+        + commerce_line
         + compare_line
         + (f'【该达人的账号数据】{ctx}\n' if ctx else '')
-        + f'【达人问】{q}'
+        + (f'【商务问】{q}' if _role == "commerce" else f'【达人问】{q}')
     )
     content = ""
     for attempt in (1, 2, 3):

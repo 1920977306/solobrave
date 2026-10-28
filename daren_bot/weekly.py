@@ -176,6 +176,10 @@ class WeeklyScheduler(threading.Thread):
         tenants = db.get_active_tenants()
         for t in tenants:
             tk = t["tenant_key"]
+            # ★ 2026-10-28 飞书助理平台化：经营周报是达人角色专属概念，
+            #   商务等非达人租户一律跳过（即便误绑了抖音号也不推）。
+            if (t.get("role") or config.ROLE_DAREN) != config.ROLE_DAREN:
+                continue
             if not int(t.get("weekly_sub") or 1):
                 continue
             dyid = (t.get("bind_douyin_id") or "").strip()
@@ -312,6 +316,10 @@ class WeeklyScheduler(threading.Thread):
         gaps = []
         for t in tenants:
             tk = t["tenant_key"]
+            # ★ 2026-10-28 飞书助理平台化：经营周报是达人角色专属概念，
+            #   商务等非达人租户一律跳过（即便误绑了抖音号也不推）。
+            if (t.get("role") or config.ROLE_DAREN) != config.ROLE_DAREN:
+                continue
             if not int(t.get("weekly_sub") or 1):
                 continue
             dyid = (t.get("bind_douyin_id") or "").strip()
