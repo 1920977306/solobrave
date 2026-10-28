@@ -384,10 +384,15 @@ class Router:
         elif cockpit_link.is_cockpit_link_question(text):
             # 驾驶舱入口导航（2026-10-20 交接项①）：零成本，不扣积分
             self._route_cockpit_link(tenant, chat_id, text, sender)
-        elif product_intent.missing_product_ref_question(text):
+        elif product_intent.missing_product_ref_question(text) \
+                and not db.has_recent_product_context(tenant["tenant_key"]):
             # 商品判断意图 + 没给商品标识（2026-10-22 老大截图实锤）：
             # 以前这种会掉进「其他问题帮不上忙」的通用兜底，达人以为机器人不懂货。
             # 零成本（只是要一个输入），不扣积分、不调 LLM。
+            # ★ 2026-10-28：上文已分析过商品时**不拦** —— 达人说的「这个品」
+            #   就是上文那个，承接语境走 QA（execute_qa 注入上文商品块），
+            #   否则会再要一遍商品ID（老大实锤：「上面已经给到了商品链接，
+            #   下面问道其它问题又要给商品ID」）。
             sender.send_text(chat_id, product_intent.NEED_PRODUCT_REF_REPLY)
         elif is_reco_query(text):
             # 选品推荐（零成本：我方自算的推荐指数，不调 LLM、不扣积分）

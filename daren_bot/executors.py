@@ -1723,6 +1723,57 @@ def _fallback_rings_daren(requested_model: str = '') -> list:
     """
     return _text_rings_impl(requested_model)
 
+def _recent_product_ref_re():
+    """指代词判据（惰性编译）：达人在追问上文那个商品。"""
+    import re as _re
+    return _re.compile(
+        r"这个品|这款|那款|该商品|这个商品|那个商品|这个产品|这款产品|"
+        r"这个宝贝|这个货|那个品|本品|它|刚才那个|上面那个|之前那个")
+
+
+def _recent_product_block(tk: str, q: str) -> str:
+    """上文商品语境块：达人发过商品链接/ID/截图分析过后，追问「这个品/这款/它」
+    时注入 QA prompt —— 让 AI 承接上文，而不是再要一遍商品ID
+    （2026-10-28 老大实锤：「上面已经给到了商品链接，下面问道其它问题又要给商品ID」）。
+
+    数据来源（先到先用）：
+      ① bot_commission_pending（24h 内分析过的商品 stats，字段最全）
+      ② bot_product_verdicts 最近一条（7 天内结论档案：名称/结论/理由）
+    返回空串 = 没有可承接的上下文。
+    """
+    if not _recent_product_ref_re().search(q or ""):
+        return ""
+    from . import db
+    try:
+        pending = db.get_commission_pending(tk)
+    except Exception:
+        pending = None
+    if pending and pending.get("stats"):
+        s = pending["stats"]
+        parts = [f"商品：{s.get('name') or '（名称未知）'}"]
+        for label, key in (("到手价", "price"), ("佣金", "commission"),
+                           ("佣金率", "commission_rate"),
+                           ("月销", "monthly_sales"), ("店铺分", "shop_score"),
+                           ("类目", "category")):
+            v = s.get(key)
+            if v not in (None, "", {}):
+                parts.append(f"{label} {v}")
+        return "｜".join(parts)[:300]
+    try:
+        v = db.get_latest_product_verdict(tk)
+    except Exception:
+        v = None
+    if v:
+        parts = [f"商品：{v.get('name') or '（名称未知）'}"]
+        if v.get("verdict"):
+            parts.append(f"结论 {v['verdict']}")
+        why = (v.get("why") or "").strip()
+        if why:
+            parts.append(why[:150])
+        return "｜".join(parts)[:300]
+    return ""
+
+
 def _talent_context(tk: str) -> str:
     """该达人绑定的账号画像摘要（问答上下文）：
     基础档案 + 粉丝画像分布 + 类目/品牌结构 + 近期视频表现。"""
@@ -1986,6 +2037,15 @@ def execute_qa(task: dict) -> str:
     force_line = (
         '【系统指令】达人这条消息是在质疑或询问已生成的报告/分析内容，'
         '属于账号分析业务，必须正常回答，绝对禁止输出"拒"。\n' if challenge else '')
+    # ★ 2026-10-28 上文承接：达人前面发过商品链接/ID/截图并分析过，
+    #   这句「这个品/这款/它…」指的就是那个商品 —— 把商品块注入语境，
+    #   绝对禁止再要商品ID（老大实锤：再给一遍ID = 没记住上文，体验崩）。
+    recent_product = _recent_product_block(task.get("tenant_key", ""), q)
+    recent_line = (
+        '【上文语境】达人刚发过这个商品的分析，TA 这句问的「这个品/这款/它」'
+        '就是指下面这个商品。基于它回答，**绝对禁止再要商品ID或链接**；'
+        '商品块里没有的维度，明说「这个维度我这边没有数据」，严禁编造。\n'
+        + recent_product + '\n' if recent_product else '')
     compare_line = (
         '【系统指令】达人在要求做账号对比，这是核心业务问题，必须基于下面的对比数据回答，'
         '绝对禁止输出"拒"。回答结构：先并排列出各方核心数据（粉丝/类目/GMV/GPM/等级/城市/粉丝画像），'
@@ -1996,6 +2056,7 @@ def execute_qa(task: dict) -> str:
         # ★ 人格唯一来源 persona.md（角色模板：新达人自动继承，纠正沉淀共享）
         persona.qa_persona() + '\n'
         + force_line
+        + recent_line
         + compare_line
         + (f'【该达人的账号数据】{ctx}\n' if ctx else '')
         + f'【达人问】{q}'

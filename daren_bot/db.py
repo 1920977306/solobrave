@@ -821,7 +821,13 @@ VERDICT_CACHE_TTL = 7 * 86400     # 与商品缓存 / 周度重抓同周期
 
 # 含时效词的问题**一律不缓存** —— 答案会过期，缓存住等于给假的新鲜度
 _QA_VOLATILE_WORDS = ("最近", "今天", "今日", "最新", "现在", "刚才", "实时",
-                       "目前", "本周", "这周", "这几天", "近期", "几点", "今天到")
+                       "目前", "本周", "这周", "这几天", "近期", "几点", "今天到",
+                       # ★ 2026-10-28：指代词不缓存 —— 「这个品怎么样」的答案绑死
+                       #   「上文是哪个商品」的语境；缓存住 ⇒ 几天后换个商品问同一句，
+                       #   会把旧商品的答案发出去（语境漂移型缓存污染）。
+                       "这个品", "这款", "那款", "该商品", "这个商品", "那个商品",
+                       "这个产品", "那个品", "这款产品", "那款产品", "这个宝贝",
+                       "这个货", "它", "上面那", "之前那", "刚才那")
 
 
 def _qhash(question: str) -> str:
@@ -941,6 +947,41 @@ def clear_commission_pending(tenant_key: str) -> None:
     except Exception:
         log.warning("clear_commission_pending failed: tenant=%s",
                     tenant_key, exc_info=True)
+
+
+def get_latest_product_verdict(tenant_key: str):
+    """该租户**最近一条**商品结论（7 天 TTL）—— 上下文承接用。
+
+    与 verdict_cache_get 的区别：不需要 product_key（达人追问「这个品」时
+    指的就是最近分析过的那个），取时间最近的一条。
+    """
+    try:
+        with db_ctx() as conn:
+            r = conn.execute(
+                """SELECT product_key, name, verdict, why, created_at
+                   FROM bot_product_verdicts WHERE tenant_key=?
+                   ORDER BY created_at DESC LIMIT 1""",
+                (tenant_key,)).fetchone()
+            if not r:
+                return None
+            d = dict(r)
+            if now_ts() - int(d["created_at"]) > VERDICT_CACHE_TTL:
+                return None
+            return d
+    except Exception:
+        log.warning("get_latest_product_verdict failed: tenant=%s",
+                    tenant_key, exc_info=True)
+        return None
+
+
+def has_recent_product_context(tenant_key: str) -> bool:
+    """该租户 24h 内有没有分析过商品（pending）或 7 天内有没有结论档案。
+
+    handler 用它在「要标识话术」前挡一下：上文已经有商品了，追问就该
+    承接上文，而不是再要一遍商品ID（2026-10-28 老大实锤）。
+    """
+    return (get_commission_pending(tenant_key) is not None
+            or get_latest_product_verdict(tenant_key) is not None)
 
 
 def interaction_counts(tenant_key: str) -> dict:
