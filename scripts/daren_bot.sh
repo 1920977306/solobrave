@@ -6,7 +6,7 @@
 #    本脚本只是 launchctl 的薄包装 —— **禁止** nohup 自起：
 #    旧脚本 stop 杀掉的其实是 launchd 的进程，KeepAlive 会立刻再拉一个，
 #    脚本又 nohup 拉一个 ⇒ 双开互撞（8092 Address already in use）
-#    + 任务认领竞态（2026-10-28 实案，交接单 §97）。
+#    + 任务认领竞态（2026-10-28 实案，交接单 §100）。
 #
 # 用法:
 #   scripts/daren_bot.sh status|start|stop|restart
