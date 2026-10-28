@@ -9714,3 +9714,36 @@ buyin-worker 等其他 5 个 launchd 服务**没有**脚本双开问题（它们
 - 建联跟进记录落多维表格（工单 P2）、商务周报（P2）；
 - 商家角色（merchant）config 已留枚举，**老大明确暂缓**；
 - 老大要试商务助理：照 107.4 SOP 建一个真应用即可；或临时把任一测试租户切 commerce（UPDATE bot_tenants SET role=…，ws 每 5s 热收敛）。
+
+## §108 达人助理全身体检 + 积分对账护栏（A 边，2026-10-29 03:5x–04:1x，commit `57fb5e6`）
+
+### 108.0 本节占用登记
+- 文件：`daren_bot/db.py`（`replay_balance` / `reconcile_credits` / init_db 挂钩）、`daren_bot/weekly.py`（sys:tips 标记）、`tests/test_credits_reconcile.py`（新增 9 条）。持有方：A 边；状态：已推送（main/dev 零分叉）。
+
+### 108.1 背景
+老大 03:50：「先把达人助理弄好」。A 边对线上达人助理做了一次系统性自检（服务日志 / 任务队列 / 积分账本 / 消息路由四个面），发现并修复一处真实资损。
+
+### 108.2 体检结果
+| 面 | 结果 |
+|---|---|
+| 服务日志 | 近 36h 无新增异常（历史报错均为已修复实案的旧痕） |
+| 任务队列 | 近 48h 33 任务：30 done / 3 failed（采集超时自动退分、minimax-open 402 死环——已知）；**零卡死任务** |
+| 消息路由 | 16 种消息形状零余额安全扫描（不炸、不误入队、余额还原） |
+| 积分账本 | **发现 1 处漂移（见 108.3），其余两租户逐行核对一致** |
+
+### 108.3 实案：daren_boss 一笔 100 分退款「记账未到账」
+逐行核对 `balance_after` 衔接发现：10-25 17:23 有一笔 `refund cost=-100` 的流水行，但账面余额未变（242→242）。全程无任何报警 ⇒ **对账靠人眼 = 必然漏**。
+- 账本重放（500 初始 − 非系统账流水）⇒ daren_boss 应为 212，实际 112，**达人少 100 分**；
+- 另澄清两笔「看似异常」实为**设计如此**：`weekly_auto_collect`（周自动采集，平台买单不扣达人）与 `weekly_report cost=1`（周报里 AI 建议那 1 次 LLM 调用的系统账）——它们只记真实成本、不动达人余额，余额 0 的达人照收周报。
+- 修复：**启动对账护栏**（`reconcile_credits`）——流水是唯一真源，账面只是缓存；每次启动重放对账，漂移自动校正 + 记 `reconcile_adjust` 审计行（**cost=0 纯审计**：若记 -drift，重放会把校正当真钱再算一遍，二次对账又漂——这个 sign 坑被 `test_second_run_is_noop` 守住）。
+- 已上线生效：重启即自动校正 `daren_boss 112→212（+100）`，日志留痕；test2/mumu 本就一致未动。
+
+### 108.4 实现要点
+- 系统账行识别：`action='weekly_auto_collect'` 或 `ref_task_id` 以 `sys:` 开头（weekly.py 的 AI 建议账已打 `sys:tips` 标记）；legacy 行（ref 空、cost=1 的 weekly_report）按 cost 判据兼容。
+- 对账挂在 `init_db()`，失败只记日志不挡启动（护栏性质）。
+- 守卫 `tests/test_credits_reconcile.py` 9 条：**变异对照 2 处全红**（校正行 sign 写反 ⇒ 二次对账漂移被抓住；auto_collect 判据删除 ⇒ 系统账混进重放被抓住）。
+- 全量回归 1270 passed / 0 failed。
+
+### 108.5 遗留观察项（非 bug，记录备查）
+- `weekly_report` 动作名在流水里同时承载「真实扣费 30」与「系统账 1」，对账靠 cost 区分——将来若改价需同步 `_is_system_cost_row` 的 cost==1 判据（代码里有注释）。
+- 10-25 那笔退款**为何**只记流水没到账，代码层面已无从考证（当时的相关路径早已重构为原子 `fail_task_and_refund`）；对账护栏保证今后同类漂移**启动即显形**，不再需要人眼。
