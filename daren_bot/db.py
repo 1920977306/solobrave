@@ -228,6 +228,19 @@ CREATE INDEX IF NOT EXISTS idx_interactions_tenant
   ON bot_interactions(tenant_key, kind, created_at);
 """
 
+# ★ 2026-10-28：专属佣金待重算登记——商品结论卡片推给达人时登记
+#   「最近一个分析过的商品 + 它的 stats」。达人随后报专属佣金（只TA后台可见的
+#   商家专属佣金，平台接口查不到）⇒ 按新佣金重出一版结论（commission 任务）。
+#   每个租户只留最近一条（新分析覆盖旧的）；24h 过期（拿不到就当没问过）。
+DDL_COMMISSION_PENDING = """
+CREATE TABLE IF NOT EXISTS bot_commission_pending (
+  tenant_key TEXT PRIMARY KEY,
+  product_key TEXT NOT NULL,
+  stats_json TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+"""
+
 
 def init_db():
     config.DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -235,6 +248,7 @@ def init_db():
     with db_ctx() as conn:
         conn.executescript(DDL)
         conn.executescript(DDL_INTERACTIONS)
+        conn.executescript(DDL_COMMISSION_PENDING)
         # 轻量迁移：tasks 表补 payload 列（存名字提示等任务负载，JSON）
         cols = {r[1] for r in conn.execute("PRAGMA table_info(bot_collect_tasks)")}
         if "payload" not in cols:
@@ -865,6 +879,68 @@ def log_interaction(tenant_key: str, kind: str) -> None:
     except Exception:
         log.warning("log_interaction failed: tenant=%s kind=%s",
                     tenant_key, kind, exc_info=True)
+
+
+# ---------- 专属佣金待重算（达人报专属佣金 ⇒ 重出商品结论） ----------
+
+def set_commission_pending(tenant_key: str, product_key: str, stats: dict) -> None:
+    """登记「该租户最近分析的商品」——商品结论卡片推送时调用（worker 侧）。
+
+    达人报专属佣金时按这个 stats 覆盖佣金重算。失败只记日志：这是增强链路，
+    挂了最多是「报佣金时不重算」，不影响商品分析主链路。
+    """
+    try:
+        with db_ctx() as conn:
+            conn.execute(
+                "INSERT INTO bot_commission_pending"
+                " (tenant_key, product_key, stats_json, created_at) VALUES (?,?,?,?)"
+                " ON CONFLICT(tenant_key) DO UPDATE SET"
+                " product_key=excluded.product_key,"
+                " stats_json=excluded.stats_json,"
+                " created_at=excluded.created_at",
+                (tenant_key, str(product_key or ""),
+                 json.dumps(stats or {}, ensure_ascii=False), now_ts()))
+    except Exception:
+        log.warning("set_commission_pending failed: tenant=%s",
+                    tenant_key, exc_info=True)
+
+
+_COMMISSION_PENDING_TTL = 24 * 3600
+
+
+def get_commission_pending(tenant_key: str):
+    """取待重算商品；24h 过期返回 None。"""
+    try:
+        with db_ctx() as conn:
+            r = conn.execute(
+                "SELECT product_key, stats_json, created_at"
+                " FROM bot_commission_pending WHERE tenant_key=?",
+                (tenant_key,)).fetchone()
+        if not r:
+            return None
+        if now_ts() - int(r["created_at"]) > _COMMISSION_PENDING_TTL:
+            return None
+        stats = {}
+        try:
+            stats = json.loads(r["stats_json"] or "{}")
+        except Exception:
+            pass
+        return {"product_key": r["product_key"], "stats": stats}
+    except Exception:
+        log.warning("get_commission_pending failed: tenant=%s",
+                    tenant_key, exc_info=True)
+        return None
+
+
+def clear_commission_pending(tenant_key: str) -> None:
+    """重算完成后清掉（达人再报数字就不会误触发）。"""
+    try:
+        with db_ctx() as conn:
+            conn.execute("DELETE FROM bot_commission_pending WHERE tenant_key=?",
+                         (tenant_key,))
+    except Exception:
+        log.warning("clear_commission_pending failed: tenant=%s",
+                    tenant_key, exc_info=True)
 
 
 def interaction_counts(tenant_key: str) -> dict:

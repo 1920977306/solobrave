@@ -1090,7 +1090,13 @@ PRODUCT_VERDICT_PROMPT = '''你是抖音电商达人的AI选品顾问。根据�
 3. 结论必须**明确且可复现**：同样的商品和同样的达人数据，要给出同样的结论。
    不要用"可以先试试""建议小量测试"这类模糊表述代替明确的能带/慎带/别带。
 4. **信号权重**：达人的「带货类目分布」是最强信号（占比压倒性的类目就是ta的带货主场），
-   优先于性别/年龄这类单点分布。类目主场命中时，不要仅凭"男性粉丝偏多"就否决。'''
+   优先于性别/年龄这类单点分布。类目主场命中时，不要仅凭"男性粉丝偏多"就否决。
+5. **佣金口径（2026-10-28 老大拍板）**：【商品信息】里的佣金率是**平台公开佣金**，
+   不是达人后台的「专属佣金」（商家单独给这个达人的，平台接口**看不到**，只有达人自己知道）。
+   所以：当「佣金率低」是你判 🟡 慎带 / 🔴 别带 的**重要理由**时，
+   「## 行动建议」里**必须**加一条（原话）：
+   「这个品你后台如果有商家给的专属佣金，把百分比数字发我，我按你的专属佣金重新算一版」。
+   达人报了专属佣金后系统会自动重算，你不用在本次输出里做任何预留。'''
 
 
 def _llm_product_verdict(tenant_key: str, stats: dict) -> str:
@@ -1235,15 +1241,17 @@ def _img_mime(b64: str) -> str:
 
 
 def _vision_try(base: str, key: str, model: str, b64: str,
-                temperature: float = 0.1) -> dict:
+                temperature: float = 0.1,
+                prompt_text=None) -> dict:
     """OpenAI 协议的 vision 调用，返回提取字段（无 name 返回 {}）。
-    kimi coding 端点限 temperature=1。"""
+    kimi coding 端点限 temperature=1。
+    prompt_text: 默认取 VISION_PRODUCT_PROMPT（商品字段提取）；传别的即通用截图问答。"""
     req = urllib.request.Request(
         base + '/chat/completions',
         data=json.dumps({
             'model': model,
             'messages': [{'role': 'user', 'content': [
-                {'type': 'text', 'text': VISION_PRODUCT_PROMPT},
+                {'type': 'text', 'text': prompt_text or VISION_PRODUCT_PROMPT},
                 {'type': 'image_url',
                  'image_url': {'url': f'data:{_img_mime(b64)};base64,{b64}'}},
             ]}],
@@ -1312,19 +1320,129 @@ def _vision_extract_product(b64: str) -> dict:
                        '或直接发商品链接' % ' | '.join(errors)[:200])
 
 
+_IMG_MAX_EDGE = 1280   # ★ 2026-10-28：视觉调用前统一降采样（长边 1280px / JPEG q80）
+                         #   ——达人常发手机原图（3-4MB），图像 token 比必要值高数倍；
+                         #   压到 1280 成本降 5-10 倍，识别精度基本无损。
+
+
+def _img_b64(path) -> str:
+    """图片文件 → 降采样后的 JPEG base64（给视觉环用）。
+
+    PIL 不可用或处理失败时回退原始字节（链路不因此断）。
+    """
+    raw = Path(path).read_bytes()
+    try:
+        from io import BytesIO
+        from PIL import Image
+        im = Image.open(BytesIO(raw))
+        im = im.convert("RGB")
+        if max(im.size) > _IMG_MAX_EDGE:
+            im.thumbnail((_IMG_MAX_EDGE, _IMG_MAX_EDGE))
+        buf = BytesIO()
+        im.save(buf, format="JPEG", quality=80)
+        out = buf.getvalue()
+        if out:
+            raw = out
+    except Exception:
+        log.warning("image downscale failed, use original bytes: %s", path,
+                    exc_info=True)
+    return base64.b64encode(raw).decode()
+
+
+VISION_DASHBOARD_PROMPT = '''你是抖音电商数据分析师。用户发来一张截图（可能是抖音电商罗盘/精选联盟/商品详情等后台页面）。
+请结合截图里**真实可见**的数据回答用户的问题，输出 Markdown（不要输出其他内容）：
+## 截图里有什么
+- 用 3-5 条列出截图中可见的关键数据（数值照抄，看不清的写"看不清"，绝对不要编造）
+## 解读
+- 结合这些数据给出 2-4 条对带货有用的解读（趋势/结构/异常）
+## 建议
+- 1-3 条可执行的下一步动作
+规则：只引用截图里明确可见的数字；截图与问题无关就直说"这张图里看不到能回答这个问题的数据"。'''
+
+
+def _vision_dashboard_qa(b64: str, caption: str) -> str:
+    """非商品截图（罗盘/数据页等）→ 通用截图问答（降级环与商品识别共用）。"""
+    rings = _vision_rings()
+    if not rings:
+        raise RuntimeError('AI 视觉暂时不可用（没有可用通道），可以换一张清晰截图再发')
+    q = (caption.strip() or "帮我看看这张图里的数据")
+    prompt = ("用户的问题：" + q + "\n\n" + VISION_DASHBOARD_PROMPT)
+    errors = []
+    for idx, ring in enumerate(rings):
+        try:
+            d = _vision_try(ring['base'], ring['key'], ring['model'], b64,
+                            temperature=ring['temp'], prompt_text=prompt)
+            text = (d.get("md") or d.get("answer") or d.get("analysis")
+                    or d.get("text") or "")
+            if not text and d:
+                # 模型没按 md 字段返回时，把 JSON 里的字符串值拼起来兜底
+                text = "\n".join(str(v) for v in d.values() if isinstance(v, str))
+            if text.strip():
+                log.info("[vision] 截图问答命中环%d channel=%s model=%s",
+                         idx, ring['label'], ring['model'])
+                return text.strip()
+            errors.append(f"{ring['label']} empty output")
+        except Exception as e:
+            errors.append(f"{ring['label']}: {str(e)[:80]}")
+            log.warning("[vision] 截图问答环%d %s 失败: %s", idx, ring['label'], e)
+    raise RuntimeError('AI 视觉暂时不可用或没看懂这张图（%s），'
+                       '可以换一张更清晰的截图，或直接用文字告诉我你想看什么'
+                       % ' | '.join(errors)[:200])
+
+
 def execute_image_vision(task: dict) -> str:
-    """商品截图识别：vision 提取商品字段 → 结合该达人画像出「能带/慎带/别带」。
-    废图（识别不出商品）抛异常 → worker 自动返还积分（spec：废图不扣分）。"""
+    """截图识别：商品截图 → vision 提取商品字段 → 「能带/慎带/别带」；
+    非商品截图（罗盘/数据页）→ 通用截图问答（结合达人随图发的那句话）。
+
+    废图（识别不出商品且问答也没结果）抛异常 → worker 自动返还积分。"""
     path = Path(task.get("target") or "")
     if not path.is_file():
         raise RuntimeError("截图文件没找到，重新发一下")
-    b64 = base64.b64encode(path.read_bytes()).decode()
-    stats = _vision_extract_product(b64)
+    caption = ""
+    try:
+        payload = json.loads(task.get("payload") or "{}")
+        caption = str(payload.get("caption") or "")
+    except Exception:
+        pass
+    b64 = _img_b64(path)
+    try:
+        stats = _vision_extract_product(b64)
+    except Exception:
+        log.info("[vision] 商品提取失败，转截图问答: task=%s", task.get("id"))
+        answer = _vision_dashboard_qa(b64, caption)
+        return json.dumps({"title": "截图分析",
+                           "stats": {}, "md": answer,
+                           "source": "截图问答"}, ensure_ascii=False)
     verdict = _llm_product_verdict(task.get("tenant_key", ""), stats)
     # 结构化信封：worker 拆包后通知（截图来源标记为「截图」）
     return json.dumps({"title": stats.get("name") or "商品分析",
                        "stats": stats, "md": verdict,
                        "source": "截图"}, ensure_ascii=False)
+
+
+def execute_commission_recalc(task: dict) -> str:
+    """专属佣金重算（2026-10-28 老大拍板）：平台接口只能查到公开佣金，
+    商家给达人的专属佣金只有达人自己后台可见 ⇒ 结论若因佣金低被压，
+    必须问达人专属佣金；达人报数后走到这里，用新佣金重出一版结论。
+
+    payload = {"rate": 20.0, "stats": {...原商品字段...}}
+    """
+    try:
+        payload = json.loads(task.get("payload") or "{}")
+    except Exception:
+        payload = {}
+    rate = float(payload.get("rate") or 0)
+    stats = payload.get("stats") or {}
+    if not rate or not stats:
+        raise RuntimeError("重算参数没带上，联系运营处理")
+    rate_str = f"{rate:g}%"
+    stats = dict(stats)
+    stats["commission_rate"] = rate_str
+    stats["commission"] = f"专属佣金 {rate_str}（达人后台口径）"
+    verdict = _llm_product_verdict(task.get("tenant_key", ""), stats)
+    return json.dumps({"title": stats.get("name") or "商品分析（专属佣金重算）",
+                       "stats": stats, "md": verdict,
+                       "source": "专属佣金重算"}, ensure_ascii=False)
 
 
 def _send_text_quiet(sender, chat_id: str, text: str) -> None:

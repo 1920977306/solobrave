@@ -143,6 +143,12 @@ class Sender:
         data = getattr(resp, "file", None)
         if data is None:
             raise RuntimeError("resource.get returned empty body")
+        # ★ 2026-10-28 修复：lark SDK 对二进制响应返回的是 BytesIO（注解写的是 bytes），
+        #   handler 直接 write_bytes(BytesIO) ⇒ TypeError ⇒ **所有图片消息 100% 下载失败**
+        #   （线上 15:28 实案：达人发截图，机器人回「图片下载失败」——此路径自上线从未被测过）。
+        #   这里统一归一成 bytes，调用方契约不变。
+        if hasattr(data, "read"):
+            data = data.read()
         return data
 
     def _loop(self):

@@ -22,6 +22,7 @@ EXECUTORS = {
     "douyin": executors.execute_douyin_collect,
     "product": executors.execute_product_collect,
     "image": executors.execute_image_vision,
+    "commission": executors.execute_commission_recalc,
     "qa": executors.execute_qa,
     "video": executors.execute_video,
 }
@@ -131,8 +132,8 @@ class Worker(threading.Thread):
                                          task["target"], result_summary, tk)
                 log.info("push ok: type=qa task=%s chat=%s",
                          task["id"], task["chat_id"])
-            elif task["type"] in ("product", "image") and task.get("chat_id"):
-                # 商品分析推送（链接抓取/截图识别共用）：分节卡片 + 文字版 + 商品推荐记录表
+            elif task["type"] in ("product", "image", "commission") and task.get("chat_id"):
+                # 商品分析推送（链接抓取/截图识别/专属佣金重算共用）：分节卡片 + 文字版 + 商品推荐记录表
                 # executor 返回结构化信封 {"title","stats","md","source"?}
                 title, stats, source, md = result_summary, {}, "", ""
                 try:
@@ -149,14 +150,28 @@ class Worker(threading.Thread):
                 log.info("push ok: type=%s task=%s chat=%s cache_hit=%s",
                          task["type"], task["id"], task["chat_id"],
                          task.get("cache_hit"))
+                # ★ 2026-10-28：专属佣金闭环 —— 达人报专属佣金需要「最近一次商品分析」
+                #   作输入。商品/截图分析成功后把 stats 登记为 pending（24h TTL），
+                #   达人随后发「专属佣金20%」即触发重算。重算（commission）本身不登记
+                #   （pending 已由 handler 入队时清掉，避免连环重算）。
+                if task["type"] in ("product", "image"):
+                    try:
+                        db.set_commission_pending(tk, str(task.get("target") or ""),
+                                                  stats)
+                    except Exception:
+                        log.exception("set_commission_pending failed: task=%s",
+                                      task["id"])
                 # 看板「本周精选 TOP3」数据源：绿黄红结论落库（失败不阻塞主流程）
                 # ⚠️ import 也要在 try 里 —— 渲染依赖（PIL）缺失时 import 就炸，
                 #   放外面等于「一个可选的写表失败带累整个 worker 线程」。
-                try:
-                    from . import dashboard_card as _dc
-                    _dc.save_product_verdict(tk, title, md)
-                except Exception:
-                    log.exception("save_product_verdict failed: task=%s", task["id"])
+                # ★ commission（重算）不写推荐记录表 —— 那是平台初评的档案，
+                #   重算版只作为会话回复，不覆盖档案口径。
+                if task["type"] in ("product", "image"):
+                    try:
+                        from . import dashboard_card as _dc
+                        _dc.save_product_verdict(tk, title, md)
+                    except Exception:
+                        log.exception("save_product_verdict failed: task=%s", task["id"])
             elif task["type"] == "video" and task.get("chat_id"):
                 # 视频拆解推送：优先分节卡片长图，渲染失败回退纯文本
                 executors.notify_video_card(self.wm.get_sender(tk), task["chat_id"],

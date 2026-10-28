@@ -116,6 +116,15 @@ COMPUTE_SITES = {
     ("daren_bot/executors.py", "execute_image_vision"): (
         "vision", 2, 1,
         "截图识图 + 出商品结论 ⇒ 收费 vision（handler._route_image 入队时收）"),
+    ("daren_bot/executors.py", "_vision_dashboard_qa"): (
+        ACTION_BY_CALLER, 1, 1,
+        "非商品截图的通用截图问答（罗盘/数据页，2026-10-28）：由调用方 "
+        "execute_image_vision 计费 —— 同一次 image 任务内的识别降级分支，"
+        "不另收费（一次 vision 收费覆盖「商品提取 或 截图问答」两条互斥分支）"),
+    ("daren_bot/executors.py", "execute_commission_recalc"): (
+        "commission", 1, 1,
+        "专属佣金重算（2026-10-28 老大拍板：公开佣金≠达人后台专属佣金）"
+        "⇒ 收费 commission（handler._route_commission 入队时收，1 分）"),
     ("daren_bot/executors.py", "execute_qa"): (
         "qa", 1, 3,
         "问答 ⇒ 收费 qa。★ 一次收费最多对应 3 次 LLM 调用："
@@ -176,6 +185,7 @@ ACTION_TASK_TYPES = {
     "collect_product":       {"product"},
     "collect_product_cached": {"product"},
     "vision":                {"image"},
+    "commission":            {"commission"},
     "qa":                    {"qa"},
     "video":                 {"video"},
     "weekly_report":         {"weekly_report"},

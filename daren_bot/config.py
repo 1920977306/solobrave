@@ -52,6 +52,9 @@ COST_PRODUCT_CACHED = 5
 COST_VISION = 10
 COST_QA = 1
 COST_VIDEO = 30        # 视频拆解：下载+妙记转写+vision+报告，重操作
+# ★ 2026-10-28：专属佣金重算（达人报了自己后台的专属佣金 → 用新佣金重出一版商品结论）。
+#   只调 1 次结论 LLM（比 qa 略重、远轻于 20 分的整链商品分析）⇒ 按 qa 同价。
+COST_COMMISSION = 1
 # ★ 2026-10-25 老大：「每一个功能都需要积分控制 毕竟是消耗算力 不消耗的就算了」
 #   —— 下面三个是体检时查出来的**漏网**（消耗算力但一直免费）：
 COST_WEEKLY_COLLECT = 100   # 周报触发的自动采集（浏览器采集，跟达人主动采集同价）
@@ -88,6 +91,7 @@ COST_TABLE = {
     "collect_product_cached": COST_PRODUCT_CACHED,
     "vision": COST_VISION,
     "qa": COST_QA,
+    "commission": COST_COMMISSION,
     "video": COST_VIDEO,
     "weekly_collect": COST_WEEKLY_COLLECT,
     "weekly_report": COST_WEEKLY_REPORT,

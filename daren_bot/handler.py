@@ -69,6 +69,44 @@ _RECO_EXCLUDE_RE = re.compile(
     r"这个单品|这款单品|这个链接|这款链接|这瓶|这盒|这包|这双|"
     r"这个礼盒|这款礼盒|这个品|这款品")
 
+# 专属佣金回复：文本里出现「百分比数字」才可能是达人报佣金（2026-10-28）。
+# ★ 仅作「必要条件」用 —— 真正的拦截判据在 _route_commission 里
+#   （还必须有待重算的 pending 商品，否则普通问答里的百分号不会被误吃）。
+COMMISSION_RE = re.compile(r"(\d+(?:\.\d+)?)\s*%")
+
+
+def _parse_post(content: dict):
+    """解析飞书富文本（post 消息）⇒ (caption文字, [image_key,...])。
+
+    结构：{"title": str, "content": [[{tag:"text",text:...},
+    {tag:"a",text:...,href:...},{tag:"img",image_key:...}], ...]}
+    —— 外层 content 是「段落列表」，每段是「行内元素列表」。
+
+    达人手机端「图片加一句话」发出来就是 post（不是 image）——
+    此前 _dispatch 只认 image/text，post 直接掉兜底话术（2026-10-28 实案）。
+    """
+    caption_parts = []
+    image_keys = []
+    for para in content.get("content") or []:
+        if not isinstance(para, list):
+            continue
+        for el in para:
+            if not isinstance(el, dict):
+                continue
+            tag = el.get("tag")
+            if tag == "img":
+                key = el.get("image_key")
+                if key:
+                    image_keys.append(key)
+            elif tag == "text":
+                caption_parts.append(el.get("text", ""))
+            elif tag == "a":
+                caption_parts.append(el.get("text", "") or el.get("href", ""))
+    title = content.get("title") or ""
+    caption = " ".join(p.strip() for p in ([title] + caption_parts)
+                       if p and p.strip()).strip()
+    return caption, image_keys
+
 # 一次给几个推荐（= 卡片上的「接这个品」按钮数，别太多）
 RECO_TOP_N = 3
 RECO_CARD_NOTE = "★ 是我方按你的粉丝画像算的（平台没这个数）· 想看更多发「推荐」"
@@ -259,80 +297,20 @@ class Router:
 
         if msg.message_type == "image":
             self._route_image(tenant, msg, content, sender)
-        elif msg.message_type == "text":
-            text = content.get("text", "")
-            # 路由顺序有讲究（2026-10-22 商品意图修复）：
-            #   ① 明确标注「抖音号：xxx」→ 一定是抖音号
-            #   ② 裸商品ID（17-20 位数字）→ 必须在 ③ 之前！否则 DOUYIN_RE 会把它当抖音号抢走
-            #   ③ 整条是一个 alnum 串 → 抖音号
-            dy_in_text = DOUYIN_IN_TEXT_RE.search(text)
-            dy_only = DOUYIN_RE.match(text)
-            bare_pid = self._bare_product_id(tenant, text, dy_only)
-            accept = ACCEPT_DEAL_RE.match(text.strip())
-            if cockpit_link.is_cockpit_url(text):
-                # 达人把自己收到的驾驶舱链接发回来 → 回入口，别当成商品链接扣 20 分
-                self._route_cockpit_link(tenant, chat_id, text, sender)
-            elif accept:
-                # ★「接了 <商品ID>」→ 登记进排品池（必须在裸商品ID 分支之前！）
-                self._route_accept_deal(tenant, chat_id, accept.group('pid'), sender)
-            elif dy_in_text:
-                self._route_douyin(tenant, chat_id, dy_in_text.group(1), sender,
-                                   name_hint=_extract_name_hint(text, dy_in_text.group(1)))
-            elif bare_pid:
-                # 达人按引导语只发了一串商品ID → 和商品链接同一条链路
-                self._route_product_id(tenant, chat_id, bare_pid, sender)
-            elif dy_only:
-                self._route_douyin(tenant, chat_id, dy_only.group(1), sender,
-                                   name_hint=_extract_name_hint(text, dy_only.group(1)))
-            elif VIDEO_LINK_RE.search(text):
-                self._route_video(tenant, chat_id, text, sender)
-            elif URL_RE.search(text):
-                self._route_link(tenant, chat_id, text, sender)
-            elif BALANCE_RE.match(text.strip()):
-                sender.send_text(
-                    chat_id,
-                    f"你的积分余额：{db.get_balance(tenant['tenant_key'])} 分"
-                    "（发抖音号查账号 100 分/周，商品链接 20 分，截图 10 分，"
-                    "问答 1 分；内测期找运营免费充值）")
-            elif WEEKLY_UNSUB_RE.match(text.strip()):
-                db.set_weekly_sub(tenant["tenant_key"], 0)
-                sender.send_text(
-                    chat_id,
-                    "好的，已取消每周经营周报订阅，不会再主动推送。"
-                    "想恢复随时发「订阅周报」～")
-            elif WEEKLY_SUB_RE.match(text.strip()):
-                db.set_weekly_sub(tenant["tenant_key"], 1)
-                sender.send_text(
-                    chat_id,
-                    "已订阅每周经营周报 ✅ 每周一上午我会自动推送你的账号数据变化、"
-                    "异常提醒和下周建议，不用你手动查。想取消随时发「取消订阅周报」")
-            elif WEEKLY_STATUS_RE.match(text.strip()):
-                sub = db.get_weekly_sub(tenant["tenant_key"])
-                sender.send_text(
-                    chat_id,
-                    ("周报订阅：已开启 ✅ 每周一上午自动推送"
-                     if sub else "周报订阅：已关闭。发「订阅周报」可恢复"))
-            elif PLAN_QUERY_RE.match(text.strip()):
-                # 排品表查询（零成本）
-                self._route_plan_query(tenant, chat_id, sender)
-            elif TRIAL_WEEKLY_RE.match(text.strip()):
-                self._route_trial_weekly(tenant, chat_id, text, sender)
-            elif len(text.strip()) <= 8 and GREETING_RE.search(text):
-                sender.send_text(chat_id, GREETING_REPLY)
-            elif cockpit_link.is_cockpit_link_question(text):
-                # 驾驶舱入口导航（2026-10-20 交接项①）：零成本，不扣积分
-                self._route_cockpit_link(tenant, chat_id, text, sender)
-            elif product_intent.missing_product_ref_question(text):
-                # 商品判断意图 + 没给商品标识（2026-10-22 老大截图实锤）：
-                # 以前这种会掉进「其他问题帮不上忙」的通用兜底，达人以为机器人不懂货。
-                # 零成本（只是要一个输入），不扣积分、不调 LLM。
-                sender.send_text(chat_id, product_intent.NEED_PRODUCT_REF_REPLY)
-            elif is_reco_query(text):
-                # 选品推荐（零成本：我方自算的推荐指数，不调 LLM、不扣积分）
-                self._route_reco_query(tenant, chat_id, sender)
+        elif msg.message_type == "post":
+            # ★ 2026-10-28：富文本（图+文组合）此前直接掉兜底话术——
+            #   达人手机端「图片加一句话」就是 post。拆出文字与图，图走视觉（文字作上下文）。
+            caption, image_keys = _parse_post(content)
+            if image_keys:
+                self._route_image(tenant, msg,
+                                  {"image_key": image_keys[0]}, sender,
+                                  caption=caption)
+            elif caption:
+                self._route_text(tenant, chat_id, caption, sender)
             else:
-                # 业务问答：入队异步走 LLM（扣 1 积分），超出带货范围由模型拒答
-                self._route_qa(tenant, chat_id, text, sender)
+                sender.send_text(chat_id, UNSUPPORTED_REPLY)
+        elif msg.message_type == "text":
+            self._route_text(tenant, chat_id, content.get("text", ""), sender)
         else:
             sender.send_text(chat_id, UNSUPPORTED_REPLY)
 
@@ -340,6 +318,134 @@ class Router:
         if elapsed > 3:
             log.warning("HANDLER OVER 3s: tenant=%s elapsed=%.2fs",
                         tenant["tenant_key"], elapsed)
+
+    def _route_text(self, tenant: dict, chat_id: str, text: str, sender) -> None:
+        """文字消息路由（text 与 post 的文字部分共用本入口）。
+
+        路由顺序有讲究（2026-10-22 商品意图修复）：
+          ① 明确标注「抖音号：xxx」→ 一定是抖音号
+          ② 裸商品ID（17-20 位数字）→ 必须在 ③ 之前！否则 DOUYIN_RE 会把它当抖音号抢走
+          ③ 整条是一个 alnum 串 → 抖音号
+        """
+        dy_in_text = DOUYIN_IN_TEXT_RE.search(text)
+        dy_only = DOUYIN_RE.match(text)
+        bare_pid = self._bare_product_id(tenant, text, dy_only)
+        accept = ACCEPT_DEAL_RE.match(text.strip())
+        if cockpit_link.is_cockpit_url(text):
+            # 达人把自己收到的驾驶舱链接发回来 → 回入口，别当成商品链接扣 20 分
+            self._route_cockpit_link(tenant, chat_id, text, sender)
+        elif accept:
+            # ★「接了 <商品ID>」→ 登记进排品池（必须在裸商品ID 分支之前！）
+            self._route_accept_deal(tenant, chat_id, accept.group('pid'), sender)
+        elif dy_in_text:
+            self._route_douyin(tenant, chat_id, dy_in_text.group(1), sender,
+                               name_hint=_extract_name_hint(text, dy_in_text.group(1)))
+        elif bare_pid:
+            # 达人按引导语只发了一串商品ID → 和商品链接同一条链路
+            self._route_product_id(tenant, chat_id, bare_pid, sender)
+        elif dy_only:
+            self._route_douyin(tenant, chat_id, dy_only.group(1), sender,
+                               name_hint=_extract_name_hint(text, dy_only.group(1)))
+        elif VIDEO_LINK_RE.search(text):
+            self._route_video(tenant, chat_id, text, sender)
+        elif URL_RE.search(text):
+            self._route_link(tenant, chat_id, text, sender)
+        elif BALANCE_RE.match(text.strip()):
+            sender.send_text(
+                chat_id,
+                f"你的积分余额：{db.get_balance(tenant['tenant_key'])} 分"
+                "（发抖音号查账号 100 分/周，商品链接 20 分，截图 10 分，"
+                "问答 1 分；内测期找运营免费充值）")
+        elif WEEKLY_UNSUB_RE.match(text.strip()):
+            db.set_weekly_sub(tenant["tenant_key"], 0)
+            sender.send_text(
+                chat_id,
+                "好的，已取消每周经营周报订阅，不会再主动推送。"
+                "想恢复随时发「订阅周报」～")
+        elif WEEKLY_SUB_RE.match(text.strip()):
+            db.set_weekly_sub(tenant["tenant_key"], 1)
+            sender.send_text(
+                chat_id,
+                "已订阅每周经营周报 ✅ 每周一上午我会自动推送你的账号数据变化、"
+                "异常提醒和下周建议，不用你手动查。想取消随时发「取消订阅周报」")
+        elif WEEKLY_STATUS_RE.match(text.strip()):
+            sub = db.get_weekly_sub(tenant["tenant_key"])
+            sender.send_text(
+                chat_id,
+                ("周报订阅：已开启 ✅ 每周一上午自动推送"
+                 if sub else "周报订阅：已关闭。发「订阅周报」可恢复"))
+        elif PLAN_QUERY_RE.match(text.strip()):
+            # 排品表查询（零成本）
+            self._route_plan_query(tenant, chat_id, sender)
+        elif TRIAL_WEEKLY_RE.match(text.strip()):
+            self._route_trial_weekly(tenant, chat_id, text, sender)
+        elif len(text.strip()) <= 8 and GREETING_RE.search(text):
+            sender.send_text(chat_id, GREETING_REPLY)
+        elif cockpit_link.is_cockpit_link_question(text):
+            # 驾驶舱入口导航（2026-10-20 交接项①）：零成本，不扣积分
+            self._route_cockpit_link(tenant, chat_id, text, sender)
+        elif product_intent.missing_product_ref_question(text):
+            # 商品判断意图 + 没给商品标识（2026-10-22 老大截图实锤）：
+            # 以前这种会掉进「其他问题帮不上忙」的通用兜底，达人以为机器人不懂货。
+            # 零成本（只是要一个输入），不扣积分、不调 LLM。
+            sender.send_text(chat_id, product_intent.NEED_PRODUCT_REF_REPLY)
+        elif is_reco_query(text):
+            # 选品推荐（零成本：我方自算的推荐指数，不调 LLM、不扣积分）
+            self._route_reco_query(tenant, chat_id, sender)
+        elif self._route_commission(tenant, chat_id, text, sender):
+            # 专属佣金回复（2026-10-28）：达人报了自己后台的专属佣金 ⇒ 重算商品结论
+            pass
+        else:
+            # 业务问答：入队异步走 LLM（扣 1 积分），超出带货范围由模型拒答
+            self._route_qa(tenant, chat_id, text, sender)
+
+    # ---------- 专属佣金回复（达人报数 → 重算商品结论） ----------
+
+    def _route_commission(self, tenant: dict, chat_id: str, text: str,
+                          sender) -> bool:
+        """判断这条文字是不是「达人报专属佣金」；是则入队重算并返回 True。
+
+        收紧判据（防误吃普通问答）：
+          - 文本里要有百分比数字，且含「佣」字**或**全句很短（≤12 字，如「20%」「佣金20」）；
+          - 且该租户**确有**待重算的商品（24h 内分析过的）——没有 pending 一律不算佣金回复。
+        """
+        tk = tenant["tenant_key"]
+        m = COMMISSION_RE.search(text)
+        if not m:
+            return False
+        short_or_keyword = ("佣" in text) or (len(text.strip()) <= 12)
+        if not short_or_keyword:
+            return False
+        pending = db.get_commission_pending(tk)
+        if not pending:
+            return False
+        try:
+            rate = float(m.group(1))
+        except ValueError:
+            return False
+        if rate <= 0 or rate > 95:
+            return False
+        # ⚠️ 第 4 位是 action（计费口径 "commission"），达人报的数与原商品
+        #   字段走 payload 关键字参数。
+        status, _task_id, bal = credits.charge_and_enqueue(
+            tk, "commission", pending["product_key"], "commission",
+            chat_id=chat_id,
+            payload=json.dumps({"rate": rate, "stats": pending["stats"]},
+                               ensure_ascii=False))
+        if status == "insufficient":
+            sender.send_text(chat_id, credits.insufficient_text("commission", bal))
+            return True
+        if status == "duplicate":
+            sender.send_text(chat_id,
+                             f"已经在按专属佣金重算啦，出来直接发你～（积分余额 {bal}）")
+            return True
+        db.clear_commission_pending(tk)
+        sender.send_text(
+            chat_id,
+            f"收到，按专属佣金 {rate:g}% 重新评估刚才那个商品～（积分余额 {bal}）")
+        log.info("tenant=%s commission recalc queued: rate=%g product=%s",
+                 tk, rate, pending["product_key"])
+        return True
 
     # ---------- 裸商品ID：抖音号 还是 商品ID？ ----------
 
@@ -600,7 +706,8 @@ class Router:
 
     # ---------- ② 商品截图（spec 4.2） ----------
 
-    def _route_image(self, tenant, msg, content, sender) -> None:
+    def _route_image(self, tenant, msg, content, sender,
+                     caption: str = "") -> None:
         tk = tenant["tenant_key"]
         chat_id = msg.chat_id
         image_key = content.get("image_key", "")
@@ -627,8 +734,14 @@ class Router:
                 "联系运营老师补充额度（内测期免费发放）")
             return
 
+        # ★ 2026-10-28：post 消息（图+一句话）带进来的文字作上下文，
+        #   放进 payload 交给 vision 链（prompt 里问「截图想表达什么」）。
+        # ⚠️ charge_and_enqueue 的第 4 位是 action（计费口径），payload 是关键字参数。
+        _payload = ""
+        if caption:
+            _payload = json.dumps({"caption": caption}, ensure_ascii=False)
         status, _task_id, bal = credits.charge_and_enqueue(
-            tk, "image", str(path), "vision", chat_id=chat_id)
+            tk, "image", str(path), "vision", chat_id=chat_id, payload=_payload)
         if status == "insufficient":
             sender.send_text(chat_id, credits.insufficient_text("vision", bal))
             return
