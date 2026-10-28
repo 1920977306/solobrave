@@ -9567,3 +9567,33 @@ buyin-worker 等其他 5 个 launchd 服务**没有**脚本双开问题（它们
 | 重置飞书 **MAIN**（`cli_aafb5d7cd6389be4`，第 4 个身份 → 应用列表 → 找「貂蝉」→ 核对 App ID）| **老大** | 高 |
 | GitHub 新 PAT ＋ 作废旧 `4c7a0e6b974b`（**作废 > 擦除**）| **老大** | 中 |
 | daily 巡检作业 / `default`＋`helen` 明文残留面 | **老大**拍板 | 可缓 |
+
+## §104 ★★★ 拆开「双木木互抢」——达人助理 app `cli_aa51b1b62a7a9bf6` 从 openclaw 摘除（A 边，2026-10-28 15:2x，老大拍板）
+
+### 104.0 本节占用登记
+- 文件：`~/.openclaw/openclaw.json`（已改，备份 `~/.openclaw/openclaw.json.bak-20261028-1522-before-mumu-unbind`）＋ 本节。持有方：A 边；状态：已收口。
+
+### 104.1 事故现象（老大截图实锤）
+老大在飞书找木木（达人助理）分析抖音号「辣椰糖 48216296201」，回来的卡片标题是 **`emp_1787550091124_1048`**（openclaw 员工卡格式）＋ 商务口径回复（查库建档、要罗盘截图）——
+**答的不是达人助理，是 openclaw 侧那个「木木 - 商务」员工**。
+
+### 104.2 根因：同一个飞书 app 双接（同名不同物第 9 次复发）
+| 侧 | 连接对象 | 职能 |
+|---|---|---|
+| openclaw | `channels.feishu.accounts.mumu`（appId `cli_aa51b1b62a7a9bf6`）→ binding → `emp_1787550091124_1048` | 商务 AI 员工（贾维斯办公系统）|
+| daren-bot | 租户 mumu，**同一 appId**，自有 ws 直连 | **达人助理**（选品/账号分析/积分）|
+
+⇒ 达人发一条消息**两边都收** ⇒ openclaw 员工抢答 ⇒ 达人看到的是错误职能的话术。
+老大原话（15:22）：「木木怎么又变成 openclaw 了，我说了不要跟我们系统上的那个木木连接在一起，负责的职能都不一样」。
+
+### 104.3 处置（按老大指令）
+从 openclaw **只摘这一个 app**：删 `accounts.mumu` + 删 binding（mumu → emp_1787550091124_1048）；
+`default` / `helen` / `t_default` 三通道**一字未动**。secret store 里的 `FEISHU_APPSECRET_MUMU` **保留**（daren-bot 不用它，但删了无收益，留给将来如需重绑）。
+
+### 104.4 验证（15:25 日志实测）
+- `feishu[mumu]: abort signal received, stopping` + `[reload] config hot reload applied (channels.feishu.accounts.mumu)`
+- 重连的只有 default / helen / t_default 三条 WebSocket ⇒ openclaw 侧木木**已断**
+- daren-bot healthz 复测：`mumu: true` 不受影响（它走自己的 ws，不经 openclaw）
+
+### 104.5 行为层复测（待老大）
+老大再给木木发一句话 ⇒ 应只收到**达人助理口径**回复（带积分余额、走 daren-bot 选品/分析链路）⇒ 若还出现 `emp_` 卡头即为未断干净，立刻报。
