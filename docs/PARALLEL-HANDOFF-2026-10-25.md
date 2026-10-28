@@ -9747,3 +9747,41 @@ buyin-worker 等其他 5 个 launchd 服务**没有**脚本双开问题（它们
 ### 108.5 遗留观察项（非 bug，记录备查）
 - `weekly_report` 动作名在流水里同时承载「真实扣费 30」与「系统账 1」，对账靠 cost 区分——将来若改价需同步 `_is_system_cost_row` 的 cost==1 判据（代码里有注释）。
 - 10-25 那笔退款**为何**只记流水没到账，代码层面已无从考证（当时的相关路径早已重构为原子 `fail_task_and_refund`）；对账护栏保证今后同类漂移**启动即显形**，不再需要人眼。
+
+
+---
+
+## §109 质检收尾：reflow 测试隔离 + KB 污染清理 + 截图任务承接上文（A 边，2026-10-29 04:1x–04:3x，commit `a6a83b4`）
+
+### 109.0 本节占用登记
+- 文件：`daren_bot/reflow.py`（`_solo_base()` 运行期 env）、`tests/conftest.py`（autouse 死端口 fixture）、`tests/test_reflow_isolation.py`（新增 4 条守卫）、`daren_bot/db.py`（`get_recent_done_image_task` + `has_recent_product_context` 第三判据）、`daren_bot/executors.py`（`_recent_product_block` 第三兜底）、`tests/test_recent_product_context.py`（+5 条）。持有方：A 边；状态：已推送（main/dev 零分叉），服务已重启生效（pid 7222）。
+
+### 109.1 背景
+老大 04:04：「不只是木木的，都看看」——对全部三租户（daren_boss / daren_test2 / mumu）的达人助理对话记录做体验质检。审计结论（45 条 QA 原话 + 18 条问答原文已核）：答案质量总体好（mumu 真实会话数据扎实、会吸收纠正），但有三个真问题，本节全部收口。
+
+### 109.2 实案一：单测污染生产知识库（已修 + 已清理）
+- **症状**：主库 `kb_entries` 里 25 条 `[问答] xxx（tk_*）` pending 条目——全部来自**测试租户**（tk_ctx_test / tk_role_commerce / tk_role_daren），时间戳对应 10-28 22:1x 与 10-29 03:59 的全量回归。
+- **根因**：`prod_db_guard` 只挡 sqlite **直读**，挡不住 HTTP 侧路——回归跑 `execute_qa` 时 `reflow.push_qa_exchange` 真调了 `localhost:8080` 的生产服务。
+- **修法（结构防，不靠自觉）**：
+  1. `reflow.py` 顶部改 `SOLO_BASE_DEFAULT` 常量 + `_solo_base()` **运行期**读 `DAREN_SOLO_BASE` env（模块 import 早于 monkeypatch，顶层常量读不到测试 env——注释写明）；
+  2. `tests/conftest.py` 加 autouse fixture：每个测试把 env 指向死端口 `http://127.0.0.1:1`（连接秒拒，push 优雅失败只记日志）；真要验推送链路的测试自行 `monkeypatch.setenv` 覆盖；
+  3. `tests/test_reflow_isolation.py` 守卫 4 条，**变异对照：`_post` 改回模块常量 ⇒ AST 闸门红**。
+- **污染清理**：主库删 25 条（680→655；这些 pending 条目本来就没 chunk/向量，chunks 删 0）。删前备份 `/tmp/solobrave-backup-before-kb-cleanup-20261029-0410.db`。
+
+### 109.3 实案二：截图问答后的追问承接盲区（已修）
+- **症状**（10-28 15:21–15:38 真人会话）：达人发罗盘/截图问答后追问「给你啦 / 你分析啊 / 带」，被「请提供一下商品的链接或者商品ID」挡回。
+- **根因**：`has_recent_product_context` 只认 ① commission_pending（24h）② 结论档案（7d）；**截图分析两条都不落**——不落 pending、不写 verdicts。
+- **修法**：
+  - `db.get_recent_done_image_task(tk, window=24h)`：type='image' AND status='done' AND done_at 在窗口内；
+  - `has_recent_product_context` 加第三判据；
+  - `executors._recent_product_block` 加第三兜底：截图任务 + payload 里的 caption（截图附言）构造承接块，明确「这个品/它」指截图中的商品 + 禁止再要 ID。
+- **守卫 +5 条，变异对照 2 处全红**（删掉 image 判据 ⇒ 路由测试 + 判据测试红；删掉 block 兜底段 ⇒ block 测试红）。⚠️ 教训复用：路由用例的问句必须是**真命中** `missing_product_ref_question` 的句式（「这款可以带不」），第一版用「这个品适合我吗」没命中判据，变异下不红——假守卫被当场抓住后换掉。
+
+### 109.4 遗留待拍板（不擅自动）
+- **KB pending 44 条（清理后 19 条 + 历史）零审核**：知识回流管道（push_qa_exchange / push_product_verdict）是 10-27 才加的，管道通了但**没人审**——「聊天即训练」卡在最后一公里。需要老大拍板审核机制（人工过一遍 / 还是信任管道直接放行 / 或先只对真达人租户开启回流）。
+- 10-15~10-26 的约 30 条老问答**从未回流**（push_qa_exchange 是 10-27 才加的），属历史无数据，不是丢失。
+
+### 109.5 验证
+- 全量回归 `/usr/bin/python3 -m pytest tests/ -q --ignore=tests/test_kimi_response.py`：**1279 passed / 0 failed**（基线 1270 + 新增 9 条），10 skipped 为既有 live 档。
+- secret_scan --staged exit 0；推送后 `git log origin/dev..origin/main` 为空。
+- 服务重启 healthz ok，三租户长连接在线（daren_boss / daren_test2 / mumu）。
