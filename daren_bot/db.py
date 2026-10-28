@@ -298,6 +298,14 @@ def init_db():
             log.info("purged %d expired qa cache rows", n)
     except Exception:
         log.warning("purge qa cache failed", exc_info=True)
+    # 启动对账（2026-10-29）：余额以流水重放为准，漂移自动校正并留审计流水。
+    # 护栏性质：对账失败绝不能挡启动。
+    try:
+        fixes = reconcile_credits()
+        if fixes:
+            log.warning("credits reconciliation applied at boot: %s", fixes)
+    except Exception:
+        log.warning("credits reconcile failed (non-fatal)", exc_info=True)
 
 
 def now_ts() -> int:
@@ -1051,12 +1059,75 @@ def purge_expired_caches() -> int:
 def log_system_cost(tenant_key: str, action: str, cost: int,
                     ref_task_id: str = '') -> None:
     """系统账：真实成本入账但不扣达人余额（balance_after 取当前值原样记录）。
-    weekly_auto_collect / weekly_report 走此路径——余额 0 的达人照常收周报。"""
+    weekly_auto_collect / weekly_report 走此路径——余额 0 的达人照常收周报。
+    系统账行的识别（reconcile_credits 用）：action='weekly_auto_collect'，
+    或 ref_task_id 以 'sys:' 开头（如 sys:tips）。"""
     with db_ctx() as conn:
         r = conn.execute("SELECT balance FROM bot_credits_accounts WHERE tenant_key=?",
                          (tenant_key,)).fetchone()
         balance = int(r["balance"]) if r else 0
         _ledger(conn, tenant_key, action, cost, balance, 0, ref_task_id)
+
+
+# ---------- 积分对账（2026-10-29 自查实案：daren_boss 一笔退款记账未到账，
+# 账面对不上流水，差 100 分无人发现）----------
+# 不变式：**账面余额 == 500(初始) − 流水重放**（系统账行除外）。
+# 所有动钱的路径（deduct/refund/grant/fail_task_and_refund/enqueue 原子扣费）
+# 都记流水 ⇒ 流水是唯一真源；账面只是缓存。启动时重放对账，漂移自动校正
+# 并记 reconcile_adjust 流水（校正本身也可审计、且让重放从此自洽）。
+
+def _is_system_cost_row(action: str, cost: int, ref: str) -> bool:
+    """系统账行 = 只记真实成本、不动达人余额（weekly.py log_system_cost）。
+    判据：auto_collect 按 action 认；周报 AI 建议账按 ref 'sys:' 前缀认
+    （legacy 行 ref 为空、cost=1 也认——真实周报扣费是 COST_WEEKLY_REPORT=30）。"""
+    if action == "weekly_auto_collect":
+        return True
+    if (ref or "").startswith("sys:"):
+        return True
+    return action == "weekly_report" and int(cost) == 1
+
+
+def replay_balance(conn, tenant_key: str, initial: int = None) -> int:
+    """流水重放：initial(默认 INITIAL_CREDITS) 逐行加减非系统账流水。"""
+    if initial is None:
+        initial = config.INITIAL_CREDITS
+    bal = initial
+    for r in conn.execute(
+            "SELECT action, cost, ref_task_id FROM bot_credits_ledger "
+            "WHERE tenant_key=? ORDER BY created_at, rowid", (tenant_key,)):
+        if _is_system_cost_row(r["action"], r["cost"], r["ref_task_id"]):
+            continue
+        bal -= int(r["cost"])
+    return bal
+
+
+def reconcile_credits() -> list:
+    """全租户对账：账面 ≠ 重放 ⇒ 校正账面到重放值 + 记 reconcile_adjust 流水。
+    返回 [(tenant_key, drift)]；无漂移返回 []。漂移方向：drift>0 = 账面少记（补）。
+    异常向上抛——init_db 里的调用方会吞（对账是护栏，不能挡启动）。"""
+    fixes = []
+    with db_ctx() as conn:
+        accounts = conn.execute(
+            "SELECT tenant_key, balance FROM bot_credits_accounts").fetchall()
+        for acc in accounts:
+            tk = acc["tenant_key"]
+            replay = replay_balance(conn, tk)
+            actual = int(acc["balance"])
+            if replay == actual:
+                continue
+            drift = replay - actual
+            conn.execute(
+                "UPDATE bot_credits_accounts SET balance=?, updated_at=? "
+                "WHERE tenant_key=?", (replay, now_ts(), tk))
+            # 校正流水：cost 记 0（纯审计行，不参与重放——账面已被 UPDATE 到校正值，
+            # 若这里再记 -drift，重放会把校正当真钱再算一遍 ⇒ 二次对账又漂）。
+            # 漂移量放 ref 里供审计。
+            _ledger(conn, tk, "reconcile_adjust", 0, replay, 0,
+                    f"drift:{drift:+d}")
+            log.warning("credits reconciled: tenant=%s drift=%+d balance=%d→%d",
+                        tk, drift, actual, replay)
+            fixes.append((tk, drift))
+    return fixes
 
 
 def set_weekly_sub(tenant_key: str, sub: int) -> None:

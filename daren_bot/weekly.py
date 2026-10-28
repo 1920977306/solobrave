@@ -553,7 +553,7 @@ def _ai_tips(tenant_key: str, name: str, cur: dict, prev: dict,
                   f"请给 3 条以内具体可执行的下周经营建议（每条一行，带序号，"
                   f"50字内，口吻直接，不要寒暄和重复数据）。")
         out = executors._qa_llm(prompt)
-        db.log_system_cost(tenant_key, "weekly_report", 1)
+        db.log_system_cost(tenant_key, "weekly_report", 1, ref_task_id="sys:tips")
         return out.strip()[:600]
     except Exception as e:
         log.warning("weekly ai tips failed: %s", e)
