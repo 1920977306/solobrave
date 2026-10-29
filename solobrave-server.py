@@ -17152,7 +17152,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
-        if not auth.is_admin:
+        # 双通道：admin 用户的 JWT，或带 admin scope 的 scoped API token
+        # （scoped token 已先过 _required_api_scope 闸门；其 role 恒为 user，不认 is_admin）
+        if not auth.is_admin and 'admin' not in (getattr(auth, 'api_scopes', None) or ()):
             self._send_json_error(403, 'Admin only')
             return
         parsed = urlparse(self.path)

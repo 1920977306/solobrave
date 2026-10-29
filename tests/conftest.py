@@ -194,3 +194,16 @@ def reflow_http_guard(monkeypatch):
     """
     monkeypatch.setenv('DAREN_SOLO_BASE', 'http://127.0.0.1:1')
     yield
+
+
+@pytest.fixture(autouse=True)
+def llm_usage_db_guard(monkeypatch, tmp_path):
+    """autouse 回归闸门 (2026-10-29): 测试期把 llm_usage 统计库指向 tmp，零 prod 接触。
+
+    背景事故: llm_channels 四底层函数加埋点后, tests/test_llm_channels.py 等
+    用假环（model='m'）直调包装层 ⇒ 测试行写进生产 data/daren-bot/llm_usage.db
+    （llm_usage._db_path() 运行期读 LLM_USAGE_DB env）。
+    每个测试 monkeypatch 到 tmp 文件；真要验真实落库路径的测试自行 setenv 覆盖。
+    """
+    monkeypatch.setenv('LLM_USAGE_DB', str(tmp_path / 'llm_usage.db'))
+    yield
