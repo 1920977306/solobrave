@@ -87,6 +87,8 @@ class LoginWatcher(threading.Thread):
         self._bad_notified = False   # 本轮「已掉登录」是否已告警过
         self._cycles = 0
         self._last_logged_state = None
+        # cookie 临期/失效告警锁存：side → 已告警过的状态（ok 时解除）
+        self._cookie_alerted: dict = {}
 
     def stop(self):
         self._stop_event.set()
@@ -143,7 +145,41 @@ class LoginWatcher(threading.Thread):
         if state != self._last_logged_state or self._cycles % HEARTBEAT_EVERY == 0:
             log.info("login watcher: state=%s (cycle %d)", state, self._cycles)
             self._last_logged_state = state
+        # cookie 临期/失效巡检（治本 2026-10-29 事故：ecom_us_lt_buyin 悄悄到期无人知）
+        try:
+            self._check_cookie_expiry()
+        except Exception:
+            log.exception("cookie expiry check failed")
         return state
+
+    # ---- cookie 临期/失效巡检（daren_bot/cookie_expiry.py 判定口径）----
+    def _check_cookie_expiry(self) -> None:
+        from . import cookie_expiry
+        states = cookie_expiry.worst_side_state(config.ROOT)
+        for side, state in states.items():
+            if state == "ok":
+                self._cookie_alerted.pop(side, None)
+                continue
+            if self._cookie_alerted.get(side) == state:
+                continue  # 同一状态不重复喊（锁存到恢复 ok 为止）
+            self._cookie_alerted[side] = state
+            if state == "warn":
+                ops_alert.alert(
+                    f"⏳ {side}登录 cookie 快到期了",
+                    f"{side}的登录 cookie 剩余不足 48 小时就会失效。\n"
+                    "动作：方便时提前打开采集器浏览器窗口扫码重登一次，避免届时达人撞墙。",
+                    kind="cookie_expiring",
+                    dedup_key=f"cookie_expiring_{side}")
+                log.warning("login watcher: %s cookie expiring soon", side)
+            else:
+                ops_alert.alert(
+                    f"🚨 {side}登录 cookie 已{'失效' if state == 'expired' else '缺失'}",
+                    f"{side}的登录 cookie {'已过期' if state == 'expired' else '不在盘上'}，"
+                    "相关采集会很快撞登录墙（达人看到「查不到数据」）。\n"
+                    "动作：打开采集器浏览器窗口扫码重登。",
+                    kind="cookie_dead",
+                    dedup_key=f"cookie_dead_{side}")
+                log.error("login watcher: %s cookie %s", side, state)
 
     def _alert_bad(self) -> None:
         ops_alert.alert(
