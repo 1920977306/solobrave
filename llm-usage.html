@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LLM 消耗统计 · SoloBrave</title>
+<style>
+  :root {
+    --bg: #f5f6f8;
+    --card: #ffffff;
+    --text: #1f2329;
+    --sub: #646a73;
+    --line: #e5e6eb;
+    --ok: #00b42a;
+    --fail: #f53f3f;
+    --accent: #165dff;
+    --warn-bg: #fff7e8;
+    --warn-line: #ffcf8b;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: "PingFang SC", "Helvetica Neue", "Microsoft YaHei", sans-serif;
+    background: var(--bg); color: var(--text); padding: 24px;
+    max-width: 1080px; margin: 0 auto;
+  }
+  h1 { font-size: 20px; margin-bottom: 4px; }
+  .desc { color: var(--sub); font-size: 13px; margin-bottom: 20px; }
+  .bar {
+    display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
+    background: var(--card); border: 1px solid var(--line); border-radius: 8px;
+    padding: 12px 16px; margin-bottom: 20px;
+  }
+  .bar label { font-size: 13px; color: var(--sub); }
+  .bar input[type=text] {
+    flex: 1; min-width: 260px; padding: 8px 10px; font-size: 13px;
+    border: 1px solid var(--line); border-radius: 6px; outline: none;
+  }
+  .bar input[type=text]:focus { border-color: var(--accent); }
+  .bar select { padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; font-size: 13px; }
+  .bar button {
+    padding: 8px 18px; border: none; border-radius: 6px; background: var(--accent);
+    color: #fff; font-size: 13px; cursor: pointer;
+  }
+  .bar button:disabled { opacity: .5; cursor: default; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 20px; }
+  .card {
+    background: var(--card); border: 1px solid var(--line); border-radius: 8px;
+    padding: 14px 16px;
+  }
+  .card .num { font-size: 26px; font-weight: 600; }
+  .card .lab { font-size: 12px; color: var(--sub); margin-top: 4px; }
+  .card .num.ok { color: var(--ok); }
+  .card .num.fail { color: var(--fail); }
+  table {
+    width: 100%; border-collapse: collapse; background: var(--card);
+    border: 1px solid var(--line); border-radius: 8px; overflow: hidden;
+    margin-bottom: 20px; font-size: 13px;
+  }
+  caption {
+    text-align: left; font-size: 15px; font-weight: 600;
+    padding: 10px 14px 6px; color: var(--text);
+  }
+  th, td { padding: 8px 14px; text-align: left; border-bottom: 1px solid var(--line); }
+  th { background: #fafbfc; color: var(--sub); font-weight: 500; font-size: 12px; }
+  tr:last-child td { border-bottom: none; }
+  td.r, th.r { text-align: right; }
+  .empty { color: var(--sub); text-align: center; padding: 24px !important; }
+  .msg {
+    border-radius: 8px; padding: 12px 16px; font-size: 13px; margin-bottom: 20px;
+    display: none;
+  }
+  .msg.show { display: block; }
+  .msg.warn { background: var(--warn-bg); border: 1px solid var(--warn-line); color: #b25e09; }
+  .msg.err { background: #ffece8; border: 1px solid #fdcdc5; color: var(--fail); }
+  .err-cell { color: var(--fail); font-size: 12px; max-width: 420px; word-break: break-all; }
+  .time { color: var(--sub); font-size: 12px; }
+</style>
+</head>
+<body>
+
+<h1>LLM 消耗统计</h1>
+<div class="desc">按任务类型折算调用次数 · 数据来自旁路埋点（不影响问答/采集主链路）· prompt 字数为消耗代理（token 数底层拿不到）</div>
+
+<div class="msg warn show" id="tokenHint">首次使用：粘贴 admin 登录 token 或带 admin scope 的 API token（仅保存在本机浏览器 localStorage）。</div>
+<div class="msg err" id="errBox"></div>
+
+<div class="bar">
+  <label>Token</label>
+  <input type="text" id="token" placeholder="粘贴 token…">
+  <label>天数</label>
+  <select id="days">
+    <option value="1">今天</option>
+    <option value="7" selected>近 7 天</option>
+    <option value="14">近 14 天</option>
+    <option value="30">近 30 天</option>
+  </select>
+  <button id="loadBtn" onclick="loadData()">查询</button>
+</div>
+
+<div class="cards" id="cards" style="display:none">
+  <div class="card"><div class="num" id="tCalls">-</div><div class="lab">总调用次数</div></div>
+  <div class="card"><div class="num ok" id="tOk">-</div><div class="lab">成功</div></div>
+  <div class="card"><div class="num fail" id="tFail">-</div><div class="lab">失败</div></div>
+  <div class="card"><div class="num" id="tLat">-</div><div class="lab">平均耗时 (ms)</div></div>
+  <div class="card"><div class="num" id="tChars">-</div><div class="lab">Prompt 总字数</div></div>
+</div>
+
+<table id="dayTable" style="display:none">
+  <caption>按天 × 任务类型</caption>
+  <thead><tr>
+    <th>日期</th><th>任务</th><th class="r">调用</th><th class="r">成功</th>
+    <th class="r">失败</th><th class="r">平均耗时</th><th class="r">Prompt 字数</th>
+  </tr></thead>
+  <tbody></tbody>
+</table>
+
+<table id="modelTable" style="display:none">
+  <caption>按模型 / 通道</caption>
+  <thead><tr>
+    <th>厂商</th><th>池</th><th>模型</th><th class="r">调用</th>
+    <th class="r">成功</th><th class="r">失败</th><th class="r">平均耗时</th>
+  </tr></thead>
+  <tbody></tbody>
+</table>
+
+<table id="failTable" style="display:none">
+  <caption>近期失败（最近 50 条）</caption>
+  <thead><tr>
+    <th>时间</th><th>任务</th><th>模型</th><th class="r">耗时</th><th>错误</th>
+  </tr></thead>
+  <tbody></tbody>
+</table>
+
+<script>
+const SITE_NAMES = {
+  qa: '达人问答', product_verdict: '商品结论', vision_product_extract: '商品截图识别',
+  vision_dashboard_qa: '截图问答', worker_extract: '采集·视觉提取', worker_eval: '采集·达人评估',
+  worker_report: '采集·拆解报告', worker_notes: '采集·档案摘要', worker_product_url: '采集·商品页提取',
+  worker: '采集·其他', probe: '通道探针', unknown: '未标注'
+};
+const $ = id => document.getElementById(id);
+const fmt = n => (n == null ? '-' : Number(n).toLocaleString());
+const esc = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;');
+
+function siteName(s) { return SITE_NAMES[s] || s || '未标注'; }
+function fmtTime(ts) {
+  const d = new Date(ts);
+  const p = n => String(n).padStart(2, '0');
+  return `${d.getMonth() + 1}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
+function setMsg(text) {
+  const err = $('errBox');
+  if (text) { err.textContent = text; err.classList.add('show'); }
+  else { err.textContent = ''; err.classList.remove('show'); }
+}
+function render(id, list, rowFn, colspan) {
+  const t = $(id);
+  t.style.display = '';
+  t.querySelector('tbody').innerHTML = list.length
+    ? list.map(rowFn).join('')
+    : `<tr><td class="empty" colspan="${colspan}">暂无数据（该时间窗内没有 LLM 调用记录）</td></tr>`;
+}
+
+$('token').value = localStorage.getItem('llm_usage_token') || '';
+if ($('token').value) $('tokenHint').classList.remove('show');
+$('token').addEventListener('change', () => {
+  localStorage.setItem('llm_usage_token', $('token').value.trim());
+  $('tokenHint').classList.toggle('show', !$('token').value.trim());
+});
+
+async function loadData() {
+  const token = $('token').value.trim();
+  setMsg('');
+  if (!token) { setMsg('请先粘贴 token。'); return; }
+  $('loadBtn').disabled = true;
+  try {
+    const days = $('days').value;
+    const resp = await fetch(`/api/admin/llm-usage?days=${days}`, {
+      headers: { 'Authorization': 'Bearer ' + token }
+    });
+    if (resp.status === 401 || resp.status === 403) {
+      throw new Error(resp.status === 401 ? '401：token 无效或未登录' : '403：需要 admin 权限');
+    }
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}：查询失败`);
+    const data = await resp.json();
+
+    $('cards').style.display = '';
+    $('tCalls').textContent = fmt(data.totals.calls);
+    $('tOk').textContent = fmt(data.totals.ok);
+    $('tFail').textContent = fmt(data.totals.fail);
+    $('tLat').textContent = fmt(data.totals.avg_latency_ms);
+    $('tChars').textContent = fmt(data.totals.prompt_chars);
+
+    render('dayTable', data.by_day_site, r =>
+      `<tr><td>${r.day}</td><td>${siteName(r.site)}</td><td class="r">${fmt(r.calls)}</td>` +
+      `<td class="r">${fmt(r.ok)}</td><td class="r">${fmt(r.fail)}</td>` +
+      `<td class="r">${fmt(r.avg_latency_ms)}</td><td class="r">${fmt(r.prompt_chars)}</td></tr>`, 7);
+
+    render('modelTable', data.by_model, r =>
+      `<tr><td>${esc(r.vendor) || '-'}</td><td>${esc(r.pool) || '-'}</td><td>${esc(r.model) || '-'}</td>` +
+      `<td class="r">${fmt(r.calls)}</td><td class="r">${fmt(r.ok)}</td><td class="r">${fmt(r.fail)}</td>` +
+      `<td class="r">${fmt(r.avg_latency_ms)}</td></tr>`, 7);
+
+    render('failTable', data.recent_failures, r =>
+      `<tr><td class="time">${fmtTime(r.ts)}</td><td>${siteName(r.site)}</td><td>${esc(r.model) || '-'}</td>` +
+      `<td class="r">${fmt(r.latency_ms)}</td><td class="err-cell">${esc(r.err)}</td></tr>`, 5);
+  } catch (e) {
+    setMsg(e.message || String(e));
+  } finally {
+    $('loadBtn').disabled = false;
+  }
+}
+</script>
+</body>
+</html>

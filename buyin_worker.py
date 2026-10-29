@@ -43,6 +43,7 @@ _sys.path.insert(0, str(Path('/Users/qichen/solobrave-prod')))
 import buyin_auth  # noqa: E402  ★ 登录态判定的**单一真源**（见 buyin_auth.py）
 from daren_bot import llm_channels  # noqa: E402
 from daren_bot import llm_text  # noqa: E402
+from daren_bot import llm_usage  # noqa: E402
 
 # ─────────────────────────────── 配置 ───────────────────────────────
 PROD_DIR = Path('/Users/qichen/solobrave-prod')
@@ -158,7 +159,7 @@ def llm_chat(messages, max_tokens=8000, temperature=0.0, timeout=180, model='glm
 
 
 def llm_chat_fb(messages, max_tokens=8000, temperature=0.0, timeout=180,
-                truncate_chars=None):
+                truncate_chars=None, site=llm_usage.SITE_WORKER):
     """跨厂家降级链（★ 2026-10-18 老大拍板: 智谱已去掉）。
 
     ★ 2026-10-22：**环与凭据全部来自 `daren_bot/llm_channels.py`（唯一事实来源）**，
@@ -183,16 +184,17 @@ def llm_chat_fb(messages, max_tokens=8000, temperature=0.0, timeout=180,
         fb_messages = [dict(m, content=(m.get('content') or '')[:truncate_chars])
                        if m.get('role') == 'user' else m
                        for m in messages]
-    for ring in _text_fallback_cfgs():
-        try:
-            out = llm_channels.call_ring_messages(
-                ring, fb_messages, max_tokens=max_tokens,
-                temperature=temperature, timeout=timeout)
-            if out and out.strip():
-                return out
-            errs.append(f'{ring.get("model")} empty content')
-        except Exception as e:
-            errs.append(f'{ring.get("model")}: {str(e)[:120]}')
+    with llm_usage.span(site):
+        for ring in _text_fallback_cfgs():
+            try:
+                out = llm_channels.call_ring_messages(
+                    ring, fb_messages, max_tokens=max_tokens,
+                    temperature=temperature, timeout=timeout)
+                if out and out.strip():
+                    return out
+                errs.append(f'{ring.get("model")} empty content')
+            except Exception as e:
+                errs.append(f'{ring.get("model")}: {str(e)[:120]}')
     raise LLMError('降级链全灭: ' + ' | '.join(errs))
 
 
@@ -342,7 +344,8 @@ def extract_fields(collect_name, collect_douyin_id, tabs_dom, xhr_dump):
             content = llm_chat_fb([
                 {'role': 'system', 'content': system},
                 {'role': 'user', 'content': json.dumps(material, ensure_ascii=False)[:120000]},
-            ], max_tokens=8000, truncate_chars=15000)
+            ], max_tokens=8000, truncate_chars=15000,
+                site=llm_usage.SITE_WORKER_EXTRACT)
             candidate = _balanced_json(content)
             if candidate is None:
                 raise LLMError(f'输出中找不到完整 JSON（第{attempt}次）: {content[:200]}')
@@ -741,7 +744,8 @@ def analyze_talent(fields):
         content = llm_chat_fb([
             {'role': 'user',
              'content': prompt + '\n【达人数据】' + json.dumps(safe, ensure_ascii=False)[:20000]},
-        ], max_tokens=2200, temperature=0.0, truncate_chars=15000)
+        ], max_tokens=2200, temperature=0.0, truncate_chars=15000,
+            site=llm_usage.SITE_WORKER_EVAL)
     except Exception as e:
         log(f'  [LLM] 达人评估降级链全灭（非致命）: {str(e)[:200]}')
         return '', '', ''
@@ -780,7 +784,8 @@ def summarize_for_notes(fields):
              '⚠️ 粉丝数和GMV一律用输入给的「万」单位写法（如 1.3万 / 25万-50万），**不要自己换算成原始数字**；'
              '不要输出「Draft:」这类草稿标签，也不要输出思考过程。'},
             {'role': 'user', 'content': json.dumps(fields, ensure_ascii=False)[:20000]},
-        ], max_tokens=600, temperature=0.0, truncate_chars=15000)
+        ], max_tokens=600, temperature=0.0, truncate_chars=15000,
+            site=llm_usage.SITE_WORKER_NOTES)
         return content.strip()
     except Exception as e:
         log(f'  [LLM] notes 摘要失败（不影响主流程）: {e}')
@@ -1689,7 +1694,8 @@ def _teardown_report(talent_name, item, transcript, visual_desc):
 要求: 只基于给定材料推理，标注不确定处；数据弱就直说弱；总长度 600 字内，清单具体可执行。"""
     try:
         return llm_chat_fb([{'role': 'user', 'content': prompt}], max_tokens=2500,
-                           timeout=180, truncate_chars=25000)
+                           timeout=180, truncate_chars=25000,
+                           site=llm_usage.SITE_WORKER_REPORT)
     except Exception as e:
         return f'(拆解报告生成失败: {e})'
 
@@ -2855,7 +2861,8 @@ def _llm_extract_product(title: str, text: str) -> dict:
     messages = [{'role': 'user', 'content':
                  PRODUCT_URL_PROMPT + f'\n【页面标题】{title}\n【页面正文】\n{text}'}]
     try:
-        content = llm_chat_fb(messages, max_tokens=2500, truncate_chars=25000)
+        content = llm_chat_fb(messages, max_tokens=2500, truncate_chars=25000,
+                                site=llm_usage.SITE_WORKER_PRODUCT_URL)
     except Exception as e:
         raise RuntimeError(f'AI 提取商品字段失败: {e}')
     raw = _balanced_json(content)

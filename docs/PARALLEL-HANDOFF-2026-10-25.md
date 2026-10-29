@@ -176,7 +176,8 @@ curl -s -X POST "http://127.0.0.1:8092/admin/api/plan-scan?token=$TOKEN" \
 | `scripts/mutate_llm_ring_guards.py` | A 边 | 2026-10-26 15:50 | ✅ 16:40 已交 | 变异 M1-M11 重写 |
 | `solobrave-server.py` + `scripts/api_token.py`（新）+ `tests/test_api_scoped_tokens.py`（新）| A 边（prod 目录会话，隧道/7188 边）| 2026-10-27 17:45 | ✅ 18:05 已交（`55c8476`）| **scope 化 API token + 请求审计**（写类 API 开放前置三件套）：`_api_token_*` 族 + `_required_api_scope` 闸门 + `_api_audit_emit` 四 do_ 挂载；CLI 复用服务端同一套实现；13 例守卫 + 真机四路冒烟 200/403/401/403 全过。**写接口仍全部关闭，开放哪些端点待老大逐条拍板** |
 | `daren_bot/persona.py`（新）+ `daren_bot/executors.py` + `tests/test_persona_learning.py`（新）| A 边（prod 目录会话，隧道/7188 边）| 2026-10-27 19:05 | ✅ 19:15 已交（`189cf10`）| **角色模板 + 聊天即训练**：人格唯一来源 `persona.md`（新达人自动继承，解决"新创建的 bot 行为不一样"）；纠正/建议自动捕获→`talent_feedback` 知识库→`distill_learnings` 幂等沉淀进人格模板【达人纠正榜】。守卫 12 + 回归 132 全绿 |
-| `knowledge_service.py` + `solobrave-server.py` + `js/inline-07.js` + `index.html`(样式) + `tests/test_kb_review_panel.py`（新）| A 边（prod 目录会话，隧道/7188 边）| 2026-10-29 21:40 | 预计 23:30 | **KB 审核面板**（优化菜单②）：GET entries 加 status 过滤；PUT 过审(pending→ok) 自动补向量（无 chunk 重建+向量化，无 key/失败不留假绿灯）；前端待审核视图 + 通过/拒绝/本页全过 |
+| `knowledge_service.py` + `solobrave-server.py` + `js/inline-07.js` + `index.html`(样式) + `tests/test_kb_review_panel.py`（新）| A 边（prod 目录会话，隧道/7188 边）| 2026-10-29 21:40 | ✅ 22:0x 已交（`2f899fd`）| **KB 审核面板**（优化菜单②）：GET entries 加 status 过滤；PUT 过审(pending→ok) 自动补向量（无 chunk 重建+向量化，无 key/失败不留假绿灯）；前端待审核视图 + 通过/拒绝/本页全过 |
+| `daren_bot/llm_usage.py`（新）+ `daren_bot/llm_channels.py` + `daren_bot/executors.py` + `buyin_worker.py` + `solobrave-server.py` + `llm-usage.html`（新）+ `tests/test_llm_usage.py`（新）| A 边（prod 目录会话，隧道/7188 边）| 2026-10-29 23:30 | 预计 10-30 01:00 | **MiniMax 消耗统计进 admin**（优化菜单③）：llm_channels 四个底层函数包装插桩（旁路 sqlite llm_usage.db，ContextVar 传 site）；`/api/admin/llm-usage` admin only；独立 llm-usage.html 面板 |
 
 > ⚠️ **B 边注意（第 6 轮新增的冲突面）**：
 > `daren_bot/db.py` / `daren_bot/plan_notify.py` / `daren_bot/feishu_card.py`

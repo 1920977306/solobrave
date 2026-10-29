@@ -104,6 +104,10 @@ from daren_cockpit.tools import product_facts as facts
 # ⚠️ 不含 pending（刚提还没答应）和 live/completed（已推过）
 PLAN_DEAL_STATUSES = ('negotiating', 'sample_sent', 'approved')
 
+# LLM 消耗统计（优化菜单③）：埋点在 daren_bot/llm_channels.py 四个底层函数 +
+# executors/buyin_worker 任务入口 span；独立 sqlite，旁路铁律（record 失败不炸主链路）。
+from daren_bot import llm_usage
+
 
 def _safe_int(value, default=0):
     """尽量转 int，转不了就用默认值（不抛异常）。"""
@@ -9114,6 +9118,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if path == '/api/knowledge/stats':
             self._handle_get_kb_stats()
             return
+        if path == '/api/admin/llm-usage':
+            self._handle_get_llm_usage()
+            return
 
         # 知识事件（实体档案时间线）API
         if path == '/api/knowledge-events':
@@ -17133,6 +17140,30 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         except Exception as e:
             logger.error(f'  [KBStats] failed: {e}')
             self._send_json_error(500, 'Stats failed')
+
+    def _handle_get_llm_usage(self):
+        """GET /api/admin/llm-usage — LLM 消耗统计（优化菜单③）。
+
+        admin only（额度消耗是运营面数据，不对普通员工开放）。
+        days 参数 1..30 默认 7；数据来自独立 sqlite（daren_bot.llm_usage），
+        埋点旁路铁律：统计层挂了不影响主链路，这里查询失败也只报 500。
+        """
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not auth.is_admin:
+            self._send_json_error(403, 'Admin only')
+            return
+        parsed = urlparse(self.path)
+        qs = parse_qs(parsed.query)
+        days = _safe_int(qs.get('days', ['7'])[0], 7)
+        try:
+            data = llm_usage.query(days=days)
+            self._send_json(200, data)
+        except Exception as e:
+            logger.error(f'  [LLMUsage] failed: {e}')
+            self._send_json_error(500, 'LLM usage query failed')
 
     def _handle_get_analyzed_talents(self):
         """GET /api/talents/analyzed — 「已分析达人」语义接口（fix/analyzed-talents-decouple）

@@ -35,6 +35,7 @@ from .llm_channels import (
 #   （静态扫描 tests/test_no_undefined_names.py 抓到的，2026-10-24）。
 from .llm_channels import _anthropic_messages as _anthropic_messages_impl
 from .product_link import extract_product_id
+from . import llm_usage
 from . import product_intent
 # ★ 计费成本常量（统一用 `config.COST_*`，别用局部别名 ——
 #   防漏测试 `tests/test_credits_gate.py` 只认 `config.COST_*`，
@@ -1144,7 +1145,8 @@ def _llm_product_verdict(tenant_key: str, stats: dict) -> str:
     content = ""
     for attempt in (1, 2):
         try:
-            content = _qa_llm(prompt, temp=0.2)
+            content = _qa_llm(prompt, temp=0.2,
+                              site=llm_usage.SITE_PRODUCT_VERDICT)
         except Exception as e:
             log.warning("product verdict attempt %d failed: %s", attempt, e)
             content = ""
@@ -1259,13 +1261,30 @@ def _vision_call(base: str, key: str, model: str, b64: str,
         headers={'Content-Type': 'application/json',
                  'Authorization': f'Bearer {key}'},
         method='POST')
-    with urllib.request.urlopen(req, timeout=120) as resp:
-        data = json.loads(resp.read().decode())
+    t0 = time.monotonic()
+    try:
+        with urllib.request.urlopen(req, timeout=120) as resp:
+            data = json.loads(resp.read().decode())
+    except Exception as e:
+        # 旁路埋点：统计挂了绝不影响主链路（record_call 内部也吞异常）
+        llm_usage.record_call(
+            site=llm_usage.current_site(), mode='messages',
+            ring={'model': model}, ok=False,
+            latency_ms=int((time.monotonic() - t0) * 1000),
+            err=str(e), prompt_chars=len(prompt_text or ''), max_tokens=1500)
+        raise
     # ⚠️ 同款「HTTP 200 ≠ 成功」：MiniMax 会在 body 里塞 base_resp.status_code
     #   （1008 insufficient balance 等）而状态码仍是 200 —— 只看 HTTP 会把它
     #   当成成功，然后解析出一个空 content → 报"没识别出商品"，把余额问题
     #   伪装成识别问题，排查方向直接跑偏。
     bresp = data.get('base_resp') or {}
+    ok = not bresp.get('status_code')
+    llm_usage.record_call(
+        site=llm_usage.current_site(), mode='messages',
+        ring={'model': model}, ok=ok,
+        latency_ms=int((time.monotonic() - t0) * 1000),
+        err='' if ok else str(bresp.get('status_msg') or bresp.get('status_code')),
+        prompt_chars=len(prompt_text or ''), max_tokens=1500)
     if bresp.get('status_code'):
         raise RuntimeError(str(bresp.get('status_msg') or bresp.get('status_code')))
     return (data.get('choices') or [{}])[0].get('message', {}).get('content') or ''
@@ -1309,19 +1328,20 @@ def _vision_extract_product(b64: str) -> dict:
         raise RuntimeError('AI 视觉暂时不可用（没有可用通道），可以换一张清晰截图，'
                            '或直接发商品链接')
     errors = []
-    for idx, ring in enumerate(rings):
-        try:
-            d = _vision_try(ring['base'], ring['key'], ring['model'], b64,
-                            temperature=ring['temp'])
-            if d.get('name'):
-                log.info("[vision] 命中环%d channel=%s model=%s base=%s",
-                         idx, ring['label'], ring['model'], ring['base'])
-                return d
-            errors.append(f"{ring['label']} no-name output")
-            log.warning("[vision] 环%d %s 没识别出商品名", idx, ring['label'])
-        except Exception as e:
-            errors.append(f"{ring['label']}: {str(e)[:80]}")
-            log.warning("[vision] 环%d %s 失败: %s", idx, ring['label'], e)
+    with llm_usage.span(llm_usage.SITE_VISION_PRODUCT):
+        for idx, ring in enumerate(rings):
+            try:
+                d = _vision_try(ring['base'], ring['key'], ring['model'], b64,
+                                temperature=ring['temp'])
+                if d.get('name'):
+                    log.info("[vision] 命中环%d channel=%s model=%s base=%s",
+                             idx, ring['label'], ring['model'], ring['base'])
+                    return d
+                errors.append(f"{ring['label']} no-name output")
+                log.warning("[vision] 环%d %s 没识别出商品名", idx, ring['label'])
+            except Exception as e:
+                errors.append(f"{ring['label']}: {str(e)[:80]}")
+                log.warning("[vision] 环%d %s 失败: %s", idx, ring['label'], e)
     # 全链失败：错误信息必须可读 —— 原来只留最后一个错误，看不出是额度问题
     # 还是识别问题（kimi 429 / 402 会被伪装成"没识别出商品"）。
     raise RuntimeError('AI 视觉暂时不可用或没识别出商品（%s），可以换一张清晰截图，'
@@ -1381,19 +1401,20 @@ def _vision_dashboard_qa(b64: str, caption: str) -> str:
     q = (caption.strip() or "帮我看看这张图里的数据")
     prompt = ("用户的问题：" + q + "\n\n" + VISION_DASHBOARD_PROMPT)
     errors = []
-    for idx, ring in enumerate(rings):
-        try:
-            text = _strip_think(_vision_call(ring['base'], ring['key'],
-                                             ring['model'], b64,
-                                             ring['temp'], prompt)).strip()
-            if text:
-                log.info("[vision] 截图问答命中环%d channel=%s model=%s",
-                         idx, ring['label'], ring['model'])
-                return text
-            errors.append(f"{ring['label']} empty output")
-        except Exception as e:
-            errors.append(f"{ring['label']}: {str(e)[:80]}")
-            log.warning("[vision] 截图问答环%d %s 失败: %s", idx, ring['label'], e)
+    with llm_usage.span(llm_usage.SITE_VISION_DASHBOARD):
+        for idx, ring in enumerate(rings):
+            try:
+                text = _strip_think(_vision_call(ring['base'], ring['key'],
+                                                 ring['model'], b64,
+                                                 ring['temp'], prompt)).strip()
+                if text:
+                    log.info("[vision] 截图问答命中环%d channel=%s model=%s",
+                             idx, ring['label'], ring['model'])
+                    return text
+                errors.append(f"{ring['label']} empty output")
+            except Exception as e:
+                errors.append(f"{ring['label']}: {str(e)[:80]}")
+                log.warning("[vision] 截图问答环%d %s 失败: %s", idx, ring['label'], e)
     raise RuntimeError('AI 视觉暂时不可用或没看懂这张图（%s），'
                        '可以换一张更清晰的截图，或直接用文字告诉我你想看什么'
                        % ' | '.join(errors)[:200])
@@ -1563,7 +1584,8 @@ def notify_qa_card(sender, chat_id: str, question: str, answer: str,
 #   残留入口：留着它 = 给后人留一条绕过「智谱只做 embedding」口径的后门。
 #   智谱的对话/识图环已在 `daren_bot/llm_channels.py` 摘除（老大 2026-10-26 拍板）。
 
-def _qa_llm(prompt: str, model: str = '', temp: float = None) -> str:
+def _qa_llm(prompt: str, model: str = '', temp: float = None,
+            site: str = None) -> str:
     """问答直连文字模型链：Code 订阅 → kimi moonshot-v1-32k → minimax ×2。
 
     ★ 2026-10-18 老大拍板摘除智谱（余额耗尽 429/1113）。kimi coding 端点
@@ -1595,24 +1617,25 @@ def _qa_llm(prompt: str, model: str = '', temp: float = None) -> str:
                            '缺失、Code 订阅凭据缺失/已过期、kimi 与 minimax 无可用 key'
                            '（详见日志 [fallback] 警告）')
     errors = []
-    for idx, ring in enumerate(rings):
-        try:
-            # 出结论类任务用低温求可复现；kimi coding 端点强制 temp=1.0，不动它
-            if temp is not None and 'moonshot' not in (ring.get('model') or ''):
-                ring = dict(ring, temp=temp)
-            if ring['protocol'] == 'anthropic':
-                out = _call_anthropic(ring, prompt)
-            else:
-                out = _call_openai(ring, prompt)
-            if out.strip():
-                # ⚠️ 可观测：命中哪一环必须写进日志 —— 否则「Code 环失灵、静默降级到
-                #   kimi」这类故障在日志里完全看不出来（跳过警告只在该环被跳过时才打）。
-                log.info("[fallback] 命中环%d protocol=%s model=%s base=%s",
-                         idx, ring['protocol'], ring['model'], ring['base'])
-                return out
-            errors.append(f"{ring['model']} empty content")
-        except Exception as e:
-            errors.append(f"{ring['model']}: {str(e)[:100]}")
+    with llm_usage.span(site or llm_usage.SITE_QA):
+        for idx, ring in enumerate(rings):
+            try:
+                # 出结论类任务用低温求可复现；kimi coding 端点强制 temp=1.0，不动它
+                if temp is not None and 'moonshot' not in (ring.get('model') or ''):
+                    ring = dict(ring, temp=temp)
+                if ring['protocol'] == 'anthropic':
+                    out = _call_anthropic(ring, prompt)
+                else:
+                    out = _call_openai(ring, prompt)
+                if out.strip():
+                    # ⚠️ 可观测：命中哪一环必须写进日志 —— 否则「Code 环失灵、静默降级到
+                    #   kimi」这类故障在日志里完全看不出来（跳过警告只在该环被跳过时才打）。
+                    log.info("[fallback] 命中环%d protocol=%s model=%s base=%s",
+                             idx, ring['protocol'], ring['model'], ring['base'])
+                    return out
+                errors.append(f"{ring['model']} empty content")
+            except Exception as e:
+                errors.append(f"{ring['model']}: {str(e)[:100]}")
     raise RuntimeError('问答降级链全灭: ' + ' | '.join(errors))
 
 

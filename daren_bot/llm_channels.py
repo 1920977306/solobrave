@@ -87,10 +87,12 @@ from __future__ import annotations
 
 import json
 import os
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
 
+from . import llm_usage
 from .llm_text import strip_think
 
 
@@ -444,7 +446,52 @@ def _check_body(data: dict, model: str) -> None:
         raise RuntimeError(f'{model} {bresp.get("status_msg") or bresp.get("status_code")}')
 
 
+def _record(ring: dict, mode: str, ok: bool, latency_ms: int,
+            err: str = '', prompt_chars: int = 0, max_tokens: int = 0) -> None:
+    """统一埋点出口（旁路：record_call 内部已 try/except 吞异常）。"""
+    llm_usage.record_call(
+        site=llm_usage.current_site(), mode=mode, ring=ring, ok=ok,
+        latency_ms=latency_ms, err=err, prompt_chars=prompt_chars,
+        max_tokens=max_tokens)
+
+
+def _messages_chars(messages: list) -> int:
+    """多消息形态的总提示长度（token 数拿不到，作消耗代理）。"""
+    total = 0
+    for m in (messages or []):
+        if not isinstance(m, dict):
+            continue
+        content = m.get('content', '')
+        if isinstance(content, str):
+            total += len(content)
+        elif isinstance(content, list):
+            for blk in content:
+                if isinstance(blk, dict):
+                    total += len(str(blk.get('text', '') or ''))
+    return total
+
+
 def call_anthropic(ring: dict, prompt: str, max_tokens: int = 0) -> str:
+    """Anthropic 协议环：POST {base}/messages（带消耗埋点的公开包装）。
+
+    ⚠️ 401 特判：token 是 30 分钟量级的短期凭据，读盘到发请求之间可能刚好过期
+    （Code 桌面端续期后重写 auth.json）→ 401 时**重读一次凭据再重试**，
+    而不是直接判定该环失败。
+    """
+    limit = max_tokens or ring.get('max_tokens') or DEFAULT_MAX_TOKENS
+    t0 = time.monotonic()
+    try:
+        out = _call_anthropic_raw(ring, prompt, max_tokens)
+        _record(ring, 'prompt', True, int((time.monotonic() - t0) * 1000),
+                prompt_chars=len(prompt or ''), max_tokens=limit)
+        return out
+    except Exception as e:
+        _record(ring, 'prompt', False, int((time.monotonic() - t0) * 1000),
+                err=str(e), prompt_chars=len(prompt or ''), max_tokens=limit)
+        raise
+
+
+def _call_anthropic_raw(ring: dict, prompt: str, max_tokens: int = 0) -> str:
     """Anthropic 协议环：POST {base}/messages。
 
     ⚠️ 401 特判：token 是 30 分钟量级的短期凭据，读盘到发请求之间可能刚好过期
@@ -505,6 +552,21 @@ def _anthropic_messages(base: str, key: str, model: str, temp: float,
 
 
 def call_openai(ring: dict, prompt: str, max_tokens: int = 0) -> str:
+    """OpenAI 协议环：POST {base}/chat/completions（带消耗埋点的公开包装）。"""
+    limit = max_tokens or ring.get('max_tokens') or DEFAULT_MAX_TOKENS
+    t0 = time.monotonic()
+    try:
+        out = _call_openai_raw(ring, prompt, max_tokens)
+        _record(ring, 'prompt', True, int((time.monotonic() - t0) * 1000),
+                prompt_chars=len(prompt or ''), max_tokens=limit)
+        return out
+    except Exception as e:
+        _record(ring, 'prompt', False, int((time.monotonic() - t0) * 1000),
+                err=str(e), prompt_chars=len(prompt or ''), max_tokens=limit)
+        raise
+
+
+def _call_openai_raw(ring: dict, prompt: str, max_tokens: int = 0) -> str:
     """OpenAI 协议环：POST {base}/chat/completions。"""
     req = urllib.request.Request(
         ring['base'].rstrip('/') + '/chat/completions',
@@ -543,6 +605,23 @@ def call_ring(ring: dict, prompt: str, max_tokens: int = 0) -> str:
 
 def call_openai_messages(ring: dict, messages: list, max_tokens: int = 0,
                           temperature: float = None, timeout: int = 120) -> str:
+    """OpenAI 协议 + 多消息（system/user）（带消耗埋点的公开包装）。"""
+    mt = max_tokens or ring.get('max_tokens') or DEFAULT_MAX_TOKENS
+    chars = _messages_chars(messages)
+    t0 = time.monotonic()
+    try:
+        out = _call_openai_messages_raw(ring, messages, max_tokens, temperature, timeout)
+        _record(ring, 'messages', True, int((time.monotonic() - t0) * 1000),
+                prompt_chars=chars, max_tokens=mt)
+        return out
+    except Exception as e:
+        _record(ring, 'messages', False, int((time.monotonic() - t0) * 1000),
+                err=str(e), prompt_chars=chars, max_tokens=mt)
+        raise
+
+
+def _call_openai_messages_raw(ring: dict, messages: list, max_tokens: int = 0,
+                              temperature: float = None, timeout: int = 120) -> str:
     """OpenAI 协议 + 多消息（system/user）。"""
     mt = max_tokens or ring.get('max_tokens') or DEFAULT_MAX_TOKENS
     tmp = _resolve_temp(ring, temperature)
@@ -571,6 +650,31 @@ def call_openai_messages(ring: dict, messages: list, max_tokens: int = 0,
 
 def call_anthropic_messages(ring: dict, messages: list, max_tokens: int = 0,
                             temperature: float = None, timeout: int = 120) -> str:
+    """Anthropic 协议 + 多消息（system/user）（带消耗埋点的公开包装）。
+
+    ⚠️ Anthropic 协议与 OpenAI 协议的**结构差异**：system 不是 messages 里的一
+    条，而是**顶层独立字段** —— 直接把 OpenAI 形态的 messages 塞进 /messages
+    会丢掉 system 提示词（表现为「模型不知道要干什么」）。
+
+    ⚠️ 401 特判：Code 订阅 token 是 30 分钟量级短期凭据，读盘到发请求之间可能
+    刚好过期 → 401 时**重读一次凭据再重试**，而不是直接判定该环失败。
+    """
+    mt = max_tokens or ring.get('max_tokens') or DEFAULT_MAX_TOKENS
+    chars = _messages_chars(messages)
+    t0 = time.monotonic()
+    try:
+        out = _call_anthropic_messages_raw(ring, messages, max_tokens, temperature, timeout)
+        _record(ring, 'messages', True, int((time.monotonic() - t0) * 1000),
+                prompt_chars=chars, max_tokens=mt)
+        return out
+    except Exception as e:
+        _record(ring, 'messages', False, int((time.monotonic() - t0) * 1000),
+                err=str(e), prompt_chars=chars, max_tokens=mt)
+        raise
+
+
+def _call_anthropic_messages_raw(ring: dict, messages: list, max_tokens: int = 0,
+                                 temperature: float = None, timeout: int = 120) -> str:
     """Anthropic 协议 + 多消息（system/user）。
 
     ⚠️ Anthropic 协议与 OpenAI 协议的**结构差异**：system 不是 messages 里的一
