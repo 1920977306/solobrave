@@ -177,7 +177,7 @@ curl -s -X POST "http://127.0.0.1:8092/admin/api/plan-scan?token=$TOKEN" \
 | `solobrave-server.py` + `scripts/api_token.py`（新）+ `tests/test_api_scoped_tokens.py`（新）| A 边（prod 目录会话，隧道/7188 边）| 2026-10-27 17:45 | ✅ 18:05 已交（`55c8476`）| **scope 化 API token + 请求审计**（写类 API 开放前置三件套）：`_api_token_*` 族 + `_required_api_scope` 闸门 + `_api_audit_emit` 四 do_ 挂载；CLI 复用服务端同一套实现；13 例守卫 + 真机四路冒烟 200/403/401/403 全过。**写接口仍全部关闭，开放哪些端点待老大逐条拍板** |
 | `daren_bot/persona.py`（新）+ `daren_bot/executors.py` + `tests/test_persona_learning.py`（新）| A 边（prod 目录会话，隧道/7188 边）| 2026-10-27 19:05 | ✅ 19:15 已交（`189cf10`）| **角色模板 + 聊天即训练**：人格唯一来源 `persona.md`（新达人自动继承，解决"新创建的 bot 行为不一样"）；纠正/建议自动捕获→`talent_feedback` 知识库→`distill_learnings` 幂等沉淀进人格模板【达人纠正榜】。守卫 12 + 回归 132 全绿 |
 | `knowledge_service.py` + `solobrave-server.py` + `js/inline-07.js` + `index.html`(样式) + `tests/test_kb_review_panel.py`（新）| A 边（prod 目录会话，隧道/7188 边）| 2026-10-29 21:40 | ✅ 22:0x 已交（`2f899fd`）| **KB 审核面板**（优化菜单②）：GET entries 加 status 过滤；PUT 过审(pending→ok) 自动补向量（无 chunk 重建+向量化，无 key/失败不留假绿灯）；前端待审核视图 + 通过/拒绝/本页全过 |
-| `daren_bot/llm_usage.py`（新）+ `daren_bot/llm_channels.py` + `daren_bot/executors.py` + `buyin_worker.py` + `solobrave-server.py` + `llm-usage.html`（新）+ `tests/test_llm_usage.py`（新）| A 边（prod 目录会话，隧道/7188 边）| 2026-10-29 23:30 | 预计 10-30 01:00 | **MiniMax 消耗统计进 admin**（优化菜单③）：llm_channels 四个底层函数包装插桩（旁路 sqlite llm_usage.db，ContextVar 传 site）；`/api/admin/llm-usage` admin only；独立 llm-usage.html 面板 |
+| `daren_bot/llm_usage.py`（新）+ `daren_bot/llm_channels.py` + `daren_bot/executors.py` + `buyin_worker.py` + `solobrave-server.py` + `llm-usage.html`（新）+ `tests/test_llm_usage.py`（新）| A 边（prod 目录会话，隧道/7188 边）| 2026-10-29 23:30 | ✅ 10-30 00:1x 已交（`b59200d` + `54be68b`）| **MiniMax 消耗统计进 admin**（优化菜单③）：llm_channels 四个底层函数包装插桩（旁路 sqlite llm_usage.db，ContextVar 传 site）；`/api/admin/llm-usage` admin only；独立 llm-usage.html 面板 |
 
 > ⚠️ **B 边注意（第 6 轮新增的冲突面）**：
 > `daren_bot/db.py` / `daren_bot/plan_notify.py` / `daren_bot/feishu_card.py`
@@ -9919,3 +9919,40 @@ login_watcher 每轮（60s）新增一道**盘上 cookie 取证巡检**：读两
 ### 114.4 待办
 - 优化菜单只剩 ③ **MiniMax 消耗统计进 admin**（未开工）；④ worker 僵死 bug 归 mini（§112）。
 - 20 条 pending 积压等老大在面板里过一遍（入口：admin → 知识库 → chips「审核 · 待审核」）。其中多数是 mumu/daren_test2 的聊天碎片（"带（mumu）""给你啦"这类），建议先扫一眼再批量。
+
+
+---
+
+## §115 LLM 消耗统计进 admin（优化菜单③落地）（A 边，2026-10-29 23:3x–10-30 00:1x，commit `b59200d` + 收口 `54be68b`）
+
+### 115.0 一句话
+**老大要的「看见额度烧在哪」上线了**：所有 LLM 调用（问答/商品结论/截图识别/worker 采集链）现在逐次落库，admin 面板按天 × 任务类型 × 模型查看调用次数、成功率、耗时。
+
+### 115.1 在哪看
+- 面板：`http://192.168.1.25:8080/llm-usage.html`（静态页免鉴权，API 要 admin）。
+- 首次打开粘贴 **admin 登录 token**（或带 admin scope 的 API token），存本机浏览器 localStorage，之后免输。
+- API：`GET /api/admin/llm-usage?days=N`（N=1..30 默认 7，越界钳 1..30）→ totals / by_day_site / by_model / recent_failures。
+
+### 115.2 实现要点
+- 新 `daren_bot/llm_usage.py`：ContextVar 传 site（任务执行器独立线程，线程内安全，嵌套内层优先）；**独立 sqlite `data/daren-bot/llm_usage.db`**（env `LLM_USAGE_DB` 可覆盖），不共用 daren_bot.db 避开写锁争抢，WAL。
+- ★ 旁路铁律（同 ops_alert 纪律）：`record_call` 全程 try/except 吞异常，**统计挂了绝不影响问答/采集主链路**；绝不像 key 字段入库。token 数底层拿不到 ⇒ prompt_chars / 调用次数当消耗代理（与优化菜单口径一致）。
+- `llm_channels.py` 四个底层函数改「公开包装 + `_*_raw` 实现」：计时 + 成功/失败都记一行（err≤200 字）；`executors` 的 import 时绑定自动指到包装层，零改动。
+- ⚠️ **调查修正**：摘要假设「所有流量收拢在四个函数」**不对**——`_vision_call` 是直连 HTTP（在四函数之外），砍掉会漏掉全部视觉流量 ⇒ 已补埋点。
+- 任务入口 span：`qa`（问答环，`_qa_llm` 加 site 参数）/ `product_verdict`（商品结论）/ `vision_product_extract` / `vision_dashboard_qa` / worker 侧五个（`worker_extract` 视觉提取 / `worker_eval` 达人评估 / `worker_notes` 档案摘要 / `worker_report` 拆解报告 / `worker_product_url` 商品页提取）。
+- server：`_handle_get_llm_usage` admin only。鉴权**双通道**：admin JWT 或带 admin scope 的 scoped token（scoped token role 恒 user，单认 is_admin 会把它们全挡门外——与 `_API_SCOPE_ADMIN_PATH` 闸门对齐）。
+
+### 115.3 事故复盘 + 新闸门（别再踩）
+- 全量回归时 `tests/test_llm_channels.py` 用假环直调包装层 ⇒ 3 条测试行（model='m'）写进**生产** llm_usage.db（llm_usage 运行期读 env，测试没 redirect；`prod_db_guard` 只挡 solobrave.db 直读）。
+- ⇒ conftest 新增 autouse 闸门 `llm_usage_db_guard`（同 `reflow_http_guard` 模式）：每个测试 LLM_USAGE_DB 指 tmp。生产库 3 条污染行已删。
+- **教训**：新增「运行期读 env 定路径」的模块时，必须同步在 conftest 加 redirect 闸门——第三起了（solobrave.db → reflow HTTP → llm_usage.db）。
+
+### 115.4 验证
+- 守卫 `tests/test_llm_usage.py` 13 条：span set/reset/嵌套/异常恢复、record 落行 + query 聚合、四包装 ok/fail 记录且 site 正确、executors 环循环接线（含 verdict 传 product_verdict）、旁路纪律（db 不可写 record 不抛）、query 坏了要抛（不伪装成功）。
+- 变异对照 M1–M3 全红（砍 site 传播 4 红 / 砍 record 6 红 / 砍 executors span 1 红）。全量回归 **1316 passed**。secret_scan 0。
+- 真机冒烟（server pid 17210 已重启）：无 token 401 / 假 token 401 / admin-scope token **200 真数据** / days=999→30 钳制 / 吊销后 401 / `llm-usage.html` 200。埋点实测落库（probe 成功+失败 2 行，运行时真实流量自动入表）。daren-bot 已重启（pid 17239，三租户在线）插桩生效。
+- smoke 用的两个临时 token 已吊销（llm-usage-smoke ×2 / tmp-clamp-check ×1）。
+
+### 115.5 遗留
+1. **buyin_worker 未重启**（今晚两端登录态刚扫码恢复，保守起见不动；worker 侧插桩代码已推送，**下次 worker 重启自动生效**——重启前记得 §8.2 铁律：先 graceful-daren 再 kickstart）。
+2. site='unknown' 桶：已观测到真实流量有一笔 messages 形态调用落在未标注（走某条没包 span 的调用路径，待下轮扫尾补 span——不阻塞，面板照常用）。
+3. 优化菜单至此全部有归属：①cookie 预警 ✅（§113）②KB 审核面板 ✅（§114）③本节 ✅；④ worker 僵死根治归 mini（§112.1）。
