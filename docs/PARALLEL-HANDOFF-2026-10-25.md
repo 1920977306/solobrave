@@ -9953,6 +9953,11 @@ login_watcher 每轮（60s）新增一道**盘上 cookie 取证巡检**：读两
 - smoke 用的两个临时 token 已吊销（llm-usage-smoke ×2 / tmp-clamp-check ×1）。
 
 ### 115.5 遗留
-1. **buyin_worker 未重启**（今晚两端登录态刚扫码恢复，保守起见不动；worker 侧插桩代码已推送，**下次 worker 重启自动生效**——重启前记得 §8.2 铁律：先 graceful-daren 再 kickstart）。
-2. site='unknown' 桶：已观测到真实流量有一笔 messages 形态调用落在未标注（走某条没包 span 的调用路径，待下轮扫尾补 span——不阻塞，面板照常用）。
+1. ~~buyin_worker 未重启~~ → **已重启，见 §115.6.2**。
+2. ~~site='unknown' 桶（疑似生产路径漏 span）~~ → **查实是测试 live 检查，见 §115.6.1**。
 3. 优化菜单至此全部有归属：①cookie 预警 ✅（§113）②KB 审核面板 ✅（§114）③本节 ✅；④ worker 僵死根治归 mini（§112.1）。
+
+### 115.6 修正与闭环（2026-10-30 01:3x）
+1. **「未标注流量」查实 = 测试 live 检查，不是生产代码路径**：`tests/test_llm_channels.py` 行为层（line 182）真调 code-sub 环（system+user 恰好 14 字，与两笔落库行完全吻合；两次全量回归各一笔，23:50:28 / 00:00:07）。conftest 闸门（§115.3）已把这类流量指到 tmp；生产库 2 条测试行已删（现剩 2 条 probe 行）。**无需补 span**。
+2. **buyin_worker 已重启**（pid 19644，01:31；先 graceful-daren 落盘再 kickstart，§8.2 铁律）：启动日志「LLM 文字链配置 OK 5 环」⇒ 新 llm_channels（含插桩）已加载；两端盘上 cookie 经 `worst_side_state` 复核**双 ok**（我手动初查误报 missing 是把 side 名当 root 传参的调用错误，模块无 bug）。**未预开浏览器**（§112.1 规避姿势），队列轮询正常；明早第一个真实任务会自启浏览器并自动验证 worker_* site 落行。
+3. 待办只剩：明早老大实测木木 + mini 的 worker 僵死根治（§112.1）。
