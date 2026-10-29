@@ -16489,6 +16489,13 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         group_id = qs.get('groupId', [''])[0] or None
         group_ids_param = qs.get('groupIds', [''])[0] or ''
         created_by = qs.get('createdBy', [''])[0] or None
+        # ★ KB 审核面板（2026-10-29）: status 单状态过滤（'ok'/'pending'），待审核视图用。
+        #   下推到 SQL（跟 createdAfter 同一纪律：不许客户端在 limit 截断后过滤）。
+        #   缺省 '' = 原闭集 ok+pending，接口契约零变化。
+        status_param = qs.get('status', [''])[0] or None
+        if status_param not in (None, 'ok', 'pending'):
+            self._send_json_error(400, f'Invalid status filter: {status_param}')
+            return
         # ★ fix/kb-created-after (老大 23:30): createdAfter 毫秒时间戳, 服务端下推时间窗到 SQL
         #   之前架构 bug: limit=50 截断后客户端过滤 created_at, updated_at 被 touch 的旧条目永远进不了前 50
         #   现在: 客户端传 createdAfter=<now-7d>毫秒, SQL 加 AND created_at >= ?, 过滤集 = 全量集
@@ -16528,6 +16535,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 user_group_ids=effective_group_ids,
                 created_by=created_by,
                 created_after=created_after,
+                status=status_param,
                 emp_ids=_get_user_emp_ids(auth.user_id)
             )
             self._send_json(200, result)
@@ -16895,6 +16903,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 is_admin=auth.is_admin,
             )
             self._send_json(200, updated)
+        except RuntimeError as e:
+            # ★ 审核面板（2026-10-29）：过审兜底向量化失败（无 embedding key / 向量化挂）
+            # 死因必须透给管理员（如「无 embedding API key…过审中止」），不能糊成 'Update failed'
+            logger.error(f'  [KBEntry] update failed (approve guard): {e}')
+            self._send_json_error(500, str(e) or 'Update failed')
         except Exception as e:
             logger.error(f'  [KBEntry] update failed: {e}')
             self._send_json_error(500, 'Update failed')

@@ -535,6 +535,10 @@ var _sb2KbCats = null;
 var _sb2KbEntries = [];
 var _sb2KbActiveCat = 'all';
 var _sb2KbActiveScope = 'all';
+/* ★ KB 审核面板（2026-10-29）：审核状态筛选。'all' = 原闭集（已入库+待审核）；
+   'pending' = 只看待审核（聊天回流等未审核条目），chips「审核」组切换。
+   纯前端切片（_sb2KbEntries 已全量），跟 cat/scope 同一条过滤链。 */
+var _sb2KbActiveStatus = 'all';
 /* 〔fix/sb2-side-restore 24 轮批注② v2 2026-10-06 12:54〕老大拍板「保分页但每页不滚动」:
    — 12:31 首修误判为「分页器下线回自然滚动」, 老大 12:54 纠正口径: 保分页, 但每页装满视口不滚动
    — 页尺寸 = f(视口) 动态计算 (_sb2KbPageSize): 主区可视高 - padding - hero - chips - pager预留,
@@ -690,6 +694,11 @@ function sb2KbRenderHero(stats, entries){
 function sb2KbUpdateHeroTitle(){
   var hero = document.getElementById('sb2KbHeroTitle');
   if (!hero) return;
+  /* ★ 审核面板（2026-10-29）：待审核视图优先（审核筛选是更强的视图口径） */
+  if (_sb2KbActiveStatus === 'pending') {
+    hero.textContent = '待审核';
+    return;
+  }
   if (_sb2KbActiveCat === 'all') {
     hero.textContent = '全部知识';
     return;
@@ -741,6 +750,12 @@ function sb2KbRenderChips(cats, entries){
   });
 
   var total = entries.length;
+  /* ★ 审核面板（2026-10-29）：审核状态计数（现场聚合，跟 cat/scope 同一原则） */
+  var pendingCount = 0;
+  entries.forEach(function(e){ if ((e.status || 'ok') === 'pending') pendingCount++; });
+  var reviewHtml = '<button class="sb2-kb-chip-row-label">审核</button>' +
+    '<button class="sb2-kb-chip' + (_sb2KbActiveStatus === 'all' ? ' active' : '') + '" data-sb2-kb-status="all">全部 · ' + total + '</button>' +
+    '<button class="sb2-kb-chip' + (_sb2KbActiveStatus === 'pending' ? ' active' : '') + '" data-sb2-kb-status="pending"' + (pendingCount ? '' : ' disabled') + '>待审核 · ' + pendingCount + '</button>';
   var catHtml = '<button class="sb2-kb-chip-row-label">分类</button>' +
     '<button class="sb2-kb-chip active" data-sb2-kb-cat="all">全部 · ' + total + '</button>';
   Object.keys(catMap).sort().forEach(function(cname){
@@ -756,7 +771,9 @@ function sb2KbRenderChips(cats, entries){
   /* 〔fix/sb2-side-restore 19 轮批注②〕chips 改单行对齐原型 line 544
      修前 (commit 13): catHtml + scopeHtml 分两个 chip-row div → 双行布局
      修后 (本轮): 合并到一个 chip-row div (中间加 separator "·" 灰阶 弱化视觉分组, 跟 prototype line 765-766 单行平铺一致) */
-  el.innerHTML = '<div class="sb2-kb-chip-row">' + catHtml
+  el.innerHTML = '<div class="sb2-kb-chip-row">' + reviewHtml
+               + '<span class="sb2-kb-chip-row-sep" aria-hidden="true">·</span>'
+               + catHtml
                + '<span class="sb2-kb-chip-row-sep" aria-hidden="true">·</span>'
                + scopeHtml + '</div>';
 
@@ -764,7 +781,16 @@ function sb2KbRenderChips(cats, entries){
     el.addEventListener('click', function(ev){
       var catBtn = ev.target.closest('[data-sb2-kb-cat]');
       var scopeBtn = ev.target.closest('[data-sb2-kb-scope]');
-      if (catBtn) {
+      var statusBtn = ev.target.closest('[data-sb2-kb-status]');
+      if (statusBtn) {
+        /* ★ 审核面板（2026-10-29）：待审核视图切换 */
+        if (statusBtn.disabled) return;
+        _sb2KbActiveStatus = statusBtn.getAttribute('data-sb2-kb-status') || 'all';
+        el.querySelectorAll('[data-sb2-kb-status]').forEach(function(b){ b.classList.remove('active'); });
+        statusBtn.classList.add('active');
+        sb2KbFilterList();
+        if (typeof sb2KbUpdateHeroTitle === 'function') sb2KbUpdateHeroTitle();
+      } else if (catBtn) {
         _sb2KbActiveCat = catBtn.getAttribute('data-sb2-kb-cat') || 'all';
         el.querySelectorAll('[data-sb2-kb-cat]').forEach(function(b){ b.classList.remove('active'); });
         catBtn.classList.add('active');
@@ -800,6 +826,27 @@ function sb2KbRenderChips(cats, entries){
       _sb2KbDoFilter();
     });
     listEl._sb2KbPagerBound = true;
+  }
+  /* ★ 审核面板（2026-10-29）：通过/拒绝/本页全过 按钮委托（独立 flag，跟 pager 委托互不干扰）
+     — 委托到 #sb2KbList 容器（按钮渲染在容器内，重渲 innerHTML 不丢绑定）
+     — 必须 stopPropagation：卡片整卡 onclick=sb2KbOpenDetail，不拦会连带弹详情 */
+  if (listEl && !listEl._sb2KbReviewBound) {
+    listEl.addEventListener('click', function(ev){
+      var approveBtn = ev.target.closest('[data-sb2-kb-approve]');
+      var rejectBtn = ev.target.closest('[data-sb2-kb-reject]');
+      var approvePageBtn = ev.target.closest('[data-sb2-kb-approve-page]');
+      if (approveBtn) {
+        ev.stopPropagation();
+        sb2KbApproveEntry(approveBtn.getAttribute('data-sb2-kb-approve'));
+      } else if (rejectBtn) {
+        ev.stopPropagation();
+        sb2KbRejectEntry(rejectBtn.getAttribute('data-sb2-kb-reject'));
+      } else if (approvePageBtn) {
+        ev.stopPropagation();
+        sb2KbApprovePage();
+      }
+    });
+    listEl._sb2KbReviewBound = true;
   }
 }
 
@@ -860,7 +907,13 @@ function _sb2KbDoFilter(){
   var byScope = (_sb2KbActiveScope === 'all') ? byCat : byCat.filter(function(e){
     return (e.scope || e.scope_name || 'global') === _sb2KbActiveScope;
   });
-  sb2KbRenderList(byScope);
+  /* ★ 审核面板（2026-10-29）：审核状态过滤（纯前端，_sb2KbEntries 已全量） */
+  var byStatus = (_sb2KbActiveStatus === 'all') ? byScope : byScope.filter(function(e){
+    return (e.status || 'ok') === _sb2KbActiveStatus;
+  });
+  /* 存当前过滤结果：「本页全部通过」批量过审直接读它，不二次计算（防口径漂移） */
+  window._sb2KbFiltered = byStatus;
+  sb2KbRenderList(byStatus);
 }
 
 /* 〔24 轮批注② v2〕_sb2KbBuildPager 恢复 (页尺寸 = _sb2KbPageSize() 动态值):
@@ -947,6 +1000,16 @@ function sb2KbRenderList(entries){
     } else if (tierRaw === 'daily') {
       tierTag = '<span class="sb2-tag sb2-tag-tier-daily" title="平常类 · 整理后入库">整理后</span>';
     }
+    /* ★ 审核面板（2026-10-29）：待审核条目卡片挂 [通过][拒绝] 操作钮。
+       — 卡片整卡 onclick=sb2KbOpenDetail，按钮必须先 stopPropagation 否则会触发详情
+       — 仅 pending 显示；ok 条目没有审核动作（编辑/删除走详情/编辑弹窗原路径） */
+    var reviewActions = '';
+    if (statusRaw === 'pending') {
+      reviewActions = '<div class="sb2-kb-card-actions">' +
+        '<button class="sb2-kb-act sb2-kb-act-approve" data-sb2-kb-approve="' + escapeAttr(id) + '">通过</button>' +
+        '<button class="sb2-kb-act sb2-kb-act-reject" data-sb2-kb-reject="' + escapeAttr(id) + '">拒绝</button>' +
+      '</div>';
+    }
     return '<article class="sb2-kb-card" data-kb-id="' + escapeAttr(id) + '" data-sb2-scope="' + escapeAttr(e.scope || e.scope_name || 'global') + '" title="' + escapeAttr(updatedRaw) + '" onclick="sb2KbOpenDetail(\'' + escapeAttr(id) + '\')">' +
       '<div class="sb2-kb-card-info">' +
         '<h3 class="sb2-kb-card-title">' + escapeHtml(title) + '</h3>' +
@@ -964,9 +1027,16 @@ function sb2KbRenderList(entries){
         '<span class="sb2-tag sb2-tag-scope">' + escapeHtml(scope) + '</span>' +
         '<span class="sb2-tag ' + statusClass + '">' + escapeHtml(statusLabel) + '</span>' +
       '</div>' +
+      reviewActions +
     '</article>';
   }).join('');
-  el.innerHTML = cardsHtml + _sb2KbBuildPager(entries.length);
+  /* ★ 审核面板（2026-10-29）：待审核视图顶栏 —— 本页全部通过（清积压一键，逐条过审接口） */
+  var batchBar = '';
+  if (_sb2KbActiveStatus === 'pending' && entries.length > 0) {
+    batchBar = '<div class="sb2-kb-batchbar"><span class="sb2-kb-batchbar-info">待审核 ' + entries.length + ' 条</span>' +
+      '<button class="sb2-kb-act sb2-kb-act-approve" data-sb2-kb-approve-page="1">本页全部通过</button></div>';
+  }
+  el.innerHTML = batchBar + cardsHtml + _sb2KbBuildPager(entries.length);
 }
 
 function _sb2ScopeLabel(s){
@@ -1074,6 +1144,116 @@ async function sb2KbDeleteEntry(){
     console.error('[sb2-kb] delete failed:', e);
     showToast('删除失败: ' + (e.message || ''), 'error');
   }
+}
+
+/* ============================================================
+ * ★ KB 审核面板（2026-10-29）: 聊天回流条目一键审核
+ * - 通过: PUT {status:'ok'} —— 服务端过审前自动兜向量化（无 chunk 重建+向量化，
+ *   无 embedding key / 向量化失败会 500 并把死因带回来，绝不假绿灯）
+ * - 拒绝: DELETE（软删 status='deleted'，7 天后 cleanup-dangling 物理兜底，可恢复窗口内可找运营）
+ * - 成功后只动本地数组 + 局部重渲（chips 计数 + 列表），不重跑 sb2KbInit
+ *   （避免全量重拉 + 页码重置打断连续审核）
+ * ============================================================ */
+function _sb2KbPatchLocal(doc){
+  if (!doc || !doc.id) return;
+  for (var i = 0; i < _sb2KbEntries.length; i++){
+    if (_sb2KbEntries[i].id === doc.id) {
+      _sb2KbEntries[i].status = doc.status || _sb2KbEntries[i].status;
+      if (typeof doc.chunkCount === 'number') _sb2KbEntries[i].chunk_count = doc.chunkCount;
+      if (doc.updatedAt) _sb2KbEntries[i].updated_at = doc.updatedAt;
+      break;
+    }
+  }
+}
+function _sb2KbRemoveLocal(entryId){
+  _sb2KbEntries = _sb2KbEntries.filter(function(e){ return e.id !== entryId; });
+}
+function _sb2KbReviewRerender(){
+  if (typeof sb2KbRenderChips === 'function') sb2KbRenderChips(_sb2KbCats, _sb2KbEntries);
+  if (typeof sb2KbRenderHero === 'function' && window._sb2KbStats) {
+    var heroSub = document.getElementById('sb2KbHeroSub');
+    if (heroSub && typeof window._sb2KbStats.total === 'number') {
+      heroSub.textContent = window._sb2KbStats.total + ' 条 · ' + (window._sb2KbStats.totalChunks || 0) + ' 片段 · 语义检索已切换';
+    }
+  }
+  _sb2KbDoFilter(); /* 保留当前页码（审核中途翻页不被重置打断） */
+}
+
+async function sb2KbApproveEntry(entryId){
+  if (!entryId) return;
+  try {
+    var resp = await apiFetch('/api/knowledge/entries/' + encodeURIComponent(entryId), {
+      method: 'PUT', body: JSON.stringify({ status: 'ok' })
+    });
+    if (resp && resp.ok) {
+      var doc = await resp.json().catch(function(){ return null; });
+      _sb2KbPatchLocal(doc);
+      showToast('已通过' + (doc && doc.status === 'embedding_failed' ? '（向量化失败，已标待重试）' : ''), 'success');
+      _sb2KbReviewRerender();
+    } else {
+      var errBody = await resp.json().catch(function(){ return {}; });
+      showToast('通过失败: ' + ((errBody && errBody.error) || resp.status), 'error');
+    }
+  } catch (e) {
+    console.error('[sb2-kb] approve failed:', e);
+    showToast('通过失败: ' + (e.message || ''), 'error');
+  }
+}
+
+async function sb2KbRejectEntry(entryId){
+  if (!entryId) return;
+  if (!confirm('拒绝后该条目会移出知识库（软删，7 天内可找回）。确定拒绝？')) return;
+  try {
+    var resp = await apiFetch('/api/knowledge/entries/' + encodeURIComponent(entryId), { method: 'DELETE' });
+    if (resp && resp.ok) {
+      _sb2KbRemoveLocal(entryId);
+      showToast('已拒绝（软删）', 'success');
+      _sb2KbReviewRerender();
+    } else {
+      showToast('拒绝失败', 'error');
+    }
+  } catch (e) {
+    console.error('[sb2-kb] reject failed:', e);
+    showToast('拒绝失败: ' + (e.message || ''), 'error');
+  }
+}
+
+async function sb2KbApprovePage(){
+  /* 本页全部通过：读 _sb2KbDoFilter 存下的当前过滤结果，取本页 slice 里的 pending 条目，
+     串行过审（服务端逐条做 embedding，串行防打爆智谱资源包）。
+     中途失败即停并如实报进度（已通过的不回滚）。 */
+  var filtered = (window._sb2KbFiltered || []).filter(function(e){ return (e.status || 'ok') === 'pending'; });
+  var pageSize = _sb2KbPageSize();
+  var cur = Math.min(Math.max(1, _sb2KbPage || 1), Math.max(1, Math.ceil(filtered.length / pageSize)));
+  var slice = filtered.slice((cur - 1) * pageSize, cur * pageSize);
+  if (!slice.length) { showToast('本页没有待审核条目', 'info'); return; }
+  if (!confirm('将通过本页 ' + slice.length + ' 条待审核条目（每条会自动完成向量化）。继续？')) return;
+  var okCount = 0, failCount = 0;
+  for (var i = 0; i < slice.length; i++){
+    var entryId = slice[i].id;
+    showToast('正在通过 ' + (i + 1) + '/' + slice.length + '…', 'info');
+    try {
+      var resp = await apiFetch('/api/knowledge/entries/' + encodeURIComponent(entryId), {
+        method: 'PUT', body: JSON.stringify({ status: 'ok' })
+      });
+      if (resp && resp.ok) {
+        var doc = await resp.json().catch(function(){ return null; });
+        _sb2KbPatchLocal(doc);
+        okCount++;
+      } else {
+        var errBody = await resp.json().catch(function(){ return {}; });
+        failCount++;
+        showToast('第 ' + (i + 1) + ' 条通过失败: ' + ((errBody && errBody.error) || resp.status) + '，已中断', 'error');
+        break;
+      }
+    } catch (e) {
+      failCount++;
+      showToast('第 ' + (i + 1) + ' 条通过失败: ' + (e.message || '') + '，已中断', 'error');
+      break;
+    }
+  }
+  _sb2KbReviewRerender();
+  if (failCount === 0) showToast('本页 ' + okCount + ' 条已全部通过', 'success');
 }
 
 /* ============================================================

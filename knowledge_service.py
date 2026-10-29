@@ -2576,10 +2576,60 @@ def kb_entry_get_by_id(entry_id):
         conn.close()
 
 
+def kb_entry_ensure_vectorized(entry_id):
+    """★ KB 审核面板（2026-10-29）：过审（status→'ok'）前的向量化兜底。
+
+    背景（生产实测）：daren_bot 聊天回流条目入库时只写 kb_entries、不建 chunks
+    （21 条 pending 里 20 条 chunks=0）。若纯改 status='ok' 就过审，条目永远没有
+    向量 ⇒ RAG 召回条件是 embedding IS NOT NULL ⇒ 永远召不回 = 「假绿灯」
+    （§14 铁律：看着正常但永远补不回）。
+
+    行为：
+    - 已有带向量的 chunk ⇒ 返回 False（无需补，幂等）
+    - 无向量 chunk ⇒ 重建 chunks + 向量化，成功返回 True
+    - 无 embedding API key ⇒ 抛 RuntimeError（调用方中止过审，status 不变，不留假绿灯）
+    - 向量化失败 ⇒ helper 已标 embedding_failed + 写 log，原异常继续抛（同样不留假绿灯，
+      且管理员可用既有 retry-embedding 接口恢复）
+    """
+    conn = _db_conn()
+    try:
+        has_emb = conn.execute(
+            'SELECT COUNT(*) FROM kb_entry_chunks WHERE entry_id = ? AND embedding IS NOT NULL',
+            (entry_id,)).fetchone()[0]
+    finally:
+        conn.close()
+    if has_emb:
+        return False
+
+    conn = _db_conn()
+    try:
+        row = conn.execute('SELECT emp_id, content FROM kb_entries WHERE id = ?', (entry_id,)).fetchone()
+    finally:
+        conn.close()
+    if not row:
+        raise RuntimeError(f'entry not found: {entry_id}')
+    emp_id = row['emp_id'] or ''
+    content = row['content'] or ''
+
+    _save_kb_chunks_without_embedding(entry_id, emp_id, content, 500, 100)
+    emb_cfg = get_embedding_config(emp_id or None)
+    api_key = emb_cfg.get('apiKey')
+    if not api_key:
+        raise RuntimeError(f'无 embedding API key（emp_id={emp_id or "默认"}），过审中止：条目未转为 ok')
+    _vectorize_kb_chunks_with_status_update(
+        entry_id, emp_id, api_key,
+        emb_cfg.get('provider', 'openai'),
+        emb_cfg.get('model'),
+        base_url=emb_cfg.get('baseUrl'))
+    return True
+
+
 def kb_entry_update(entry_id, title=None, content=None, category=None, category_id=None, project_id=None, scope=None, team_id=None, group_ids=None, emp_id=None, status=None, created_by=None, agent_config=None, is_admin=False):
     """更新新版知识条目；内容变更时重新分段向量化。
     status 仅允许 'ok'/'pending'（审核闸：确认通过/打回）；pending 条目重新向量化后保持 pending，
-    不因向量化成功自动过审。"""
+    不因向量化成功自动过审。
+    ★ 审核面板（2026-10-29）：无内容变更的 pending→ok 过审会先走 kb_entry_ensure_vectorized
+    兜底向量化（失败/无 key 则中止过审并抛错，status 保持原值，不留假绿灯）。"""
     conn = _db_conn()
     try:
         row = conn.execute('SELECT * FROM kb_entries WHERE id = ?', (entry_id,)).fetchone()
@@ -2623,6 +2673,13 @@ def kb_entry_update(entry_id, title=None, content=None, category=None, category_
 
     if not updates:
         return _kb_entry_row_to_dict(row)
+
+    # ★ 审核面板（2026-10-29）：无内容变更的 pending→ok 过审，先兜向量化。
+    # 放在 UPDATE 之前：ensure 失败（无 key / 向量化失败）会抛异常中止，
+    # status 保持原值（pending 或已被 helper 标 embedding_failed），绝不留「ok 但无向量」的假绿灯。
+    # content 变更路径自带重新向量化（下方 if content is not None），不重复走这里。
+    if content is None and status == 'ok' and row['status'] != 'ok':
+        kb_entry_ensure_vectorized(entry_id)
 
     conn = _db_conn()
     try:
@@ -3407,9 +3464,12 @@ def _kb_category_descendant_ids(category_id):
         conn.close()
 
 
-def _kb_entry_build_where(scope=None, team_id=None, user_id=None, is_admin=False, user_team_ids=None, user_group_ids=None, emp_ids=None, created_by=None, category=None, category_id=None, project_id=None, keyword=None, allowed_categories=None, created_after=None, prefix=''):
+def _kb_entry_build_where(scope=None, team_id=None, user_id=None, is_admin=False, user_team_ids=None, user_group_ids=None, emp_ids=None, created_by=None, category=None, category_id=None, project_id=None, keyword=None, allowed_categories=None, created_after=None, status=None, prefix=''):
     """构建 kb_entries 查询 WHERE 子句与参数
     created_after: 可选, 毫秒时间戳。None/0 不加条件;有值则 SQL 加 AND created_at >= ?
+    status: 可选, 'ok'/'pending' 单状态过滤（KB 审核面板待审核视图用）。
+           None 保持原默认闭集 status IN ('ok','pending')（软删/superseded/error 自动不展示）;
+           传值则替换为 status = ?（仍只允许这两个值, 不开放 deleted/superseded 查询面）。
     老大 23:30 拍板: 任何「客户端在 limit 截断后做过滤」是架构性 bug,
     把时间窗条件下推到 SQL 让过滤集 = 全量集。
     apply when: 任何「分页 limit 截断后客户端再过滤」必须后端 SQL 接收过滤条件"""
@@ -3422,8 +3482,12 @@ def _kb_entry_build_where(scope=None, team_id=None, user_id=None, is_admin=False
 
     p = prefix
     # 闭集过滤：superseded（重分析软留档）/error 等状态不在列，列表自动不展示
-    where = [f"{p}status IN ('ok', 'pending')"]
-    params = []
+    if status in ('ok', 'pending'):
+        where = [f'{p}status = ?']
+        params = [status]
+    else:
+        where = [f"{p}status IN ('ok', 'pending')"]
+        params = []
 
     if scope == 'global':
         where.append(f"({p}scope IS NULL OR {p}scope = 'global')")
@@ -3504,15 +3568,17 @@ def _kb_entry_build_where(scope=None, team_id=None, user_id=None, is_admin=False
 
 def kb_entry_list(offset=0, limit=50, category=None, category_id=None, project_id=None, keyword=None, allowed_categories=None,
                   scope=None, team_id=None, user_id=None, is_admin=False, user_team_ids=None,
-                  user_group_ids=None, emp_ids=None, created_by=None, created_after=None):
+                  user_group_ids=None, emp_ids=None, created_by=None, created_after=None, status=None):
     """新版知识库列表（分页、分类、关键词、四层隔离）
     created_after: 可选, 毫秒时间戳。None/0 = 不过滤 created_at;有值 SQL 加 AND created_at >= ?
+    status: 可选, 'ok'/'pending' 单状态过滤（KB 审核面板待审核视图用）, 默认 None = ok+pending 闭集
     老大 23:30: 服务端把时间窗条件下推, 避免客户端在 limit 截断后做过滤漏数据"""
     where, params = _kb_entry_build_where(
         scope=scope, team_id=team_id, user_id=user_id, is_admin=is_admin,
         user_team_ids=user_team_ids, user_group_ids=user_group_ids, emp_ids=emp_ids,
         created_by=created_by, category=category, category_id=category_id, project_id=project_id,
-        keyword=keyword, allowed_categories=allowed_categories, created_after=created_after
+        keyword=keyword, allowed_categories=allowed_categories, created_after=created_after,
+        status=status,
     )
 
     conn = _db_conn()

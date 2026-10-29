@@ -13384,6 +13384,25 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
 .sb2-tag-tier-analysis{ background:var(--sb2-brand-soft); color:var(--sb2-brand-strong); }
 .sb2-tag-tier-daily{ background:var(--sb2-accent-soft); color:var(--sb2-accent-strong); }
 
+/* —— ★ KB 审核面板（2026-10-29）: 待审核卡片操作钮 + 批量过审栏 —— */
+.sb2-kb-card-actions{ display:flex; gap:6px; margin-top:8px; flex-shrink:0; }
+.sb2-kb-act{
+  padding:4px 12px; border-radius:var(--sb2-r-sm);
+  font:500 12px/1.4 "PingFang SC",sans-serif;
+  border:1px solid var(--sb2-border); background:var(--sb2-s1); color:var(--sb2-t2);
+  cursor:pointer; transition:opacity .15s;
+}
+.sb2-kb-act:hover{ opacity:.8; }
+.sb2-kb-act-approve{ background:var(--sb2-success-soft); color:var(--sb2-success); border-color:transparent; }
+.sb2-kb-act-reject{ background:var(--sb2-danger-soft); color:var(--sb2-danger); border-color:transparent; }
+.sb2-kb-batchbar{
+  display:flex; align-items:center; justify-content:space-between; gap:12px;
+  padding:8px 14px; margin-bottom:10px;
+  background:var(--sb2-warning-soft); border-radius:var(--sb2-r-sm);
+}
+.sb2-kb-batchbar-info{ font:500 12px/1.4 "PingFang SC",sans-serif; color:var(--sb2-warning); }
+.sb2-kb-chip[disabled]{ opacity:.45; cursor:not-allowed; }
+
 /* —— 旧 knowledgeMid 系列容器兜底隐藏 (不退役仅兜底, 全勾后才退役) —— */
 #knowledgeMid,
 #knowledgeMidList,
