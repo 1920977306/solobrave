@@ -9785,3 +9785,37 @@ buyin-worker 等其他 5 个 launchd 服务**没有**脚本双开问题（它们
 - 全量回归 `/usr/bin/python3 -m pytest tests/ -q --ignore=tests/test_kimi_response.py`：**1279 passed / 0 failed**（基线 1270 + 新增 9 条），10 skipped 为既有 live 档。
 - secret_scan --staged exit 0；推送后 `git log origin/dev..origin/main` 为空。
 - 服务重启 healthz ok，三租户长连接在线（daren_boss / daren_test2 / mumu）。
+
+
+---
+
+## §110 交接：木木采集反复失败根因 = 团长端登录态失效（待人工扫码）＋本周期已完成事项清单（A 边，2026-10-29 20:2x）
+
+### 110.0 一句话现状
+**达人助理全链路代码层面全部正常；当前唯一的线上故障 = 百应（buyin 团长端）登录 cookie 过期，需要老大人工扫码重登。** 除此之外无悬而未决的 bug。
+
+### 110.1 截图问题（老大 14:49「怎么回事」）的根因与处置
+- **症状**：木木采集抖音号 `20915357798` 连续 4 次失败，每次自动退 100 积分（bot_collect_tasks 4 条 failed，mumu 租户）。
+- **根因（已实锤，非猜测）**：worker 返回 `RuntimeError: 百应登录态失效，需要人工在浏览器窗口重新登录: 登录 cookie 缺失`；`GET http://127.0.0.1:8095/health` 实测 `browser_up=true, logged_in=false`。
+- **处置（唯一动作）**：老大在 buyin 浏览器窗口重新扫码登录团长端即可，零代码改动。登录后复测探针：发抖音号 `20915357798` 应正常出报告。
+- ⚠️ 注意 §8.2 运维铁律：团长端（profile）与达人端（profile_daren）两浏览器互斥；重启 worker 前需先 `POST http://127.0.0.1:8095/graceful-daren`（达人端 cookie 落盘），重启后按需 `POST /open`（团长端）或 `POST /open-daren`（达人端）拉起。
+
+### 110.2 本周期（2026-10-29 凌晨至今）已完成并已推送
+| 项 | commit | 状态 |
+|---|---|---|
+| 达人助理全身体检（服务/队列/账本/路由四面）＋积分对账护栏（daren_boss 自动补回 100 分） | `57fb5e6`（§108） | 已上线，重启即对账 |
+| 质检收尾：reflow 测试隔离（修「单测污染生产知识库」）＋清理 25 条测试租户 KB 污染＋截图任务承接上文修复 | `a6a83b4`（§109） | 已上线（服务 pid 7222），全量回归 1279 passed |
+| 三租户质检结论：答案质量总体好（mumu 真实会话扎实、会吸收纠正）；三租户余额 daren_boss=212 / daren_test2=101 / mumu=124（采集失败自动退分后） | — | 见 §109 |
+
+### 110.3 待办（按优先级）
+1. **（等老大）扫码重登团长端** —— 唯一线上故障，见 110.1。
+2. **（等老大拍板）KB pending 审核机制** —— 聊天回流的知识库条目（清理后仍有一批 pending）无人审核，「聊天即训练」卡在最后一公里。选项：admin 一键通过/拒绝面板 / 信任管道直接放行 / 只对真达人租户开回流。定了方向即可开工。
+3. **（观察）** 10-15~10-26 老问答从未回流（push_qa_exchange 是 10-27 才加的），属历史无数据，不是丢失，不补。
+
+### 110.4 接手须知（环境铁律）
+- 工作目录 `/Users/qichen/solobrave-prod`（A 边/部署目录）；**绝不碰 `/Users/qichen/Desktop/solobrave`（1500 commit 落后的陷阱 clone）**。
+- 全量测试用 `/usr/bin/python3 -m pytest tests/ -q --ignore=tests/test_kimi_response.py -p no:cacheprovider`（基线 1279 passed）。
+- commit 前必跑 `python3 scripts/secret_scan.py --staged`（exit 0）；推送 `git push origin HEAD:main && git push origin HEAD:dev` 后查 `git log --oneline origin/dev..origin/main` 必须为空。
+- 生产探针用 `.venv-daren/bin/python` + `os.environ.setdefault('DAREN_DATA_DIR','data/daren-bot')`；凌晨不发探针卡片到飞书（会打扰老大），一律同步调用。
+- 服务：`bash scripts/daren_bot.sh restart|status`；healthz `http://127.0.0.1:8092/healthz`；采集器 health `http://127.0.0.1:8095/health`。
+- LLM 通道：kimi 环默认关（额度留给开发），运行时全走 MiniMax；别在运行时通道里加 kimi。
