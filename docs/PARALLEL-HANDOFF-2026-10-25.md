@@ -9888,3 +9888,33 @@ login_watcher 每轮（60s）新增一道**盘上 cookie 取证巡检**：读两
 2. **KB 审核面板**（admin 一键通过/拒绝，清掉 pending 积压）——等老大拍板方向后开工
 3. **MiniMax 消耗统计**进 admin（按任务类型折算调用次数，看见额度烧在哪）
 4. （mini 域）buyin_worker 僵死 bug 根治（§112.1，含 JOB_Q 重排队不被消费）
+
+---
+
+## §114 KB 审核面板落地（A 边，2026-10-29 21:3x–22:0x，commit `2f899fd`）
+
+### 114.0 是什么
+优化菜单②：admin 知识库面板新增「待审核」视图——聊天回流（daren_bot 推送）产生的 pending 条目一键 [通过]/[拒绝]，顶栏「本页全部通过」批量清积压。打通「聊天即训练」最后一公里：**达人聊天产生的知识不再积压 21 条没人理**。
+
+### 114.1 核心病根（生产实测，别再踩）
+- 21 条 pending 里 **20 条 chunks=0**（daren_bot `_daren_kb_ingest` 入库只写 kb_entries，不向量化）。
+- 若纯改 `status='ok'` 过审 ⇒ 条目永无向量 ⇒ RAG 召回硬条件 `embedding IS NOT NULL` ⇒ **永远召不回 = 假绿灯**（§14 铁律：无向量=召不回）。
+- 修法（单门）：`kb_entry_ensure_vectorized`——过审（无内容变更的 pending→ok）前检查，无向量 chunk 则重建+向量化（**UPDATE 之前执行**：无 key/失败 ⇒ 抛错中止、status 保持原值；向量化失败 ⇒ helper 标 `embedding_failed` 可 retry）。**绝不产生「ok 但无向量」条目**。
+
+### 114.2 改动清单
+- `knowledge_service.py`：`kb_entry_ensure_vectorized`（新）；`kb_entry_update` 挂兜底；`_kb_entry_build_where`/`kb_entry_list` 加 `status` 过滤（白名单 ok/pending，非法值回退闭集，**不开放 deleted/superseded 查询面**）。
+- `solobrave-server.py`：GET `/api/knowledge/entries?status=` 下推 SQL（复用 createdAfter 纪律）；PUT 过审失败 **RuntimeError 死因透传**（500 带原文，不糊成 'Update failed'）。
+- `js/inline-07.js`：chips 新增「审核」组（全部/待审核，现场聚合计数，0 禁用）；pending 卡片挂 [通过][拒绝]（stopPropagation 防触发详情）；待审核视图顶栏「本页全部通过」（串行逐条 PUT+进度 toast，中途失败即停）；审核成功**只动本地数组+局部重渲**（不重跑 sb2KbInit、页码不重置、不打断连审）。
+- `index.html`：操作钮/批量栏样式（复用 success/danger/warning token）。
+
+### 114.3 验证
+- 守卫 `tests/test_kb_review_panel.py` **10 条**（过审触发补向量/已有向量幂等不重复/无 key 中止不留假绿灯/失败标 embedding_failed/打回不触发/软删清 chunks/status 过滤/非法值回退/权限锁）。
+- 全量 **1303 passed**（基线 1293+10）；secret_scan 0；变异对照 M1–M4 全抓住（3/2/2/1 红）。
+- 真机冒烟（server 已重启 pid 14191，8443 serving 确认）：
+  - `?status=pending` → 21 条只含 pending；缺省 → 321（ok+pending 闭集）；`?status=deleted` → 400 ✓
+  - 过审 `kb_8b082070`：1.24s 真调智谱，chunk_count 0→3、3 条真向量落库 ✓（随后恢复 pending——审核决定权交回老大，chunks 保留，老大再点时幂等不重复向量化）
+  - 拒绝 `kb_6042e291`（daren_test2 测试碎片）：软删 success，**pending 21→20** ✓
+
+### 114.4 待办
+- 优化菜单只剩 ③ **MiniMax 消耗统计进 admin**（未开工）；④ worker 僵死 bug 归 mini（§112）。
+- 20 条 pending 积压等老大在面板里过一遍（入口：admin → 知识库 → chips「审核 · 待审核」）。其中多数是 mumu/daren_test2 的聊天碎片（"带（mumu）""给你啦"这类），建议先扫一眼再批量。
