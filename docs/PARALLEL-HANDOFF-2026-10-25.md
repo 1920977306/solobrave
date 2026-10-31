@@ -9961,3 +9961,28 @@ login_watcher 每轮（60s）新增一道**盘上 cookie 取证巡检**：读两
 1. **「未标注流量」查实 = 测试 live 检查，不是生产代码路径**：`tests/test_llm_channels.py` 行为层（line 182）真调 code-sub 环（system+user 恰好 14 字，与两笔落库行完全吻合；两次全量回归各一笔，23:50:28 / 00:00:07）。conftest 闸门（§115.3）已把这类流量指到 tmp；生产库 2 条测试行已删（现剩 2 条 probe 行）。**无需补 span**。
 2. **buyin_worker 已重启**（pid 19644，01:31；先 graceful-daren 落盘再 kickstart，§8.2 铁律）：启动日志「LLM 文字链配置 OK 5 环」⇒ 新 llm_channels（含插桩）已加载；两端盘上 cookie 经 `worst_side_state` 复核**双 ok**（我手动初查误报 missing 是把 side 名当 root 传参的调用错误，模块无 bug）。**未预开浏览器**（§112.1 规避姿势），队列轮询正常；明早第一个真实任务会自启浏览器并自动验证 worker_* site 落行。
 3. 待办只剩：明早老大实测木木 + mini 的 worker 僵死根治（§112.1）。
+
+
+---
+
+## §116 端到端自测全绿 + 告警收件人红线钉死（A 边，2026-10-31 23:4x–23:5x，commit `45161f0` + 本节约守卫）
+
+### 116.0 老大指令与结论
+1. **「你直接测试一下，不用我来」（23:40）** ⇒ 商品链路端到端自测全绿（`cache_probe --mode probe-product`）：真采集 8.5s 出商品+🟡慎带结论 → 结论缓存写入；二次命中扣 0 分（`enqueue_free` 现行设计：没烧算力不扣分、流水留 cache_hit=1）。顺手修探针过期断言（期望命中扣 5 → 扣 0，`45161f0`）。
+2. **「飞书提醒必须指定一个账号提醒，别给客户提醒了」（23:48）** ⇒ 核实出口 + 加守卫钉死，见 116.1。
+
+### 116.1 ★ 告警收件人红线（老大 23:48 指令）
+- **现行出口核实**：cookie 临期/失效提醒走 `ops_alert.alert()` → 飞书固定发 **`daren_boss`（老大自己的运营机器人）最近会话**；`alert()` 签名**无租户参数**，结构上拿不到任何达人/客户租户的 sender。`.env` 无 `DAREN_OPS_*` 覆盖 ⇒ 生效配置 = 默认 `OPS_TENANT_KEY=daren_boss`、`OPS_CHAT_ID=空（自动取最近会话）`。
+- **实证**：10-31 00:44:47 团长端临期告警已实发并落盘（`ops_alerts.jsonl` kind=cookie_expiring）。
+- **新增守卫 `tests/test_ops_alert_recipient.py` 3 条**：①飞书出口只能 `get_sender(OPS_TENANT_KEY)`；②chat_id 自动解析只查 `OPS_TENANT_KEY` 最近会话；③`bind_ws` 默认回退运营租户。变异对照（出口改成 mumu）⇒ 2 红，还原 3 绿。
+- ⚠️ 实测边界（已写在 ops_alert.py 注释）：老大私聊 `oc_c086…` 是**另一个 app** 的会话，daren_boss bot 发不进去（code 230002）——所以提醒就在你跟 daren_boss 机器人的那个会话里看，别配 `DAREN_OPS_CHAT_ID` 到私聊。
+
+### 116.2 顺手修的两个测试环境真值渗入（同晚）
+- `tests/test_failure_text.py` watcher 用例：**真读盘上 cookie**——团长端进入 warn 窗口后，3 条断言被真实 cookie 告警弄脏转红。⇒ `_capture_alerts` + 线程用例统一隔离 `_check_cookie_expiry`（cookie 巡检有 `test_cookie_expiry.py` 专测，不在这里重复）。变异性质：把隔离删掉、真机 cookie 临期时必红。
+- `tests/test_ops_alert_recipient.py` 初版没 redirect `OPS_ALERT_FILE` ⇒ 守卫真写了 11 条 test 行进生产 `ops_alerts.jsonl`（已清）。⇒ fixture 指 tmp。
+- 生产 `ops_alerts.jsonl` 清理后剩 3 条全为真实历史告警。
+
+### 116.3 状态
+- 全量回归 **1319 passed**（基线 1316 + 守卫 3）；secret_scan 0；双分支零分叉。
+- **团长端 cookie 明天（11-01）到期**：今晚 00:44 已发过一次临期提醒（dedup 15 分钟锁存，恢复自动解除）；达人端 ok。采集（发抖音号）失效后老大扫码即恢复，商品查询/截图链路不受影响。
+- LLM 消耗面板持续有真实数据（10-30 起 worker_* 标签正常落行）。

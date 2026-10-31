@@ -67,6 +67,12 @@ def _capture_alerts(monkeypatch):
         return True
 
     monkeypatch.setattr(ops_alert, "alert", fake_alert)
+    # ★ 2026-10-31 环境真值隔离：check_once 里的 cookie 临期巡检会真读盘上
+    #   cookie —— 真机进入 warn 窗口（如团长端临期）时真实告警会混进
+    #   捕获列表，把 watcher 行为断言弄脏。这些测试只验登录态判定逻辑，
+    #   cookie 巡检有 tests/test_cookie_expiry.py 专测，这里置空隔离。
+    monkeypatch.setattr(login_watcher.LoginWatcher, "_check_cookie_expiry",
+                        lambda self: None)
     return calls
 
 
@@ -304,6 +310,9 @@ def test_watcher_thread_survives_startup(monkeypatch):
                         lambda *a, **k: {"ok": True,
                                           "daren_browser_up": True,
                                           "daren_logged_in": True})
+    # 同 _capture_alerts：隔离 cookie 巡检（真线程会真读盘真告警）
+    monkeypatch.setattr(login_watcher.LoginWatcher, "_check_cookie_expiry",
+                        lambda self: None)
     w = login_watcher.LoginWatcher(interval=1)
     w.start()
     time.sleep(1.5)
