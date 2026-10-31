@@ -211,9 +211,12 @@ def mode_probe_product(_args) -> int:
     task = _last_task(tk, "product")
     print(f"[probe-product]   余额 {balance0} → {balance1}（扣 {balance0 - balance1}）"
           f"，ledger action={led.get('action')} cache_hit={led.get('cache_hit')}")
-    if balance0 - balance1 != bot_config_cost_cached():
+    # ★ 2026-10-31 口径修正：缓存命中走 enqueue_free —— 「没烧算力不扣分，
+    #   流水留 cache_hit=1 留痕」是现行设计（credits.enqueue_free 注释）。
+    #   旧断言期望扣 COST_PRODUCT_CACHED(5) 已过期。
+    if balance0 - balance1 != 0:
         fails.append(f"命中结论缓存却扣了 {balance0 - balance1} 分"
-                     f"（应为 {bot_config_cost_cached()}）")
+                     f"（应为 0，enqueue_free 留痕不扣费）")
     if int(led.get("cache_hit") or 0) != 1:
         fails.append("ledger 的 cache_hit 不是 1")
     payload = json.loads(task.get("payload") or "{}")
