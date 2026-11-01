@@ -10099,6 +10099,16 @@ P1 = server 侧控制台三区块：**租户总览 / 角色管理 / 聊天审计
   合并透传/单边降级/角色解析（启用/纠正条数/坏文件容错/真实仓库契约锁）/handler
   鉴权/502/400/透传编码。变异对照 2 处（砍 role 透传 2 红 / 砍「无文件⇒未启用」3 红）
   必红，还原全绿；全量 1362 passed（基线 1350+12）。
+- ✅ **已上线**（commit `e8cf92a` + 修复 `2f140c6`，双分支零分叉）：全量 1364 passed
+  （12+2 新守卫）；变异对照 2 处必红；secret_scan 0；server/bot 均已重启。
+- **生产冒烟实证**（自签 admin JWT 打真端口）：`/api/feishu/console` 200（3 租户真实
+  合并数据：daren_boss/daren_test2/mumu 含 role/label/balance/usage30d；角色卡
+  达人✅/商务✅(10 条沉淀)/商家❌）；`/api/feishu/chat?tenant_key=daren_boss` 200
+  带回 2 条真实落库消息 ⇒ 透传链路生效。未登录 401 实证。
+- **真机冒烟抓到一个 bug 并已修**（`2f140c6`）：`_daren_bot_admin_api` 对自带 query 的
+  path 追加 `?token=` ⇒ token 被吞进 limit 值 ⇒ bot 403。修按 path 含 `?` 选 `&`/?，
+  守卫 `TestProxyQueryAppend` 锁两种形态。
 - ⚠️ **iframe 镜像未真机验证**：sb2 设置镜像（sb2SettingsOpenCategory 复制 innerHTML）
   会让 iframe 加载两次（隐藏副本+可见副本，幂等 GET 无害），但可见副本是否正常渲染
-  待重启后浏览器实测；若镜像有坑 ⇒ 备选：入口改 `window.open('/feishu-console.html')`。
+  待老大在浏览器点「设置 → 飞书助理」实测；若镜像有坑 ⇒ 备选：入口改
+  `window.open('/feishu-console.html')`。
