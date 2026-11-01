@@ -77,6 +77,7 @@ def _get_state(ws) -> dict:
         tenants.append({
             "tenant_key": tk,
             "app_id": t["app_id"],
+            "role": t.get("role") or config.ROLE_DAREN,
             "douyin_id": t["bind_douyin_id"],
             "balance": db.get_balance(tk),
             "week_count": db.get_week_count(tk, t["bind_douyin_id"], week_no)

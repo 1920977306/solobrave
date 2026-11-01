@@ -6760,6 +6760,98 @@ def _daren_bot_admin_api(path, payload=None):
         logger.warning(f'  [feishu-credits] daren_bot admin 不可达: {e}')
         return 502, {'ok': False, 'error': f'daren_bot 不可达: {e}'}
 
+
+# ==================== §119 P1: 飞书助理控制台（server 聚合层） ====================
+# 数据源全部来自 daren_bot 的 admin 只读接口（/admin/api/state + /admin/api/credits），
+# server 不 import daren_bot 包、不直读它的 sqlite —— 契约只有一个：8092 的 admin API。
+# 角色模板是唯一例外：persona 文件就在本仓库（server 静态服务同源），直读文件做展示元数据。
+
+# 三个固定角色（老大 2026-10-28 口径：达人/商务启用，商家先不做）。
+# (role 常量, 展示名, persona 文件名) —— 与 daren_bot/config.py 的 VALID_ROLES 对齐。
+_FEISHU_ROLES = (
+    ('daren', '达人助理', 'daren.md'),
+    ('commerce', '商务助理', 'commerce.md'),
+    ('merchant', '商家助理', 'merchant.md'),
+)
+
+
+def _feishu_role_info(personas_dir=None):
+    """解析 persona 角色模板元数据。返回 [{role,label,enabled,file,updated_at,corrections,note}]。
+
+    - enabled = 模板文件存在（商家助理无文件 ⇒ 未启用）
+    - updated_at = 文件 mtime（= 模板版本，沉淀器追加会让它前进）
+    - corrections = 「# 训练沉淀」节后的 '-' 列表条目数（达人纠正沉淀，聊天即训练的成果）
+    - 文件损坏/缺失一律不抛 —— 控制台是只读观察窗，绝不让模板问题砸控制台。
+    """
+    base = personas_dir or os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                        'daren_bot', 'personas')
+    roles = []
+    for role, label, fname in _FEISHU_ROLES:
+        entry = {'role': role, 'label': label, 'enabled': False, 'file': fname,
+                 'updated_at': None, 'corrections': 0, 'note': ''}
+        path = os.path.join(base, fname)
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                text = f.read()
+            entry['enabled'] = True
+            entry['updated_at'] = datetime.fromtimestamp(
+                os.path.getmtime(path)).strftime('%Y-%m-%d %H:%M')
+            idx = text.find('# 训练沉淀')
+            if idx >= 0:
+                tail = text[idx:].splitlines()[1:]
+                entry['corrections'] = sum(
+                    1 for ln in tail
+                    if ln.lstrip().startswith('- ') and not ln.strip().startswith(('（', '(')))
+        except FileNotFoundError:
+            entry['note'] = '未启用（模板文件不存在）'
+        except (OSError, UnicodeDecodeError) as e:
+            entry['note'] = f'模板不可用: {type(e).__name__}'
+        roles.append(entry)
+    return roles
+
+
+def _feishu_console_merge(state_obj, credits_obj):
+    """把 bot 的 state（角色/在线/周采集）与 credits（标签/余额/30天消耗）按 tenant_key 合并成租户卡。
+
+    纯函数（不碰网络/DB）⇒ 可单测。单边缺数据时降级不炸：有 credits 的至少出余额卡，
+    有 state 的至少出在线/角色卡。两个源都缺某个租户 ⇒ 以出现过的为准。
+    """
+    by_tk = {}
+    for t in (state_obj or {}).get('tenants') or []:
+        tk = t.get('tenant_key')
+        if not tk:
+            continue
+        by_tk[tk] = dict(t)
+    usage = (credits_obj or {}).get('usage30d') or {}
+    for a in (credits_obj or {}).get('accounts') or []:
+        tk = a.get('tenant_key')
+        if not tk:
+            continue
+        card = by_tk.setdefault(tk, {})
+        card['tenant_key'] = tk
+        card['tenant_label'] = a.get('tenant_label') or tk
+        if 'balance' in a:
+            card['balance'] = a.get('balance')
+        if a.get('douyin_id'):
+            card['douyin_id'] = a['douyin_id']
+        try:
+            card['usage30d'] = int(usage.get(tk) or 0)
+        except (TypeError, ValueError):
+            card['usage30d'] = 0
+    for tk, card in by_tk.items():
+        card.setdefault('tenant_key', tk)
+        card.setdefault('tenant_label', tk)
+        card.setdefault('balance', 0)
+        card.setdefault('usage30d', 0)
+        card.setdefault('douyin_id', '')
+        card.setdefault('role', '')
+        card.setdefault('ws_online', False)
+        card.setdefault('app_id', '')
+        card.setdefault('week_count', 0)
+        card.setdefault('created_at', '')
+    tenants = sorted(by_tk.values(), key=lambda c: c.get('tenant_key') or '')
+    return {'tenants': tenants, 'alerts': (state_obj or {}).get('alerts') or []}
+
 def _internal_secret():
     """读 (不存在则创建) 共享密钥。不缓存 —— 换密钥后下一轮请求即生效。"""
     try:
@@ -9292,6 +9384,13 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         # §117: 飞书 AI（daren_bot 账本）积分 —— 聚合读 + 充值（代理 8092）
         if path == '/api/credits/feishu':
             self._handle_get_feishu_credits()
+            return
+        # §119 P1: 飞书助理控制台 —— 租户总览聚合 + 聊天审计透传（代理 8092）
+        if path == '/api/feishu/console':
+            self._handle_get_feishu_console()
+            return
+        if path == '/api/feishu/chat':
+            self._handle_get_feishu_chat()
             return
         # ★ 积分体系派单 (贾维斯派单, 2026-10-08): 签到状态查询 (checkin/admin-grant 是 POST, 另注册)
         if path == '/api/credits/checkin/status':
@@ -18617,6 +18716,52 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             '/admin/api/grant', payload={'tenant_key': tenant, 'amount': amount})
         if status == 200 and obj.get('ok'):
             obj = {'tenant': tenant, 'amount': amount, 'new_balance': obj.get('balance')}
+        self._send_json(status, obj)
+
+    # ─── §119 P1: 飞书助理控制台 —— 租户总览聚合 + 聊天审计透传 ───
+    def _handle_get_feishu_console(self):
+        """GET /api/feishu/console — 飞书助理控制台聚合（代理 bot state + credits 双源合并）。
+        老大 2026-11-01：飞书功能要独立成项目可见可管 —— 租户总览/角色管理/聊天审计三区块的本体。"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not (auth.is_admin or auth.is_tenant_admin):
+            self._send_json_error(403, '仅管理员可查看飞书助理控制台')
+            return
+        s_status, state = _daren_bot_admin_api('/admin/api/state')
+        c_status, credits = _daren_bot_admin_api('/admin/api/credits')
+        if s_status != 200 and c_status != 200:
+            self._send_json(502, {'ok': False,
+                                  'error': (state or {}).get('error')
+                                           or (credits or {}).get('error')
+                                           or 'daren_bot 不可达'})
+            return
+        merged = _feishu_console_merge(state if s_status == 200 else {},
+                                       credits if c_status == 200 else {})
+        merged['roles'] = _feishu_role_info()
+        self._send_json(200, merged)
+
+    def _handle_get_feishu_chat(self):
+        """GET /api/feishu/chat?tenant_key=&limit= — 聊天审计透传（§118 bot_chat_messages）。
+        不做任何二次加工 —— bot 那边已有租户存在性校验和 limit 封顶。"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not (auth.is_admin or auth.is_tenant_admin):
+            self._send_json_error(403, '仅管理员可审计飞书助理聊天')
+            return
+        qs = parse_qs(urlparse(self.path).query)
+        tk = (qs.get('tenant_key') or [''])[0].strip()
+        if not tk:
+            self._send_json_error(400, '缺少 tenant_key')
+            return
+        bot_path = '/admin/api/chat?tenant_key=' + urllib.parse.quote(tk, safe='')
+        limit = (qs.get('limit') or [''])[0].strip()
+        if limit:
+            bot_path += '&limit=' + urllib.parse.quote(limit, safe='')
+        status, obj = _daren_bot_admin_api(bot_path)
         self._send_json(status, obj)
 
     def _handle_get_credit_usage(self):

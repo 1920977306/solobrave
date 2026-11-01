@@ -10064,3 +10064,41 @@ login_watcher 每轮（60s）新增一道**盘上 cookie 取证巡检**：读两
   `GET /admin/api/chat?tenant_key=mumu` 返回 200（count=0=重启后暂无新消息，正确）。
 - 审计接口 `GET :8092/admin/api/chat?tenant_key=&limit=`（token 鉴权）已可用，
   控制台 P1 的数据源就位。90 天滚动删除随 worker 每小时维护循环自动跑。
+
+## §119 P1 飞书助理控制台骨架（A 边，2026-11-01 20:5x 起）
+
+### 119.0 背景
+老大 2026-11-01 18:25 拍板：飞书功能独立成项目（商务/达人/商家三类客户 × 三角色助理），
+系统要有「总台的样子」——admin 后台可见、可控、可审计。P0 聊天落库（§118）之后，
+P1 = server 侧控制台三区块：**租户总览 / 角色管理 / 聊天审计**。
+
+### 119.1 设计
+- **页面**：独立静态页 `feishu-console.html`（仓库根，SimpleHTTPRequestHandler 自动服务，
+  照 `llm-usage.html` 先例）；设置页侧栏加「飞书助理」分类（`js/inline-07.js` 三处：
+  categories 数组 / title 映射 / renderSettingsRight 分支），同源 iframe 嵌入。
+  非管理员 allowed 白名单不含该分类 ⇒ 天然 admin-only。iframe 读主站 localStorage
+  的 `sb_auth_token`（同源共享）⇒ 免二次登录；server 端点再鉴权 ⇒ 双保险。
+- **端点**（solobrave-server.py，§117 代理模式同构）：
+  - `GET /api/feishu/console` —— 代理 bot `/admin/api/state` + `/admin/api/credits`，
+    `_feishu_console_merge`（纯函数）按 tenant_key 合并成租户卡
+    （label/role/douyin_id/balance/usage30d/ws_online），附 `_feishu_role_info()` 角色数组
+    与 bot 侧 alerts。单边源挂 ⇒ 降级不炸；双挂 ⇒ 502。
+  - `GET /api/feishu/chat?tenant_key=&limit=` —— 透传 bot `/admin/api/chat`（§118），
+    不二次加工；参数不齐 400 不碰代理。
+- **角色数据源**：server 直读 `daren_bot/personas/*.md`（模板就在本仓库，不 import
+  daren_bot 包、不碰它 sqlite）。三固定角色：达人(daren,有文件)/商务(commerce,有文件)/
+  商家(merchant,**无文件=未启用**——老大 10-28「商家先不做」口径锁）。
+  enabled=文件存在；updated_at=mtime（模板版本）；corrections=「# 训练沉淀」节后
+  `- ` 条目数（（…）说明行排除）；坏文件不抛（控制台是观察窗，绝不被模板问题砸）。
+- **bot 侧配合**：`daren_bot/admin.py::_get_state` tenants dict 加 `"role"` 字段
+  （`t.get("role") or config.ROLE_DAREN`）——控制台角色列的数据源。
+
+### 119.2 状态
+- 代码全部就位（server 端点+纯函数 / feishu-console.html 三区块页 / 设置入口三处 /
+  `daren_bot/admin.py` role 字段），守卫 `tests/test_feishu_console.py` 12 条：
+  合并透传/单边降级/角色解析（启用/纠正条数/坏文件容错/真实仓库契约锁）/handler
+  鉴权/502/400/透传编码。变异对照 2 处（砍 role 透传 2 红 / 砍「无文件⇒未启用」3 红）
+  必红，还原全绿；全量 1362 passed（基线 1350+12）。
+- ⚠️ **iframe 镜像未真机验证**：sb2 设置镜像（sb2SettingsOpenCategory 复制 innerHTML）
+  会让 iframe 加载两次（隐藏副本+可见副本，幂等 GET 无害），但可见副本是否正常渲染
+  待重启后浏览器实测；若镜像有坑 ⇒ 备选：入口改 `window.open('/feishu-console.html')`。
