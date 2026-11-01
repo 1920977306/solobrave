@@ -94,7 +94,8 @@ def capture_feedback(tenant_key: str, user_text: str, bot_answer: str = "") -> b
     # ⇒ 顶层互 import 会踩部分初始化模块。运行期 import 无任何循环问题。
     from . import reflow
     title = f"纠正/建议（{tenant_key}，{time.strftime('%Y-%m-%d %H:%M')}）"
-    ok = reflow.push_kb_insight("talent_feedback", text, title=title)
+    ok = reflow.push_kb_insight("talent_feedback", text, title=title,
+                                meta=reflow.tenant_meta(tenant_key))
     if ok:
         log.info("feedback captured: tenant=%s text=%.40s", tenant_key, text)
     return ok

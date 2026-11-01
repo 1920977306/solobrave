@@ -179,7 +179,8 @@ class TestServerIntake:
                 emp_id TEXT DEFAULT '', status TEXT DEFAULT 'ok', chunk_count INTEGER DEFAULT 0,
                 created_by TEXT DEFAULT '', created_at INTEGER, updated_at INTEGER,
                 domain TEXT NOT NULL DEFAULT 'tuangzhang',
-                tier TEXT DEFAULT 'legacy', source TEXT DEFAULT 'legacy')''')
+                tier TEXT DEFAULT 'legacy', source TEXT DEFAULT 'legacy',
+                source_meta TEXT DEFAULT '')''')
             conn.commit()
         finally:
             conn.close()
@@ -210,7 +211,8 @@ class TestServerIntake:
                 emp_id TEXT DEFAULT '', status TEXT DEFAULT 'ok', chunk_count INTEGER DEFAULT 0,
                 created_by TEXT DEFAULT '', created_at INTEGER, updated_at INTEGER,
                 domain TEXT NOT NULL DEFAULT 'tuangzhang',
-                tier TEXT DEFAULT 'legacy', source TEXT DEFAULT 'legacy')''')
+                tier TEXT DEFAULT 'legacy', source TEXT DEFAULT 'legacy',
+                source_meta TEXT DEFAULT '')''')
             conn.commit()
         finally:
             conn.close()

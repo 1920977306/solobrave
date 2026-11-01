@@ -80,8 +80,9 @@ def test_is_correction_misses():
 
 def test_capture_feedback_pushes_correction(tmp_persona, monkeypatch):
     pushed = []
+    # §117: capture_feedback 现在带 meta= 调 push_kb_insight ⇒ spy 必须吃 **kw
     monkeypatch.setattr(reflow_mod, "push_kb_insight",
-                        lambda kind, text, title="": pushed.append((kind, text)) or True)
+                        lambda kind, text, title="", **kw: pushed.append((kind, text, kw)) or True)
     # persona 模块内是运行期 from . import reflow ⇒ 打 reflow 模块本身即可
     ok = persona.capture_feedback("mumu", "不对，你应该先给结论再说依据")
     assert ok and pushed and pushed[0][0] == "talent_feedback"

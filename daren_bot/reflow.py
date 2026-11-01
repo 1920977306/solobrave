@@ -21,6 +21,7 @@ import sqlite3
 import time
 import urllib.request
 
+from . import config
 from . import db
 from . import executors
 
@@ -96,13 +97,42 @@ def push_talent_upsert(snapshot: dict):
     return _post("/internal/talents/upsert", {"snapshot": snapshot})
 
 
-def push_kb_insight(kind: str, text: str, title: str = "") -> bool:
-    """推一条提炼结论进知识库。返回值=False 表示被价值闸拒或失败, 调用方只记日志。"""
+def tenant_meta(tenant_key: str) -> dict:
+    """§117: 知识库审核要知道「这是哪个 AI / 哪个达人」——随条目推 meta。
+
+    字段: tenant_key / tenant_label(AI 真名, config.TENANT_LABELS) /
+          douyin_id(租户绑定) / douyin_name(solobrave talents 表实名)。
+    尽力而为：任何一步失败降级为空串, 绝不阻塞推送。"""
+    tk = (tenant_key or '').strip()
+    if not tk:
+        return {}
+    meta = {"tenant_key": tk, "tenant_label": config.tenant_label(tk),
+            "douyin_id": "", "douyin_name": ""}
+    try:
+        t = db.get_tenant(tk) or {}
+        dyid = (t.get("bind_douyin_id") or "").strip()
+        meta["douyin_id"] = dyid
+        if dyid:
+            snap = snapshot_from_solobrave(dyid)
+            if snap:
+                meta["douyin_name"] = (snap.get("name") or "").strip()
+    except Exception as e:
+        log.warning("tenant_meta(%s) 降级: %s", tk, e)
+    return meta
+
+
+def push_kb_insight(kind: str, text: str, title: str = "",
+                    meta: dict = None) -> bool:
+    """推一条提炼结论进知识库。返回值=False 表示被价值闸拒或失败, 调用方只记日志。
+    meta: §117 达人标识（tenant_key/tenant_label/douyin_id/douyin_name），
+    服务端白名单校验后存 kb_entries.source_meta, 供审核视图显示。"""
     if kind not in KB_KINDS or not text or len(text.strip()) < 10:
         return False
+    payload = {"kind": kind, "text": text.strip()[:2000], "title": title}
+    if meta:
+        payload["meta"] = meta
     try:
-        status, _ = _post("/internal/kb/ingest",
-                          {"kind": kind, "text": text.strip()[:2000], "title": title})
+        status, _ = _post("/internal/kb/ingest", payload)
         return status == 200
     except Exception as e:
         log.warning("kb ingest push failed (%s): %s", kind, e)
@@ -120,7 +150,8 @@ def push_product_verdict(tenant_key: str, product_title: str, md: str) -> bool:
     if len(text) < 10:
         return False
     title = f"[选品判断] {product_title or '商品'}（{tenant_key} {time.strftime('%Y-%m-%d')}）"
-    return push_kb_insight("match_pattern", text, title=title)
+    return push_kb_insight("match_pattern", text, title=title,
+                           meta=tenant_meta(tenant_key))
 
 
 def push_qa_exchange(tenant_key: str, question: str, answer: str) -> bool:
@@ -131,7 +162,8 @@ def push_qa_exchange(tenant_key: str, question: str, answer: str) -> bool:
         return False
     text = f"达人问：{(question or '').strip()[:300]}\nAI答：{ans[:1600]}"
     title = f"[问答] {(question or '').strip()[:40]}（{tenant_key}）"
-    return push_kb_insight("talent_insight", text, title=title)
+    return push_kb_insight("talent_insight", text, title=title,
+                           meta=tenant_meta(tenant_key))
 
 
 def after_douyin_collect(task: dict) -> None:

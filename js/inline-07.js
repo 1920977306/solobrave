@@ -1000,6 +1000,18 @@ function sb2KbRenderList(entries){
     } else if (tierRaw === 'daily') {
       tierTag = '<span class="sb2-tag sb2-tag-tier-daily" title="平常类 · 整理后入库">整理后</span>';
     }
+    /* §117 (2026-11-01 老大): daren_bot 回流条目卡片挂「达人」徽标 ——
+       待审核列表里一眼认出是哪个达人/哪个 AI 产生的, 不用逐个点详情。
+       sourceMeta 兼容 camel/snake; 有才显示, 没有不编造。 */
+    var _sm = e.sourceMeta || e.source_meta || {};
+    if (typeof _sm === 'string') { try { _sm = JSON.parse(_sm) || {}; } catch (err) { _sm = {}; } }
+    var talentTag = '';
+    if (_sm.douyin_name || _sm.douyin_id) {
+      var talentTxt = (_sm.tenant_label || '') + ' · ' + (_sm.douyin_name || _sm.douyin_id || '');
+      talentTag = '<span class="sb2-tag sb2-tag-tier-analysis" title="来源：' +
+        escapeAttr((_sm.tenant_label || '') + ' ' + (_sm.douyin_id || '')) + '">' +
+        escapeHtml(talentTxt) + '</span>';
+    }
     /* ★ 审核面板（2026-10-29）：待审核条目卡片挂 [通过][拒绝] 操作钮。
        — 卡片整卡 onclick=sb2KbOpenDetail，按钮必须先 stopPropagation 否则会触发详情
        — 仅 pending 显示；ok 条目没有审核动作（编辑/删除走详情/编辑弹窗原路径） */
@@ -1023,6 +1035,7 @@ function sb2KbRenderList(entries){
       '</div>' +
       '<div class="sb2-kb-card-tags">' +
         (tierTag ? tierTag : '') +
+        (talentTag ? talentTag : '') +
         '<span class="sb2-tag sb2-tag-cat">' + escapeHtml(cat) + '</span>' +
         '<span class="sb2-tag sb2-tag-scope">' + escapeHtml(scope) + '</span>' +
         '<span class="sb2-tag ' + statusClass + '">' + escapeHtml(statusLabel) + '</span>' +
@@ -1316,17 +1329,27 @@ function sb2KbRenderDetail(doc){
     }
 
     // meta grid: 8 项, 3 列布局 (字段多, 紧凑显示)
+    // §117 (2026-11-01 老大): 创建者显 AI 真名(createdByLabel=木木), 机器标识挪「来源标识」;
+    //   daren_bot 回流条目带 sourceMeta ⇒ 追加「达人」「抖音号」行, 审核时一眼认出是谁。
     var meta = document.getElementById('sb2KbDetailMeta');
+    var _srcMeta = doc.sourceMeta || {};
     var items = [
       { label: 'Chunks',   value: _sb2KbFmtNum(doc.chunkCount) },
       { label: '分类 ID',  value: _sb2KbOrDash(doc.categoryId) },
       { label: '项目 ID',  value: _sb2KbOrDash(doc.projectId) },
       { label: '团队 ID',  value: _sb2KbOrDash(doc.teamId) },
-      { label: '创建者',   value: _sb2KbOrDash(doc.createdBy) },
+      { label: '创建者',   value: _sb2KbOrDash(doc.createdByLabel || doc.createdBy) },
       { label: '创建时间', value: _sb2KbFmtTs(doc.createdAt) },
       { label: '更新时间', value: _sb2KbFmtTs(doc.updatedAt) },
       { label: 'ID',       value: _sb2KbOrDash(doc.id) }
     ];
+    if (doc.createdByLabel && doc.createdByLabel !== doc.createdBy) {
+      items.push({ label: '来源标识', value: _sb2KbOrDash(doc.createdBy) });
+    }
+    if (_srcMeta.douyin_name || _srcMeta.douyin_id) {
+      items.push({ label: '达人',   value: _sb2KbOrDash(_srcMeta.douyin_name || '') });
+      items.push({ label: '抖音号', value: _sb2KbOrDash(_srcMeta.douyin_id || '') });
+    }
     meta.innerHTML = items.map(function(it){
       var muted = it.value === '-' ? ' muted' : '';
       return '<div class="sb2-kb-meta-item">' +
@@ -7315,19 +7338,24 @@ async function loadComputeStats() {
       apiFetch('/api/credits/balance'),
       apiFetch('/api/credits/quotas'),
       apiFetch('/api/credits/usage?start_date=' + dr.start + '&end_date=' + dr.end + '&page_size=200'),
-      apiFetch('/api/credits/usage/summary?start_date=' + dr.start + '&end_date=' + dr.end)
+      apiFetch('/api/credits/usage/summary?start_date=' + dr.start + '&end_date=' + dr.end),
+      /* §117 (2026-11-01 老大): 飞书 AI（daren_bot 账本）积分同屏——
+         失败不拖垮主面板（502 = daren_bot 未起），置 null 渲染「不可用」提示 */
+      apiFetch('/api/credits/feishu').catch(function(){ return null; })
     ]);
     var balances = results[0] ? await results[0].json() : [];
     var quotas = results[1] ? await results[1].json() : [];
     var todayUsage = results[2] ? await results[2].json() : {};
     var summary = results[3] ? await results[3].json() : {};
+    var feishuCredits = results[4] ? await results[4].json().catch(function(){ return null; }) : null;
     area.innerHTML = renderCreditDashboard(
       Array.isArray(balances) ? balances : [],
       Array.isArray(quotas) ? quotas : [],
       (todayUsage && todayUsage.data) || [],
       summary || {},
       dr,
-      (todayUsage && todayUsage.total) || 0
+      (todayUsage && todayUsage.total) || 0,
+      feishuCredits
     );
     /* 〔dash/credit-checkin 2026-10-08 派单 B〕签到卡同屏加载 */
     if (typeof loadCreditCheckin === 'function') loadCreditCheckin();
@@ -7346,7 +7374,7 @@ function _creditStatChip(label, value) {
   /* reskin 2026-10-08: 指标芯片蓝底/蓝字 → sb2 brand token */
   return '<div style="flex:1;min-width:140px;border-radius:12px;background:var(--sb2-brand-soft);padding:12px 14px;"><div style="font-size:12px;color:var(--color-text-secondary, #6E6E73);">' + label + '</div><div style="font-size:20px;font-weight:700;color:var(--sb2-brand);margin-top:2px;">' + value + '</div></div>';
 }
-function renderCreditDashboard(balances, quotas, todayRecords, summary, dr, usageTotal) {
+function renderCreditDashboard(balances, quotas, todayRecords, summary, dr, usageTotal, feishuCredits) {
   var admin = isAdmin();
   if (!admin) {
     var _myAgentIds = {};
@@ -7434,6 +7462,43 @@ function renderCreditDashboard(balances, quotas, todayRecords, summary, dr, usag
   }
   html += '</div>';
 
+  /* §117 (2026-11-01 老大): 飞书 AI 积分区块 —— 木木等飞书助理的账本(daren_bot 侧)
+     与员工积分(OpenClaw 侧)是两套账, 同屏展示才能给飞书 AI 分配积分。
+     管理员可见 + 可充值; 非管理员/拉取失败显示提示, 不编造数字。 */
+  html += '<div class="settings-card"><div class="settings-card-title">飞书 AI 积分（达人助理账本）</div>';
+  if (!admin) {
+    html += '<div class="settings-empty" style="padding:16px;">飞书 AI 积分仅管理员可见</div>';
+  } else if (!feishuCredits || !feishuCredits.ok) {
+    html += '<div class="settings-empty" style="padding:16px;">' +
+      escapeHtml((feishuCredits && feishuCredits.error) || '达人助理服务未启动，暂不可读') + '</div>';
+  } else {
+    var fAccounts = feishuCredits.accounts || [];
+    var fUsage = feishuCredits.usage30d || {};
+    if (!fAccounts.length) {
+      html += '<div class="settings-empty" style="padding:16px;">暂无飞书 AI 租户</div>';
+    } else {
+      html += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px;">';
+      fAccounts.forEach(function (f) {
+        var fLow = (f.balance || 0) <= 0;
+        var fName = f.tenant_label || f.tenant_key;
+        var fSafeName = String(fName).replace(/'/g, "\\'");
+        var fSafeKey = String(f.tenant_key).replace(/'/g, "\\'");
+        html += '<div style="border:0.5px solid var(--sb2-border,rgba(0,0,0,0.08));border-radius:12px;padding:14px;background:var(--sb2-s1,#fff);">';
+        html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">';
+        html += '<div style="font-size:14px;font-weight:600;color:var(--text-primary);">' + escapeHtml(fName) +
+          (f.tenant_label && f.tenant_label !== f.tenant_key ? '<span style="font-size:11px;color:var(--text-tertiary);margin-left:6px;">' + escapeHtml(f.tenant_key) + '</span>' : '') + '</div>';
+        html += '<button class="module-action-btn" style="padding:2px 10px;font-size:12px;" onclick="rechargeFeishuCredits(\'' + fSafeKey + '\', \'' + fSafeName + '\')">充值</button>';
+        html += '</div>';
+        html += '<div style="font-size:26px;font-weight:700;color:' + (fLow ? '#FF3B30' : 'var(--sb2-brand)') + ';">' + formatNumber(f.balance || 0) + '<span style="font-size:12px;font-weight:400;color:var(--text-tertiary);margin-left:4px;">积分</span></div>';
+        html += '<div style="font-size:12px;color:var(--color-text-secondary, #6E6E73);margin-top:4px;">近 30 天消耗 ' + formatNumber(fUsage[f.tenant_key] || 0) + ' 积分' +
+          (f.douyin_id ? ' · 绑定抖音号 ' + escapeHtml(f.douyin_id) : '') + '</div>';
+        html += '</div>';
+      });
+      html += '</div>';
+    }
+  }
+  html += '</div>';
+
   // 使用记录明细（可展开）
   html += '<div class="settings-card"><div class="settings-card-title" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center;" onclick="toggleCreditUsageList()">使用记录明细<span id="creditUsageToggleArrow" style="font-size:12px;color:var(--sb2-brand);font-weight:400;">展开 ▼</span></div>';
   html += '<div id="creditUsageListArea" style="display:none;"></div></div>';
@@ -7459,6 +7524,31 @@ async function rechargeAgentCredits(agentId, agentName) {
     }
   } catch (e) {
     console.warn('[Credits] 充值失败:', e);
+    showToast('❌ 充值失败', 'error');
+  }
+}
+/* §117 (2026-11-01 老大): 飞书 AI（达人助理）租户充值 —— 走 /api/credits/feishu/recharge,
+   server 代理 daren_bot /admin/api/grant（那边有租户校验 + 原子事务 + 流水）。 */
+async function rechargeFeishuCredits(tenantKey, tenantName) {
+  var input = prompt('给飞书 AI「' + tenantName + '」（' + tenantKey + '）充值积分：', '500');
+  if (input === null) return;
+  var amount = parseInt(input, 10);
+  if (!amount || amount <= 0) { showToast('❌ 请输入有效的积分数', 'error'); return; }
+  try {
+    var resp = await apiFetch('/api/credits/feishu/recharge', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ tenant: tenantKey, amount: amount })
+    });
+    var data = await resp.json();
+    if (resp.ok) {
+      showToast('✅ 充值成功，「' + tenantName + '」当前余额 ' + (data.new_balance || 0) + ' 积分');
+      loadComputeStats();
+    } else {
+      showToast('❌ ' + (data.error || '充值失败'), 'error');
+    }
+  } catch (e) {
+    console.warn('[FeishuCredits] 充值失败:', e);
     showToast('❌ 充值失败', 'error');
   }
 }

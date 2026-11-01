@@ -42,6 +42,18 @@ MASTER_KEY_PATH = Path(os.environ.get("DAREN_MASTER_KEY", DATA_DIR / "master.key
 
 HTTP_PORT = int(os.environ.get("DAREN_PORT", "8092"))
 
+# §117 (2026-11-01 老大): 知识库创建者要显 AI 真名 —— tenant_key → 展示名映射。
+# 没配的就 fallback 显示 tenant_key（daren_boss/daren_test2 老大没指定显示名）。
+TENANT_LABELS = {
+    'mumu': '木木',
+}
+
+
+def tenant_label(tenant_key: str) -> str:
+    """租户展示名（知识库 source_meta / 创建者显示用）；未配置时原样返回 tenant_key。"""
+    tk = (tenant_key or '').strip()
+    return TENANT_LABELS.get(tk, tk)
+
 # 初始额度（spec 第 7 章：500 分 ≈ 5 次周抓 + 日常问答余量）
 INITIAL_CREDITS = int(os.environ.get("DAREN_INITIAL_CREDITS", "500"))
 

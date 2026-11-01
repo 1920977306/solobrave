@@ -2071,6 +2071,10 @@ def init_kb_entries_db():
         #   历史行默认 'legacy'（未标档位的老数据），不假装是某一档
         _add_column_if_not_exists(conn, 'kb_entries', 'tier', "TEXT DEFAULT 'legacy'")
         _add_column_if_not_exists(conn, 'kb_entries', 'source', "TEXT DEFAULT 'legacy'")
+        # §117 (2026-11-01 老大): 达人标识元数据 —— daren_bot 回流条目随条存
+        #   {tenant_key, tenant_label(AI真名), douyin_id, douyin_name}（白名单校验后 JSON）。
+        #   审核视图据此显示「创建者=木木 / 达人=洁洁爱户外 / 抖音号」，不用猜是哪条管道来的。
+        _add_column_if_not_exists(conn, 'kb_entries', 'source_meta', "TEXT DEFAULT ''")
         conn.execute('CREATE INDEX IF NOT EXISTS idx_kb_entries_tier ON kb_entries(tier)')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_kb_entries_scope ON kb_entries(scope)')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_kb_entries_category ON kb_entries(category)')
@@ -2203,7 +2207,23 @@ def _kb_entry_row_to_dict(row):
         'updatedAt': row['updated_at'],
         'tier': (row['tier'] if 'tier' in _row_keys else '') or 'legacy',
         'source': (row['source'] if 'source' in _row_keys else '') or 'legacy',
+        # §117: 达人标识元数据（防御读——列可能尚未迁移/老行是空串）
+        'sourceMeta': _parse_source_meta(row['source_meta'] if 'source_meta' in _row_keys else ''),
+        # 创建者显示真名：优先 meta.tenant_label（木木），没有 meta 时回退原始 created_by
+        'createdByLabel': (_parse_source_meta(row['source_meta'] if 'source_meta' in _row_keys else '')
+                           .get('tenant_label') or (row['created_by'] or '')),
     }
+
+
+def _parse_source_meta(raw):
+    """§117: source_meta 列是白名单校验后的 JSON 字符串；解析失败/空串返回 {}，绝不抛。"""
+    if not raw:
+        return {}
+    try:
+        obj = json.loads(raw)
+        return obj if isinstance(obj, dict) else {}
+    except (ValueError, TypeError):
+        return {}
 
 
 def _kb_entry_group_ids_json(group_ids):

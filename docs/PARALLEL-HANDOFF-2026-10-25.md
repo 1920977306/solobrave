@@ -178,6 +178,7 @@ curl -s -X POST "http://127.0.0.1:8092/admin/api/plan-scan?token=$TOKEN" \
 | `daren_bot/persona.py`（新）+ `daren_bot/executors.py` + `tests/test_persona_learning.py`（新）| A 边（prod 目录会话，隧道/7188 边）| 2026-10-27 19:05 | ✅ 19:15 已交（`189cf10`）| **角色模板 + 聊天即训练**：人格唯一来源 `persona.md`（新达人自动继承，解决"新创建的 bot 行为不一样"）；纠正/建议自动捕获→`talent_feedback` 知识库→`distill_learnings` 幂等沉淀进人格模板【达人纠正榜】。守卫 12 + 回归 132 全绿 |
 | `knowledge_service.py` + `solobrave-server.py` + `js/inline-07.js` + `index.html`(样式) + `tests/test_kb_review_panel.py`（新）| A 边（prod 目录会话，隧道/7188 边）| 2026-10-29 21:40 | ✅ 22:0x 已交（`2f899fd`）| **KB 审核面板**（优化菜单②）：GET entries 加 status 过滤；PUT 过审(pending→ok) 自动补向量（无 chunk 重建+向量化，无 key/失败不留假绿灯）；前端待审核视图 + 通过/拒绝/本页全过 |
 | `daren_bot/llm_usage.py`（新）+ `daren_bot/llm_channels.py` + `daren_bot/executors.py` + `buyin_worker.py` + `solobrave-server.py` + `llm-usage.html`（新）+ `tests/test_llm_usage.py`（新）| A 边（prod 目录会话，隧道/7188 边）| 2026-10-29 23:30 | ✅ 10-30 00:1x 已交（`b59200d` + `54be68b`）| **MiniMax 消耗统计进 admin**（优化菜单③）：llm_channels 四个底层函数包装插桩（旁路 sqlite llm_usage.db，ContextVar 传 site）；`/api/admin/llm-usage` admin only；独立 llm-usage.html 面板 |
+| `daren_bot/reflow.py` + `daren_bot/config.py` + `solobrave-server.py` + `knowledge_service.py` + `js/inline-07.js` + `tests/test_kb_source_meta.py`（新）+ `tests/test_feishu_credits.py`（新）| A 边（prod 目录会话）| 2026-11-01 17:4x | ⏳ 本轮交 | **知识库三改造**（老大 11-01 17:36 指令）：①详情页创建者显 AI 真名（daren_bot→木木，机器标识挪"来源标识"行）②积分中心纳入飞书 AI 账本（`/api/credits/feishu` 聚合 + 充值）③条目带达人标识（tenant_label/douyin 号，reflow 推 meta → `kb_entries.source_meta`）|
 
 > ⚠️ **B 边注意（第 6 轮新增的冲突面）**：
 > `daren_bot/db.py` / `daren_bot/plan_notify.py` / `daren_bot/feishu_card.py`
@@ -9986,3 +9987,51 @@ login_watcher 每轮（60s）新增一道**盘上 cookie 取证巡检**：读两
 - 全量回归 **1319 passed**（基线 1316 + 守卫 3）；secret_scan 0；双分支零分叉。
 - **团长端 cookie 明天（11-01）到期**：今晚 00:44 已发过一次临期提醒（dedup 15 分钟锁存，恢复自动解除）；达人端 ok。采集（发抖音号）失效后老大扫码即恢复，商品查询/截图链路不受影响。
 - LLM 消耗面板持续有真实数据（10-30 起 worker_* 标签正常落行）。
+
+---
+
+## §117 知识库三改造：创建者显真名 / 积分中心纳入飞书 AI / 条目带达人标识（A 边，2026-11-01 17:4x 起，进行中）
+
+### 117.0 老大指令（11-01 17:36 原话三部分）
+1. 知识详情页创建者显示 `daren_bot` → 改成 AI 真名「木木」；所有 AI 创建的都要显真名；`daren_bot` 这种机器标识如果必须保留，放另一个地方显示。
+2. 木木的积分消耗要和后台积分中心打通：积分中心没显示飞书上木木的消耗，无法给飞书 AI 分配积分。
+3. 知识库条目要显示达人抖音名称：达人发飞书进知识库后，审核时看不出是哪个达人、分析了什么账号，人工没法审。
+
+### 117.1 调查结论（全部实测，见压缩前记录）
+- 前端 `js/inline-07.js:1325` 直显 `doc.createdBy`；服务端 ingest 在 `solobrave-server.py:6797` `_daren_kb_ingest`（`user_id='daren_bot'`，`status='pending'`）；返回 dict 在 `knowledge_service.py:_kb_entry_row_to_dict`（无 createdByLabel / sourceMeta）。
+- 积分双账：server `/api/credits/*`（9211-9220）是 OpenClaw 员工积分；daren_bot 账本是 `data/daren-bot/daren_bot.db` 的 `bot_credits_accounts` / `bot_credits_ledger`（WAL），两套互不相通。
+- 达人标识源：`bot_tenants.bind_douyin_id`（daren_boss→hlb725 / daren_test2→324733241 / mumu→62224890070）⇒ 租户↔抖音号现成。
+
+### 117.2 设计决策（已 settled）
+1. reflow 推送带 `meta={tenant_key, tenant_label, douyin_id, douyin_name}`；`config.py` 加 `TENANT_LABELS={'mumu':'木木'}`，其他租户 fallback tenant_key。
+2. server ingest 白名单校验 meta → 存 `kb_entries.source_meta` TEXT(JSON)，幂等 ALTER；返回加 `createdByLabel`（meta.ai）+ `sourceMeta`；`created_by` 保留 `daren_bot` 不动。
+3. 详情页创建者行显示真名，另加「来源标识」「达人」「抖音号」行；待审核列表卡片加达人名徽标。
+4. server 新 API `GET /api/credits/feishu`（只读聚合 daren_bot.db）+ `POST /api/credits/feishu/recharge`；写路径依 `db.py` grant/deduct 事务写法定（见 117.3）。
+
+### 117.3 最终落地（2026-11-01 晚，全部实测）
+1. **创建者显真名**：`daren_bot/reflow.py` 三个推送函数 + `persona.capture_feedback` 全部带
+   `tenant_meta()`（tenant_key/tenant_label/douyin_id/douyin_name，db 查询失败降级不炸）；
+   `config.TENANT_LABELS={'mumu':'木木'}`（其他租户 fallback tenant_key，老大没指定显示名）。
+   server `_daren_kb_ingest` 收 meta → `_kb_source_meta_json` 白名单（4键，str 化截 120，防注入）
+   → `kb_entries.source_meta`（幂等 ALTER）。`_kb_entry_row_to_dict` 返回 `sourceMeta` +
+   `createdByLabel`（优先 meta.tenant_label，回退 created_by）。前端详情页：创建者行=真名，
+   有 meta 时加「来源标识(daren_bot)/达人/抖音号」三行；待审核卡片挂「木木 · 洁洁爱户外」徽标。
+2. **积分中心纳入飞书 AI**：daren_bot `admin.py` 新增 `GET /admin/api/credits`（accounts 聚合
+   + usage30d 只算 cost>0 近 30 天）；server 新增 `GET /api/credits/feishu` +
+   `POST /api/credits/feishu/recharge`（admin 鉴权，代理 127.0.0.1:8092，token 现读
+   `data/daren-bot/admin_token.txt` 不缓存，对端 4xx 原样透传，不可达 502 不抛）。
+   充值复用 bot 侧 `/admin/api/grant`（租户校验+原子事务+流水，不重复造）。
+   积分中心前端新增「飞书 AI 积分（达人助理账本）」区块：余额卡 + 近30天消耗 + 绑定抖音号 +
+   充值按钮（`rechargeFeishuCredits`）。
+3. **守卫**：新增 `tests/test_kb_source_meta.py`（10 条）+ `tests/test_feishu_credits.py`（9 条，
+   含代理 spy/4xx 透传/参数校验）；`test_persona_learning.py` spy 吃 **kw；
+   `test_knowledge_intake.py` 自建表补 source_meta 列。变异对照：砍白名单 1 红、砍
+   createdByLabel 3 红，还原全绿。全量 **1338 passed**（基线 1319+19）。secret_scan 0。
+
+### 117.4 给 B 边的注意
+- `solobrave-server.py`（_upsert_knowledge_base/路由）、`knowledge_service.py`（建表/row_to_dict）、
+  `daren_bot/admin.py|reflow.py|config.py|persona.py`、`js/inline-07.js` 本轮 A 边全动过，
+  合流时以本提交为准。
+- ⚠️ 教训（A 边自曝）：做变异对照时用 `git checkout <file>` 还原**误杀了自己未提交的全部改动**
+  （server/knowledge_service 两处被整文件回滚，靠测试全量红发现）⇒ 以后变异还原只回退**变异那几行**，
+  或用 `git stash` 前先 add。

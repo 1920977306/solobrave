@@ -4,6 +4,7 @@
   GET  /healthz              健康检查（原有）
   GET  /admin                管理页（token 鉴权）
   GET  /admin/api/state      租户/积分/任务/流水聚合 JSON
+  GET  /admin/api/credits    飞书 AI 积分聚合（§117：server 积分中心读取用）
   POST /admin/api/grant      发放积分 {tenant_key, amount}
   POST /admin/api/bind       绑定/换绑抖音号 {tenant_key, douyin_id}
 
@@ -19,6 +20,35 @@ from urllib.parse import urlparse, parse_qs
 from . import config, db, ops_alert
 
 log = logging.getLogger("daren-bot.admin")
+
+def _get_credits() -> dict:
+    """§117: 飞书 AI（daren_bot 账本）积分聚合 —— server 积分中心只读代理的数据源。
+
+    返回 {accounts: [{tenant_key, tenant_label, balance, douyin_id, updated_at}],
+          usage30d: {tenant_key: 消耗分}}。
+    流水口径：bot_credits_ledger.cost > 0 = 消耗（deduct），< 0 = 发放/返还（grant/refund）。"""
+    accounts = []
+    with db.db_ctx() as conn:
+        rows = conn.execute(
+            "SELECT tenant_key, balance, updated_at FROM bot_credits_accounts "
+            "ORDER BY tenant_key").fetchall()
+        for r in rows:
+            tk = r["tenant_key"]
+            t = db.get_tenant(tk) or {}
+            accounts.append({
+                "tenant_key": tk,
+                "tenant_label": config.tenant_label(tk),
+                "balance": int(r["balance"]),
+                "douyin_id": t.get("bind_douyin_id") or "",
+                "updated_at": r["updated_at"],
+            })
+        cutoff = db.now_ts() - 30 * 86400
+        usage = {r["tenant_key"]: int(r["s"] or 0) for r in conn.execute(
+            "SELECT tenant_key, SUM(cost) AS s FROM bot_credits_ledger "
+            "WHERE cost > 0 AND created_at >= ? GROUP BY tenant_key",
+            (cutoff,))}
+    return {"accounts": accounts, "usage30d": usage}
+
 
 _TOKEN_PATH = config.DATA_DIR / "admin_token.txt"
 
@@ -262,6 +292,15 @@ def make_handler(state: dict):
                     return self._json(200, {"ok": True, **_get_state(state["ws"])})
                 except Exception as e:  # noqa: BLE001 后台页不抛栈给前端
                     log.exception("state failed")
+                    return self._json(500, {"ok": False, "error": str(e)})
+            if u.path == "/admin/api/credits":
+                q = parse_qs(u.query)
+                if not self._auth(q):
+                    return self._json(403, {"ok": False, "error": "token 无效"})
+                try:
+                    return self._json(200, {"ok": True, **_get_credits()})
+                except Exception as e:  # noqa: BLE001
+                    log.exception("credits failed")
                     return self._json(500, {"ok": False, "error": str(e)})
             self._json(404, {"ok": False, "error": "not found"})
 

@@ -6617,6 +6617,9 @@ def _upsert_knowledge_base(kb, user_id=''):
         existing = conn.execute(
             'SELECT status, category_id, project_id FROM kb_entries WHERE id = ?', (kb_id,)
         ).fetchone()
+        # §117: 达人标识元数据（daren_bot 回流条目的白名单 meta，dict → JSON 落 source_meta 列；
+        #        UPDATE 路径在下方引用，故此处统一定义；空 meta → '' 走 COALESCE 保留旧值）
+        source_meta_json = _kb_source_meta_json(kb.get('sourceMeta') or kb.get('source_meta'))
         if existing:
             if existing['status'] == 'ok':
                 new_status = 'ok'
@@ -6624,13 +6627,14 @@ def _upsert_knowledge_base(kb, user_id=''):
             final_category_name = category_name if category_id is not None else _kb_category_name_by_id(conn, existing['category_id'])
             conn.execute('''
                 UPDATE kb_entries SET title=?, content=?, category_id=?, category=?, project_id=?, status=?,
-                       tier=COALESCE(NULLIF(?, ''), tier), source=COALESCE(NULLIF(?, ''), source), updated_at=?
+                       tier=COALESCE(NULLIF(?, ''), tier), source=COALESCE(NULLIF(?, ''), source),
+                       source_meta=COALESCE(NULLIF(?, ''), source_meta), updated_at=?
                 WHERE id=?
             ''', (
                 kb.get('title', ''), content,
                 final_category_id, final_category_name,
                 project_id or existing['project_id'],
-                new_status, tier, source, now, kb_id
+                new_status, tier, source, source_meta_json, now, kb_id
             ))
             conn.commit()
             return kb_id
@@ -6656,13 +6660,13 @@ def _upsert_knowledge_base(kb, user_id=''):
                 return cand['id']
         created_at = kb.get('createdAt') or kb.get('created_at') or now
         conn.execute('''
-            INSERT INTO kb_entries (id, title, content, category, category_id, project_id, scope, emp_id, status, chunk_count, created_by, created_at, updated_at, domain, tier, source)
-            VALUES (?, ?, ?, ?, ?, ?, 'global', ?, ?, 0, ?, ?, ?, ?, ?, ?)
+            INSERT INTO kb_entries (id, title, content, category, category_id, project_id, scope, emp_id, status, chunk_count, created_by, created_at, updated_at, domain, tier, source, source_meta)
+            VALUES (?, ?, ?, ?, ?, ?, 'global', ?, ?, 0, ?, ?, ?, ?, ?, ?, ?)
         ''', (
             kb_id, kb.get('title', ''), content,
             category_name, category_id, project_id, emp_id,
             new_status, user_id, created_at, now, ks.KB_DEFAULT_DOMAIN,
-            tier or 'legacy', source or 'legacy'
+            tier or 'legacy', source or 'legacy', source_meta_json
         ))
         conn.commit()
         return kb_id
@@ -6714,6 +6718,47 @@ def _is_low_quality_knowledge(content, title=''):
 # 铁律: 只许 localhost + X-Internal-Secret (共享密钥文件 0o600 不进 git), 绝不暴露内网之外。
 
 _INTERNAL_SECRET_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data', 'internal_secret.txt')
+
+# §117: daren_bot admin 代理 —— server 积分中心读/充飞书 AI 积分（daren_bot 账本）走这条。
+# token 从 bot 的 DATA_DIR/admin_token.txt 现读（同机部署，文件 0o600 不进 git）；
+# 运行期读文件（不缓存）——bot 轮 token 后不用改 server。
+def _daren_bot_admin_token_path():
+    """独立成函数（不做模块级常量）——测试可 monkeypatch 指 tmp，不读 prod token 文件。"""
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                        'data', 'daren-bot', 'admin_token.txt')
+
+
+def _daren_bot_admin_api(path, payload=None):
+    """代理 127.0.0.1:8092/admin/api/*。返回 (status:int, obj:dict)；连不上/token 缺失 ⇒ (502, {...})。"""
+    token_path = _daren_bot_admin_token_path()
+    try:
+        with open(token_path, 'r', encoding='utf-8') as f:
+            token = f.read().strip()
+    except OSError:
+        return 502, {'ok': False, 'error': 'daren_bot admin_token 不可用'}
+    if not token:
+        return 502, {'ok': False, 'error': 'daren_bot admin_token 为空'}
+    port = int(os.environ.get('DAREN_PORT', '8092'))
+    url = f'http://127.0.0.1:{port}{path}?token={urllib.parse.quote(token)}'
+    data = None
+    headers = {}
+    if payload is not None:
+        data = json.dumps(payload, ensure_ascii=False).encode('utf-8')
+        headers['Content-Type'] = 'application/json'
+    req = urllib.request.Request(url, data=data, headers=headers,
+                                 method='POST' if payload is not None else 'GET')
+    try:
+        with urllib.request.urlopen(req, timeout=15) as r:
+            return r.status, json.loads((r.read() or b'{}').decode('utf-8'))
+    except urllib.error.HTTPError as e:
+        try:
+            obj = json.loads((e.read() or b'{}').decode('utf-8'))
+        except Exception:
+            obj = {'ok': False, 'error': str(e)}
+        return e.code, obj
+    except Exception as e:
+        logger.warning(f'  [feishu-credits] daren_bot admin 不可达: {e}')
+        return 502, {'ok': False, 'error': f'daren_bot 不可达: {e}'}
 
 def _internal_secret():
     """读 (不存在则创建) 共享密钥。不缓存 —— 换密钥后下一轮请求即生效。"""
@@ -6794,8 +6839,28 @@ def _daren_upsert_talent(snap):
 # 采集流水/寒暄/积分变动不进 —— 且再过一道 _is_low_quality_knowledge 价值闸, 双保险。
 _DAREN_KB_KINDS = {'talent_insight': '达人画像洞察', 'match_pattern': '商品匹配规律', 'talent_feedback': '达人显式反馈'}
 
-def _daren_kb_ingest(kind, text, title=''):
+# §117: meta 白名单 —— daren_bot 回流条目的达人标识只允许这四个键,
+# 其余键一律丢弃（防注入: meta 最终要进 _kb_entry_row_to_dict 返回给前端渲染）。
+_DAREN_KB_META_KEYS = ('tenant_key', 'tenant_label', 'douyin_id', 'douyin_name')
+
+
+def _kb_source_meta_json(meta):
+    """meta dict → 白名单过滤 + 全字段 str 化截断 → JSON 字符串；非 dict/空 ⇒ ''。
+    返回 '' 时 _upsert 的 COALESCE 语义 = 不覆盖旧值。"""
+    if not isinstance(meta, dict) or not meta:
+        return ''
+    clean = {}
+    for k in _DAREN_KB_META_KEYS:
+        v = meta.get(k)
+        if v is None:
+            continue
+        clean[k] = str(v).strip()[:120]
+    return json.dumps(clean, ensure_ascii=False) if clean else ''
+
+
+def _daren_kb_ingest(kind, text, title='', meta=None):
     """过闸 + 落 kb_entries。review_required=True → status=pending, 管理员审过才进 RAG。
+    meta: §117 达人标识（dict, 过 _kb_source_meta_json 白名单）。
     返回 (kb_id, rejected: bool, reason)。"""
     if kind not in _DAREN_KB_KINDS:
         return None, True, f'kind 不在白名单: {kind}'
@@ -6810,6 +6875,7 @@ def _daren_kb_ingest(kind, text, title=''):
         'title': (title or f"[daren_bot] {_DAREN_KB_KINDS[kind]}").strip()[:200],
         'content': text,
         'source': ki.SOURCE_DAREN_BOT,
+        'sourceMeta': meta,
         # 档位：daren_bot 三类里「画像洞察/匹配规律」是成型结论 ⇒ analysis（完全提取）；
         #       「达人显式反馈」是碎片 ⇒ daily（整理后）。
         'tier': ki.TIER_ANALYSIS if kind in ('talent_insight', 'match_pattern') else ki.TIER_DAILY,
@@ -9223,6 +9289,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if path == '/api/credits/check':
             self._handle_get_credit_check()
             return
+        # §117: 飞书 AI（daren_bot 账本）积分 —— 聚合读 + 充值（代理 8092）
+        if path == '/api/credits/feishu':
+            self._handle_get_feishu_credits()
+            return
         # ★ 积分体系派单 (贾维斯派单, 2026-10-08): 签到状态查询 (checkin/admin-grant 是 POST, 另注册)
         if path == '/api/credits/checkin/status':
             self._handle_credits_checkin_status()
@@ -9583,6 +9653,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         # 积分制算力管控：员工配额充值 / 管理员通用充值
         if path == '/api/credits/recharge':
             self._handle_credit_recharge_generic()
+            return
+        # §117: 飞书 AI 租户充值（代理 daren_bot /admin/api/grant）
+        if path == '/api/credits/feishu/recharge':
+            self._handle_post_feishu_credits_recharge()
             return
         if path.startswith('/api/credits/quotas/') and path.endswith('/recharge'):
             agent_id = path[len('/api/credits/quotas/'):-len('/recharge')]
@@ -18502,6 +18576,49 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         finally:
             conn.close()
 
+    # ─── §117: 飞书 AI（daren_bot 账本）积分 —— server 积分中心的第二套账 ───
+    def _handle_get_feishu_credits(self):
+        """GET /api/credits/feishu — 飞书 AI 积分聚合（代理 daren_bot /admin/api/credits）。
+        老大 2026-11-01：积分中心要能看到木木等飞书 AI 的消耗，否则没法分配积分。"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not (auth.is_admin or auth.is_tenant_admin):
+            self._send_json_error(403, '仅管理员可查看飞书 AI 积分')
+            return
+        status, obj = _daren_bot_admin_api('/admin/api/credits')
+        self._send_json(status, obj)
+
+    def _handle_post_feishu_credits_recharge(self):
+        """POST /api/credits/feishu/recharge — 给飞书 AI 租户充值 {tenant, amount}。
+        代理 daren_bot /admin/api/grant（那边有租户存在性校验 + 原子事务 + 流水）。"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not (auth.is_admin or auth.is_tenant_admin):
+            self._send_json_error(403, '仅管理员可充值飞书 AI 积分')
+            return
+        body = self._read_body() or {}
+        tenant = (body.get('tenant') or '').strip()
+        if not tenant:
+            self._send_json_error(400, '缺少 tenant')
+            return
+        try:
+            amount = int(body.get('amount'))
+        except (TypeError, ValueError):
+            self._send_json_error(400, 'amount 必须是整数')
+            return
+        if amount <= 0:
+            self._send_json_error(400, 'amount 必须大于 0')
+            return
+        status, obj = _daren_bot_admin_api(
+            '/admin/api/grant', payload={'tenant_key': tenant, 'amount': amount})
+        if status == 200 and obj.get('ok'):
+            obj = {'tenant': tenant, 'amount': amount, 'new_balance': obj.get('balance')}
+        self._send_json(status, obj)
+
     def _handle_get_credit_usage(self):
         """GET /api/credits/usage?agent_id=&start_date=&end_date=&page=&page_size= — 使用记录（分页+日期过滤）"""
         auth = _authenticate(self.headers, self.client_address[0], self)
@@ -18919,8 +19036,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         kind = (body.get('kind') or '').strip()
         text = body.get('text') or ''
         title = (body.get('title') or '').strip()
+        meta = body.get('meta') if isinstance(body.get('meta'), dict) else None
         try:
-            kb_id, rejected, reason = _daren_kb_ingest(kind, text, title)
+            kb_id, rejected, reason = _daren_kb_ingest(kind, text, title, meta=meta)
         except Exception as e:
             logger.exception('  [internal] kb ingest failed')
             self._send_json_error(500, f'ingest 失败: {e}')
