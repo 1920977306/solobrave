@@ -178,7 +178,8 @@ curl -s -X POST "http://127.0.0.1:8092/admin/api/plan-scan?token=$TOKEN" \
 | `daren_bot/persona.py`（新）+ `daren_bot/executors.py` + `tests/test_persona_learning.py`（新）| A 边（prod 目录会话，隧道/7188 边）| 2026-10-27 19:05 | ✅ 19:15 已交（`189cf10`）| **角色模板 + 聊天即训练**：人格唯一来源 `persona.md`（新达人自动继承，解决"新创建的 bot 行为不一样"）；纠正/建议自动捕获→`talent_feedback` 知识库→`distill_learnings` 幂等沉淀进人格模板【达人纠正榜】。守卫 12 + 回归 132 全绿 |
 | `knowledge_service.py` + `solobrave-server.py` + `js/inline-07.js` + `index.html`(样式) + `tests/test_kb_review_panel.py`（新）| A 边（prod 目录会话，隧道/7188 边）| 2026-10-29 21:40 | ✅ 22:0x 已交（`2f899fd`）| **KB 审核面板**（优化菜单②）：GET entries 加 status 过滤；PUT 过审(pending→ok) 自动补向量（无 chunk 重建+向量化，无 key/失败不留假绿灯）；前端待审核视图 + 通过/拒绝/本页全过 |
 | `daren_bot/llm_usage.py`（新）+ `daren_bot/llm_channels.py` + `daren_bot/executors.py` + `buyin_worker.py` + `solobrave-server.py` + `llm-usage.html`（新）+ `tests/test_llm_usage.py`（新）| A 边（prod 目录会话，隧道/7188 边）| 2026-10-29 23:30 | ✅ 10-30 00:1x 已交（`b59200d` + `54be68b`）| **MiniMax 消耗统计进 admin**（优化菜单③）：llm_channels 四个底层函数包装插桩（旁路 sqlite llm_usage.db，ContextVar 传 site）；`/api/admin/llm-usage` admin only；独立 llm-usage.html 面板 |
-| `daren_bot/reflow.py` + `daren_bot/config.py` + `solobrave-server.py` + `knowledge_service.py` + `js/inline-07.js` + `tests/test_kb_source_meta.py`（新）+ `tests/test_feishu_credits.py`（新）| A 边（prod 目录会话）| 2026-11-01 17:4x | ⏳ 本轮交 | **知识库三改造**（老大 11-01 17:36 指令）：①详情页创建者显 AI 真名（daren_bot→木木，机器标识挪"来源标识"行）②积分中心纳入飞书 AI 账本（`/api/credits/feishu` 聚合 + 充值）③条目带达人标识（tenant_label/douyin 号，reflow 推 meta → `kb_entries.source_meta`）|
+| `daren_bot/reflow.py` + `daren_bot/config.py` + `solobrave-server.py` + `knowledge_service.py` + `js/inline-07.js` + `tests/test_kb_source_meta.py`（新）+ `tests/test_feishu_credits.py`（新）| A 边（prod 目录会话）| 2026-11-01 17:4x | ✅ 18:2x 已交（`687c80c`）| **知识库三改造**（老大 11-01 17:36 指令）：①详情页创建者显 AI 真名（daren_bot→木木，机器标识挪"来源标识"行）②积分中心纳入飞书 AI 账本（`/api/credits/feishu` 聚合 + 充值）③条目带达人标识（tenant_label/douyin 号，reflow 推 meta → `kb_entries.source_meta`）|
+| `daren_bot/db.py` + `daren_bot/handler.py` + `daren_bot/ws_manager.py` + `daren_bot/worker.py` + `tests/test_chat_messages.py`（新）| A 边（prod 目录会话）| 2026-11-01 19:4x | ⏳ 本轮交 | **P0 聊天落库**（飞书助理平台架构 P0，设计见 `docs/FEISHU-PLATFORM-ARCHITECTURE.md`）：`bot_chat_messages` 表（收发双向、90 天滚动清）+ handler/sender 写入点|
 
 > ⚠️ **B 边注意（第 6 轮新增的冲突面）**：
 > `daren_bot/db.py` / `daren_bot/plan_notify.py` / `daren_bot/feishu_card.py`
@@ -10035,3 +10036,25 @@ login_watcher 每轮（60s）新增一道**盘上 cookie 取证巡检**：读两
 - ⚠️ 教训（A 边自曝）：做变异对照时用 `git checkout <file>` 还原**误杀了自己未提交的全部改动**
   （server/knowledge_service 两处被整文件回滚，靠测试全量红发现）⇒ 以后变异还原只回退**变异那几行**，
   或用 `git stash` 前先 add。
+
+---
+
+## §118 P0 聊天落库（飞书助理平台地基）（A 边，2026-11-01 19:4x 起，进行中）
+
+### 118.0 背景
+架构提案 `docs/FEISHU-PLATFORM-ARCHITECTURE.md`（11-01 晚，含木木租户 68 条真实达人消息
+需求分析）的 P0：聊天文本此前**哪里都不落库**（日志只有元数据），「角色好不好/翻车率/
+达人需求」无法自动化评估。本节的 `bot_chat_messages` 是一切评估的地基。
+
+### 118.1 设计
+- 新表 `bot_chat_messages(id, tenant_key, chat_id, direction in|out, msg_type, content, created_at)`，
+  索引 `(tenant_key, created_at)`。
+- 写入点两个：`handler._dispatch`（入站，全类型统一，best-effort 不阻塞主流程）；
+  `ws_manager.Sender` 三个发送方法（出站：send_text 入队时、send_image_path/send_card 成功后）。
+  Sender 构造函数加 `tenant_key` 参数（ws_manager.reload 处传入）。
+- content 归一化：text 截 2000；image/post 存原始 JSON 截 2000。
+- 90 天滚动删除（聊天与 payload 不同——审计要的是流水本身，但 90 天够复盘周期；
+  挂在 worker 每小时维护循环，跟 purge_old_payloads 并列）。
+
+### 118.2 状态
+- （进行中）

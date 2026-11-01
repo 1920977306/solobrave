@@ -46,11 +46,12 @@ _ws_client_mod.loop = _ThreadLocalLoop()
 class Sender:
     """按租户自己的凭证发消息（硬约束：严禁混用）。线程安全队列发送。"""
 
-    def __init__(self, app_id: str, app_secret: str):
+    def __init__(self, app_id: str, app_secret: str, tenant_key: str = ""):
         self.client = (lark.Client.builder()
                        .app_id(app_id)
                        .app_secret(app_secret)
                        .build())
+        self._tenant_key = tenant_key
         self._queue: list = []
         self._cv = threading.Condition()
         self._closed = False
@@ -58,7 +59,18 @@ class Sender:
                                         name=f"sender-{app_id[-6:]}")
         self._thread.start()
 
+    def _log_out(self, chat_id: str, msg_type: str, content: str) -> None:
+        """§118: 出站消息落库。best-effort——落库失败绝不阻塞/影响发送。"""
+        if not self._tenant_key:
+            return
+        try:
+            from . import db
+            db.save_chat_message(self._tenant_key, chat_id, "out", msg_type, content)
+        except Exception:
+            log.exception("chat out log failed tenant=%s", self._tenant_key)
+
     def send_text(self, chat_id: str, text: str) -> None:
+        self._log_out(chat_id, "text", text)
         with self._cv:
             self._queue.append((chat_id, text))
             self._cv.notify()
@@ -90,6 +102,7 @@ class Sender:
         resp = self.client.im.v1.message.create(req)
         if not resp.success():
             raise RuntimeError(f"message.create(image) failed code={resp.code} msg={resp.msg}")
+        self._log_out(chat_id, "image", _json.dumps({"image_key": image_key}))
 
     def send_card(self, chat_id: str, card: dict) -> str:
         """发一张飞书交互卡片（卡片 1.0）。返回 message_id（失败抛异常）。
@@ -111,6 +124,7 @@ class Sender:
         resp = self.client.im.v1.message.create(req)
         if not resp.success():
             raise RuntimeError(f"message.create(card) failed code={resp.code} msg={resp.msg}")
+        self._log_out(chat_id, "interactive", _json.dumps(card, ensure_ascii=False))
         return getattr(resp, "message_id", "") or ""
 
     def update_card(self, message_id: str, card: dict) -> str:
@@ -206,7 +220,8 @@ class TenantConnection:
                                       app_secret=app_secret,
                                       event_handler=dispatcher,
                                       log_level=lark.LogLevel.DEBUG)
-        self.sender = Sender(tenant["app_id"], app_secret)
+        self.sender = Sender(tenant["app_id"], app_secret,
+                             tenant_key=tenant.get("tenant_key", ""))
         self._thread = None
 
     def start(self):

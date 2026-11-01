@@ -76,6 +76,13 @@ class Worker(threading.Thread):
                         log.info("purged %d stale task payloads (30d)", purged)
                 except Exception:
                     log.exception("purge_old_payloads failed")
+                # §118 P0 聊天落库: 同周期滚动删 90 天前聊天流水
+                try:
+                    purged_msg = db.purge_old_chat_messages()
+                    if purged_msg:
+                        log.info("purged %d chat messages (90d)", purged_msg)
+                except Exception:
+                    log.exception("purge_old_chat_messages failed")
             task = db.claim_next_task()
             if not task:
                 self._stop_event.wait(self.poll_interval)

@@ -296,6 +296,15 @@ class Router:
         log.info("message received: tenant=%s type=%s chat=%s from=%s",
                  tenant["tenant_key"], msg.message_type, chat_id,
                  getattr(data.event.sender.sender_id, "open_id", "?"))
+        # §118 P0 聊天落库：入站消息落 bot_chat_messages（best-effort——
+        #   落库失败只记日志，绝不阻塞/影响回复路径）
+        try:
+            in_content = content.get("text", "") if msg.message_type == "text" \
+                else (msg.content or "")[:2000]
+            db.save_chat_message(tenant["tenant_key"], chat_id, "in",
+                                 msg.message_type or "", in_content)
+        except Exception:
+            log.exception("chat in log failed tenant=%s", tenant["tenant_key"])
         # 记住达人本人 open_id：建多维表格后授权其可见（幂等，只写一次）
         try:
             db.set_owner_open_id(

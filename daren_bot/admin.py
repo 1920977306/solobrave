@@ -5,6 +5,7 @@
   GET  /admin                管理页（token 鉴权）
   GET  /admin/api/state      租户/积分/任务/流水聚合 JSON
   GET  /admin/api/credits    飞书 AI 积分聚合（§117：server 积分中心读取用）
+  GET  /admin/api/chat?tenant_key=&limit=  聊天流水（§118：审计读接口）
   POST /admin/api/grant      发放积分 {tenant_key, amount}
   POST /admin/api/bind       绑定/换绑抖音号 {tenant_key, douyin_id}
 
@@ -301,6 +302,26 @@ def make_handler(state: dict):
                     return self._json(200, {"ok": True, **_get_credits()})
                 except Exception as e:  # noqa: BLE001
                     log.exception("credits failed")
+                    return self._json(500, {"ok": False, "error": str(e)})
+            if u.path == "/admin/api/chat":
+                q = parse_qs(u.query)
+                if not self._auth(q):
+                    return self._json(403, {"ok": False, "error": "token 无效"})
+                tk = (q.get("tenant_key") or [""])[0].strip()
+                if not tk:
+                    return self._json(400, {"ok": False, "error": "缺少 tenant_key"})
+                if not db.get_tenant(tk):
+                    return self._json(400, {"ok": False, "error": f"租户不存在: {tk}"})
+                try:
+                    limit = int((q.get("limit") or ["100"])[0] or 100)
+                except ValueError:
+                    limit = 100
+                try:
+                    msgs = db.list_chat_messages(tk, limit=limit)
+                    return self._json(200, {"ok": True, "tenant_key": tk,
+                                            "count": len(msgs), "messages": msgs})
+                except Exception as e:  # noqa: BLE001
+                    log.exception("chat failed")
                     return self._json(500, {"ok": False, "error": str(e)})
             self._json(404, {"ok": False, "error": "not found"})
 

@@ -228,6 +228,24 @@ CREATE INDEX IF NOT EXISTS idx_interactions_tenant
   ON bot_interactions(tenant_key, kind, created_at);
 """
 
+# §118 P0 聊天落库（2026-11-01，飞书助理平台架构 P0）：
+# 聊天收发双向落库——「角色好不好/翻车率/达人需求」评估的地基。
+# 此前聊天文本哪里都不存（日志只有元数据），审计/需求分析只能手工拉飞书 API。
+# 90 天滚动删除（审计流水本身，90 天够复盘周期；与 payload 的行保留口径不同）。
+DDL_CHAT_MESSAGES = """
+CREATE TABLE IF NOT EXISTS bot_chat_messages (
+  id         TEXT PRIMARY KEY,
+  tenant_key TEXT NOT NULL,
+  chat_id    TEXT NOT NULL DEFAULT '',
+  direction  TEXT NOT NULL,              -- in=达人发来 / out=AI 回复
+  msg_type   TEXT NOT NULL DEFAULT '',   -- text/image/post/interactive...
+  content    TEXT NOT NULL DEFAULT '',   -- text 原文 或 结构化 body JSON（截 2000）
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_chat_msg_tenant
+  ON bot_chat_messages(tenant_key, created_at);
+"""
+
 # ★ 2026-10-28：专属佣金待重算登记——商品结论卡片推给达人时登记
 #   「最近一个分析过的商品 + 它的 stats」。达人随后报专属佣金（只TA后台可见的
 #   商家专属佣金，平台接口查不到）⇒ 按新佣金重出一版结论（commission 任务）。
@@ -249,6 +267,7 @@ def init_db():
         conn.executescript(DDL)
         conn.executescript(DDL_INTERACTIONS)
         conn.executescript(DDL_COMMISSION_PENDING)
+        conn.executescript(DDL_CHAT_MESSAGES)
         # 轻量迁移：tasks 表补 payload 列（存名字提示等任务负载，JSON）
         cols = {r[1] for r in conn.execute("PRAGMA table_info(bot_collect_tasks)")}
         if "payload" not in cols:
@@ -761,6 +780,51 @@ def purge_old_payloads(days: int = 30) -> int:
             "UPDATE bot_collect_tasks SET payload='' "
             "WHERE status IN ('done','failed') AND done_at IS NOT NULL AND done_at > 0 "
             "AND done_at < ? AND payload NOT IN ('', '{}')", (cutoff,))
+        return cur.rowcount
+
+
+# ---------- §118 聊天落库 ----------
+
+_CHAT_CONTENT_MAX = 2000
+
+
+def save_chat_message(tenant_key: str, chat_id: str, direction: str,
+                      msg_type: str, content: str) -> str:
+    """§118: 一条聊天消息落库（收发双向）。返回 id。
+    best-effort 由调用方保证（写入失败只记日志，绝不阻塞聊天主流程）。"""
+    if direction not in ("in", "out"):
+        raise ValueError("direction 必须是 in/out")
+    mid = uuid.uuid4().hex
+    with db_ctx() as conn:
+        conn.execute(
+            "INSERT INTO bot_chat_messages (id, tenant_key, chat_id, direction, "
+            "msg_type, content, created_at) VALUES (?,?,?,?,?,?,?)",
+            (mid, tenant_key, chat_id, direction, (msg_type or "")[:30],
+             (content or "")[:_CHAT_CONTENT_MAX], now_ts()))
+    return mid
+
+
+def list_chat_messages(tenant_key: str, limit: int = 100,
+                       before_ts: int = None) -> list:
+    """§118: 审计读接口（控制台用）—— 新→旧倒序, limit 封顶 500。"""
+    limit = min(max(int(limit or 100), 1), 500)
+    with db_ctx() as conn:
+        if before_ts:
+            rows = conn.execute(
+                "SELECT * FROM bot_chat_messages WHERE tenant_key=? AND created_at<? "
+                "ORDER BY created_at DESC LIMIT ?", (tenant_key, before_ts, limit)).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM bot_chat_messages WHERE tenant_key=? "
+                "ORDER BY created_at DESC LIMIT ?", (tenant_key, limit)).fetchall()
+        return [dict(r) for r in rows]
+
+
+def purge_old_chat_messages(days: int = 90) -> int:
+    """§118: 90 天滚动**删除**（聊天流水不留残壳——与 payload 的行保留口径不同）。"""
+    cutoff = now_ts() - days * 86400
+    with db_ctx() as conn:
+        cur = conn.execute("DELETE FROM bot_chat_messages WHERE created_at < ?", (cutoff,))
         return cur.rowcount
 
 
