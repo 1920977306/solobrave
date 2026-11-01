@@ -258,3 +258,57 @@ class TestChatHandler:
                                  '/api/feishu/chat?tenant_key=mumu', auth=auth)
         assert sent['code'] == 403
         assert not calls
+
+
+class TestProxyQueryAppend:
+    """§119 真机冒烟抓到的 bug：path 自带 query 时，helper 追加 ?token= 会把 token
+    吞进上一个参数值（limit=5?token=xx）⇒ bot 收不到 token ⇒ 403。
+    守卫：带 query 的 path 必须用 & 追加 token。"""
+
+    def test_query_path_appends_token_with_ampersand(self, srv, monkeypatch, tmp_path):
+        tok = tmp_path / 'admin_token.txt'
+        tok.write_text('tk')
+        monkeypatch.setattr(srv, '_daren_bot_admin_token_path', lambda: str(tok))
+        captured = {}
+
+        class _Resp:
+            status = 200
+
+            def read(self):
+                return b'{"ok": true}'
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+        monkeypatch.setattr(srv.urllib.request, 'urlopen',
+                            lambda req, timeout=0: captured.update(url=req.full_url) or _Resp())
+        srv._daren_bot_admin_api('/admin/api/chat?tenant_key=mumu&limit=5')
+        assert 'limit=5&token=tk' in captured['url'], \
+            f"token 必须是独立参数，实际: {captured['url']}"
+        assert 'limit=5?token=' not in captured['url'], '第二个 ? 会把 token 吞进 limit 的值'
+
+    def test_plain_path_still_question_mark(self, srv, monkeypatch, tmp_path):
+        tok = tmp_path / 'admin_token.txt'
+        tok.write_text('tk')
+        monkeypatch.setattr(srv, '_daren_bot_admin_token_path', lambda: str(tok))
+
+        class _Resp:
+            status = 200
+
+            def read(self):
+                return b'{"ok": true}'
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+        captured = {}
+        monkeypatch.setattr(srv.urllib.request, 'urlopen',
+                            lambda req, timeout=0: captured.update(url=req.full_url) or _Resp())
+        srv._daren_bot_admin_api('/admin/api/state')
+        assert '/admin/api/state?token=tk' in captured['url']

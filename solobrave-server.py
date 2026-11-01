@@ -6739,7 +6739,10 @@ def _daren_bot_admin_api(path, payload=None):
     if not token:
         return 502, {'ok': False, 'error': 'daren_bot admin_token 为空'}
     port = int(os.environ.get('DAREN_PORT', '8092'))
-    url = f'http://127.0.0.1:{port}{path}?token={urllib.parse.quote(token)}'
+    # §119: path 可能自带 query（如 /admin/api/chat?tenant_key=…）⇒ 用 & 追加，第二个 ? 会把
+    # token 吞进上一个参数的值里（真机冒烟踩过：limit=5?token=xx ⇒ bot 收不到 token ⇒ 403）。
+    sep = '&' if '?' in path else '?'
+    url = f'http://127.0.0.1:{port}{path}{sep}token={urllib.parse.quote(token)}'
     data = None
     headers = {}
     if payload is not None:
