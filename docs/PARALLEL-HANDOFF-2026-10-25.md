@@ -10057,4 +10057,10 @@ login_watcher 每轮（60s）新增一道**盘上 cookie 取证巡检**：读两
   挂在 worker 每小时维护循环，跟 purge_old_payloads 并列）。
 
 ### 118.2 状态
-- （进行中）
+- ✅ 已上线（commit `b284131`，双分支零分叉）：全量 1350 passed（基线 1338+12）；
+  变异对照 2 处（删入站/删出站落库）必红；secret_scan 0；bot 已重启（3 租户在线）。
+- **生产冒烟实证**：重启后 login_watcher 的 cookie 临期告警真实发出，出站消息已落
+  `bot_chat_messages`（direction=out，内容完整）⇒ 收发双向写路径在生产生效；
+  `GET /admin/api/chat?tenant_key=mumu` 返回 200（count=0=重启后暂无新消息，正确）。
+- 审计接口 `GET :8092/admin/api/chat?tenant_key=&limit=`（token 鉴权）已可用，
+  控制台 P1 的数据源就位。90 天滚动删除随 worker 每小时维护循环自动跑。
