@@ -12769,6 +12769,16 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
 }
 .sb2-knowledge-main.active{ display:flex; }
 
+/* §120 飞书助理主区容器（项目级入口，rail AI 办公室下面）——口径照抄 .sb2-knowledge-main。
+   iframe 延迟加载（data-src，首次点开才赋 src），互斥走 sb2_hideAllModuleMains。 */
+.sb2-feishu-main{
+  display:none; flex-direction:column; flex:1; height:100%;
+  padding:0; overflow:hidden;
+  background:var(--sb2-bg);
+}
+.sb2-feishu-main.active{ display:flex; }
+.sb2-feishu-main iframe{ flex:1; width:100%; border:0; background:#f5f6f8; }
+
 /* ============================================================
  * sb2-talents MVP1: 骨架 + 列表 + 侧栏三维筛选 + 搜索 + 分页
  * 视觉基准: docs/prototype-screens/s5-talents.jpg (冻结不改)
@@ -15803,6 +15813,12 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
 <!-- ★ settings-redesign 2026-10-08 (老大批注「设计页面需要大幅度设计, 太杂了」):
      设置屏重构为侧栏驱动多视图 — 积分中心 / 语义搜索 / AI 大脑调度 / RAG 索引重建 / 知识事件 / 系统管理承接区,
      同屏只显示一个视图 (sb2SettingsActivate 互斥), 统一视图头 (图标+标题+描述+状态)。元素 ID 全部保留, 旧 JS 零改动。 -->
+<!-- §120 (2026-11-02 老大批注②): 飞书助理项目主区 —— rail「AI 办公室」下面入，内嵌控制台 iframe。
+     iframe 不设 src（data-src 延迟），首次点开才加载；互斥由 sb2_hideAllModuleMains 管。 -->
+<div class="sb2-feishu-main" id="sb2FeishuMain">
+  <iframe data-src="/feishu-console.html" title="飞书助理控制台"></iframe>
+</div>
+
 <div class="sb2-settings-main" id="sb2SettingsMain">
   <!-- 〔credit-window 2026-10-08 老大「把积分弄成窗口」〕视图 1「积分中心」迁出设置页:
        改为悬浮窗 #sb2CreditPanel (结构见 kb 详情面板后), 入口 = 工作台 hero「进入积分中心」按钮 +
@@ -19446,7 +19462,7 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
      v2 (202609241444): 初始破缓存 + skip-device 守卫
      v3 (202609241420): probe 误导文案澄清 (fingerprint fallback → token-only) -->
 <script src="openclaw-client.js?v=ocowner1a20261008"></script>
-<script src="js/inline-07.js?v=ptnfit3a20261016"></script>
+<script src="js/inline-07.js?v=ptnfit3a20261102b"></script>
 
 <!-- Match Result Modal -->
 <div class="product-modal-overlay" id="matchModalOverlay" onclick="closeMatchModal()">
@@ -19491,7 +19507,7 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
 </div>
 
 <script src="js/inline-08.js?v=f2d73f6b57"></script>
-<script src="js/inline-09.js?v=supervisor1a20261009"></script>
+<script src="js/inline-09.js?v=supervisor1a20261102a"></script>
 
 <!-- ★ feat/sb2-chat: SoloBrave 2.0 聊天模块 JS (核心链: 消息流 + 发送框)
      - 复用老 /api/chat/:agentId 接口契约, 零后端改动

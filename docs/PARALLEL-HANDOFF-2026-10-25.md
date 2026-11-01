@@ -10112,3 +10112,33 @@ P1 = server 侧控制台三区块：**租户总览 / 角色管理 / 聊天审计
   会让 iframe 加载两次（隐藏副本+可见副本，幂等 GET 无害），但可见副本是否正常渲染
   待老大在浏览器点「设置 → 飞书助理」实测；若镜像有坑 ⇒ 备选：入口改
   `window.open('/feishu-console.html')`。
+
+## §120 两条批注落地：积分卡显达人昵称 + 飞书助理入口挪 rail（A 边，2026-11-02 00:2x 起）
+
+### 120.0 背景
+老大浏览器批注两条（00:1x）：
+- **批注①**：积分中心飞书 AI 卡只显示「绑定抖音号 xxx」——「要显示达人叫什么，我建议弄成动态的」。
+- **批注②**：设置页侧栏没有「飞书助理」——「我建议放在 AI 办公室下面吧，这个也是项目，不是功能了」。
+  ⚠️ 根因有二：①入口位置错（挂在设置页=功能级）；②`index.html` 引用 js 带 `?v=` 缓存
+  版本参数（inline-07/09 的 v 是 10-16/10-09 的），浏览器拿旧 js，新分类根本不渲染。
+
+### 120.1 改动
+- **enrich（批注①）**：server 新 helper `_feishu_talent_names(douyin_ids)` 按绑定抖音号
+  反查主库 talents.name（只丢不造：查不到/脏值不出现在结果；主库挂 ⇒ 空 dict 不砸积分面）。
+  挂两个口：`/api/credits/feishu`（积分中心卡）+ `/api/feishu/console`（控制台租户卡）。
+  显示形态：`洁洁爱户外（hlb725）`。前端三处消费：inline-07 积分卡、feishu-console 租户表。
+- **入口（批注②）**：rail MODULES 在 messages（AI 办公室）下加 `feishu_console` 项
+  （lucide bot 图标，perm=settings 仅管理员，fn=sb2OpenFeishuConsole）；主区预写容器
+  `#sb2FeishuMain`（index.html，iframe data-src 延迟加载，首次点开才赋值）；
+  `sb2_hideAllModuleMains` 选择器加 `.sb2-feishu-main.active`；侧栏注册
+  SB2_SIDE_RENDERERS.feishu_console（项目说明 + 刷新快捷键）。
+  **设置页侧栏的 feishu_console 三处编辑已撤**（categories/title 映射/renderSettingsRight 分支）。
+- **缓存版本**：inline-07 `?v=ptnfit3a20261016→ptnfit3a20261102b`、
+  inline-09 `?v=supervisor1a20261009→supervisor1a20261102a`（改这俩文件必须 bump，否则浏览器旧缓存）。
+
+### 120.2 状态
+- 全量 1369 passed（19 条守卫，含 enrich 5 条新守卫）；变异对照（砍 enrich）必红；
+  secret_scan 0。
+- ⚠️ **待老大浏览器实测**：rail「AI 办公室」下面的「飞书助理」入口 + 积分卡达人昵称。
+  强刷（⌘⇧R）确保拉到新 v 的 js。若 rail 项点了无反应 ⇒ 查 sb2Go 的 m.fn 分支
+  （§119 的 fn 机制首次上 rail，理论可行未真机）。

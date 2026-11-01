@@ -6813,6 +6813,27 @@ def _feishu_role_info(personas_dir=None):
     return roles
 
 
+def _feishu_talent_names(douyin_ids):
+    """按绑定抖音号反查主库达人昵称（§120 老大批注①：积分卡要显示「达人叫什么」，动态的）。
+    查不到/脏值 ⇒ 不出现在结果里（只丢不造）；主库查询失败 ⇒ 空 dict，不砸积分面。"""
+    ids = [d for d in (douyin_ids or []) if d]
+    if not ids:
+        return {}
+    marks = ','.join('?' * len(ids))
+    try:
+        conn = _db_conn()
+        try:
+            rows = conn.execute(
+                f"SELECT douyin_id, name FROM talents WHERE douyin_id IN ({marks})",
+                ids).fetchall()
+        finally:
+            conn.close()
+        return {r['douyin_id']: (r['name'] or '') for r in rows if r['name']}
+    except Exception as e:
+        logger.warning(f'  [feishu] 达人昵称反查失败: {e}')
+        return {}
+
+
 def _feishu_console_merge(state_obj, credits_obj):
     """把 bot 的 state（角色/在线/周采集）与 credits（标签/余额/30天消耗）按 tenant_key 合并成租户卡。
 
@@ -18690,6 +18711,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json_error(403, '仅管理员可查看飞书 AI 积分')
             return
         status, obj = _daren_bot_admin_api('/admin/api/credits')
+        if status == 200 and obj.get('accounts'):
+            names = _feishu_talent_names([a.get('douyin_id') for a in obj['accounts']])
+            for a in obj['accounts']:
+                a['talent_name'] = names.get(a.get('douyin_id') or '', '')
         self._send_json(status, obj)
 
     def _handle_post_feishu_credits_recharge(self):
@@ -18742,6 +18767,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             return
         merged = _feishu_console_merge(state if s_status == 200 else {},
                                        credits if c_status == 200 else {})
+        if merged['tenants']:
+            names = _feishu_talent_names([t.get('douyin_id') for t in merged['tenants']])
+            for t in merged['tenants']:
+                t['talent_name'] = names.get(t.get('douyin_id') or '', '')
         merged['roles'] = _feishu_role_info()
         self._send_json(200, merged)
 

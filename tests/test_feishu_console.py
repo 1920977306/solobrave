@@ -312,3 +312,66 @@ class TestProxyQueryAppend:
                             lambda req, timeout=0: captured.update(url=req.full_url) or _Resp())
         srv._daren_bot_admin_api('/admin/api/state')
         assert '/admin/api/state?token=tk' in captured['url']
+
+
+# ---------- 守卫 4：§120 达人昵称 enrich（老大批注①：积分卡要显示达人叫什么） ----------
+
+class TestTalentNameEnrich:
+    def _seed_talents(self, srv):
+        conn = srv._db_conn()
+        try:
+            # INSERT OR REPLACE：module 级 fixture 共享一个 tmp 库，跨用例重复 seed 不炸
+            conn.execute("INSERT OR REPLACE INTO talents (id, name, douyin_id) VALUES (?,?,?)",
+                         ('t1', '洁洁爱户外', 'hlb725'))
+            conn.execute("INSERT OR REPLACE INTO talents (id, name, douyin_id) VALUES (?,?,?)",
+                         ('t2', '萌萌超会买', '324733241'))
+            conn.commit()
+        finally:
+            conn.close()
+
+    def test_lookup_maps_known_ids(self, srv):
+        self._seed_talents(srv)
+        names = srv._feishu_talent_names(['hlb725', '62224890070', ''])
+        assert names == {'hlb725': '洁洁爱户外'}, '查不到的/空的不出现（只丢不造）'
+
+    def test_lookup_empty_input_no_db_touch(self, srv):
+        assert srv._feishu_talent_names([]) == {}
+        assert srv._feishu_talent_names(None) == {}
+        assert srv._feishu_talent_names(['', '']) == {}
+
+    def test_lookup_db_error_returns_empty_not_raise(self, srv, monkeypatch):
+        def boom():
+            raise RuntimeError('db gone')
+        monkeypatch.setattr(srv, '_db_conn', boom)
+        assert srv._feishu_talent_names(['hlb725']) == {}, '主库挂了不砸积分面'
+
+    def test_credits_handler_enriches_accounts(self, srv, monkeypatch):
+        self._seed_talents(srv)
+        monkeypatch.setattr(srv, '_authenticate', lambda *a, **k: _admin_auth())
+        monkeypatch.setattr(srv, '_daren_bot_admin_api', lambda path, payload=None: (
+            200, {'ok': True, 'accounts': [
+                {'tenant_key': 'boss', 'douyin_id': 'hlb725', 'balance': 1},
+                {'tenant_key': 'ghost', 'douyin_id': 'no_such', 'balance': 2},
+                {'tenant_key': 'nb', 'douyin_id': '', 'balance': 3}],
+                'usage30d': {}}))
+        bound, sent = _make_handler(srv, '_handle_get_feishu_credits')
+        bound()
+        assert sent['code'] == 200
+        accts = {a['tenant_key']: a for a in sent['obj']['accounts']}
+        assert accts['boss']['talent_name'] == '洁洁爱户外'
+        assert accts['ghost']['talent_name'] == '', '查不到 ⇒ 空串，不编造'
+        assert accts['nb']['talent_name'] == ''
+
+    def test_console_handler_enriches_tenant_cards(self, srv, monkeypatch):
+        self._seed_talents(srv)
+        monkeypatch.setattr(srv, '_authenticate', lambda *a, **k: _admin_auth())
+        monkeypatch.setattr(srv, '_daren_bot_admin_api', lambda path, payload=None: {
+            '/admin/api/state': (200, {'tenants': [
+                {'tenant_key': 'boss', 'role': 'daren', 'douyin_id': 'hlb725'}], 'alerts': []}),
+            '/admin/api/credits': (200, {'accounts': [], 'usage30d': {}}),
+        }[path])
+        bound, sent = _make_handler(srv, '_handle_get_feishu_console')
+        bound()
+        assert sent['code'] == 200
+        (card,) = sent['obj']['tenants']
+        assert card['talent_name'] == '洁洁爱户外'

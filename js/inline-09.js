@@ -33,6 +33,8 @@ var ICONS = {
      - groups (项目组): lucide briefcase 公文包 — 「项目/工作包」语义, 与 rail 其余图标零撞脸
      - influencers (达人库): lucide user-round + 四角星徽标 — 「达人/明星」语义, 与项目组拉开 */
   groups: icon('<rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><path d="M2 13h20"/>'),
+  /* §120 飞书助理 rail 图标: lucide bot — 「AI 助理」语义，与 rail 其余图标零撞脸 */
+  feishu: icon('<path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/>'),
 };
 
 /* ---------- 导航定义(permission = 旧 hasModulePermission 模块名) ---------- */
@@ -45,6 +47,10 @@ var MODULES = [
      - id 仍 'messages' (防 hideAllModuleMains / 权限清单大面积回归)
      - openLobsterOffice() 函数保留不删 (旧 left-nav navOffice 兜底, 防回归) */
   { id:'messages',  label:'AI 办公室',   icon:ICONS.chat,   perm:'messages' },
+  /* §120 (2026-11-02 老大批注②): 飞书助理是项目不是功能 —— 入口挂 rail（AI 办公室下面），
+     不挂设置页。fn=sb2OpenFeishuConsole 在主区开 iframe 容器（sb2Go 的 m.fn 分支自动调用）。
+     perm=settings（仅管理员可见，与 server 端点 admin 鉴权双保险）。 */
+  { id:'feishu_console', label:'飞书助理', icon:ICONS.feishu, perm:'settings', fn:'sb2OpenFeishuConsole' },
   /* ★ 待办 A 2026-10-08: 项目组主导航入口 (老大 02:40「可以」) — 权限键 'groups' 模块体系有效 */
   { id:'groups',    label:'项目组',      icon:ICONS.groups, perm:'groups' },
   { id:'knowledge', label:'知识库',      icon:ICONS.book,   perm:'knowledge' },
@@ -1227,6 +1233,18 @@ window.sb2Go = function(id){
   else setActive(id);
 };
 
+/* §120 飞书助理主区：iframe 容器首次点开才加载（data-src 延迟赋值，不占首页加载）。
+   容器 #sb2FeishuMain (.sb2-feishu-main.active) 预写在 index.html，互斥由
+   sb2_hideAllModuleMains 统一管（选择器已含 .sb2-feishu-main.active）。 */
+window.sb2OpenFeishuConsole = function(){
+  if (typeof sb2_hideAllModuleMains === 'function') sb2_hideAllModuleMains();
+  var el = document.getElementById('sb2FeishuMain');
+  if (!el) return;
+  var ifr = el.querySelector('iframe');
+  if (ifr && !ifr.getAttribute('src')) ifr.src = ifr.getAttribute('data-src') || '/feishu-console.html';
+  el.classList.add('active');
+};
+
 /* ---------- 桥接旧函数 ---------- */
 // ★ P1 fix: 模块主容器互斥 — 各模块 hook 只「显示自己」, 没人 hide 兄弟容器
 // 之前: 切到聊天时 .sb2-knowledge-main.active 不被 remove → 聊天底下压知识库 hero
@@ -1244,7 +1262,7 @@ window.sb2Go = function(id){
 // 通用策略: .active 走 removeClass, chat 走 hidden 属性, dashboard 不动
 window.sb2_hideAllModuleMains = function(){
   // 1. .active class 控制容器 (knowledge/settings/patterns/talents/tasks)
-  document.querySelectorAll('.sb2-knowledge-main.active, .sb2-settings-main.active, .sb2-patterns-main.active, .sb2-talents-main.active, .sb2-tasks-main.active, .sb2-products-main.active, .sb2-groups-main.active')
+  document.querySelectorAll('.sb2-knowledge-main.active, .sb2-settings-main.active, .sb2-patterns-main.active, .sb2-talents-main.active, .sb2-tasks-main.active, .sb2-products-main.active, .sb2-groups-main.active, .sb2-feishu-main.active')
     .forEach(function(el){ el.classList.remove('active'); });
   // 2. hidden 属性控制容器 (chat)
   var chatEl = document.getElementById('sb2ChatMain');
@@ -1333,6 +1351,18 @@ function _sb2GetHolidayLabel(d){
   return '';
 }
 var SB2_SIDE_RENDERERS = {
+  /* §120 飞书助理侧栏：控制台页（iframe 主区）自带三区块导航，侧栏只给项目说明 + 快捷动作 */
+  feishu_console: function(){
+    return {
+      title:'飞书助理', sub:'项目 · 飞书 AI 助理平台',
+      items:[
+        { label:'项目', items:[
+          { name:'<i class=sb2-ico-refresh></i> 刷新控制台',
+            onClick:"(function(){var f=document.querySelector('#sb2FeishuMain iframe');if(f&&f.contentWindow)f.contentWindow.location.reload();})()" },
+        ]}
+      ]
+    };
+  },
   /* ★ 待办 A 2026-10-08: 项目组侧栏 — 群列表, 点项进 sb2GroupsOpenChat (守卫失败 toast) */
   groups: function(){
     var groups = [];

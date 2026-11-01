@@ -7491,7 +7491,7 @@ function renderCreditDashboard(balances, quotas, todayRecords, summary, dr, usag
         html += '</div>';
         html += '<div style="font-size:26px;font-weight:700;color:' + (fLow ? '#FF3B30' : 'var(--sb2-brand)') + ';">' + formatNumber(f.balance || 0) + '<span style="font-size:12px;font-weight:400;color:var(--text-tertiary);margin-left:4px;">积分</span></div>';
         html += '<div style="font-size:12px;color:var(--color-text-secondary, #6E6E73);margin-top:4px;">近 30 天消耗 ' + formatNumber(fUsage[f.tenant_key] || 0) + ' 积分' +
-          (f.douyin_id ? ' · 绑定抖音号 ' + escapeHtml(f.douyin_id) : '') + '</div>';
+          (f.douyin_id ? ' · ' + (f.talent_name ? escapeHtml(f.talent_name) + '（' + escapeHtml(f.douyin_id) + '）' : '绑定抖音号 ' + escapeHtml(f.douyin_id)) : '') + '</div>';
         html += '</div>';
       });
       html += '</div>';
@@ -8573,8 +8573,7 @@ function renderSettingsMid() {
     { id: 'users', icon: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><path d="M16 3.128a4 4 0 0 1 0 7.744"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><circle cx="9" cy="7" r="4"/>', title: '用户管理' },
     { id: 'teams', icon: '<path d="M12 10h.01"/><path d="M12 14h.01"/><path d="M12 6h.01"/><path d="M16 10h.01"/><path d="M16 14h.01"/><path d="M16 6h.01"/><path d="M8 10h.01"/><path d="M8 14h.01"/><path d="M8 6h.01"/><path d="M9 22v-3a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3"/><rect x="4" y="2" width="16" height="20" rx="2"/>', title: '团队管理' },
     { id: 'members', icon: '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>', title: '成员管理' },
-    { id: 'feishu', icon: '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>', title: '飞书配置' },
-    { id: 'feishu_console', icon: '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M9 21V9"/>', title: '飞书助理' }
+    { id: 'feishu', icon: '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>', title: '飞书配置' }
   ];
   if (!isAdmin()) {
     var allowed = ['compute','notification','account','feishu'];
@@ -8629,7 +8628,7 @@ function renderSettingsRight() {
   var contentEl = document.getElementById('settingsRightContent');
   var actionsEl = document.getElementById('settingsRightActions');
   if (titleEl) titleEl.textContent = {
-    compute: isAdmin() ? '积分仪表盘' : '消耗统计', notification: '通知', account: '账号', permission: '权限管理', forbidden: '违禁词管理', users: '用户管理', teams: '团队管理', members: '成员管理', feishu: '飞书配置', feishu_console: '飞书助理'
+    compute: isAdmin() ? '积分仪表盘' : '消耗统计', notification: '通知', account: '账号', permission: '权限管理', forbidden: '违禁词管理', users: '用户管理', teams: '团队管理', members: '成员管理', feishu: '飞书配置'
   }[_settingsSelectedCategory] || '设置';
   if (actionsEl) actionsEl.innerHTML = '';
   if (_settingsSelectedCategory === 'compute' && actionsEl && isAdmin()) {
@@ -8735,11 +8734,6 @@ function renderSettingsRight() {
     html += '<p>5. 商品表字段：商品名称、品牌、类目、价格、原价、佣金率、商品描述、SKU规格、标签、月销量、月GMV、转化率、佣金金额、合作达人数、视频数、直播数、渠道分布、购买性别、购买年龄、购买地区、购买人群、带货视频案例</p>';
     html += '</div>';
     html += '</div>';
-  } else if (_settingsSelectedCategory === 'feishu_console') {
-    /* §119 P1 飞书助理控制台：独立静态页（feishu-console.html），同源 iframe 嵌入。
-       页面自己读 localStorage 的 sb_auth_token 调 /api/feishu/console —— 与主站同登录态，
-       server 端点再做 admin 鉴权 ⇒ 双保险。仅管理员能选到此分类（非管理员 allowed 白名单不含它）。 */
-    html += '<iframe src="/feishu-console.html" style="width:100%;height:calc(100vh - 220px);border:0;border-radius:12px;background:#f5f6f8;" title="飞书助理控制台"></iframe>';
   }
   contentEl.innerHTML = html;
   if (_settingsSelectedCategory === 'compute') loadComputeStats();

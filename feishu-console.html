@@ -165,7 +165,7 @@ function renderTenants(list) {
       <td>${esc(t.tenant_key)}</td>
       <td>${esc(t.tenant_label || t.tenant_key)}</td>
       <td>${roleName}</td>
-      <td>${esc(t.douyin_id) || '<span style="color:var(--sub)">未绑定</span>'}</td>
+      <td>${t.talent_name ? esc(t.talent_name) + '（' + esc(t.douyin_id) + '）' : (esc(t.douyin_id) || '<span style="color:var(--sub)">未绑定</span>')}</td>
       <td class="r bal">${fmt(t.balance)}</td>
       <td class="r">${fmt(t.usage30d)}</td>
       <td>${online}</td>
