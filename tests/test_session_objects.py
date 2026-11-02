@@ -226,3 +226,36 @@ class TestWorkerRecording:
         objs = db.get_session_objects(TK)
         assert len(objs) == 1
         assert objs[0]["obj_key"] == "x"
+
+
+class TestInflightNudge:
+    """碎片催促词承接（2026-11-02 豆鲨包「给你啦」「你分析啊」实锤）。"""
+
+    def _mk_task(self, status, age_s=0):
+        import time as _time
+        with db.db_ctx() as conn:
+            conn.execute(
+                "INSERT INTO bot_collect_tasks (id, tenant_key, type, target,"
+                " status, created_at) VALUES (?,?,?,?,?,?)",
+                (f"nudge_{status}_{age_s}", TK, "image", "/tmp/x.png",
+                 status, int(_time.time()) - age_s))
+
+    def test_pending_task_counts_as_inflight(self, botdb):
+        self._mk_task("pending")
+        assert db.has_inflight_task(TK) is True
+
+    def test_collecting_task_counts(self, botdb):
+        self._mk_task("collecting")
+        assert db.has_inflight_task(TK) is True
+
+    def test_done_task_not_inflight(self, botdb):
+        self._mk_task("done")
+        assert db.has_inflight_task(TK) is False
+
+    def test_outside_window_not_inflight(self, botdb):
+        self._mk_task("pending", age_s=3600)
+        assert db.has_inflight_task(TK) is False
+
+    def test_tenant_isolation(self, botdb):
+        self._mk_task("pending")
+        assert db.has_inflight_task("nobody") is False

@@ -47,6 +47,11 @@ def _role(tenant: dict) -> str:
     return (tenant.get("role") or config.ROLE_DAREN)
 BALANCE_RE = re.compile(r"^(余额|积分|我的积分|积分余额|查积分|还有多少积分"
                         r"|我还有多少积分|我有多少积分|我的积分还有多少|积分还有多少)[?？!！~～\s]*$")
+# 碎片催促词（2026-11-02 豆鲨包实锤：「给你啦」「你分析啊」被当新问题走问答路由，
+# 白扣积分还答非所问）——任务在跑时这类短句 = 催进度，不是新问题。全串锚定防误伤。
+NUDGE_RE = re.compile(
+    r"^(给你啦?|给你了|你分析啊?|分析呢|分析好了吗|结果呢?|结果出来了吗|好了吗|出来了吗|"
+    r"怎么样了?|怎么还没好|还没好吗|快点[呀啊]|在分析吗)[?？!！~～\s呀啊呐哦]*$")
 WEEKLY_UNSUB_RE = re.compile(r"^(取消订阅|退订|关闭)(每周)?(经营)?周报[呀啊哦~～!！\s]*$")
 WEEKLY_SUB_RE = re.compile(r"^(订阅|开通|恢复)(每周)?(经营)?周报[呀啊哦~～!！\s]*$")
 WEEKLY_STATUS_RE = re.compile(r"^周报(状态|订阅)?[?？!！~～\s]*$")
@@ -432,6 +437,12 @@ class Router:
             sender.send_text(
                 chat_id,
                 GREETING_REPLY_COMMERCE if not is_daren else GREETING_REPLY)
+        elif is_daren and NUDGE_RE.match(text.strip()) \
+                and db.has_inflight_task(tenant["tenant_key"]):
+            # 碎片催促词 + 确有任务在跑（2026-11-02 豆鲨包实锤）：
+            # 达人只是催进度，不是新问题——零成本承接，不许掉进问答路由扣积分。
+            sender.send_text(chat_id,
+                             "上一条我还在分析中，报告出来直接发你～稍等几分钟就好")
         elif is_daren and cockpit_link.is_cockpit_link_question(text):
             # 驾驶舱入口导航（2026-10-20 交接项①）：零成本，不扣积分
             self._route_cockpit_link(tenant, chat_id, text, sender)

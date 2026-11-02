@@ -1254,6 +1254,28 @@ def has_recent_product_context(tenant_key: str) -> bool:
             or get_recent_done_image_task(tenant_key) is not None)
 
 
+def has_inflight_task(tenant_key: str, window_s: int = 1800) -> bool:
+    """该租户有没有正在排队/执行中的任务（默认 30 分钟窗口）。
+
+    2026-11-02 豆鲨包实锤：截图分析还没跑完时达人催「给你啦」「你分析啊」，
+    碎片词被当新问题走问答路由（白扣积分 + 答非所问）——催促要有承接。
+    """
+    tk = (tenant_key or "").strip()
+    if not tk:
+        return False
+    cutoff = int(time.time()) - window_s
+    try:
+        with db_ctx() as conn:
+            r = conn.execute(
+                "SELECT 1 FROM bot_collect_tasks"
+                " WHERE tenant_key=? AND status IN ('pending','collecting')"
+                "   AND created_at>=? LIMIT 1",
+                (tk, cutoff)).fetchone()
+            return r is not None
+    except Exception:
+        return False
+
+
 def interaction_counts(tenant_key: str) -> dict:
     """{kind: n}——某租户的零成本直达应答计数。"""
     with db_ctx() as conn:
