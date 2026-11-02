@@ -10301,3 +10301,26 @@ D1b/D2a/D3a 拍板不变。
 - 设计稿 §2/§4/§5/§6/§7/§8 口径同步更正；§125 的「转账 1 分」冒烟痕迹留在 mumu 账上
   （流水 transfer_in 有据，不再追加冲正——该入口已不存在）。
 验证：全量 1398 passed；生产冒烟：转账 404 ✅ 升/降代理 ✅ 挂靠/解挂 ✅ 状态已还原。
+
+## §127 命名定名：对外「代理」改「合伙人」，内部 agent_* 不动（A 边，2026-11-02 15:0x，commit `d08ad4f`）
+
+老大 13:47 拍板：**「可以换个词 不叫代理 叫合伙人吧」**。决策口径：**只改用户可见文案，
+内部标识一律不动**——`agent_of` / `agent_enabled` 列、`_admin/api/agent-*` 端点、
+`agent-enable` 路由名已落生产库和链路，是实现对外的投影名，改库 = 无谓迁移风险
+（设计稿 §8 还靠这些字段名对齐 subjects 大表）。
+
+改动面（4 文件）：
+- `feishu-console.html`：层级列徽标「代理」→「合伙人」；按钮「设为/取消代理」→「设为/取消合伙人」；
+  toggleAgent / setParentDlg 弹窗文案、placeholder `agent_a`→`partner_a`。
+- `index.html`：控制台 iframe `?v=20261102b`→`20261102c`（防浏览器缓存——上次白屏事故同源）。
+- `daren_bot/handler.py`：`AGENT_APPLY_RE` 增「合伙人」申请分支（保留代理/团长旧说法兜底）；
+  `AGENT_APPLY_REPLY` 话术改「合伙人资格由平台审核开通」。
+- `docs/AGENT-TIER-DESIGN.md`：头部拍板注释区加命名定名行；全文业务语境「代理」→「合伙人」
+  （70 处），技术句里的 `agent_*` 标识保留。
+
+故意没改（保留 agent_* 语境）：`daren_bot/db.py` / `admin.py` 注释、其他文件里指
+网络/数据代理的「代理」（ws_manager / llm_usage / llm_channels）。
+
+验证：正则正负对照 8/8（「我想做合伙人」命中、「给我推荐几个合伙人」不误伤）；
+全量 1398 passed / 10 skipped；重启 bot+server 后生产冒烟：控制台租户卡 3 租户
+字段正常、层级状态全默认（agent_of='' / agent_enabled=0）。零分叉。
