@@ -8,6 +8,7 @@ import json
 import logging
 import sqlite3
 import threading
+import time
 import uuid
 from contextlib import contextmanager
 
@@ -261,6 +262,86 @@ CREATE TABLE IF NOT EXISTS bot_commission_pending (
 );
 """
 
+# ★ 2026-11-02 多对象会话记忆（豆鲨包实锤：「这是两个账号 上面你分析过」
+#   「两个视频链接怎么没有对比」——单对象承接 _recent_product_block 只管得住
+#   「这个品」，管不住同会话里出现过的多个达人/商品/视频）。
+#   每租户滚动留最近 6 个分析过的对象，QA 时按问题形态注入。
+DDL_SESSION_OBJECTS = """
+CREATE TABLE IF NOT EXISTS bot_session_objects (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  tenant_key TEXT NOT NULL,
+  obj_type   TEXT NOT NULL,   -- talent / product / video
+  obj_key    TEXT NOT NULL DEFAULT '',
+  label      TEXT NOT NULL DEFAULT '',   -- 展示名：达人昵称/商品名/视频标题
+  oneline    TEXT NOT NULL DEFAULT '',   -- 一句话结论（评估/能带慎带/拆解主题）
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_session_obj_tenant
+  ON bot_session_objects(tenant_key, obj_type, created_at);
+"""
+
+_SESSION_OBJECTS_KEEP = 6
+
+
+def record_session_object(tenant_key: str, obj_type: str, obj_key: str = "",
+                          label: str = "", oneline: str = "") -> None:
+    """登记「本轮会话分析过的对象」（幂等 upsert：同租户同类型同 key 更新时间与摘要）。
+
+    尽力而为：任何失败只记日志，绝不影响主任务流。"""
+    tk = (tenant_key or "").strip()
+    ot = (obj_type or "").strip()
+    if not tk or not ot:
+        return
+    key = (obj_key or "").strip()
+    now = int(time.time())
+    try:
+        with db_ctx() as conn:
+            row = conn.execute(
+                "SELECT id FROM bot_session_objects WHERE tenant_key=? AND obj_type=? AND obj_key=?",
+                (tk, ot, key)).fetchone()
+            if row:
+                conn.execute(
+                    "UPDATE bot_session_objects SET label=?, oneline=?, created_at=? WHERE id=?",
+                    ((label or "").strip()[:80], (oneline or "").strip()[:160], now, row[0]))
+            else:
+                conn.execute(
+                    "INSERT INTO bot_session_objects (tenant_key, obj_type, obj_key, label, oneline, created_at)"
+                    " VALUES (?,?,?,?,?,?)",
+                    (tk, ot, key, (label or "").strip()[:80],
+                     (oneline or "").strip()[:160], now))
+            # 滚动修剪：每租户每类型只留最近 N 个（防无限涨）
+            conn.execute(
+                "DELETE FROM bot_session_objects WHERE tenant_key=? AND obj_type=? AND id NOT IN ("
+                "  SELECT id FROM bot_session_objects WHERE tenant_key=? AND obj_type=?"
+                "  ORDER BY created_at DESC LIMIT ?)",
+                (tk, ot, tk, ot, _SESSION_OBJECTS_KEEP))
+    except Exception:
+        log.exception("record_session_object failed: tk=%s type=%s", tk, ot)
+
+
+def get_session_objects(tenant_key: str, obj_type: str = "",
+                        within_hours: int = 24, limit: int = 6) -> list:
+    """取该租户最近分析过的对象（时间升序）。obj_type 传空 = 全类型。"""
+    tk = (tenant_key or "").strip()
+    if not tk:
+        return []
+    cutoff = int(time.time()) - within_hours * 3600
+    sql = ("SELECT obj_type, obj_key, label, oneline, created_at"
+           " FROM bot_session_objects WHERE tenant_key=? AND created_at>=?")
+    args = [tk, cutoff]
+    if obj_type:
+        sql += " AND obj_type=?"
+        args.append(obj_type)
+    sql += " ORDER BY created_at ASC LIMIT ?"
+    args.append(int(limit))
+    try:
+        with db_ctx() as conn:
+            return [{"obj_type": r[0], "obj_key": r[1], "label": r[2],
+                     "oneline": r[3], "created_at": r[4]}
+                    for r in conn.execute(sql, args).fetchall()]
+    except Exception:
+        return []
+
 
 def init_db():
     config.DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -270,6 +351,7 @@ def init_db():
         conn.executescript(DDL_INTERACTIONS)
         conn.executescript(DDL_COMMISSION_PENDING)
         conn.executescript(DDL_CHAT_MESSAGES)
+        conn.executescript(DDL_SESSION_OBJECTS)
         # 轻量迁移：tasks 表补 payload 列（存名字提示等任务负载，JSON）
         cols = {r[1] for r in conn.execute("PRAGMA table_info(bot_collect_tasks)")}
         if "payload" not in cols:

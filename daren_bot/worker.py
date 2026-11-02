@@ -7,6 +7,7 @@
 from __future__ import annotations
 import json
 import logging
+import re
 import threading
 import time
 
@@ -34,6 +35,43 @@ def _weekly_executor(task: dict) -> str:
 
 
 EXECUTORS["weekly_report"] = _weekly_executor
+
+
+def _record_session_object(task: dict, result_summary: str, stats: dict = None) -> None:
+    """任务成功后把分析对象登记进会话对象簿（多对象会话记忆，2026-11-02）。
+
+    豆鲨包实锤：同会话连续分析多个达人/商品/视频后，「上面那两个/怎么没有
+    对比」接不住。QA 侧靠 bot_session_objects 注入承接。
+    尽力而为：失败只记日志，绝不影响推送主流程。
+    """
+    try:
+        tk = task["tenant_key"]
+        ttype = task.get("type")
+        target = (task.get("target") or "").strip()
+        if ttype == "douyin":
+            m = re.search(r"达人报告：(.+?)（", result_summary or "")
+            name = (m.group(1).strip() if m else target)[:40]
+            v = re.search(r"账号评估：([^\n]+)", result_summary or "")
+            oneline = (f"账号评估 {v.group(1).strip()[:40]}" if v
+                       else "账号数据报告已出")
+            db.record_session_object(tk, "talent", target, name, oneline)
+        elif ttype in ("product", "image"):
+            label = ((stats or {}).get("name") or "")[:60]
+            verdict = ""
+            try:
+                env = json.loads(result_summary or "")
+                verdict = executors._verdict_label(env.get("md") or "")
+            except Exception:
+                pass
+            oneline = (f"选品结论 {verdict}" if verdict else "商品分析已出")
+            db.record_session_object(tk, "product", target, label, oneline)
+        elif ttype == "video":
+            title, _, _ = (result_summary or "").partition("\n")
+            db.record_session_object(tk, "video", target,
+                                     (title.strip() or "视频")[:60],
+                                     "视频拆解报告已出")
+    except Exception:
+        log.exception("record session object failed: id=%s", task.get("id"))
 
 
 class Worker(threading.Thread):
@@ -113,6 +151,8 @@ class Worker(threading.Thread):
             self._fail(task, f"{type(e).__name__}: {e}", exc=e)
         else:
             db.mark_task(task["id"], "done")
+            if task["type"] in ("douyin", "video"):
+                _record_session_object(task, result_summary)
             if task["type"] == "douyin":
                 db.incr_week_count(tk, task["target"])
                 # 周报快照 + 自动采集系统账（weekly.py，失败不阻塞主流程）
@@ -151,6 +191,7 @@ class Worker(threading.Thread):
                     md = env.get("md") or ""
                 except Exception:
                     title, _, md = (result_summary or "").partition("\n")
+                _record_session_object(task, result_summary, stats)
                 executors.notify_product_card(self.wm.get_sender(tk), task["chat_id"],
                                               title, md, tk, stats, source,
                                               product_id=str(task.get("target") or ""))

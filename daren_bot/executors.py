@@ -1817,6 +1817,92 @@ def _recent_product_block(tk: str, q: str) -> str:
     return ""
 
 
+# ─── 多对象会话记忆（2026-11-02 豆鲨包实锤驱动）──────────────────────────────
+# 「这是两个账号 上面你分析过」「两个视频链接怎么没有对比」——达人同一会话里
+# 会连续分析多个对象（达人/商品/视频），单对象承接管不住。这里按问题形态
+# 把「本轮分析过的对象簿」注入 QA，让 AI 知道「上面」「那两个」指的是谁。
+_COMPARE_ASK_RE = None
+_VAGUE_REF_RE = None
+
+
+def _compare_ask_re():
+    global _COMPARE_ASK_RE
+    if _COMPARE_ASK_RE is None:
+        import re as _re
+        _COMPARE_ASK_RE = _re.compile(
+            r"对比|比较|区别|哪个好|哪个更|哪一个|哪家强|谁厉害|还是|差距")
+    return _COMPARE_ASK_RE
+
+
+def _vague_ref_re():
+    global _VAGUE_REF_RE
+    if _VAGUE_REF_RE is None:
+        import re as _re
+        _VAGUE_REF_RE = _re.compile(
+            r"上面|刚才|之前|那两个|两个(账号|视频|品|商品)|它俩|她们|"
+            r"都分析过|分析过|说过那个")
+    return _VAGUE_REF_RE
+
+
+def _session_objects_block(tk: str, q: str) -> str:
+    """会话对象簿注入块。三种触发形态（宁漏勿抢，§8.9 同款纪律）：
+
+    ① 对比型问题（对比/区别/哪个…）→ 同类型对象 ≥2 个时注入并强制并列对比；
+    ② 模糊指代（上面/刚才/那两个/分析过…）→ 注入全部近期对象，AI 自己认领；
+    ③ 问题里点名了对象簿中某对象的 label → 单独注入那个对象。
+    返回空串 = 不注入（没有问题形态信号时不打扰）。
+    """
+    from . import db
+    qq = q or ""
+    if not (_compare_ask_re().search(qq) or _vague_ref_re().search(qq)):
+        # 形态③：点名 label（≥2 字才查，单字噪音大）
+        objs = db.get_session_objects(tk)
+        hits = [o for o in objs if len(o.get("label") or "") >= 2
+                and o["label"] in qq]
+        if not hits:
+            return ""
+    objs = db.get_session_objects(tk)
+    if not objs:
+        return ""
+
+    def _fmt(o: dict) -> str:
+        tname = {"talent": "达人", "product": "商品", "video": "视频"}.get(
+            o.get("obj_type"), "对象")
+        head = f"{tname}「{o.get('label') or o.get('obj_key') or '未命名'}」"
+        if o.get("oneline"):
+            return f"{head}：{o['oneline']}"
+        return head
+
+    if _compare_ask_re().search(qq):
+        # ① 对比：按类型分组，取对象最多的那个类型（≥2 才注入）
+        by_type: dict = {}
+        for o in objs:
+            by_type.setdefault(o.get("obj_type"), []).append(o)
+        best = max(by_type.values(), key=len) if by_type else []
+        best = best[-3:]
+        if len(best) < 2:
+            # 想对比但簿里同类型不足 2 个——注入全部对象让 AI 基于已知信息回答，
+            # 并明说不全，禁止编造缺失方数据
+            body = "\n".join(f"- {_fmt(o)}" for o in objs[-4:])
+            return ("【会话对象簿】达人想做对比，但目前只分析过这些对象：\n" + body +
+                    "\n基于这些回答；对比里缺的对象，明说「XX 还没分析过，"
+                    "把TA的抖音号/链接发我再补」，严禁编造缺失方的数据。\n")
+        body = "\n".join(f"- {_fmt(o)}" for o in best)
+        return ("【会话对象簿】达人在对比，本轮已分析过同类的这些对象，"
+                "必须**并列对比**（逐项列数据再下结论，不许只讲一个）：\n"
+                + body + "\n")
+    if _vague_ref_re().search(qq):
+        body = "\n".join(f"- {_fmt(o)}" for o in objs[-4:])
+        return ("【会话对象簿】达人这句里的「上面/那两个/刚才」指的本轮已分析对象：\n"
+                + body + "\n先认领TA指的对象再回答，不要重复索要已分析过的账号或链接。\n")
+    # ③ 点名 label
+    hits = [o for o in objs if len(o.get("label") or "") >= 2 and o["label"] in qq]
+    if hits:
+        return "【会话对象簿】问题点名的对象本轮已分析过：\n" + "\n".join(
+            f"- {_fmt(o)}" for o in hits[-2:]) + "\n基于它回答，不要重复索要。\n"
+    return ""
+
+
 def _talent_context(tk: str) -> str:
     """该达人绑定的账号画像摘要（问答上下文）：
     基础档案 + 粉丝画像分布 + 类目/品牌结构 + 近期视频表现。"""
@@ -2125,6 +2211,9 @@ def execute_qa(task: dict) -> str:
         '就是指下面这个商品。基于它回答，**绝对禁止再要商品ID或链接**；'
         '商品块里没有的维度，明说「这个维度我这边没有数据」，严禁编造。\n'
         + recent_product + '\n' if recent_product else '')
+    # ★ 2026-11-02 多对象会话记忆：同会话分析过多个达人/商品/视频时，
+    #   「上面那两个/怎么没有对比」才能接住（豆鲨包实锤：各分析各的、忘了上一个）。
+    session_block = _session_objects_block(task.get("tenant_key", ""), q)
     # ★ 2026-10-28 飞书助理平台化：商务租户问答用商务人格 + 查达人档案注入
     _role = ""
     try:
@@ -2156,6 +2245,7 @@ def execute_qa(task: dict) -> str:
         persona.qa_persona(_role) + '\n'
         + force_line
         + recent_line
+        + (session_block or '')
         + commerce_line
         + compare_line
         + (f'【该达人的账号数据】{ctx}\n' if ctx else '')
