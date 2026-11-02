@@ -10270,3 +10270,21 @@ D1b/D2a/D3a 拍板不变。
 
 验证：全量 1376 passed / 10 skipped；生产冒烟 admin JWT 四场景
 （role=daren 200 content 637 字 / merchant 404 / 未知 400 / 无鉴权 401）全绿；已推 main+dev 零分叉。
+
+## §125 P2-A 代理层级落地：两列迁移 + transfer + 控制台层级操作（A 边，2026-11-02 13:5x–14:2x，commit `0762d20`）
+
+按设计稿 D1b/D2a/D3a 拍板实现 P2-A 全部内容，已上线（daren-bot / server 均已重启）：
+- **db.py**：`bot_tenants` 加 `agent_of`/`agent_enabled`（PRAGMA+ALTER 幂等，生产库
+  三租户已验：默认值 ''/0 零行为变化）。`subtree_keys()` 传递闭包+访问标记防环
+  （唯一可见范围入口）；`transfer()` 扣/加/双流水单事务；`set_agent_parent` 服务端防环。
+- **admin.py**：state 透传两列；新端点 `/admin/api/{transfer, agent-enable, agent-parent}`。
+- **server**：`/api/feishu/console/{transfer, agent-enable, agent-parent}` 鉴权+透传。
+- **feishu-console**：租户表「层级」列 + 设为代理/挂靠/转账弹窗（?v=20261102b）。
+- **handler**：「想做代理/推广业务」零成本话术（申请制，P2-B 做自助申请）。
+
+验证：tests/test_agent_tier.py 19 条 + console 代理 2 条；全量 1397 passed；
+生产冒烟全链路绿：控制台新字段 ✅ → 升代理 ✅ → 挂靠 ✅ → 转账 1 分 ✅
+（daren_test2 72→71，mumu +1，流水 transfer_out/in 成对）→ 解挂 ✅ → 还原 ✅
+→ 非代理转账 403 ✅。
+遗留：冒烟转的 1 分留在 mumu 账上（测试租户，流水有据，可不处理）。
+下一步 P2-B（代理登录主系统看下级/推品/转账 UI）等第一个真代理出现再做（设计稿 §6）。
