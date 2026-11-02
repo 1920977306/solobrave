@@ -45,7 +45,8 @@ GREETING_REPLY_COMMERCE = (
 def _role(tenant: dict) -> str:
     """租户角色（飞书助理平台化）：缺省 daren —— 存量行/旧调用零感知。"""
     return (tenant.get("role") or config.ROLE_DAREN)
-BALANCE_RE = re.compile(r"^(余额|积分|我的积分|积分余额|查积分|还有多少积分)[?？!！~～\s]*$")
+BALANCE_RE = re.compile(r"^(余额|积分|我的积分|积分余额|查积分|还有多少积分"
+                        r"|我还有多少积分|我有多少积分|我的积分还有多少|积分还有多少)[?？!！~～\s]*$")
 WEEKLY_UNSUB_RE = re.compile(r"^(取消订阅|退订|关闭)(每周)?(经营)?周报[呀啊哦~～!！\s]*$")
 WEEKLY_SUB_RE = re.compile(r"^(订阅|开通|恢复)(每周)?(经营)?周报[呀啊哦~～!！\s]*$")
 WEEKLY_STATUS_RE = re.compile(r"^周报(状态|订阅)?[?？!！~～\s]*$")
