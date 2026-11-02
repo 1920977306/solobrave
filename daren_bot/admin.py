@@ -8,6 +8,9 @@
   GET  /admin/api/chat?tenant_key=&limit=  聊天流水（§118：审计读接口）
   POST /admin/api/grant      发放积分 {tenant_key, amount}
   POST /admin/api/bind       绑定/换绑抖音号 {tenant_key, douyin_id}
+  POST /admin/api/transfer   代理转账 {from_key, to_key, amount}（P2：from 必须是代理、to 必须在其 subtree）
+  POST /admin/api/agent-enable  升/降代理 {tenant_key, enabled}（P2 授予权开关，不动人格）
+  POST /admin/api/agent-parent  挂靠/解挂上级 {tenant_key, agent_of}（''=直属平台；服务端防环）
 
 token 存 DATA_DIR/admin_token.txt，首次启动生成；访问
   http://<本机IP>:8092/admin?token=<token>
@@ -85,6 +88,9 @@ def _get_state(ws) -> dict:
             "ws_online": bool(ws and ws.stats().get("detail", {}).get(tk)),
             "bitable": t["bitable_app_token"] or "",
             "created_at": t["created_at"],
+            # P2 层级（docs/AGENT-TIER-DESIGN.md）：授予权开关 + 上级代理，读函数透传
+            "agent_of": t.get("agent_of") or "",
+            "agent_enabled": bool(t.get("agent_enabled")),
         })
     with db.db_ctx() as conn:
         ledger = [dict(r) for r in conn.execute(
@@ -331,7 +337,10 @@ def make_handler(state: dict):
             q = parse_qs(u.query)
             if u.path not in ("/admin/api/grant", "/admin/api/bind",
                               "/admin/api/coop-scan",
-                              "/admin/api/plan-scan"):
+                              "/admin/api/plan-scan",
+                              "/admin/api/transfer",
+                              "/admin/api/agent-enable",
+                              "/admin/api/agent-parent"):
                 return self._json(404, {"ok": False, "error": "not found"})
             if not self._auth(q):
                 return self._json(403, {"ok": False, "error": "token 无效"})
@@ -369,6 +378,50 @@ def make_handler(state: dict):
                 log.info("admin plan-scan dry_run=%s -> %s", dry,
                          {k: v for k, v in stat.items() if k != "details"})
                 return self._json(200, {"ok": True, "dry_run": dry, **stat})
+            if u.path == "/admin/api/agent-enable":
+                # P2 升/降代理（授予权开关）。不影响 role 人格（正交锁，见 db.py 头注）。
+                tk = str(body.get("tenant_key") or "").strip()
+                if not db.get_tenant(tk):
+                    return self._json(400, {"ok": False, "error": f"租户不存在: {tk}"})
+                enabled = bool(body.get("enabled"))
+                db.set_agent_enabled(tk, enabled)
+                log.info("admin agent-enable: %s -> %s", tk, enabled)
+                return self._json(200, {"ok": True, "tenant_key": tk,
+                                        "agent_enabled": enabled})
+            if u.path == "/admin/api/agent-parent":
+                # P2 挂靠/解挂上级代理（''=直属平台）。防环在 db.set_agent_parent。
+                tk = str(body.get("tenant_key") or "").strip()
+                if not db.get_tenant(tk):
+                    return self._json(400, {"ok": False, "error": f"租户不存在: {tk}"})
+                agent_of = str(body.get("agent_of") or "").strip()
+                ok, msg = db.set_agent_parent(tk, agent_of)
+                if not ok:
+                    return self._json(400, {"ok": False, "error": msg})
+                log.info("admin agent-parent: %s -> '%s'", tk, agent_of)
+                return self._json(200, {"ok": True, "tenant_key": tk,
+                                        "agent_of": agent_of})
+            if u.path == "/admin/api/transfer":
+                # P2 代理给下级转账。层校验：from 必须是代理 + to 必须在其 subtree；
+                # 原子性/余额在 db.transfer 单事务里（§8.11 两事务坑）。
+                from_key = str(body.get("from_key") or "").strip()
+                to_key = str(body.get("to_key") or "").strip()
+                if not db.get_tenant(from_key):
+                    return self._json(400, {"ok": False, "error": f"转出方不存在: {from_key}"})
+                if not db.get_tenant(to_key):
+                    return self._json(400, {"ok": False, "error": f"收款方不存在: {to_key}"})
+                if not db.is_agent(from_key):
+                    return self._json(403, {"ok": False,
+                                            "error": f"{from_key} 不是代理（未开通授予权）"})
+                if to_key not in db.subtree_keys(from_key):
+                    return self._json(403, {"ok": False,
+                                            "error": f"{to_key} 不在 {from_key} 的下级范围"})
+                amount = int(body.get("amount") or 0)
+                ok, bal, msg = db.transfer(from_key, to_key, amount)
+                if not ok:
+                    return self._json(400, {"ok": False, "error": msg, "balance": bal})
+                log.info("admin transfer: %s -> %s amount=%d bal=%d",
+                         from_key, to_key, amount, bal)
+                return self._json(200, {"ok": True, "from_balance": bal})
             tk = str(body.get("tenant_key") or "").strip()
             if not db.get_tenant(tk):
                 return self._json(400, {"ok": False, "error": f"租户不存在: {tk}"})

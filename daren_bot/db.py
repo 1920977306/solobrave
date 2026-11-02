@@ -51,6 +51,8 @@ CREATE TABLE IF NOT EXISTS bot_tenants (
   owner_open_id   TEXT DEFAULT '',              -- 达人本人 open_id：多维表格创建后授权用
   bitable_app_token TEXT DEFAULT '',            -- 1 个 Bitable App
   bitable_table_ids TEXT DEFAULT '',            -- JSON: {"profile":"tbl_x","products":"tbl_y","advice":"tbl_z"}
+  agent_of        TEXT NOT NULL DEFAULT '',     -- P2 层级：上级代理 tenant_key，''=直属平台（投影 subjects.agent_of）
+  agent_enabled   INTEGER NOT NULL DEFAULT 0,   -- P2 授予权：1=代理（可发展下级/转账），0=普通达人；不是数据可见性开关
   status          TEXT NOT NULL DEFAULT 'active',
   created_at      INTEGER NOT NULL,
   updated_at      INTEGER NOT NULL
@@ -296,6 +298,15 @@ def init_db():
         if "role" not in cols:
             conn.execute("ALTER TABLE bot_tenants "
                          "ADD COLUMN role TEXT NOT NULL DEFAULT 'daren'")
+        # 轻量迁移：P2 代理层级两列（2026-11-02 拍板 D2a）。
+        #   agent_of='' / agent_enabled=0 = 存量行为零变化；两列是 subjects.agent_of
+        #   的投影，将来大表落地做回填对账（见 docs/AGENT-TIER-DESIGN.md §8）。
+        if "agent_of" not in cols:
+            conn.execute("ALTER TABLE bot_tenants "
+                         "ADD COLUMN agent_of TEXT NOT NULL DEFAULT ''")
+        if "agent_enabled" not in cols:
+            conn.execute("ALTER TABLE bot_tenants "
+                         "ADD COLUMN agent_enabled INTEGER NOT NULL DEFAULT 0")
         # 轻量迁移：选品结论表补「商品键 + 完整结论 + 商品数据快照」三列
         #   （2026-10-21 加缓存：同商品同达人的结论直接复用，不重复烧 LLM）
         cols = {r[1] for r in conn.execute("PRAGMA table_info(bot_product_verdicts)")}
@@ -489,6 +500,109 @@ def grant(tenant_key: str, amount: int, action: str = 'grant') -> int:
             (tenant_key, new_balance, now_ts()))
         _ledger(conn, tenant_key, action, -amount, new_balance, 0, '')
         return new_balance
+
+
+# ---------- P2 代理层级（docs/AGENT-TIER-DESIGN.md，2026-11-02 拍板 D1b/D2a） ----------
+# 铁律（§8）：
+#   agent_enabled = 授予权开关（能不能发展下级/转账），不是数据可见性开关；
+#   可见范围唯一入口 = subtree_keys()（将来 subjects.scope 的投影）；
+#   role 列继续是 AI 人格，与层级正交——不许把 agent_of/agent_enabled 与 role
+#   放进同一个判定表达式（守卫 tests/test_agent_tier.py 静态扫描锁死）。
+
+def subtree_keys(root_key: str) -> list:
+    """root 的可见范围 = 自己 + 所有传递下级的 tenant_key。
+    D1b 拍板 = 单级树（达人不能再发展下级），但仍按传递闭包实现 + 访问标记防环
+    （拍板补充：脏数据造成环时跳过并告警，绝不死循环）。唯一实现处，不许另写。"""
+    keys = [root_key]
+    visited = {root_key}
+    frontier = [root_key]
+    while frontier:
+        marks = ",".join("?" * len(frontier))
+        with db_ctx() as conn:
+            rows = conn.execute(
+                f"SELECT tenant_key FROM bot_tenants "
+                f"WHERE agent_of IN ({marks}) AND status='active'",
+                frontier).fetchall()
+        nxt = []
+        for r in rows:
+            child = r["tenant_key"]
+            if child in visited:
+                log.warning("subtree cycle detected: %s already visited (root=%s), skip",
+                            child, root_key)
+                continue
+            visited.add(child)
+            nxt.append(child)
+        keys.extend(nxt)
+        frontier = nxt
+    return keys
+
+
+def is_agent(tenant_key: str) -> bool:
+    with db_ctx() as conn:
+        r = conn.execute("SELECT agent_enabled FROM bot_tenants WHERE tenant_key=?",
+                         (tenant_key,)).fetchone()
+        return bool(r and int(r["agent_enabled"]))
+
+
+def set_agent_enabled(tenant_key: str, enabled: bool) -> None:
+    """升/降代理（授予权开关，平台审核后调用）。不影响 role 人格。"""
+    with db_ctx() as conn:
+        conn.execute("UPDATE bot_tenants SET agent_enabled=?, updated_at=? "
+                     "WHERE tenant_key=?",
+                     (1 if enabled else 0, now_ts(), tenant_key))
+
+
+def set_agent_parent(tenant_key: str, agent_of: str) -> tuple:
+    """把租户挂到代理名下（''= 直属平台，即解除上下级）。
+    校验：不能挂到自己/自己的传递下级名下（防环，拍板补充）。
+    返回 (ok, 错误消息)。"""
+    if tenant_key == agent_of:
+        return False, "不能把自己挂到自己名下"
+    if agent_of:
+        with db_ctx() as conn:
+            r = conn.execute("SELECT tenant_key FROM bot_tenants WHERE tenant_key=?",
+                             (agent_of,)).fetchone()
+            if not r:
+                return False, f"上级代理 {agent_of} 不存在"
+        if agent_of in subtree_keys(tenant_key):
+            return False, "不能挂到自己的下级名下（会形成环）"
+    with db_ctx() as conn:
+        conn.execute("UPDATE bot_tenants SET agent_of=?, updated_at=? "
+                     "WHERE tenant_key=?",
+                     (agent_of, now_ts(), tenant_key))
+    return True, ""
+
+
+def transfer(from_key: str, to_key: str, amount: int) -> tuple:
+    """代理给下级转积分。单事务：扣 from + 加 to + 两条流水（照 §8.11 两事务坑）。
+    余额不足整体回滚。返回 (ok, from 新余额, 消息)。"""
+    if amount <= 0:
+        return False, 0, "转账积分必须为正数"
+    if from_key == to_key:
+        return False, 0, "不能转给自己"
+    with db_ctx() as conn:
+        r = conn.execute("SELECT balance FROM bot_credits_accounts WHERE tenant_key=?",
+                         (from_key,)).fetchone()
+        from_bal = int(r["balance"]) if r else 0
+        if from_bal < amount:
+            return False, from_bal, f"余额不足（当前 {from_bal}）"
+        r2 = conn.execute("SELECT balance FROM bot_credits_accounts WHERE tenant_key=?",
+                          (to_key,)).fetchone()
+        to_bal = int(r2["balance"]) if r2 else 0
+        ts = now_ts()
+        from_new = from_bal - amount
+        conn.execute(
+            "UPDATE bot_credits_accounts SET balance=?, updated_at=? WHERE tenant_key=?",
+            (from_new, ts, from_key))
+        _ledger(conn, from_key, 'transfer_out', amount, from_new, 0, '')
+        to_new = to_bal + amount
+        conn.execute(
+            "INSERT INTO bot_credits_accounts (tenant_key, balance, updated_at) VALUES (?,?,?) "
+            "ON CONFLICT(tenant_key) DO UPDATE SET balance=excluded.balance, "
+            "updated_at=excluded.updated_at",
+            (to_key, to_new, ts))
+        _ledger(conn, to_key, 'transfer_in', -amount, to_new, 0, '')
+        return True, from_new, "ok"
 
 
 # ---------- 周抓计数 ----------

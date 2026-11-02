@@ -30,6 +30,11 @@ TRACKING_PREFIXES = ("utm_", "spm", "fbclid", "gclid", "tt_")
 UNRELATED_REPLY = ("我是你的带货选品助手，账号分析、选品建议、商品判断都可以找我，"
                    "其他问题帮不上忙哦～")
 UNSUPPORTED_REPLY = ("这类消息我还处理不了，发我抖音号、商品截图、商品链接或抖音视频链接都可以～")
+AGENT_APPLY_REPLY = (
+    "想做代理、把这个达人助理业务推广给更多达人？收到～\n"
+    "代理资格目前由平台审核开通：通过后你会有自己的运营后台，"
+    "可以邀请达人、给她们充积分、看她们的数据报表。"
+    "我先把你的意向登记下来，审核结果会在这里通知你。具体也可以直接问运营老师。")
 GREETING_RE = re.compile(r"^(你好|在吗|在么|您好|hi|hello|嗨|早|早上好|晚上好|下午好|哈喽|在不在)[呀啊呐哦哇~～!！\s]*$", re.I)
 # ★ 角色化开场（2026-10-28 飞书助理平台化）：商务助理的打招呼回复
 GREETING_REPLY_COMMERCE = (
@@ -44,6 +49,11 @@ BALANCE_RE = re.compile(r"^(余额|积分|我的积分|积分余额|查积分|�
 WEEKLY_UNSUB_RE = re.compile(r"^(取消订阅|退订|关闭)(每周)?(经营)?周报[呀啊哦~～!！\s]*$")
 WEEKLY_SUB_RE = re.compile(r"^(订阅|开通|恢复)(每周)?(经营)?周报[呀啊哦~～!！\s]*$")
 WEEKLY_STATUS_RE = re.compile(r"^周报(状态|订阅)?[?？!！~～\s]*$")
+# §125 P2：达人想推广业务 ⇒ 申请成为代理（老大 11-02 口径：达人→代理是申请制，
+#   平台审核后开通授予权。当前纯话术登记，P2-B 做自助申请链路）
+AGENT_APPLY_RE = re.compile(
+    r"(想成为?代理|想做代理|申请代理|推广.{0,4}(这个|咱们|我们)?.{0,4}业务"
+    r"|发展下级|拉.{0,2}达人|想成为?团长|想做团长|带团队)")
 # 管理员后门：主动推送类功能的验收/排查通道（灰度规矩：不等周日、不推达人只回管理员）
 TRIAL_WEEKLY_RE = re.compile(
     r"^立即试跑周报(?:\s*[@＠]?(?P<tk>[A-Za-z0-9_]+))?[?？!！~～\s]*$")
@@ -405,6 +415,10 @@ class Router:
                 chat_id,
                 ("周报订阅：已开启 ✅ 每周一上午自动推送"
                  if sub else "周报订阅：已关闭。发「订阅周报」可恢复"))
+        elif AGENT_APPLY_RE.search(text):
+            # 想做代理/推广业务（零成本：纯话术登记，不调 LLM、不扣积分）。
+            # ★ 不限 is_daren —— 商务角色也可能问；人格/层级正交，话术统一。
+            sender.send_text(chat_id, AGENT_APPLY_REPLY)
         elif is_daren and PLAN_QUERY_RE.match(text.strip()):
             # 排品表查询（零成本）
             self._route_plan_query(tenant, chat_id, sender)

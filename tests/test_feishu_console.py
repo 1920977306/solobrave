@@ -435,3 +435,46 @@ class TestTalentNameEnrich:
         assert sent['code'] == 200
         (card,) = sent['obj']['tenants']
         assert card['talent_name'] == '洁洁爱户外'
+
+
+# ---------- 守卫 5：P2 层级操作代理（§125：admin 鉴权 + 透传到 bot admin 正确路径） ----------
+class TestAgentOpProxy:
+    """POST /api/feishu/console/{agent-enable,agent-parent,transfer} —— server 只做鉴权+透传，
+    层校验/原子事务全在 bot 侧。守卫：非管理员 403 不碰代理；管理员透传 payload 到对应 bot 路径。"""
+
+    PATHS = ['/api/feishu/console/agent-enable',
+             '/api/feishu/console/agent-parent',
+             '/api/feishu/console/transfer']
+
+    def _call(self, srv, monkeypatch, path, payload, auth=None):
+        sent = {}
+        calls = []
+
+        def fake_api(p, payload=None):
+            calls.append((p, payload))
+            return 200, {'ok': True}
+        monkeypatch.setattr(srv, '_daren_bot_admin_api', fake_api)
+        monkeypatch.setattr(srv, '_authenticate', lambda *a, **k: auth or _admin_auth())
+        bound, sent = _make_handler(srv, '_handle_post_feishu_console_agent_op', path=path)
+        bound.__self__._read_body = lambda: payload  # fake H 类不带基类实现，实例级补
+        bound(path)
+        return sent, calls
+
+    def test_non_admin_forbidden(self, srv, monkeypatch):
+        auth = type('A', (), {'is_authenticated': True, 'is_admin': False,
+                              'is_tenant_admin': False, 'error': None,
+                              'status': 401, 'user_id': 'u1'})
+        for p in self.PATHS:
+            sent, calls = self._call(srv, monkeypatch, p, {}, auth=auth)
+            assert sent['code'] == 403
+            assert not calls, f'{p}: 无权时不许碰代理'
+
+    def test_forwards_to_matching_bot_path(self, srv, monkeypatch):
+        want = {'/api/feishu/console/agent-enable': '/admin/api/agent-enable',
+                '/api/feishu/console/agent-parent': '/admin/api/agent-parent',
+                '/api/feishu/console/transfer': '/admin/api/transfer'}
+        for p, bot_p in want.items():
+            sent, calls = self._call(srv, monkeypatch, p, {'tenant_key': 'tk1'})
+            assert sent['code'] == 200
+            assert calls == [(bot_p, {'tenant_key': 'tk1'})], \
+                f'{p} 必须透传到 {bot_p}，实际 {calls}'

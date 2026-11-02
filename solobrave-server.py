@@ -9784,6 +9784,12 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if path == '/api/credits/feishu/recharge':
             self._handle_post_feishu_credits_recharge()
             return
+        # §125 P2: 飞书助理层级操作（代理 daren_bot admin：升/降代理、挂靠、转账）
+        if path in ('/api/feishu/console/agent-enable',
+                    '/api/feishu/console/agent-parent',
+                    '/api/feishu/console/transfer'):
+            self._handle_post_feishu_console_agent_op(path)
+            return
         if path.startswith('/api/credits/quotas/') and path.endswith('/recharge'):
             agent_id = path[len('/api/credits/quotas/'):-len('/recharge')]
             if agent_id and '/' not in agent_id:
@@ -18776,6 +18782,24 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 t['talent_name'] = names.get(t.get('douyin_id') or '', '')
         merged['roles'] = _feishu_role_info()
         self._send_json(200, merged)
+
+    # ─── §125 P2: 飞书助理层级操作（升/降代理 / 挂靠上级 / 代理转账） ───
+    def _handle_post_feishu_console_agent_op(self, path: str):
+        """代理 daren_bot /admin/api/{agent-enable,agent-parent,transfer}。
+        层校验和原子事务全在 bot 侧；这里只做鉴权 + 参数透传 + 统一错误形状。"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not (auth.is_admin or auth.is_tenant_admin):
+            self._send_json_error(403, '仅管理员可操作飞书助理层级')
+            return
+        body = self._read_body() or {}
+        bot_path = {'/api/feishu/console/agent-enable': '/admin/api/agent-enable',
+                    '/api/feishu/console/agent-parent': '/admin/api/agent-parent',
+                    '/api/feishu/console/transfer':     '/admin/api/transfer'}[path]
+        status, obj = _daren_bot_admin_api(bot_path, payload=body)
+        self._send_json(status, obj)
 
     def _handle_get_feishu_role_content(self):
         """GET /api/feishu/console/role?role=daren|commerce|merchant — 角色模板全文（只读）。

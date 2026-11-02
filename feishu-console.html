@@ -116,7 +116,7 @@
   <h2>租户总览<span class="subnote">飞书 AI 租户 = 一个绑定的飞书机器人应用</span></h2>
   <table id="tenantTable">
     <thead><tr>
-      <th>租户</th><th>显示名</th><th>角色</th><th>绑定抖音号</th>
+      <th>租户</th><th>显示名</th><th>角色</th><th>层级</th><th>绑定抖音号</th>
       <th class="r">余额</th><th class="r">30天消耗</th><th>在线</th><th class="r">操作</th>
     </tr></thead>
     <tbody></tbody>
@@ -200,7 +200,7 @@ async function loadConsole() {
 function renderTenants(list) {
   const tbody = $('tenantTable').querySelector('tbody');
   if (!list.length) {
-    tbody.innerHTML = '<tr><td class="empty" colspan="8">暂无飞书 AI 租户（或 daren_bot 不可达）</td></tr>';
+    tbody.innerHTML = '<tr><td class="empty" colspan="9">暂无飞书 AI 租户（或 daren_bot 不可达）</td></tr>';
     return;
   }
   tbody.innerHTML = list.map(t => {
@@ -208,17 +208,107 @@ function renderTenants(list) {
     const online = t.ws_online
       ? '<span class="pill on">在线</span>'
       : '<span class="pill gray">离线</span>';
+    // §125 P2 层级：agent_enabled=代理（有后台+可发展下级）；agent_of=上级代理，''=直属平台
+    const agentBadge = t.agent_enabled ? '<span class="pill on">代理</span> ' : '';
+    const tierCell = agentBadge + (t.agent_of
+      ? '上级 ' + esc(t.agent_of)
+      : (t.agent_enabled ? '直属平台' : '<span style="color:var(--sub)">直属平台</span>'));
+    const tk = esc(t.tenant_key);
     return `<tr>
-      <td>${esc(t.tenant_key)}</td>
+      <td>${tk}</td>
       <td>${esc(t.tenant_label || t.tenant_key)}</td>
       <td>${roleName}</td>
+      <td>${tierCell}</td>
       <td>${t.talent_name ? esc(t.talent_name) + '（' + esc(t.douyin_id) + '）' : (esc(t.douyin_id) || '<span style="color:var(--sub)">未绑定</span>')}</td>
       <td class="r bal">${fmt(t.balance)}</td>
       <td class="r">${fmt(t.usage30d)}</td>
       <td>${online}</td>
-      <td class="r"><button onclick="recharge('${esc(t.tenant_key)}')">充值</button></td>
+      <td class="r">
+        <button onclick="recharge('${tk}')">充值</button>
+        <button onclick="toggleAgent('${tk}', ${t.agent_enabled ? 1 : 0})">${t.agent_enabled ? '取消代理' : '设为代理'}</button>
+        <button onclick="setParentDlg('${tk}')">挂靠</button>
+        ${t.agent_enabled ? `<button onclick="transferDlg('${tk}')">转账</button>` : ''}
+      </td>
     </tr>`;
   }).join('');
+}
+
+/* §125 P2：层级操作（代理 daren_bot admin，server 代理 /api/feishu/console/*） */
+async function postAgentOp(path, payload) {
+  const resp = await fetch(path, {
+    method: 'POST',
+    headers: Object.assign({ 'Content-Type': 'application/json' }, authHeaders()),
+    body: JSON.stringify(payload)
+  });
+  const obj = await resp.json();
+  if (!resp.ok) throw new Error(obj.error || `HTTP ${resp.status}`);
+  return obj;
+}
+
+function toggleAgent(tk, currentlyEnabled) {
+  const next = !currentlyEnabled;
+  openDlg(
+    `${next ? '设为代理' : '取消代理'}：${tk}`,
+    `<p style="font-size:13px;color:var(--sub);">${
+      next
+        ? '开通后该租户拥有「代理」身份：可发展下级、给下级转积分（后台可见）。不影响其 AI 人格。'
+        : '取消后该租户退回普通达人：不能再发展下级/转账，存量下级保留原挂靠关系。'}</p>`,
+    `<button onclick="closeDlg()">取消</button>
+     <button class="primary" onclick="confirmToggleAgent('${esc(tk)}', ${next ? 1 : 0})">确认</button>`
+  );
+}
+async function confirmToggleAgent(tk, enabled) {
+  try {
+    await postAgentOp('/api/feishu/console/agent-enable', { tenant_key: tk, enabled: !!enabled });
+    closeDlg(); await loadConsole();
+  } catch (e) { setErr('操作失败：' + (e.message || String(e))); }
+}
+
+function setParentDlg(tk) {
+  openDlg(
+    `挂靠上级代理：${tk}`,
+    `<label style="font-size:12px;color:var(--sub);">上级代理 tenant_key（留空 = 解除挂靠，直属平台）</label>
+     <input type="text" id="parentInput" placeholder="如 agent_a"
+            onkeydown="if(event.key==='Enter')confirmSetParent('${esc(tk)}')">`,
+    `<button onclick="closeDlg()">取消</button>
+     <button class="primary" onclick="confirmSetParent('${esc(tk)}')">确认</button>`
+  );
+  setTimeout(() => { const i = $('parentInput'); if (i) i.focus(); }, 50);
+}
+async function confirmSetParent(tk) {
+  const v = (($('parentInput') || {}).value || '').trim();
+  try {
+    await postAgentOp('/api/feishu/console/agent-parent', { tenant_key: tk, agent_of: v });
+    closeDlg(); await loadConsole();
+  } catch (e) { setErr('挂靠失败：' + (e.message || String(e))); }
+}
+
+function transferDlg(fromKey) {
+  const subs = TENANTS.filter(x => x.agent_of === fromKey);
+  openDlg(
+    `代理转账：${fromKey}`,
+    `<label style="font-size:12px;color:var(--sub);">收款租户（下级）</label>
+     <select id="transferTo">
+       ${subs.length
+         ? subs.map(x => `<option value="${esc(x.tenant_key)}">${esc(x.tenant_label || x.tenant_key)}（${esc(x.tenant_key)}）</option>`).join('')
+         : '<option value="">（暂无下级，请先在「挂靠」里挂进来）</option>'}
+     </select>
+     <label style="font-size:12px;color:var(--sub);margin-top:10px;">转账数量</label>
+     <input type="number" id="transferAmount" value="100" min="1" step="1"
+            onkeydown="if(event.key==='Enter')confirmTransfer('${esc(fromKey)}')">`,
+    `<button onclick="closeDlg()">取消</button>
+     <button class="primary" onclick="confirmTransfer('${esc(fromKey)}')">确认转账</button>`
+  );
+}
+async function confirmTransfer(fromKey) {
+  const to = (($('transferTo') || {}).value || '').trim();
+  const n = parseInt(($('transferAmount') || {}).value, 10);
+  if (!to) { setErr('收款租户不能为空'); return; }
+  if (!n || n <= 0) { setErr('转账数必须是正整数'); return; }
+  try {
+    await postAgentOp('/api/feishu/console/transfer', { from_key: fromKey, to_key: to, amount: n });
+    closeDlg(); await loadConsole();
+  } catch (e) { setErr('转账失败：' + (e.message || String(e))); }
 }
 
 function renderRoles(roles) {
