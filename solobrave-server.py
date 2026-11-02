@@ -21897,6 +21897,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 self._send_json_error(404, 'Talent not found')
                 return
             existing = _talent_row_to_dict(row)
+            # ★ fix/suspect-cache-guard: 疑似坏采集（平台缓存页/粉丝量级突变）时，
+            #   剔除派生文本刷新 —— 宁可保留旧文本，不可写出与行内真值矛盾的报告。
+            body, _suspect = _guard_suspect_refresh(body, existing)
+            if _suspect:
+                logger.info(f'  [PUT-TALENT] {talent_id} 疑似坏采集：派生文本刷新已拦截（ai_analysis/notes 等保留旧值）')
             # ★ fix/talent-full-sync: PUT merge 只补空值严禁覆盖 (老大硬约束)
             # 之前 existing.update(body) 无脑覆盖, 导致已有核心数据 (followers/total_gmv/video_gpm) 被冲掉
             existing = _merge_talent_only_empty(existing, body)
@@ -27102,6 +27107,45 @@ _TALENT_REFRESHABLE_DERIVED = frozenset({
     'ai_rating',      # AI 评级
     'ai_tags',        # AI 标签
 })
+
+
+def _guard_suspect_refresh(body, existing):
+    """★ fix/suspect-cache-guard (2026-11-03 实锤 hlb725)：疑似坏采集时，禁止按本次数据刷新派生文本。
+
+    事故现场：buyin_worker 采集 hlb725 时平台返回了**陈旧缓存渲染**（选行粉丝≈0、
+    followers 靠性别分布回填成 99），产出一整套旧数据（99粉/168款/GMV 50-100万）。
+    写库时结构化字段被 merge「只补空」保护住了（行内真值 12804/151/63 没被冲掉），
+    但 __refresh_fields 里的 ai_analysis 是**无条件覆盖**的 ⇒ 报告文本基于坏数据重写，
+    与行内真值自相矛盾（报告写「粉丝仅99人」，同页卡片显示 12,804）。
+
+    ⇒ 两层护栏，都只做一件事：把 _TALENT_REFRESHABLE_DERIVED 从本次 __refresh_fields
+      里剔除（派生文本保留旧值），核心事实字段的「只补空」保护不受影响：
+      ① 显式标记：采集端 followers 靠回填兜底时，PUT body 带 __suspect_cache=true；
+      ② 数值兜底：没打标但新 followers 与行内存值差 ≥10 倍（存量 ≥1000，0 除外）
+        也按疑似坏采集处理 —— 防别的写入方没打标。
+    返回 (新 body, 是否触发了护栏)。
+    """
+    if not isinstance(body, dict):
+        return body, False
+    suspect = body.pop('__suspect_cache', False) is True
+    if not suspect:
+        try:
+            _nf = float(body.get('followers') or 0)
+            _of = float((existing or {}).get('followers') or 0)
+            if _of >= 1000 and _nf > 0 and (_nf < _of / 10 or _nf > _of * 10):
+                suspect = True
+        except (TypeError, ValueError):
+            pass
+    if not suspect:
+        return body, False
+    refresh = body.get('__refresh_fields')
+    if isinstance(refresh, str):
+        refresh = [refresh]
+    if not refresh:
+        return body, True
+    body = dict(body)
+    body['__refresh_fields'] = [k for k in refresh if k not in _TALENT_REFRESHABLE_DERIVED]
+    return body, True
 
 
 def _merge_talent_only_empty(existing, body):

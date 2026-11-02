@@ -2133,7 +2133,10 @@ def _normalize_fields(fields):
 def _fill_missing_fields(fields):
     """LLM 提取漏字段时兜底：
     - followers 缺失/为0 且 fan_gender 是数值字典 → 用性别分布求和回填
-      （实测王悦悦呀：followers=None 但 fan_gender 合计 43110 ≈ 4.3万）"""
+      （实测王悦悦呀：followers=None 但 fan_gender 合计 43110 ≈ 4.3万）
+    返回 True 表示走了回填兜底 —— 说明主页粉丝数没采到（常伴随平台缓存页/坏渲染），
+    调用方应打 __suspect_cache 标记，让服务端跳过派生文本刷新
+    （fix/suspect-cache-guard 2026-11-03 hlb725 实锤：缓存页整组旧数据重写了 ai_analysis）。"""
     try:
         f = fields.get('followers')
         if (f is None or (isinstance(f, (int, float)) and f <= 0)
@@ -2151,8 +2154,10 @@ def _fill_missing_fields(fields):
                 if total > 0:
                     fields['followers'] = total
                     log(f'  [Collect] followers 由粉丝性别分布回填: {total}')
+                    return True
     except Exception as e:
         log(f'  [Collect] followers 兜底失败（非致命）: {e}')
+    return False
 
 
 # ─────────────────────────────── 服务器 API ───────────────────────────────
@@ -3620,7 +3625,10 @@ def _run_collect_impl(row):
                 [p.get('detail_text', '')[:500] for p in material['top_products']],
                 ensure_ascii=False)
         log(f'[Job] {cid} 提取完成: {list(fields.keys())[:12]}…')
-        _fill_missing_fields(fields)
+        suspect_cache = _fill_missing_fields(fields)
+        if suspect_cache:
+            log(f'[Job] {cid} ⚠️ followers 走了回填兜底（疑似平台缓存页/坏采集），'
+                f'本次 PUT 将带 __suspect_cache 标记，派生文本不刷新')
         fields = _normalize_fields(fields)
         # 已知视觉脏值清理：月结算与件单价数值相同 = 量级读错（带百品月结¥129.72 不可能）
         try:
@@ -3657,9 +3665,13 @@ def _run_collect_impl(row):
                 #   （实测：飞书卡片 GMV 37.5万，同页摘要却写「¥10万-25万」）。
                 #   派生字段语义 = 「最近一次采集的结果」→ 应当每次刷新。
                 #   服务端有白名单双保险，核心事实字段（followers/GMV…）刷不动。
-                api('PUT', f'/api/talents/{talent_id}',
-                    {**fields, '__refresh_fields': ['notes', 'ai_summary', 'ai_analysis',
-                                                   'ai_reason', 'ai_rating', 'ai_tags']},
+                # ★ fix/suspect-cache-guard: followers 走了回填兜底 = 疑似缓存页坏采集，
+                #   打标让服务端跳过派生文本（ai_analysis/notes…）刷新，保留旧文本。
+                _put_body = {**fields, '__refresh_fields': ['notes', 'ai_summary', 'ai_analysis',
+                                                            'ai_reason', 'ai_rating', 'ai_tags']}
+                if suspect_cache:
+                    _put_body['__suspect_cache'] = True
+                api('PUT', f'/api/talents/{talent_id}', _put_body,
                     timeout=60, admin=True)
                 log(f'[Job] {cid} 更新完成')
             except Exception as e:
