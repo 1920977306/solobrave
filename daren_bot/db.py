@@ -274,6 +274,7 @@ CREATE TABLE IF NOT EXISTS bot_session_objects (
   obj_key    TEXT NOT NULL DEFAULT '',
   label      TEXT NOT NULL DEFAULT '',   -- 展示名：达人昵称/商品名/视频标题
   oneline    TEXT NOT NULL DEFAULT '',   -- 一句话结论（评估/能带慎带/拆解主题）
+  excluded   INTEGER NOT NULL DEFAULT 0, -- 1=达人已纠正「这不是TA」（软排除，2026-11-02）
   created_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_session_obj_tenant
@@ -395,7 +396,7 @@ def record_session_object(tenant_key: str, obj_type: str, obj_key: str = "",
                 (tk, ot, key)).fetchone()
             if row:
                 conn.execute(
-                    "UPDATE bot_session_objects SET label=?, oneline=?, created_at=? WHERE id=?",
+                    "UPDATE bot_session_objects SET label=?, oneline=?, created_at=?, excluded=0 WHERE id=?",
                     ((label or "").strip()[:80], (oneline or "").strip()[:160], now, row[0]))
             else:
                 conn.execute(
@@ -414,27 +415,60 @@ def record_session_object(tenant_key: str, obj_type: str, obj_key: str = "",
 
 
 def get_session_objects(tenant_key: str, obj_type: str = "",
-                        within_hours: int = 24, limit: int = 6) -> list:
-    """取该租户最近分析过的对象（时间升序）。obj_type 传空 = 全类型。"""
+                        within_hours: int = 24, limit: int = 6,
+                        include_excluded: bool = False) -> list:
+    """取该租户最近分析过的对象（时间升序）。obj_type 传空 = 全类型。
+
+    excluded=1（达人认错排除）的行默认过滤 —— 注入链路看不见它们；
+    include_excluded=True 时才返回（负向注记/审核用）。"""
     tk = (tenant_key or "").strip()
     if not tk:
         return []
     cutoff = int(time.time()) - within_hours * 3600
-    sql = ("SELECT obj_type, obj_key, label, oneline, created_at"
+    sql = ("SELECT obj_type, obj_key, label, oneline, created_at, excluded"
            " FROM bot_session_objects WHERE tenant_key=? AND created_at>=?")
     args = [tk, cutoff]
     if obj_type:
         sql += " AND obj_type=?"
         args.append(obj_type)
+    if not include_excluded:
+        sql += " AND excluded=0"
     sql += " ORDER BY created_at ASC LIMIT ?"
     args.append(int(limit))
     try:
         with db_ctx() as conn:
             return [{"obj_type": r[0], "obj_key": r[1], "label": r[2],
-                     "oneline": r[3], "created_at": r[4]}
+                     "oneline": r[3], "created_at": r[4], "excluded": bool(r[5])}
                     for r in conn.execute(sql, args).fetchall()]
     except Exception:
         return []
+
+
+def exclude_session_object(tenant_key: str, obj_type: str, obj_key: str,
+                           note: str = "") -> bool:
+    """把对象簿里这条标记为「达人已纠正：这不是TA」（软排除，2026-11-02）。
+
+    - 只置 excluded=1 + 覆写 oneline 为负向注记，**不删行**（留审计）；
+    - 之后 get_session_objects 默认不再返回它 ⇒ 点名/对比注入不再用它；
+    - 重新分析同一对象（record_session_object upsert）自动复位 excluded=0。
+    尽力而为：失败只记日志。"""
+    tk = (tenant_key or "").strip()
+    ot = (obj_type or "").strip()
+    key = (obj_key or "").strip()
+    if not tk or not ot:
+        return False
+    try:
+        with db_ctx() as conn:
+            cur = conn.execute(
+                "UPDATE bot_session_objects SET excluded=1, oneline=?"
+                " WHERE tenant_key=? AND obj_type=? AND obj_key=?",
+                ((note or "达人已纠正：这条不是TA").strip()[:160],
+                 tk, ot, key))
+            return cur.rowcount > 0
+    except Exception:
+        log.exception("exclude_session_object failed: tk=%s type=%s key=%s",
+                      tk, ot, key)
+        return False
 
 
 def init_db():
@@ -496,6 +530,13 @@ def init_db():
         if "stats_json" not in cols:
             conn.execute("ALTER TABLE bot_product_verdicts "
                          "ADD COLUMN stats_json TEXT DEFAULT ''")
+        # 轻量迁移：会话对象簿补「达人认错排除」标记（2026-11-02）。
+        #   0=正常（存量行为零变化）；1=达人纠正过「这不是TA」⇒ 注入时过滤，
+        #   但行保留做审计/负向注记。重新分析同一对象会复位成 0（新结论为准）。
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(bot_session_objects)")}
+        if "excluded" not in cols:
+            conn.execute("ALTER TABLE bot_session_objects "
+                         "ADD COLUMN excluded INTEGER NOT NULL DEFAULT 0")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_pverdict_key "
                      "ON bot_product_verdicts(tenant_key, product_key, created_at)")
     # 启动时清一次过期的问答缓存（结论档案表不清，见 purge_expired_caches 注释）

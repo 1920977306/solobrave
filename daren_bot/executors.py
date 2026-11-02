@@ -1903,6 +1903,64 @@ def _session_objects_block(tk: str, q: str) -> str:
     return ""
 
 
+# ─── 实体认错纠正（2026-11-02 老大拍板：检测→软排除→即时话术→KB 沉淀）────────
+# 达人说「不是豆鲨包」——对象簿里那条错数据必须立刻失效：
+#   会话层（对象簿软排除 + 负向注记）挡住当下 24h 的注入；
+#   训练层（persona.capture_feedback → 知识库纠正榜）防未来复发。
+# ★ 宁漏勿抢：必须「不是 + 对象簿里已有的 label 精确命中」才触发 ——
+#   簿里没有的「不是」一律放行给正常问答，绝不误伤。
+def detect_entity_correction(tk: str, q: str) -> list:
+    """达人这句是不是在纠正「某个已分析对象认错了人」。
+
+    返回被点名的对象列表（[{obj_type, obj_key, label, ...}]）。
+    判据：句中有「不是<label>」且 label 精确命中对象簿里的活跃对象。
+    「我说的不是X」「那不是X」「这个不是X」都含「不是X」子串，天然覆盖。"""
+    import re as _re
+    from . import db as _db
+    qq = q or ""
+    if "不是" not in qq:
+        return []
+    objs = _db.get_session_objects(tk)
+    hits = []
+    for o in objs:
+        label = (o.get("label") or "").strip()
+        if len(label) < 2:
+            continue
+        m = _re.search("不是\\s*[:：]?\\s*" + _re.escape(label), qq)
+        if not m:
+            continue
+        # ★ 疑问语气不算纠正：「不是小陈爱吃吃**吗**？」是在向 AI 确认，
+        #   不是认错 —— 真排除了会把好数据也扔掉。疑问粒子和问号一律放行。
+        nxt = qq[m.end():m.end() + 1]
+        # ⚠️ 空串 in 任何串都 True ⇒ 必须先判非空（句尾结束≠疑问语气）。
+        if nxt and nxt in "吗么吧呢哈？?":
+            continue
+        hits.append(o)
+    return hits
+
+
+def _excluded_objects_block(tk: str, q: str) -> str:
+    """负向注记注入：问题又提到了被达人排除过的对象 ⇒ 提醒 AI 先确认别套旧数据。
+
+    只注入注记、不提供旧数据（旧数据就是错的，给了等于又答错）。"""
+    from . import db as _db
+    qq = q or ""
+    objs = [o for o in _db.get_session_objects(tk, include_excluded=True)
+            if o.get("excluded")]
+    if not objs:
+        return ""
+    hits = [o for o in objs
+            if len(o.get("label") or "") >= 2 and o["label"] in qq]
+    if not hits:
+        return ""
+    names = "、".join(f"「{o['label']}」" for o in hits[-3:])
+    return ("【达人纠正】达人之前明确说过 " + names +
+            " 这条数据**不是TA**（认错人了）。现在TA又提到这个对象："
+            "绝对禁止直接套用旧数据下结论；先跟达人确认指的是谁"
+            "（「你说的这个是哪个号？发我抖音号/链接我重新分析」），"
+            "或基于达人这句里给的新信息回答。\n")
+
+
 # ─── 达人自述事实沉淀（2026-11-02 老大拍板「聊天的意义是训练知识库」）────────
 # 检测是**确定性的正则**（零成本）：句式特征明显——「我 + (出单/卖/带) + 都是/
 # 多/主要」「我没有带过」「我本来也是带」。存原句不提炼（只丢不造），后续选品/
@@ -2274,6 +2332,9 @@ def execute_qa(task: dict) -> str:
     # ★ 2026-11-02 多对象会话记忆：同会话分析过多个达人/商品/视频时，
     #   「上面那两个/怎么没有对比」才能接住（豆鲨包实锤：各分析各的、忘了上一个）。
     session_block = _session_objects_block(task.get("tenant_key", ""), q)
+    # ★ 2026-11-02 实体认错纠正：问题提到被达人排除过的对象 ⇒ 注入负向注记
+    #   （挡住「又拿认错人的旧数据答题」；旧数据本身不再出现在任何注入块里）。
+    excluded_block = _excluded_objects_block(task.get("tenant_key", ""), q)
     # ★ 2026-11-02 自述事实：先检测这句话本身是不是经营事实自述，是则入库；
     #   再按问题形态决定是否把已沉淀的事实注入本轮 prompt。
     self_fact = _extract_self_fact(q)
@@ -2314,6 +2375,7 @@ def execute_qa(task: dict) -> str:
         + force_line
         + recent_line
         + (session_block or '')
+        + (excluded_block or '')
         + (_self_facts_block(task.get("tenant_key", ""), q, _role) or '')
         + commerce_line
         + compare_line

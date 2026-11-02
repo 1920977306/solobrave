@@ -371,6 +371,102 @@ class TestSelfFacts:
         assert len(db.get_talent_fact_rows("other_tenant")) == 1
 
 
+class TestEntityCorrection:
+    """实体认错纠正（2026-11-02 老大拍板）：「不是豆鲨包」→ 对象簿软排除。
+
+    锁四条（全是行为断言）：
+    1. 软排除后默认读取看不见（注入链路不再用它），include_excluded 才可见；
+    2. 重新分析同一对象（upsert）自动复位 excluded=0 —— 新结论为准；
+    3. 检测宁漏勿抢：label 不在簿里 / 没有「不是」一律不触发；
+    4. handler 零成本承接：确认话术发出、软排除落库、不进 QA（不调 LLM）。
+    """
+
+    def _seed(self):
+        db.record_session_object(TK, "talent", "dy_1", "豆鲨包",
+                                 "账号评估 潜力型")
+        db.record_session_object(TK, "talent", "dy_2", "小陈爱吃吃",
+                                 "账号评估 稳健型")
+
+    def test_excluded_hidden_from_default_read(self, botdb):
+        from daren_bot import executors
+        self._seed()
+        hits = executors.detect_entity_correction(TK, "我说的不是豆鲨包啊")
+        assert len(hits) == 1 and hits[0]["label"] == "豆鲨包"
+        assert db.exclude_session_object(TK, "talent", "dy_1") is True
+        # 默认读取：只剩另一条
+        objs = db.get_session_objects(TK, "talent")
+        assert [o["label"] for o in objs] == ["小陈爱吃吃"]
+        # include_excluded：两条都在，被排除的带标记 + 负向注记
+        all_objs = db.get_session_objects(TK, "talent", include_excluded=True)
+        assert len(all_objs) == 2
+        ex = [o for o in all_objs if o["excluded"]]
+        assert len(ex) == 1 and "不是" in ex[0]["oneline"]
+
+    def test_reanalysis_resets_exclusion(self, botdb):
+        self._seed()
+        db.exclude_session_object(TK, "talent", "dy_1")
+        assert db.get_session_objects(TK, "talent") == [] or \
+            all(o["label"] != "豆鲨包" for o in db.get_session_objects(TK, "talent"))
+        # 达人重发了对的号 → worker 重新登记（upsert）⇒ 复位
+        db.record_session_object(TK, "talent", "dy_1", "豆鲨包",
+                                 "账号评估 潜力型")
+        objs = db.get_session_objects(TK, "talent")
+        assert any(o["label"] == "豆鲨包" and not o["excluded"] for o in objs)
+
+    def test_detect_misses_label_not_in_book(self, botdb):
+        from daren_bot import executors
+        self._seed()
+        # 「不是」后面的人不在对象簿里 ⇒ 不触发（放行正常问答）
+        assert executors.detect_entity_correction(TK, "不是李佳琦") == []
+        assert executors.detect_entity_correction(TK, "不是小陈爱吃吃吗") == []
+
+    def test_detect_misses_without_bushi(self, botdb):
+        from daren_bot import executors
+        self._seed()
+        assert executors.detect_entity_correction(TK, "豆鲨包最近怎么样") == []
+
+    def test_negative_block_injects_on_mention(self, botdb):
+        from daren_bot import executors
+        self._seed()
+        db.exclude_session_object(TK, "talent", "dy_1")
+        blk = executors._excluded_objects_block(TK, "豆鲨包现在数据如何")
+        assert "达人纠正" in blk
+        assert "不是TA" in blk
+        assert "豆鲨包" in blk
+        # 没提被排除对象 ⇒ 不注入
+        assert executors._excluded_objects_block(TK, "小陈爱吃吃怎么样") == ""
+
+    def test_negative_block_empty_when_no_exclusion(self, botdb):
+        from daren_bot import executors
+        self._seed()
+        assert executors._excluded_objects_block(TK, "豆鲨包怎么样") == ""
+
+    def test_handler_zero_cost_ack(self, botdb):
+        from daren_bot import handler
+
+        class _Sender:
+            def __init__(self):
+                self.sent = []
+
+            def send_text(self, chat_id, text):
+                self.sent.append((chat_id, text))
+
+        self._seed()
+        r = handler.Router(ws_manager=None)
+        tenant = {"tenant_key": TK, "role": "daren"}
+        sender = _Sender()
+        assert r._route_entity_correction(tenant, "oc_x", "不是豆鲨包", sender) is True
+        assert sender.sent, "必须回确认话术"
+        assert "豆鲨包" in sender.sent[0][1]
+        # 软排除已落库
+        assert all(o["label"] != "豆鲨包"
+                   for o in db.get_session_objects(TK, "talent"))
+        # 不命中的话 ⇒ False（落 QA）
+        assert r._route_entity_correction(tenant, "oc_x", "今天天气怎么样",
+                                          sender) is False
+        assert len(sender.sent) == 1, "不命中不许多发消息"
+
+
 class TestFactsAdminApi:
     """admin 端点行为锁（§130）：HTTP 起真服务打真端点。
 

@@ -462,9 +462,54 @@ class Router:
         elif is_daren and self._route_commission(tenant, chat_id, text, sender):
             # 专属佣金回复（2026-10-28）：达人报了自己后台的专属佣金 ⇒ 重算商品结论
             pass
+        elif self._route_entity_correction(tenant, chat_id, text, sender):
+            # 实体认错纠正（2026-11-02 老大拍板）：「不是豆鲨包」+ 命中对象簿
+            #   ⇒ 软排除错数据 + 零成本确认话术 + 纠正原文进知识库（训练层）。
+            #   在 QA 之前拦：不扣积分、不调 LLM。
+            pass
         else:
             # 业务问答：入队异步走 LLM（扣 1 积分），超出带货范围由模型拒答
             self._route_qa(tenant, chat_id, text, sender)
+
+    # ---------- 实体认错纠正（「不是豆鲨包」→ 对象簿软排除） ----------
+
+    def _route_entity_correction(self, tenant: dict, chat_id: str, text: str,
+                                 sender) -> bool:
+        """判断这条是不是「达人纠正认错人」；是则软排除并返回 True（零成本）。
+
+        判据全在 executors.detect_entity_correction（宁漏勿抢：必须命中对象簿
+        里已有的 label）——簿里没有的「不是X」照常落 QA，不在这儿拦。
+        三层一起动：
+          ① 会话层：db.exclude_session_object 软排除 ⇒ 后续注入不再用它；
+          ② 即时话术：确认收到 + 要正确输入（不调 LLM、不扣积分）；
+          ③ 训练层：纠正原文走 persona.capture_feedback 进知识库纠正榜。
+        """
+        tk = tenant["tenant_key"]
+        from . import executors, persona
+        hits = executors.detect_entity_correction(tk, text)
+        if not hits:
+            return False
+        labels = []
+        for o in hits:
+            note = f"达人已纠正：这条不是「{o.get('label') or o.get('obj_key')}」（认错人，别再用）"
+            if db.exclude_session_object(tk, o.get("obj_type", ""),
+                                         o.get("obj_key", ""), note=note):
+                labels.append(o.get("label") or o.get("obj_key"))
+        if not labels:
+            return False
+        names = "、".join(f"「{n}」" for n in labels)
+        reply = (f"收到，{names}这条我记下不算数了 ✅ 你把对的抖音号或链接"
+                 "再发我一次，我重新分析，报告出来直接发你～")
+        sender.send_text(chat_id, reply)
+        # 训练层：这句纠正同时进知识库（talent_feedback 白名单，价值闸把关），
+        # 沉淀器会合并进角色模板的纠正榜 —— 会话层挡当下，训练层防复发。
+        try:
+            persona.capture_feedback(tk, text, reply)
+        except Exception:
+            log.exception("capture entity correction feedback failed")
+        log.info("entity correction: tenant=%s excluded=%s text=%.40s",
+                 tk, labels, text)
+        return True
 
     # ---------- 专属佣金回复（达人报数 → 重算商品结论） ----------
 
