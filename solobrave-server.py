@@ -9413,6 +9413,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if path == '/api/feishu/console':
             self._handle_get_feishu_console()
             return
+        if path.startswith('/api/feishu/console/role'):
+            self._handle_get_feishu_role_content()
+            return
         if path == '/api/feishu/chat':
             self._handle_get_feishu_chat()
             return
@@ -18773,6 +18776,37 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 t['talent_name'] = names.get(t.get('douyin_id') or '', '')
         merged['roles'] = _feishu_role_info()
         self._send_json(200, merged)
+
+    def _handle_get_feishu_role_content(self):
+        """GET /api/feishu/console/role?role=daren|commerce|merchant — 角色模板全文（只读）。
+        老大 2026-11-02：控制台角色卡片要点开查看模板内容。只读、仅管理员、截断 64KB。"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not (auth.is_admin or auth.is_tenant_admin):
+            self._send_json_error(403, '仅管理员可查看角色模板')
+            return
+        qs = parse_qs(urlparse(self.path).query)
+        role = (qs.get('role') or [''])[0].strip()
+        fname = next((f for r, _l, f in _FEISHU_ROLES if r == role), None)
+        if not fname:
+            self._send_json_error(400, '未知角色（可选：daren / commerce / merchant）')
+            return
+        path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                            'daren_bot', 'personas', fname)
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                text = f.read()
+        except FileNotFoundError:
+            self._send_json_error(404, '模板文件不存在（该角色未启用）')
+            return
+        except (OSError, UnicodeDecodeError) as e:
+            self._send_json_error(500, f'模板读取失败: {type(e).__name__}')
+            return
+        label = next((l for r, l, _f in _FEISHU_ROLES if r == role), role)
+        self._send_json(200, {'role': role, 'label': label, 'content': text[:65536],
+                              'truncated': len(text) > 65536})
 
     def _handle_get_feishu_chat(self):
         """GET /api/feishu/chat?tenant_key=&limit= — 聊天审计透传（§118 bot_chat_messages）。

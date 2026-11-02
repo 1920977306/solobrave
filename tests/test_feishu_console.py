@@ -260,6 +260,66 @@ class TestChatHandler:
         assert not calls
 
 
+# ---------- 守卫 4：角色模板查看（§124 老大「角色模板点不开查看」） ----------
+class TestRoleContentHandler:
+    """GET /api/feishu/console/role?role= —— 只读端点守卫。
+    行为断言：admin 200 带全文 / 未知角色 400 / 未启用角色 404 / 非管理员 403 / 未登录 401。"""
+
+    def _call(self, srv, monkeypatch, path, auth=None):
+        auth = auth if auth is not None else _admin_auth()
+        monkeypatch.setattr(srv, '_authenticate', lambda *a, **k: auth)
+        bound, sent = _make_handler(srv, '_handle_get_feishu_role_content', path=path)
+        bound()
+        return sent
+
+    def test_admin_gets_full_content(self, srv, monkeypatch):
+        sent = self._call(srv, monkeypatch, '/api/feishu/console/role?role=daren')
+        assert sent['code'] == 200
+        body = sent['obj']
+        assert body['role'] == 'daren'
+        assert body['label'] == '达人助理'
+        assert len(body['content']) > 0, '真模板文件必须有内容'
+        assert body['truncated'] is False
+
+    def test_unknown_role_rejected(self, srv, monkeypatch):
+        sent = self._call(srv, monkeypatch, '/api/feishu/console/role?role=hacker')
+        assert sent['code'] == 400
+        assert 'error' in sent['obj']
+
+    def test_missing_role_param_rejected(self, srv, monkeypatch):
+        sent = self._call(srv, monkeypatch, '/api/feishu/console/role')
+        assert sent['code'] == 400
+
+    def test_disabled_role_is_404_not_crash(self, srv, monkeypatch):
+        """merchant.md 不存在 ⇒ 404（不许 500，不许造空模板假装启用）。"""
+        sent = self._call(srv, monkeypatch, '/api/feishu/console/role?role=merchant')
+        assert sent['code'] == 404
+
+    def test_non_admin_forbidden(self, srv, monkeypatch):
+        auth = type('A', (), {'is_authenticated': True, 'is_admin': False,
+                              'is_tenant_admin': False, 'error': None,
+                              'status': 401, 'user_id': 'u1'})
+        sent = self._call(srv, monkeypatch, '/api/feishu/console/role?role=daren',
+                          auth=auth)
+        assert sent['code'] == 403
+
+    def test_tenant_admin_allowed(self, srv, monkeypatch):
+        auth = type('A', (), {'is_authenticated': True, 'is_admin': False,
+                              'is_tenant_admin': True, 'error': None,
+                              'status': 401, 'user_id': 'boss'})
+        sent = self._call(srv, monkeypatch, '/api/feishu/console/role?role=daren',
+                          auth=auth)
+        assert sent['code'] == 200
+
+    def test_unauthenticated_401(self, srv, monkeypatch):
+        auth = type('A', (), {'is_authenticated': False, 'is_admin': False,
+                              'is_tenant_admin': False, 'error': 'unauthorized',
+                              'status': 401, 'user_id': None})
+        sent = self._call(srv, monkeypatch, '/api/feishu/console/role?role=daren',
+                          auth=auth)
+        assert sent['code'] == 401
+
+
 class TestProxyQueryAppend:
     """§119 真机冒烟抓到的 bug：path 自带 query 时，helper 追加 ?token= 会把 token
     吞进上一个参数值（limit=5?token=xx）⇒ bot 收不到 token ⇒ 403。

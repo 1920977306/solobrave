@@ -7504,79 +7504,135 @@ function renderCreditDashboard(balances, quotas, todayRecords, summary, dr, usag
   html += '<div id="creditUsageListArea" style="display:none;"></div></div>';
   return html;
 }
+/* §124 (2026-11-02 修)：Kimi Work 内嵌浏览器里 window.prompt() 不弹窗、无声返回 null
+   （老大报「飞书助理控制台无法充值」的根因——点了没反应，server.log 零条 recharge POST）。
+   前端一律改用应用内弹窗，禁用 prompt()。options 非空时弹出下拉，onConfirm(amount, opt)。 */
+var _sbAmountModal = null;
+function sbAmountPrompt(title, defVal, onConfirm, options) {
+  if (!_sbAmountModal) {
+    _sbAmountModal = document.createElement('div');
+    _sbAmountModal.className = 'modal-overlay';
+    _sbAmountModal.id = 'sbAmountModal';
+    _sbAmountModal.innerHTML =
+      '<div class="modal" style="width:360px;">' +
+      '<div class="modal-header"><span class="modal-title" id="sbAmountTitle"></span>' +
+      '<button class="modal-close" onclick="sbAmountClose()">✕</button></div>' +
+      '<div class="modal-body">' +
+      '<select id="sbAmountSelect" style="width:100%;padding:10px 12px;border:1px solid var(--separator);border-radius:8px;font-size:14px;margin-bottom:10px;box-sizing:inherit;display:none;background:var(--bg-primary);color:var(--text-primary);"></select>' +
+      '<input id="sbAmountInput" type="number" min="1" step="1" placeholder="积分数" style="width:100%;padding:10px 12px;border:1px solid var(--separator);border-radius:8px;font-size:15px;box-sizing:border-box;background:var(--bg-primary);color:var(--text-primary);" />' +
+      '</div>' +
+      '<div class="modal-footer">' +
+      '<button class="modal-btn modal-btn-secondary" onclick="sbAmountClose()">取消</button>' +
+      '<button class="modal-btn" onclick="sbAmountOk()" style="background:var(--sb2-brand);color:#fff;">确定</button>' +
+      '</div></div>';
+    document.body.appendChild(_sbAmountModal);
+    _sbAmountModal.addEventListener('click', function(e) { if (e.target === _sbAmountModal) sbAmountClose(); });
+    var inp0 = document.getElementById('sbAmountInput');
+    inp0.addEventListener('keydown', function(e) { if (e.key === 'Enter') { e.preventDefault(); sbAmountOk(); } });
+    document.addEventListener('keydown', function(e) {
+      if (e.key === 'Escape' && _sbAmountModal && _sbAmountModal.classList.contains('active')) sbAmountClose();
+    });
+  }
+  document.getElementById('sbAmountTitle').textContent = title;
+  var sel = document.getElementById('sbAmountSelect');
+  sel.innerHTML = '';
+  if (options && options.length) {
+    options.forEach(function(o) {
+      var opt = document.createElement('option');
+      opt.value = o.value; opt.textContent = o.label; sel.appendChild(opt);
+    });
+    sel.style.display = '';
+    if (defVal != null) sel.value = String(defVal);
+  } else {
+    sel.style.display = 'none';
+  }
+  var inp = document.getElementById('sbAmountInput');
+  inp.value = (options && options.length) ? '' : (defVal == null ? '' : String(defVal));
+  _sbAmountModal._onConfirm = onConfirm;
+  _sbAmountModal._hasSelect = !!(options && options.length);
+  _sbAmountModal.classList.add('active');
+  setTimeout(function() { inp.focus(); if (!(_sbAmountModal._hasSelect && !inp.value)) inp.select(); }, 60);
+}
+function sbAmountClose() {
+  if (_sbAmountModal) _sbAmountModal.classList.remove('active');
+}
+function sbAmountOk() {
+  if (!_sbAmountModal) return;
+  var v = parseInt(document.getElementById('sbAmountInput').value, 10);
+  var sel = document.getElementById('sbAmountSelect');
+  var opt = (_sbAmountModal._hasSelect && sel) ? sel.value : undefined;
+  var cb = _sbAmountModal._onConfirm;
+  sbAmountClose();
+  if (cb) cb(v, opt);
+}
 async function rechargeAgentCredits(agentId, agentName) {
-  var input = prompt('给「' + agentName + '」充值积分（1 积分 = 1000 tokens）：', '1000');
-  if (input === null) return;
-  var amount = parseInt(input, 10);
-  if (!amount || amount <= 0) { showToast('❌ 请输入有效的积分数', 'error'); return; }
-  try {
-    var resp = await apiFetch('/api/credits/recharge', {
+  sbAmountPrompt('给「' + agentName + '」充值积分（1 积分 = 1000 tokens）', 1000, function(amount) {
+    if (!amount || amount <= 0) { showToast('❌ 请输入有效的积分数', 'error'); return; }
+    apiFetch('/api/credits/recharge', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({ agent_id: agentId, amount: amount })
+    }).then(function(resp) {
+      return resp.json().then(function(data) {
+        if (resp.ok) {
+          showToast('✅ 充值成功，「' + agentName + '」当前余额 ' + (data.new_balance || 0) + ' 积分');
+          loadComputeStats();
+        } else {
+          showToast('❌ ' + (data.error || '充值失败'), 'error');
+        }
+      });
+    }).catch(function(e) {
+      console.warn('[Credits] 充值失败:', e);
+      showToast('❌ 充值失败', 'error');
     });
-    var data = await resp.json();
-    if (resp.ok) {
-      showToast('✅ 充值成功，「' + agentName + '」当前余额 ' + (data.new_balance || 0) + ' 积分');
-      loadComputeStats();
-    } else {
-      showToast('❌ ' + (data.error || '充值失败'), 'error');
-    }
-  } catch (e) {
-    console.warn('[Credits] 充值失败:', e);
-    showToast('❌ 充值失败', 'error');
-  }
+  });
 }
 /* §117 (2026-11-01 老大): 飞书 AI（达人助理）租户充值 —— 走 /api/credits/feishu/recharge,
    server 代理 daren_bot /admin/api/grant（那边有租户校验 + 原子事务 + 流水）。 */
 async function rechargeFeishuCredits(tenantKey, tenantName) {
-  var input = prompt('给飞书 AI「' + tenantName + '」（' + tenantKey + '）充值积分：', '500');
-  if (input === null) return;
-  var amount = parseInt(input, 10);
-  if (!amount || amount <= 0) { showToast('❌ 请输入有效的积分数', 'error'); return; }
-  try {
-    var resp = await apiFetch('/api/credits/feishu/recharge', {
+  sbAmountPrompt('给飞书 AI「' + tenantName + '」（' + tenantKey + '）充值积分', 500, function(amount) {
+    if (!amount || amount <= 0) { showToast('❌ 请输入有效的积分数', 'error'); return; }
+    apiFetch('/api/credits/feishu/recharge', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({ tenant: tenantKey, amount: amount })
+    }).then(function(resp) {
+      return resp.json().then(function(data) {
+        if (resp.ok) {
+          showToast('✅ 充值成功，「' + tenantName + '」当前余额 ' + (data.new_balance || 0) + ' 积分');
+          loadComputeStats();
+        } else {
+          showToast('❌ ' + (data.error || '充值失败'), 'error');
+        }
+      });
+    }).catch(function(e) {
+      console.warn('[FeishuCredits] 充值失败:', e);
+      showToast('❌ 充值失败', 'error');
     });
-    var data = await resp.json();
-    if (resp.ok) {
-      showToast('✅ 充值成功，「' + tenantName + '」当前余额 ' + (data.new_balance || 0) + ' 积分');
-      loadComputeStats();
-    } else {
-      showToast('❌ ' + (data.error || '充值失败'), 'error');
-    }
-  } catch (e) {
-    console.warn('[FeishuCredits] 充值失败:', e);
-    showToast('❌ 充值失败', 'error');
-  }
+  });
 }
 async function setAgentQuota(agentId, agentName) {
-  var type = prompt('配额类型（输入 daily 或 monthly）：', 'monthly');
-  if (type === null) return;
-  type = type.trim() === 'daily' ? 'daily' : 'monthly';
-  var input = prompt('给「' + agentName + '」充值配额积分（' + (type === 'daily' ? '每日' : '每月') + '）：', '3000');
-  if (input === null) return;
-  var amount = parseInt(input, 10);
-  if (!amount || amount <= 0) { showToast('❌ 请输入有效的积分数', 'error'); return; }
-  try {
-    var resp = await apiFetch('/api/credits/quotas/' + encodeURIComponent(agentId) + '/recharge', {
+  sbAmountPrompt('给「' + agentName + '」充值配额积分', 'monthly', function(amount, type) {
+    if (!amount || amount <= 0) { showToast('❌ 请输入有效的积分数', 'error'); return; }
+    type = type === 'daily' ? 'daily' : 'monthly';
+    apiFetch('/api/credits/quotas/' + encodeURIComponent(agentId) + '/recharge', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({ amount: amount, quota_type: type })
+    }).then(function(resp) {
+      return resp.json().then(function(data) {
+        if (resp.ok) {
+          showToast('✅ 配额充值成功，「' + agentName + '」当前余额 ' + (data.new_balance || 0) + ' 积分');
+          loadComputeStats();
+        } else {
+          showToast('❌ ' + (data.error || '配额设置失败'), 'error');
+        }
+      });
+    }).catch(function(e) {
+      console.warn('[Credits] 配额设置失败:', e);
+      showToast('❌ 配额设置失败', 'error');
     });
-    var data = await resp.json();
-    if (resp.ok) {
-      showToast('✅ 配额充值成功，「' + agentName + '」当前余额 ' + (data.new_balance || 0) + ' 积分');
-      loadComputeStats();
-    } else {
-      showToast('❌ ' + (data.error || '配额设置失败'), 'error');
-    }
-  } catch (e) {
-    console.warn('[Credits] 配额设置失败:', e);
-    showToast('❌ 配额设置失败', 'error');
-  }
+  }, [{value: 'monthly', label: '每月额度'}, {value: 'daily', label: '每日额度'}]);
 }
 async function toggleCreditUsageList() {
   _creditUsageExpanded = !_creditUsageExpanded;

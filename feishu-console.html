@@ -65,6 +65,34 @@
   .msg-box.show { display: block; }
   .msg-box.warn { background: var(--warn-bg); border: 1px solid var(--warn-line); color: #b25e09; }
   .msg-box.err { background: #ffece8; border: 1px solid #fdcdc5; color: var(--bad); }
+  /* §124 应用内弹窗（替代 window.prompt——内嵌浏览器不弹 prompt，点了无声无息没反应） */
+  .overlay {
+    position: fixed; inset: 0; background: rgba(31, 35, 41, .45);
+    display: none; align-items: center; justify-content: center; z-index: 100;
+  }
+  .overlay.open { display: flex; }
+  .dlg {
+    background: #fff; border-radius: 10px; width: 92%; max-width: 480px;
+    max-height: 84vh; display: flex; flex-direction: column;
+    box-shadow: 0 8px 30px rgba(0,0,0,.18);
+  }
+  .dlg-head {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 12px 16px; border-bottom: 1px solid var(--line); font-weight: 600; font-size: 14px;
+  }
+  .dlg-head button { border: none; font-size: 16px; background: none; cursor: pointer; color: var(--sub); }
+  .dlg-body { padding: 14px 16px; overflow: auto; font-size: 13px; }
+  .dlg-body input[type=text], .dlg-body input[type=number] {
+    width: 100%; padding: 8px 10px; border: 1px solid var(--line);
+    border-radius: 6px; font-size: 14px; margin-top: 6px;
+  }
+  .dlg-foot { padding: 12px 16px; border-top: 1px solid var(--line); display: flex; gap: 8px; justify-content: flex-end; }
+  .dlg-foot button.primary { background: var(--accent); color: #fff; border-color: var(--accent); padding: 6px 18px; }
+  .dlg-content pre {
+    white-space: pre-wrap; word-break: break-word; font-size: 12.5px; line-height: 1.7;
+    background: #f7f8fa; border: 1px solid var(--line); border-radius: 8px; padding: 12px;
+    max-height: 56vh; overflow: auto; margin: 0;
+  }
 </style>
 </head>
 <body>
@@ -74,6 +102,15 @@
 
 <div class="msg-box warn" id="authHint">未检测到登录态 —— 请先在主窗口登录系统，再刷新本页（与主站共用登录 token）。</div>
 <div class="msg-box err" id="errBox"></div>
+
+<!-- §124 通用弹窗：充值输入 / 角色模板查看 共用 -->
+<div class="overlay" id="dlgOverlay">
+  <div class="dlg">
+    <div class="dlg-head"><span id="dlgTitle"></span><button onclick="closeDlg()" title="关闭">×</button></div>
+    <div class="dlg-body" id="dlgBody"></div>
+    <div class="dlg-foot" id="dlgFoot"></div>
+  </div>
+</div>
 
 <section>
   <h2>租户总览<span class="subnote">飞书 AI 租户 = 一个绑定的飞书机器人应用</span></h2>
@@ -122,6 +159,16 @@ function setErr(text) {
   if (text) { el.textContent = text; el.classList.add('show'); }
   else { el.textContent = ''; el.classList.remove('show'); }
 }
+
+/* ── §124 应用内弹窗（替代 window.prompt：内嵌浏览器里 prompt 无声返回 null）── */
+function openDlg(title, bodyHtml, footHtml) {
+  $('dlgTitle').textContent = title;
+  $('dlgBody').innerHTML = bodyHtml;
+  $('dlgFoot').innerHTML = footHtml || '';
+  $('dlgOverlay').classList.add('open');
+}
+function closeDlg() { $('dlgOverlay').classList.remove('open'); }
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDlg(); });
 function authHeaders() {
   const t = localStorage.getItem('sb_auth_token') || '';
   return t ? { 'Authorization': 'Bearer ' + t } : {};
@@ -182,8 +229,9 @@ function renderRoles(roles) {
     const meta = r.enabled
       ? `模板版本：${esc(r.updated_at || '-') }<br>训练沉淀：${r.corrections} 条纠正`
       : esc(r.note || '未启用');
-    return `<div class="role-card">
-      <div class="name">${esc(r.label)}${badge}</div>
+    return `<div class="role-card" style="cursor:pointer;" title="点击查看模板全文"
+      onclick="viewRole('${esc(r.role)}','${esc(r.label)}')">
+      <div class="name">${esc(r.label)}${badge}<span style="font-size:11px;color:var(--accent);font-weight:400;">查看 ›</span></div>
       <div class="meta">${meta}</div>
     </div>`;
   }).join('');
@@ -196,9 +244,21 @@ function fillTenantSelect(list) {
 }
 
 async function recharge(tk) {
-  const amount = prompt(`给租户 ${tk} 充值积分：`, '500');
-  if (amount == null) return;
-  const n = parseInt(amount, 10);
+  /* §124：window.prompt 在内嵌浏览器里无声返回 null（点了没反应、请求根本不发出），
+     改用应用内弹窗。 */
+  openDlg(
+    `给租户 ${tk} 充值积分`,
+    `<label style="font-size:12px;color:var(--sub);">充值数量</label>
+     <input type="number" id="rechargeAmount" value="500" min="1" step="1"
+            onkeydown="if(event.key==='Enter')confirmRecharge('${esc(tk)}')">`,
+    `<button onclick="closeDlg()">取消</button>
+     <button class="primary" onclick="confirmRecharge('${esc(tk)}')">确认充值</button>`
+  );
+  setTimeout(() => { const i = $('rechargeAmount'); if (i) { i.focus(); i.select(); } }, 50);
+}
+
+async function confirmRecharge(tk) {
+  const n = parseInt(($('rechargeAmount') || {}).value, 10);
   if (!n || n <= 0) { setErr('充值数必须是正整数'); return; }
   setErr('');
   try {
@@ -209,8 +269,21 @@ async function recharge(tk) {
     });
     const obj = await resp.json();
     if (!resp.ok) throw new Error(obj.error || `HTTP ${resp.status}`);
+    closeDlg();
     await loadConsole();
   } catch (e) { setErr('充值失败：' + (e.message || String(e))); }
+}
+
+/* §124：角色卡片点开查看模板全文（只读） */
+async function viewRole(role, label) {
+  setErr('');
+  openDlg(`${label} · 人格模板`, '<div class="dlg-content"><pre>加载中…</pre></div>', '');
+  try {
+    const obj = await api(`/api/feishu/console/role?role=${encodeURIComponent(role)}`);
+    $('dlgBody').innerHTML = `<div class="dlg-content"><pre>${esc(obj.content)}</pre></div>`;
+  } catch (e) {
+    $('dlgBody').innerHTML = `<div style="color:var(--bad);">加载失败：${esc(e.message || String(e))}</div>`;
+  }
 }
 
 async function loadChat() {
