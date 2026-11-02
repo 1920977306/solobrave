@@ -208,8 +208,8 @@ function renderTenants(list) {
     const online = t.ws_online
       ? '<span class="pill on">在线</span>'
       : '<span class="pill gray">离线</span>';
-    // §125 P2 层级：agent_enabled=代理（有后台+可发展下级）；agent_of=上级代理，''=直属平台
-    const agentBadge = t.agent_enabled ? '<span class="pill on">代理</span> ' : '';
+    // §125 P2 层级：agent_enabled=合伙人（有后台+可发展下级）；agent_of=上级合伙人，''=直属平台
+    const agentBadge = t.agent_enabled ? '<span class="pill on">合伙人</span> ' : '';
     const tierCell = agentBadge + (t.agent_of
       ? '上级 ' + esc(t.agent_of)
       : (t.agent_enabled ? '直属平台' : '<span style="color:var(--sub)">直属平台</span>'));
@@ -225,14 +225,15 @@ function renderTenants(list) {
       <td>${online}</td>
       <td class="r">
         <button onclick="recharge('${tk}')">充值</button>
-        <button onclick="toggleAgent('${tk}', ${t.agent_enabled ? 1 : 0})">${t.agent_enabled ? '取消代理' : '设为代理'}</button>
+        <button onclick="toggleAgent('${tk}', ${t.agent_enabled ? 1 : 0})">${t.agent_enabled ? '取消合伙人' : '设为合伙人'}</button>
         <button onclick="setParentDlg('${tk}')">挂靠</button>
       </td>
     </tr>`;
   }).join('');
 }
 
-/* §125 P2：层级操作（代理 daren_bot admin，server 代理 /api/feishu/console/*） */
+/* §125 P2：层级操作（透传 daren_bot admin，server 代理 /api/feishu/console/*。
+   对外叫「合伙人」，内部字段/端点名仍是 agent_*（实现对外的投影名，不改库） */
 async function postAgentOp(path, payload) {
   const resp = await fetch(path, {
     method: 'POST',
@@ -247,10 +248,10 @@ async function postAgentOp(path, payload) {
 function toggleAgent(tk, currentlyEnabled) {
   const next = !currentlyEnabled;
   openDlg(
-    `${next ? '设为代理' : '取消代理'}：${tk}`,
+    `${next ? '设为合伙人' : '取消合伙人'}：${tk}`,
     `<p style="font-size:13px;color:var(--sub);">${
       next
-        ? '开通后该租户拥有「代理」身份：可邀请发展下级达人（后台可见下级数据）。不影响其 AI 人格。积分发放始终由平台统一操作。'
+        ? '开通后该租户拥有「合伙人」身份：可邀请发展下级达人（后台可见下级数据）。不影响其 AI 人格。积分发放始终由平台统一操作。'
         : '取消后该租户退回普通达人：不能再发展下级，存量下级保留原挂靠关系。'}</p>`,
     `<button onclick="closeDlg()">取消</button>
      <button class="primary" onclick="confirmToggleAgent('${esc(tk)}', ${next ? 1 : 0})">确认</button>`
@@ -265,9 +266,9 @@ async function confirmToggleAgent(tk, enabled) {
 
 function setParentDlg(tk) {
   openDlg(
-    `挂靠上级代理：${tk}`,
-    `<label style="font-size:12px;color:var(--sub);">上级代理 tenant_key（留空 = 解除挂靠，直属平台）</label>
-     <input type="text" id="parentInput" placeholder="如 agent_a"
+    `挂靠上级合伙人：${tk}`,
+    `<label style="font-size:12px;color:var(--sub);">上级合伙人 tenant_key（留空 = 解除挂靠，直属平台）</label>
+     <input type="text" id="parentInput" placeholder="如 partner_a"
             onkeydown="if(event.key==='Enter')confirmSetParent('${esc(tk)}')">`,
     `<button onclick="closeDlg()">取消</button>
      <button class="primary" onclick="confirmSetParent('${esc(tk)}')">确认</button>`
