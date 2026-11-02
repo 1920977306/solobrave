@@ -10142,3 +10142,35 @@ P1 = server 侧控制台三区块：**租户总览 / 角色管理 / 聊天审计
 - ⚠️ **待老大浏览器实测**：rail「AI 办公室」下面的「飞书助理」入口 + 积分卡达人昵称。
   强刷（⌘⇧R）确保拉到新 v 的 js。若 rail 项点了无反应 ⇒ 查 sb2Go 的 m.fn 分支
   （§119 的 fn 机制首次上 rail，理论可行未真机）。
+
+## §121 阶段 0 对账三件套：subjects×packs 对账表 + 模板核对 + P2 对齐改稿（A 边，2026-11-02 09:4x）
+
+### 121.0 背景
+老大转来《主体×能力包》v2（已吸收 A 边对 v1 的四条评审）+ 对方回复：对方侧 docs 是旧快照
+（role-templates 只有 5 个、无 AGENT-TIER-DESIGN.md），**阶段 0 对账必须在 Mac 生产侧跑**。
+A 边认领 #1 对账表 / #2 模板核对 / #4 P2 改稿（#3 挖木木聊天记录未动）。
+
+### 121.1 产物
+- **新文档 `docs/SUBJECTS-PACKS-RECONCILE.md`**（阶段 0 #1）：
+  - **关键新发现**：v2 不知道的事实——**M1 租户层骨架已在**（`_tenant_db_path:3414`、
+    `auth.tenant_id:2617`、`is_platform_admin:2609`（语义=super_admin 不用改名）、
+    `is_tenant_admin:2613`（现恒 False，是 tenant_owner 现成挂载点）、users/agents 已带 tenant_id）
+    ⇒ 五层流水线的 ② 是「启用+补闸门」不是从零造。
+  - **角色硬编码精确清单 = 6 处**（v2 写 3 处不准）：:2605 is_admin 主开关（133 处消费，
+    ⚠️ 按场景分两簇不能一刀切）/ :2610 / :2615 / :2780（⚠️ 这是 AI 人格 role 不是用户 role，
+    不进 subjects 迁移）/ :32186 UI 标签 / :37985 watchdog 通知。
+  - ④ 白名单真名 = `/api/permissions` roles/users 两级；⑤ = `_resolve_talent_owner_id:2740`。
+  - 三套身份映射种子数据（贺主管=biz_staff / admin=super_admin / 3 bot 租户=creator /
+    Ray·Helen 挂贺主管前先解决 createdBy 孤儿归属）。
+  - 阶段 1 前置清单 5 条（头号活 = 133 处 is_admin 逐处打标）。
+- **`docs/AGENT-TIER-DESIGN.md` 新增 §8 对齐口径**（阶段 0 #4，按 v2 §8.1 三条）：
+  agent_of = subjects.agent_of 的 bot 侧投影（D2 加列方案不变）；
+  agent_enabled = 授予权开关 ≠ 数据可见性（可见性归 subtree_keys/scope）；
+  bot_tenants.role 不动、P2 不引入业务身份列 + 新增静态守卫（不许 agent_* 与 role 同表达式判定）。
+- **阶段 0 #2 核对结果**：6 个模板（Black/Felix/Gates/Grace/Ray/Trumand）四件套
+  SOUL/IDENTITY/TOOLS/memory-seed.json **全齐，可直接复用**（对方侧缺 Ray 是旧快照，以 Mac 为准）。
+
+### 121.2 状态与待办
+- 纯文档改动，零代码变更；commit 后推 dev+main。
+- **待老大拍板**：P2 的 D1/D2/D3（改稿后口径见 AGENT-TIER-DESIGN §8，拍板即开工 P2-A）。
+- 阶段 0 #3（木木聊天记录挖达人需求 → 三类客户助理 SOUL 输入）**未动**，等排期。
