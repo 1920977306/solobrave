@@ -1677,6 +1677,17 @@ def mark_notice_sent(tenant_key: str, day_key: str, kind: str) -> bool:
         return cur.rowcount >= 0
 
 
+def clear_notice_log(tenant_key: str, day_key: str, kind: str) -> None:
+    """解除某类通知的当日标记（如 cookie 恢复 ok 后清掉日锁，允许当天再次预警）。"""
+    if not tenant_key or not day_key or not kind:
+        return
+    with db_ctx() as conn:
+        conn.execute(
+            "DELETE FROM bot_plan_notice_log "
+            "WHERE tenant_key=? AND day_key=? AND kind=?",
+            (tenant_key, day_key, kind))
+
+
 def coop_push_exists(record_id: str, tenant_key: str) -> bool:
     """这条机会是否已经推过给这个达人（防重复打扰）。"""
     if not record_id or not tenant_key:

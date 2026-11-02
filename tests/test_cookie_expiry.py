@@ -102,7 +102,18 @@ class TestWorstSideState:
 
 
 class TestWatcherLatch:
-    """watcher 接线：边沿告警 + 锁存。monkeypatch 掉磁盘读取与告警发送。"""
+    """watcher 接线：边沿告警 + 锁存。monkeypatch 掉磁盘读取与告警发送。
+
+    ★ DB 必须隔离（tmp_path）：cookie 日锁走 bot_plan_notice_log，
+      不隔离会写进生产库。
+    """
+
+    @pytest.fixture()
+    def botdb(self, tmp_path, monkeypatch):
+        from daren_bot import config as bot_config, db as bot_db
+        monkeypatch.setattr(bot_config, "DB_PATH", tmp_path / "daren_bot.db")
+        bot_db.init_db()
+        return bot_db
 
     def _watcher(self, monkeypatch, states_seq):
         from daren_bot import login_watcher, ops_alert
@@ -114,7 +125,7 @@ class TestWatcherLatch:
         monkeypatch.setattr(ce, "worst_side_state", lambda root=None: next(it))
         return w, alerts
 
-    def test_alert_once_and_latch(self, monkeypatch):
+    def test_alert_once_and_latch(self, monkeypatch, botdb):
         states = [{"团长端": "warn", "达人端": "ok"}] * 3
         w, alerts = self._watcher(monkeypatch, states)
         for _ in range(3):
@@ -122,7 +133,7 @@ class TestWatcherLatch:
         kinds = [kw.get("kind") for _, kw in alerts]
         assert kinds.count("cookie_expiring") == 1, f"同状态重复告警: {alerts!r}"
 
-    def test_recovery_clears_latch(self, monkeypatch):
+    def test_recovery_clears_latch(self, monkeypatch, botdb):
         states = iter([
             {"团长端": "warn", "达人端": "ok"},
             {"团长端": "ok", "达人端": "ok"},
@@ -140,7 +151,7 @@ class TestWatcherLatch:
         # warn → ok → warn：第二次 warn 必须重新告警（锁存已解除）
         assert alerts == ["cookie_expiring", "cookie_expiring"], alerts
 
-    def test_dead_side_alerts_separately(self, monkeypatch):
+    def test_dead_side_alerts_separately(self, monkeypatch, botdb):
         states = [{"团长端": "expired", "达人端": "missing"}]
         w, alerts = self._watcher(monkeypatch, states)
         w.check_once(health=None)
@@ -148,3 +159,35 @@ class TestWatcherLatch:
         assert kinds == ["cookie_dead", "cookie_dead"]
         sides = sorted(kw.get("dedup_key") for _, kw in alerts)
         assert sides == ["cookie_dead_团长端", "cookie_dead_达人端"]
+
+    def test_restart_does_not_realert_same_day(self, monkeypatch, botdb):
+        """2026-11-03 实锤：daren-bot 重启会清空进程内锁存 ⇒ 同一预警重复刷屏。
+        DB 日锁必须兜住：新 watcher 实例（=重启）同一天同状态不再告警。"""
+        from daren_bot import login_watcher, ops_alert
+        alerts = []
+        monkeypatch.setattr(ops_alert, "alert",
+                            lambda *a, **kw: alerts.append(kw.get("kind")))
+        monkeypatch.setattr(ce, "worst_side_state",
+                            lambda root=None: {"团长端": "warn", "达人端": "ok"})
+        login_watcher.LoginWatcher(interval=60).check_once(health=None)
+        assert alerts == ["cookie_expiring"]
+        # 模拟重启：全新实例（进程内锁存为空）再采样 ⇒ 日锁挡住，不重报
+        login_watcher.LoginWatcher(interval=60).check_once(health=None)
+        assert alerts == ["cookie_expiring"], f"重启后重复告警: {alerts!r}"
+
+    def test_recovered_then_rewarn_same_day(self, monkeypatch, botdb):
+        """恢复 ok 后日锁解除：当天再次临期必须能重新告警。"""
+        from daren_bot import login_watcher, ops_alert
+        alerts = []
+        monkeypatch.setattr(ops_alert, "alert",
+                            lambda *a, **kw: alerts.append(kw.get("kind")))
+        seq = iter([
+            {"团长端": "warn", "达人端": "ok"},
+            {"团长端": "ok", "达人端": "ok"},
+            {"团长端": "warn", "达人端": "ok"},
+        ])
+        monkeypatch.setattr(ce, "worst_side_state", lambda root=None: next(seq))
+        w = login_watcher.LoginWatcher(interval=60)
+        for _ in range(3):
+            w.check_once(health=None)
+        assert alerts == ["cookie_expiring", "cookie_expiring"], alerts

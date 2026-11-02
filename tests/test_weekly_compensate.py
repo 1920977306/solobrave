@@ -158,3 +158,34 @@ def test_in_window_retry_branch_reachable(bot_db, monkeypatch):
                                     int(sun.timestamp()), now, sun)
     assert len(calls) == 1
     assert json.loads(calls[0][4])["retry"] == 1
+
+
+# ─────────────── 余额不足留痕（2026-11-03 mumu 实锤） ───────────────
+
+def test_insufficient_marks_once_per_week(bot_db):
+    """余额不足跳过采集：第一周首次留痕返回 True，同周再调返回 False（杀每分钟刷屏）。"""
+    wn = weekly.report_week_no()
+    assert not weekly._insufficient_marked("t1", wn)
+    assert weekly._mark_insufficient("t1", 2) is True
+    assert weekly._insufficient_marked("t1", wn)
+    assert weekly._mark_insufficient("t1", 2) is False  # 同周不重复留痕/记日志
+
+
+def test_insufficient_marker_isolated_per_tenant_and_week(bot_db):
+    wn = weekly.report_week_no()
+    weekly._mark_insufficient("t1", 2)
+    assert not weekly._insufficient_marked("t2", wn)      # 租户隔离
+    assert not weekly._insufficient_marked("t1", wn + 1)  # 周隔离
+
+
+def test_compensate_marks_insufficient_without_enqueue(bot_db, monkeypatch):
+    """余额不足 ⇒ 不留任务、只留痕（原实现每分钟刷一条 warning 且告警归因错误）。"""
+    _add_task(bot_db, "f1", "t1", "dy1", "failed", {"auto": 1, "retry": 0})
+
+    def _insufficient(tk, task_type, target, action, **kw):
+        return "insufficient", "", 2
+    monkeypatch.setattr(weekly.credits, "charge_and_enqueue", _insufficient)
+    _sched()._maybe_compensate_collect({"tenant_key": "t1"}, "dy1", 0)
+    assert weekly._insufficient_marked("t1", weekly.report_week_no())
+    # 幂等：第二次调用不再重复留痕（返回 False ⇒ 调用方静默）
+    assert weekly._mark_insufficient("t1", 2) is False

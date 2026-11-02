@@ -28,6 +28,7 @@ from __future__ import annotations
 import json
 import logging
 import threading
+import time
 import urllib.request
 
 from . import config, ops_alert
@@ -43,6 +44,11 @@ BAD_STREAK_THRESHOLD = 2
 HEARTBEAT_EVERY = 10
 
 DEDUP_KEY = "daren_collector_need_login"
+
+# cookie 状态枚举（ok 之外的全部非健康态——日锁按 (side, state) 存/清用）
+COOKIE_STATES = ("warn", "expired", "missing")
+# 日锁在 bot_plan_notice_log 里的租户命名空间（纯标记，与达人推送去重无关）
+LATCH_TENANT = "ops"
 
 # 「没传 health」和「传了 None（=采不到）」必须区分开：
 #   不区分的话，测试里传 None 会去**真**网络拉一次健康值，判定结果不可控。
@@ -154,14 +160,27 @@ class LoginWatcher(threading.Thread):
 
     # ---- cookie 临期/失效巡检（daren_bot/cookie_expiry.py 判定口径）----
     def _check_cookie_expiry(self) -> None:
-        from . import cookie_expiry
+        from . import cookie_expiry, db
         states = cookie_expiry.worst_side_state(config.ROOT)
+        day_key = time.strftime("%Y-%m-%d")
         for side, state in states.items():
             if state == "ok":
                 self._cookie_alerted.pop(side, None)
+                # 解除日锁：恢复后若再次临期/失效，当天也必须能重新告警
+                for st in COOKIE_STATES:
+                    db.clear_notice_log(LATCH_TENANT, day_key, f"cookie_{st}_{side}")
                 continue
             if self._cookie_alerted.get(side) == state:
                 continue  # 同一状态不重复喊（锁存到恢复 ok 为止）
+            # ★ DB 级日锁（2026-11-03 实锤刷屏根因）：进程内锁存遇 daren-bot
+            #   重启即失效——开发期一晚重启 3 次 ⇒ 同一 cookie 预警重复刷 3 条。
+            #   落 bot_plan_notice_log（ops, 当天, cookie_<state>_<side>）：
+            #   同一侧同一状态**当天**最多报一次，重启也不重报。
+            kind = f"cookie_{state}_{side}"
+            if db.notice_log_exists(LATCH_TENANT, day_key, kind):
+                self._cookie_alerted[side] = state  # 今天已报过：视作已锁存
+                continue
+            db.mark_notice_sent(LATCH_TENANT, day_key, kind)
             self._cookie_alerted[side] = state
             if state == "warn":
                 ops_alert.alert(

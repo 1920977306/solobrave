@@ -35,6 +35,28 @@ OPS_ALERT_GRACE_MIN = 120          # 推送时点过后 2h 仍"该跑没跑" →
 # 主动推送灰度名单（老大规矩：主动 push 新功能先只推管理员/测试，跑满一个周期再放真达人）
 WEEKLY_GRAY_TENANTS = {"daren_boss", "daren_test2"}
 OPS_ALERT_TENANT = "daren_boss"    # 调度静默死亡告警接收方
+# 余额不足跳过采集的每周留痕（2026-11-03 mumu 实锤：余额 2 分挡了一整晚，
+# 每分钟刷一条相同 warning 且运营告警误报成「调度静默死亡」——真实原因是余额不足）。
+# 复用 bot_plan_notice_log（DB 级幂等），day_key=f"week-{week_no}"。
+KIND_WEEKLY_INSUFFICIENT = "weekly_collect_insufficient"
+
+
+def _insufficient_marked(tenant_key: str, week_no: int) -> bool:
+    return db.notice_log_exists(tenant_key, f"week-{week_no}",
+                                KIND_WEEKLY_INSUFFICIENT)
+
+
+def _mark_insufficient(tenant_key: str, balance) -> bool:
+    """余额不足跳过周报采集：每周只留痕 + 记日志一次。
+    返回是否是本周首次留痕（调用方用来决定要不要记日志）。"""
+    week_no = report_week_no()
+    if _insufficient_marked(tenant_key, week_no):
+        return False
+    db.mark_notice_sent(tenant_key, f"week-{week_no}",
+                        KIND_WEEKLY_INSUFFICIENT)
+    log.warning("weekly collect skipped, insufficient credits: "
+                "tenant=%s balance=%s", tenant_key, balance)
+    return True
 SNAPSHOT_FIELDS = (
     "name", "douyin_id", "followers", "total_products", "total_shops",
     "total_gmv_text", "rating_score", "fulfillment_score", "level",
@@ -244,8 +266,8 @@ class WeeklyScheduler(threading.Thread):
             tk, "douyin", dyid, "weekly_collect", chat_id=chat_id,
             payload=json.dumps({"auto": 1, "retry": retry}, ensure_ascii=False))
         if status == "insufficient":
-            log.warning("weekly auto collect skipped, insufficient credits: "
-                        "tenant=%s balance=%s", tk, bal)
+            # 每周留痕一次（杀每分钟刷屏）；达人侧由推送窗的缺失版/余额话术覆盖
+            _mark_insufficient(tk, bal)
             return
         if status == "duplicate":
             log.info("weekly auto collect already queued: tenant=%s dyid=%s", tk, dyid)
@@ -273,8 +295,7 @@ class WeeklyScheduler(threading.Thread):
             tk, "douyin", dyid, "weekly_collect", chat_id=chat_id,
             payload=json.dumps({"auto": 1, "retry": 99}, ensure_ascii=False))
         if status == "insufficient":
-            log.warning("weekly compensate collect skipped, insufficient credits: "
-                        "tenant=%s balance=%s", tk, bal)
+            _mark_insufficient(tk, bal)
             return
         if status == "duplicate":
             return
@@ -295,7 +316,11 @@ class WeeklyScheduler(threading.Thread):
         snap = db.get_snapshot(dyid, report_week_no())
         if snap:
             missing = 0
-        elif db.count_auto_fails_this_week(tk, dyid, week_ts) >= 1:
+        elif (db.count_auto_fails_this_week(tk, dyid, week_ts) >= 1
+              # ★ 2026-11-03：余额不足跳过采集也属「尝试过但没能拿到数据」——
+              #   必须走缺失版/余额不足话术，否则达人「订阅了却什么都没收到」
+              #   （原先 insufficient 既无快照又无失败记录 ⇒ 两个分支都不进 ⇒ 静默）。
+              or _insufficient_marked(tk, report_week_no())):
             missing = 1
         else:
             return
@@ -314,6 +339,7 @@ class WeeklyScheduler(threading.Thread):
         if marker.exists():
             return
         gaps = []
+        insufficient = []
         for t in tenants:
             tk = t["tenant_key"]
             # ★ 2026-10-28 飞书助理平台化：经营周报是达人角色专属概念，
@@ -327,18 +353,31 @@ class WeeklyScheduler(threading.Thread):
                 continue
             if db.get_snapshot(dyid, week_no):
                 continue
+            if _insufficient_marked(tk, week_no):
+                # 已知因：余额不足跳过采集（灰度名单外达人不会收到缺失版，
+                # 必须报给运营去充值，而不是混进「调度静默」误导排查方向）
+                insufficient.append((tk, dyid))
+                continue
             if db.count_auto_fails_this_week(tk, dyid,
                                              int(w_start.timestamp())) >= 1:
                 continue  # 有失败记录：达人已收到缺失版，不算静默
             gaps.append((tk, dyid))
-        if not gaps:
+        if not gaps and not insufficient:
             marker.touch()
             return
         sender = self.wm.get_sender(OPS_ALERT_TENANT) if self.wm else None
-        text = ("⚠️ 周报调度告警：以下租户本周该跑没跑（无快照无失败记录，"
-                "达人不会收到周报）：\n" +
+        parts = []
+        if gaps:
+            parts.append(
+                "以下租户本周该跑没跑（无快照无失败记录，达人不会收到周报）：\n" +
                 "\n".join(f"- {tk}（{dyid}）" for tk, dyid in gaps) +
                 "\n请检查调度器/worker 状态。")
+        if insufficient:
+            parts.append(
+                "以下租户因积分不足跳过本周采集（已每周留痕；给达人充值后"
+                "下周一自动恢复）：\n" +
+                "\n".join(f"- {tk}（{dyid}）" for tk, dyid in insufficient))
+        text = "⚠️ 周报调度告警：" + "\n\n".join(parts)
         if sender is None:
             log.warning("[ops-alert-no-sender] %s", text)
         else:
