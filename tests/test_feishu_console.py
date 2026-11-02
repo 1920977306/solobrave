@@ -439,12 +439,12 @@ class TestTalentNameEnrich:
 
 # ---------- 守卫 5：P2 层级操作代理（§125：admin 鉴权 + 透传到 bot admin 正确路径） ----------
 class TestAgentOpProxy:
-    """POST /api/feishu/console/{agent-enable,agent-parent,transfer} —— server 只做鉴权+透传，
-    层校验/原子事务全在 bot 侧。守卫：非管理员 403 不碰代理；管理员透传 payload 到对应 bot 路径。"""
+    """POST /api/feishu/console/{agent-enable,agent-parent} —— server 只做鉴权+透传，
+    层校验全在 bot 侧。守卫：非管理员 403 不碰代理；管理员透传 payload 到对应 bot 路径。
+    ★ 无转账端点（老大 11-02 拍板：积分发放权归平台，见 test_agent_tier.py::TestNoAgentTransfer）。"""
 
     PATHS = ['/api/feishu/console/agent-enable',
-             '/api/feishu/console/agent-parent',
-             '/api/feishu/console/transfer']
+             '/api/feishu/console/agent-parent']
 
     def _call(self, srv, monkeypatch, path, payload, auth=None):
         sent = {}
@@ -471,8 +471,7 @@ class TestAgentOpProxy:
 
     def test_forwards_to_matching_bot_path(self, srv, monkeypatch):
         want = {'/api/feishu/console/agent-enable': '/admin/api/agent-enable',
-                '/api/feishu/console/agent-parent': '/admin/api/agent-parent',
-                '/api/feishu/console/transfer': '/admin/api/transfer'}
+                '/api/feishu/console/agent-parent': '/admin/api/agent-parent'}
         for p, bot_p in want.items():
             sent, calls = self._call(srv, monkeypatch, p, {'tenant_key': 'tk1'})
             assert sent['code'] == 200

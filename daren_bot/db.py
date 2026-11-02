@@ -52,7 +52,7 @@ CREATE TABLE IF NOT EXISTS bot_tenants (
   bitable_app_token TEXT DEFAULT '',            -- 1 个 Bitable App
   bitable_table_ids TEXT DEFAULT '',            -- JSON: {"profile":"tbl_x","products":"tbl_y","advice":"tbl_z"}
   agent_of        TEXT NOT NULL DEFAULT '',     -- P2 层级：上级代理 tenant_key，''=直属平台（投影 subjects.agent_of）
-  agent_enabled   INTEGER NOT NULL DEFAULT 0,   -- P2 授予权：1=代理（可发展下级/转账），0=普通达人；不是数据可见性开关
+  agent_enabled   INTEGER NOT NULL DEFAULT 0,   -- P2 授予权：1=代理（可发展下级），0=普通达人；积分发放权归平台（11-02 拍板），不是数据可见性开关
   status          TEXT NOT NULL DEFAULT 'active',
   created_at      INTEGER NOT NULL,
   updated_at      INTEGER NOT NULL
@@ -504,7 +504,9 @@ def grant(tenant_key: str, amount: int, action: str = 'grant') -> int:
 
 # ---------- P2 代理层级（docs/AGENT-TIER-DESIGN.md，2026-11-02 拍板 D1b/D2a） ----------
 # 铁律（§8）：
-#   agent_enabled = 授予权开关（能不能发展下级/转账），不是数据可见性开关；
+#   agent_enabled = 授予权开关，只含「能不能发展下级」（拉达人）；★ 积分发放权
+#   永远归平台——老大 11-02 13:40 拍板「代理无法控制积分，积分只能我来」，
+#   代理给下级转账的入口全链路拆除，不许回流（守卫静态扫描锁死）。
 #   可见范围唯一入口 = subtree_keys()（将来 subjects.scope 的投影）；
 #   role 列继续是 AI 人格，与层级正交——不许把 agent_of/agent_enabled 与 role
 #   放进同一个判定表达式（守卫 tests/test_agent_tier.py 静态扫描锁死）。
@@ -571,38 +573,6 @@ def set_agent_parent(tenant_key: str, agent_of: str) -> tuple:
                      "WHERE tenant_key=?",
                      (agent_of, now_ts(), tenant_key))
     return True, ""
-
-
-def transfer(from_key: str, to_key: str, amount: int) -> tuple:
-    """代理给下级转积分。单事务：扣 from + 加 to + 两条流水（照 §8.11 两事务坑）。
-    余额不足整体回滚。返回 (ok, from 新余额, 消息)。"""
-    if amount <= 0:
-        return False, 0, "转账积分必须为正数"
-    if from_key == to_key:
-        return False, 0, "不能转给自己"
-    with db_ctx() as conn:
-        r = conn.execute("SELECT balance FROM bot_credits_accounts WHERE tenant_key=?",
-                         (from_key,)).fetchone()
-        from_bal = int(r["balance"]) if r else 0
-        if from_bal < amount:
-            return False, from_bal, f"余额不足（当前 {from_bal}）"
-        r2 = conn.execute("SELECT balance FROM bot_credits_accounts WHERE tenant_key=?",
-                          (to_key,)).fetchone()
-        to_bal = int(r2["balance"]) if r2 else 0
-        ts = now_ts()
-        from_new = from_bal - amount
-        conn.execute(
-            "UPDATE bot_credits_accounts SET balance=?, updated_at=? WHERE tenant_key=?",
-            (from_new, ts, from_key))
-        _ledger(conn, from_key, 'transfer_out', amount, from_new, 0, '')
-        to_new = to_bal + amount
-        conn.execute(
-            "INSERT INTO bot_credits_accounts (tenant_key, balance, updated_at) VALUES (?,?,?) "
-            "ON CONFLICT(tenant_key) DO UPDATE SET balance=excluded.balance, "
-            "updated_at=excluded.updated_at",
-            (to_key, to_new, ts))
-        _ledger(conn, to_key, 'transfer_in', -amount, to_new, 0, '')
-        return True, from_new, "ok"
 
 
 # ---------- 周抓计数 ----------

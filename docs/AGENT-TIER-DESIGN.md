@@ -13,6 +13,9 @@
 > ③ **飞书助理不是一个功能，是一条业务线**；工作台由很多条业务线组成
 > （对齐 v2 大架构 §3.2 Project Type）。本稿层级设计服务的就是这条业务线内部的
 > 「代理—达人」关系。
+> **2026-11-02 13:40 拍板（积分权收窄，重要）**：**代理无法控制积分，积分只能平台
+> （老大）发放**。`agent_enabled` 授予权收窄为「发展下级」一项；代理转账 transfer
+> 全链路已拆除，防回流静态守卫锁死（test_agent_tier.py::TestNoAgentTransfer）。
 > 「如果达人想做团长系统怎么办，如何给到她拥有飞书和团长业务的权限……
 > 没有管理后台，没有可以给到代理的管理后台，权限没有可以控制的地方。」
 
@@ -24,7 +27,7 @@
 | 已有 | 说明 |
 |---|---|
 | `bot_tenants` | app_id 主键、tenant_key 唯一、`bind_douyin_id`、`role`（10-28 加：daren/commerce/merchant）、积分账户/流水按 tenant_key |
-| `db.grant()` | 平台→租户充值：**一个事务** = 改余额 + 记流水（负 cost = 发放）。转账照这个模式加 |
+| `db.grant()` | 平台→租户充值：**一个事务** = 改余额 + 记流水（负 cost = 发放）。★ 积分发放权只归平台（11-02 老大拍板），无代理转账 |
 | `bot_commission_pending` | 专属佣金待重算表已存在（10-28 的佣金闭环），代理分佣是它的近亲，不冲突 |
 | **没有** | 任何 parent/层级字段；代理给下级充值的入口 |
 
@@ -38,7 +41,7 @@
 
 ### 一个必须先钉死的概念区分
 `bot_tenants.role` 是 **AI 助理人格**（达人助理/商务助理/商家助理）——它回答问题时扮演谁。
-**代理是业务身份**（谁管谁、谁给谁充积分）——跟人格正交。
+**代理是业务身份**（谁管谁、谁拉来的达人）——跟人格正交。★ 代理不碰积分（11-02 老大拍板「积分只能我来」）。
 一个代理租户可以同时是"达人助理"人格（它自己也是达人）+ 代理身份（它名下有下级达人）。
 ⇒ **不许把代理做成 role 的第四个值**，否则人格和层级搅在一起，以后一个代理想换人格就动层级。
 
@@ -57,7 +60,7 @@
 - **达人→代理的成长路径**：达人想推广这个业务 ⇒ **申请成为代理**（平台审核后给后台 + 拉新权限）——不是自动晋升，也不是换个 role。
 - **商务（commerce）不是层级节点**——它是平台侧（或代理侧）的运营角色，帮平台/代理干活，不拥有下级。
 - 达人是叶子（产品初期**不允许**达人再发展下级，见 D1）。
-- 层级只影响三件事：①数据可见范围 ②积分来源（谁充给谁）③分佣归属（P2-C 后议）。
+- 层级只影响两件事：①数据可见范围 ②分佣归属（P2-C 后议）。★ 积分来源永远只有平台一个口子——代理无权充值/转账（11-02 老大拍板）。
 
 ## 3. 数据模型变更（三个决策点）
 
@@ -101,8 +104,8 @@ ALTER TABLE bot_tenants ADD COLUMN agent_enabled INTEGER NOT NULL DEFAULT 0; -- 
 |---|---|---|---|
 | 看全平台租户总览 | ✅ | ❌ | ❌ |
 | 看自己 subtree 的达人列表+数据 | ✅ | ✅（仅一级下级） | ❌ |
-| 平台→任何人充积分 | ✅ | ❌ | ❌ |
-| 代理→自己下级充积分（从代理余额扣） | ✅（代操作） | ✅ | ❌ |
+| 平台→任何人充积分（唯一积分口子） | ✅ | ❌ | ❌ |
+| ~~代理→自己下级充积分~~ | — | — | — |
 | 看聊天审计 | ✅ | ✅（仅下级） | ❌（自己的） |
 | 商品库/推品 | ✅ | ✅（推给下级） | 看自己相关的 |
 | 改人格模板/角色 | ✅ | ❌ | ❌ |
@@ -113,13 +116,13 @@ ALTER TABLE bot_tenants ADD COLUMN agent_enabled INTEGER NOT NULL DEFAULT 0; -- 
 ## 5. 改动清单（按 D1b/D2a/D3a 方案）
 
 ### bot 侧（daren_bot）
-1. `db.py`：两列幂等迁移 + `subtree_keys()` / `is_agent()` helper + `transfer(from,to,amount)`（一个事务：from 减钱记正 cost 流水、to 加钱记负 cost 流水，from 余额不足抛 ValueError——照 `grant()` 模式）。
-2. `admin.py`：`POST /admin/api/transfer` {from_key, to_key, amount}（校验 from 是代理、to 是 from 的直接下级）+ state 接口 tenants dict 带 `agent_of`/`agent_enabled`。
-3. `handler.py`：积分不足话术顺带提示"找你的代理充值"（当租户有 agent_of 时）。
+1. `db.py`：两列幂等迁移 + `subtree_keys()`（防环）/ `is_agent()` / `set_agent_enabled()` / `set_agent_parent()` helper。~~transfer~~ 已按 11-02 拍板拆除（积分只归平台）。
+2. `admin.py`：`POST /admin/api/{agent-enable, agent-parent}` + state 接口 tenants dict 带 `agent_of`/`agent_enabled`。（无 transfer 端点——防回流守卫 tests/test_agent_tier.py::TestNoAgentTransfer）
+3. `handler.py`：「想做代理/推广业务」零成本话术（申请制登记）。~~积分不足提示找代理充值~~——积分只归平台，话术不得引导达人找代理充钱。
 
 ### server 侧（solobrave-server）
 4. 控制台（feishu-console.html + `/api/feishu/console`）：租户卡加层级列（上级/下级数）+"设为代理 / 绑定上级 / 解绑"操作按钮（调 bot 新端点）。
-5. 代理视角端点：`/api/feishu/console?as_agent=<tk>` 时数据裁剪到 subtree；积分中心加"转账"操作（代理出账）。
+5. 代理视角端点：`/api/feishu/console?as_agent=<tk>` 时数据裁剪到 subtree。~~积分中心转账~~——代理无积分操作（11-02 拍板）。
 6. 权限管理页：内置"代理"角色模板（一键给账号开代理白名单，**白名单条目打 `provisional: pack.reseller.console` 标记**——见 D3 拍板补充）。
 
 ### 5.1 is_admin 打标分两批（拍板口径：不做全量 133 处）
@@ -146,8 +149,8 @@ super_admin / tenant_owner 时才兑现。分两批：
 
 | 期 | 内容 | 量级 |
 |---|---|---|
-| **P2-A（数据+只读）** | 两列迁移 + transfer + 控制台层级展示/升降代理 | 小：纯数据变更+只读页，1 个 commit 量级 |
-| P2-B（代理主动作） | 代理登录主系统看自己下级（数据/周报/消耗汇总）、给下级推品、积分转账 UI | 中 |
+| **P2-A（数据+只读）** | 两列迁移 + subtree_keys + 控制台层级展示/升降代理（transfer 已按拍板撤回） | 小：纯数据变更+只读页，1 个 commit 量级 |
+| P2-B（代理主动作） | 代理登录主系统看自己下级（数据/周报/消耗汇总）、给下级推品 | 中 |
 | P2-C（商务闭环） | 代理分佣结算（接 `bot_commission_pending` 已有表）、下级出单返利 | 大，**后议** |
 
 > 建议先交付 P2-A：它让「达人成为代理」在数据上真实存在、在控制台上可见可控——正是老大 18:25 要的最小闭环。P2-B 等第一个真代理出现再做（避免为想象的需求造后台）。
@@ -156,7 +159,7 @@ super_admin / tenant_owner 时才兑现。分两批：
 
 1. **迁移幂等**：两列走 PRAGMA 检查 + ALTER 模式（与 role/weekly_sub 完全一致）；存量 3 租户（daren_boss/daren_test2/mumu）`agent_of=''`、`agent_enabled=0`，零数据搬迁。
 2. **隔离唯一入口**：`subtree_keys()` 一处实现；守卫测试 = 代理视角接口断言"查不到别人 subtree 的租户"（负向对照必红）。
-3. **转账原子性**：扣/加/两条流水必须一个事务；余额不足整体回滚（照 §8.11 两事务坑的教训）。
+3. ~~转账原子性~~（已撤回）：代理无积分操作。平台充值走 `db.grant()` 单事务（原有）。
 4. **人格/层级正交锁**：守卫测试 = `agent_enabled=1` 的租户 role 可以是任意值，代码不许假设"代理=某种人格"。
 5. **不越界**：本设计不动 7188 驾驶舱（达人视图）、不动 bitable_sync、不动商品推荐链路。
 
@@ -169,7 +172,9 @@ super_admin / tenant_owner 时才兑现。分两批：
    迁移 = 把 bot 侧 agent_of 回填进 subjects.agent_of（字符串 tenant_key ↔ subject_id 对账），
    不是另起炉灶。D2 方案 a（加列）因此**仍然成立**——它就是投影的落点。
 2. **`agent_enabled` 是授予权开关，不是数据可见性开关。**
-   「能不能发展下级 / 能不能给下级充积分」归 agent_enabled；
+   「能不能发展下级」归 agent_enabled（★ 只此一项——积分发放权归平台，
+   老大 2026-11-02 13:40 拍板「代理无法控制积分，积分只能我来」，
+   transfer 链路已全拆并有防回流静态守卫）；
    「看得到谁的数据」归 `subtree_keys()`（= 将来 subjects.scope 的投影）。
    两者永不混用——v2 原文：「能力包决定能不能进这个门，scope 决定进门后能看到几行」。
 3. **`bot_tenants.role` 不动，继续作 AI 人格。P2 不引入任何业务身份列。**

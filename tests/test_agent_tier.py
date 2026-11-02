@@ -6,8 +6,8 @@
    同模式）；旧库升级后存量行默认值零行为变化；重复 init_db 不炸。
 2. **subtree_keys 是唯一可见范围入口**：自己 + 传递下级；含访问标记防环
    （拍板补充：脏数据成环时跳过 + 告警，绝不死循环）。
-3. **transfer 单事务**：扣 from + 加 to + 两条流水一个事务；余额不足整体不落地
-   （照 §8.11 两事务坑：分两次调用 ⇒ 重复请求净多扣）。
+3. **积分发放权归平台**：老大 11-02 拍板「代理无法控制积分，积分只能我来」——
+   agent_enabled 授予权只含「发展下级」，代理转账入口全链路拆除且静态断言不回流。
 4. **人格/层级正交**：静态扫描 daren_bot/，agent_of/agent_enabled 不许与 role（人格）
    出现在同一个布尔判定表达式里（§8.3 拍板锁；代理可以是任何人格）。
 
@@ -169,44 +169,26 @@ class TestSetParent:
         assert db.get_tenant("daren_b")["agent_of"] == ""
 
 
-# ---------- 守卫 4：transfer 单事务 ----------
+# ---------- 守卫 4：积分发放权归平台（老大 11-02 拍板）+ 代理转账入口绝不回流 ----------
 
-class TestTransfer:
-    def test_happy_path_moves_balance_and_writes_two_ledgers(self, botdb):
-        db.grant("agent_a", 100)  # 500(开户) + 100 = 600
-        ok, from_new, msg = db.transfer("agent_a", "daren_b", 60)
-        assert ok, msg
-        assert from_new == 540
-        assert db.get_balance("agent_a") == 540
-        assert db.get_balance("daren_b") == 560, "收款方 = 开户 500 + 转入 60"
-        conn = _conn(botdb)
-        rows = conn.execute(
-            "SELECT tenant_key, action, cost, balance_after FROM bot_credits_ledger "
-            "WHERE action IN ('transfer_out','transfer_in') ORDER BY created_at").fetchall()
-        conn.close()
-        assert len(rows) == 2
-        out = next(r for r in rows if r["action"] == "transfer_out")
-        inn = next(r for r in rows if r["action"] == "transfer_in")
-        assert out["tenant_key"] == "agent_a" and out["cost"] == 60
-        assert inn["tenant_key"] == "daren_b" and inn["cost"] == -60
+class TestNoAgentTransfer:
+    """老大 2026-11-02 13:40 拍板：「代理无法控制积分，积分只能我来」。
+    transfer 全链路已拆——静态断言入口不存在，谁偷偷加回来谁红。"""
 
-    def test_insufficient_balance_rolls_back(self, botdb):
-        db.grant("agent_a", 10)  # 500(开户) + 10 = 510
-        ok, bal, msg = db.transfer("agent_a", "daren_b", 999)
-        assert not ok
-        assert bal == 510
-        assert db.get_balance("agent_a") == 510
-        assert db.get_balance("daren_b") == 500, "余额不足时收款方一分不许动"
-        conn = _conn(botdb)
-        n = conn.execute("SELECT COUNT(*) FROM bot_credits_ledger "
-                         "WHERE action LIKE 'transfer%'").fetchone()[0]
-        conn.close()
-        assert n == 0, "余额不足却落了流水（单事务被拆穿的证据）"
+    def test_db_has_no_transfer(self):
+        assert 'def transfer' not in (BOT_DIR / 'db.py').read_text(encoding='utf-8')
 
-    def test_non_positive_and_self_rejected(self, botdb):
-        assert not db.transfer("agent_a", "daren_b", 0)[0]
-        assert not db.transfer("agent_a", "daren_b", -5)[0]
-        assert not db.transfer("agent_a", "agent_a", 10)[0]
+    def test_admin_has_no_transfer_route(self):
+        src = (BOT_DIR / 'admin.py').read_text(encoding='utf-8')
+        assert '/admin/api/transfer' not in src
+
+    def test_server_has_no_transfer_route(self):
+        src = (ROOT / 'solobrave-server.py').read_text(encoding='utf-8')
+        assert '/api/feishu/console/transfer' not in src
+
+    def test_console_has_no_transfer_ui(self):
+        src = (ROOT / 'feishu-console.html').read_text(encoding='utf-8')
+        assert 'transferDlg' not in src and 'confirmTransfer' not in src
 
 
 # ---------- 守卫 5：agent_enabled 授予权 ----------

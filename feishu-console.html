@@ -227,7 +227,6 @@ function renderTenants(list) {
         <button onclick="recharge('${tk}')">充值</button>
         <button onclick="toggleAgent('${tk}', ${t.agent_enabled ? 1 : 0})">${t.agent_enabled ? '取消代理' : '设为代理'}</button>
         <button onclick="setParentDlg('${tk}')">挂靠</button>
-        ${t.agent_enabled ? `<button onclick="transferDlg('${tk}')">转账</button>` : ''}
       </td>
     </tr>`;
   }).join('');
@@ -251,8 +250,8 @@ function toggleAgent(tk, currentlyEnabled) {
     `${next ? '设为代理' : '取消代理'}：${tk}`,
     `<p style="font-size:13px;color:var(--sub);">${
       next
-        ? '开通后该租户拥有「代理」身份：可发展下级、给下级转积分（后台可见）。不影响其 AI 人格。'
-        : '取消后该租户退回普通达人：不能再发展下级/转账，存量下级保留原挂靠关系。'}</p>`,
+        ? '开通后该租户拥有「代理」身份：可邀请发展下级达人（后台可见下级数据）。不影响其 AI 人格。积分发放始终由平台统一操作。'
+        : '取消后该租户退回普通达人：不能再发展下级，存量下级保留原挂靠关系。'}</p>`,
     `<button onclick="closeDlg()">取消</button>
      <button class="primary" onclick="confirmToggleAgent('${esc(tk)}', ${next ? 1 : 0})">确认</button>`
   );
@@ -281,34 +280,6 @@ async function confirmSetParent(tk) {
     await postAgentOp('/api/feishu/console/agent-parent', { tenant_key: tk, agent_of: v });
     closeDlg(); await loadConsole();
   } catch (e) { setErr('挂靠失败：' + (e.message || String(e))); }
-}
-
-function transferDlg(fromKey) {
-  const subs = TENANTS.filter(x => x.agent_of === fromKey);
-  openDlg(
-    `代理转账：${fromKey}`,
-    `<label style="font-size:12px;color:var(--sub);">收款租户（下级）</label>
-     <select id="transferTo">
-       ${subs.length
-         ? subs.map(x => `<option value="${esc(x.tenant_key)}">${esc(x.tenant_label || x.tenant_key)}（${esc(x.tenant_key)}）</option>`).join('')
-         : '<option value="">（暂无下级，请先在「挂靠」里挂进来）</option>'}
-     </select>
-     <label style="font-size:12px;color:var(--sub);margin-top:10px;">转账数量</label>
-     <input type="number" id="transferAmount" value="100" min="1" step="1"
-            onkeydown="if(event.key==='Enter')confirmTransfer('${esc(fromKey)}')">`,
-    `<button onclick="closeDlg()">取消</button>
-     <button class="primary" onclick="confirmTransfer('${esc(fromKey)}')">确认转账</button>`
-  );
-}
-async function confirmTransfer(fromKey) {
-  const to = (($('transferTo') || {}).value || '').trim();
-  const n = parseInt(($('transferAmount') || {}).value, 10);
-  if (!to) { setErr('收款租户不能为空'); return; }
-  if (!n || n <= 0) { setErr('转账数必须是正整数'); return; }
-  try {
-    await postAgentOp('/api/feishu/console/transfer', { from_key: fromKey, to_key: to, amount: n });
-    closeDlg(); await loadConsole();
-  } catch (e) { setErr('转账失败：' + (e.message || String(e))); }
 }
 
 function renderRoles(roles) {

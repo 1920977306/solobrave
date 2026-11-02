@@ -9784,10 +9784,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if path == '/api/credits/feishu/recharge':
             self._handle_post_feishu_credits_recharge()
             return
-        # §125 P2: 飞书助理层级操作（代理 daren_bot admin：升/降代理、挂靠、转账）
+        # §125 P2: 飞书助理层级操作（代理 daren_bot admin：升/降代理、挂靠上级）。
+        # ★ 无转账端点——老大 11-02 拍板「代理无法控制积分，积分只能我来」。
         if path in ('/api/feishu/console/agent-enable',
-                    '/api/feishu/console/agent-parent',
-                    '/api/feishu/console/transfer'):
+                    '/api/feishu/console/agent-parent'):
             self._handle_post_feishu_console_agent_op(path)
             return
         if path.startswith('/api/credits/quotas/') and path.endswith('/recharge'):
@@ -18783,10 +18783,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         merged['roles'] = _feishu_role_info()
         self._send_json(200, merged)
 
-    # ─── §125 P2: 飞书助理层级操作（升/降代理 / 挂靠上级 / 代理转账） ───
+    # ─── §125 P2: 飞书助理层级操作（升/降代理 / 挂靠上级） ───
     def _handle_post_feishu_console_agent_op(self, path: str):
-        """代理 daren_bot /admin/api/{agent-enable,agent-parent,transfer}。
-        层校验和原子事务全在 bot 侧；这里只做鉴权 + 参数透传 + 统一错误形状。"""
+        """代理 daren_bot /admin/api/{agent-enable,agent-parent}。
+        层校验全在 bot 侧；这里只做鉴权 + 参数透传 + 统一错误形状。
+        ★ 无代理转账——积分发放权只归平台（老大 11-02 拍板），代理不碰积分。"""
         auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
@@ -18796,8 +18797,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             return
         body = self._read_body() or {}
         bot_path = {'/api/feishu/console/agent-enable': '/admin/api/agent-enable',
-                    '/api/feishu/console/agent-parent': '/admin/api/agent-parent',
-                    '/api/feishu/console/transfer':     '/admin/api/transfer'}[path]
+                    '/api/feishu/console/agent-parent': '/admin/api/agent-parent'}[path]
         status, obj = _daren_bot_admin_api(bot_path, payload=body)
         self._send_json(status, obj)
 
