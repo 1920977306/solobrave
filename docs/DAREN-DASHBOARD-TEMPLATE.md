@@ -1,5 +1,12 @@
 # 达人看板模板（Daren Dashboard Template）
 
+> ★ **2026-11-02 归档说明（老大拍板）**：飞书 BaseApp「达人经营驾驶舱」已下线——
+> 写入链路 10-27 停止后它冻结在旧数据上，老大确认只留 H5 驾驶舱
+> （`https://daren.sczlgyl.com`）。本文档**仅作历史档案保留**（里面的飞书
+> BaseApp API 实测坑 25–35 仍有参考价值，§12 飞书运维铁律引用了它）；
+> **新工作不许再照本文档给达人建飞书看板/App**——达人入口一律走 H5。
+> 以下内容为下线前的固化文档。
+
 > 内测版样板完整固化文档。给新达人开通时按第 6 章步骤复制。
 > 样板库本身（有真实数据）：https://my.feishu.cn/base/MZEdbVJMeah4x9sYYzncuhnbnnb
 > 样板应用：https://my.feishu.cn/app/ZguOb2xCba10pVsRMlXcFmgenGd

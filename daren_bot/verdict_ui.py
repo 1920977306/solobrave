@@ -1,28 +1,19 @@
-"""结论 / 状态的**视觉同源映射**——H5 驾驶舱与飞书 BaseApp 的唯一事实来源。
+"""结论 / 状态的**视觉映射唯一事实来源**——H5 驾驶舱（飞书 BaseApp 已下线）。
 
 为什么要有这个文件（2026-10-22 老大反馈「两个设计风格没有一样，不然会以为是两个系统」）：
-H5（`daren_cockpit/index.html`）和飞书 App（BaseApp `ZguOb2xCba10pVsRMlXcFmgenGd`）
-展示的是**同一个达人（hlb725 洁洁爱户外）的同一套数据**，但之前两边各写各的：
+早年有**两张脸**——H5（`daren_cockpit/index.html`）和飞书 App（BaseApp
+`ZguOb2xCba10pVsRMlXcFmgenGd`）——展示同一套数据却各写各的配色：
+同一个「潜力型」H5 绿底、飞书紫底；「🟢 能带」飞书标签甚至是红色。
 
-| 同一个词 | H5 原来 | 飞书原来 | 观感 |
-|---|---|---|---|
-| 潜力型 | 绿底（且**所有**结论一律绿底） | **紫色**标签 | 同一句话两个颜色 |
-| 🟢 能带 | 绿底 | **红色**标签（emoji 与颜色反了） | 同上 |
-| 🔴 别带 | 红底 | **橙色**标签 | 同上 |
-| 风险型 | 绿底（错） | 橙色 | 同上 |
-| 待评估 | 琥珀 | 蓝色 | 同上 |
+★ 2026-11-02 老大拍板只留 H5，飞书 BaseApp 下线（写入链路 10-27 已停，冻结在
+   旧数据上）。两张脸砍成一张，本模块现在只约束 H5：
+  - `daren_cockpit/server.py` 用它算 H5 的一句话结论（不再内联 dict）
+  - `daren_cockpit/index.html` 的 `VERDICT_EMOJI` 是它的 **JS 孪生**（跨语言一致性由
+    `daren_bot/tools/verify_visual_sync.py` 锁住）
+  ⚠️ `hue` / `feishu_option` 字段**保留**——那是历史飞书选项名的解析口径，
+    H5 数据若仍带旧格式选项名要靠 `verdict_key()` 归一，删了会退化。
 
-「同一句话必须同色」是硬约束，否则用户一眼就看出是两个系统。
-
-本模块是那个约束的**唯一事实来源**：
-
-- `daren_cockpit/server.py` 用它算 H5 的一句话结论（不再内联 dict）
-- `daren_cockpit/index.html` 的 `VERDICT_EMOJI` 是它的 **JS 孪生**（跨语言一致性由
-  `daren_bot/tools/verify_visual_sync.py` 锁住）
-- 飞书 Base 单选字段的 `options.hue` 由它约束（守卫脚本校验实际 hue）
-- 飞书 App 经营总览页「本周一句话」text 块由它约束（守卫脚本校验实际文本）
-
-改这里 = 改四个地方。守卫脚本会让任何一边漏改立刻 exit 1。
+改这里 = 改 H5 两处（JS 孪生 + CSS 色类）。守卫脚本会让漏改立刻 exit 1。
 """
 
 # 达人评级 + 选品结论 → 展示映射。
