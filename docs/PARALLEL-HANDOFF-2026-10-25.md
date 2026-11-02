@@ -10240,3 +10240,33 @@ A 边认领 #1 对账表 / #2 模板核对 / #4 P2 改稿（#3 挖木木聊天�
 - 待修：自愈路径必须验证新线程真的起来（如重启后打一个心跳日志 + 状态位；
   没起来就 escalate 告警）。另：captain_stats.py 的 clone profile（cp -Rc）
   与运行中浏览器抢文件会 race 报错，探针场景要么重试要么 --no-clone，低优。
+
+## §124 控制台充值/角色模板查看两 bug 修复 + P2 业务口径更正（A 边，2026-11-02 13:0x–13:4x，commit `6247359`）
+
+**Bug1 飞书助理控制台无法充值（老大 12:56 报）**
+- 根因（实锤）：Kimi Work 内嵌浏览器里 `window.prompt()` **不弹窗、无声返回 null**，
+  代码 `if (amount == null) return;` 静默吞掉 ⇒ 点了没反应。
+  证据：server.log 里老大今天的操作**只有 GET、零条 recharge POST**；
+  后端实测是好的（POST /api/credits/feishu/recharge 200，daren_test2 余额 70→71→72 逐次落账）。
+- 修复面：inline-07.js 三个充值函数（rechargeAgentCredits / rechargeFeishuCredits / setAgentQuota）
+  全换应用内弹窗 `sbAmountPrompt`（复用 index.html 既有 .modal 组件，配额场景带下拉）；
+  feishu-console.html 充值按钮换 `openDlg/confirmRecharge`。
+- ★ 通用纪律（登记）：**前端一律禁用 prompt()/alert() 确认类系统弹窗**，一律应用内弹窗。
+  残留 prompt() 未修（后台内部入口，低优）：inline-07 :1946（知识检索测试）、:8513/:8533（违禁词），
+  inline-06 ×4、inline-03 ×7 —— 谁碰谁修。
+
+**Bug2 角色模板点不开查看（老大 12:56 报）**
+- 根因：renderRoles() 只渲染卡片，从来没挂点击查看。
+- 修复：新增只读端点 `GET /api/feishu/console/role?role=daren|commerce|merchant`
+  （admin/tenant_admin 鉴权、64KB 截断、未启用角色 404、未知角色 400）；
+  卡片 onclick 弹窗显示全文。守卫 7 条在 tests/test_feishu_console.py::TestRoleContentHandler。
+- 配套防缓存：inline-07.js?v=ptnfit3a20261102c、iframe data-src 加 ?v=20261102a。
+
+**P2 设计稿业务口径更正（老大 12:56 原话）**：`docs/AGENT-TIER-DESIGN.md` §2 概念模型改写——
+① 达人**不是升团长**：起步只有飞书助理、**没有后台**；只有上级**代理商有后台**（代理拉的达人）。
+② 达人想推广业务 ⇒ **申请成为代理**（审核制，不是换 role）。
+③ **飞书助理 = 业务线**（不是功能），工作台 = 多业务组合（对齐 v2 §3.2 Project Type）。
+D1b/D2a/D3a 拍板不变。
+
+验证：全量 1376 passed / 10 skipped；生产冒烟 admin JWT 四场景
+（role=daren 200 content 637 字 / merchant 404 / 未知 400 / 无鉴权 401）全绿；已推 main+dev 零分叉。
