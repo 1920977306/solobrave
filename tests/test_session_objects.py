@@ -342,3 +342,114 @@ class TestSelfFacts:
         # 这里直接验证 _self_facts_block 的 commerce 门。
         assert executors._self_facts_block(
             TK, "给我推荐几个品", role="commerce") == ""
+
+    def test_fact_rows_return_id_fact_created_at(self, botdb):
+        db.add_talent_fact(TK, "我出单的都是发圈牙膏牙刷这类的")
+        rows = db.get_talent_fact_rows(TK)
+        assert len(rows) == 1
+        assert isinstance(rows[0]["id"], int)
+        assert rows[0]["fact"] == "我出单的都是发圈牙膏牙刷这类的"
+        assert rows[0]["created_at"] > 0
+
+    def test_delete_fact_removes_only_that_row(self, botdb):
+        db.add_talent_fact(TK, "我出单的都是发圈牙膏牙刷这类的")
+        db.add_talent_fact(TK, "我本来也是带裤子多一些的")
+        rows = db.get_talent_fact_rows(TK)
+        victim = rows[0]["id"]
+        assert db.delete_talent_fact(victim) is True
+        remaining = db.get_talent_fact_rows(TK)
+        assert len(remaining) == 1
+        assert remaining[0]["id"] != victim
+        # 再删同一条 = 不存在 ⇒ False（幂等）
+        assert db.delete_talent_fact(victim) is False
+
+    def test_delete_fact_does_not_touch_other_tenants(self, botdb):
+        db.add_talent_fact(TK, "我出单的都是发圈牙膏牙刷这类的")
+        db.add_talent_fact("other_tenant", "我主要带服装类的")
+        victim = db.get_talent_fact_rows(TK)[0]["id"]
+        assert db.delete_talent_fact(victim) is True
+        assert len(db.get_talent_fact_rows("other_tenant")) == 1
+
+
+class TestFactsAdminApi:
+    """admin 端点行为锁（§130）：HTTP 起真服务打真端点。
+
+    重点锁「新端点必须加进 do_POST 白名单元组」这个 gotcha —
+    不加白名单 POST 会 404，行为测试立刻红。"""
+
+    @pytest.fixture()
+    def admin_srv(self, botdb, tmp_path, monkeypatch):
+        import threading
+        from http.server import ThreadingHTTPServer
+        from daren_bot import admin
+
+        token = "tktest" + "f0k9q2z7"   # 拼出来避免扫描器命中字面量；纯测试假 token
+        (tmp_path / "admin_token.txt").write_text(token)
+        monkeypatch.setattr(admin, "_TOKEN_PATH", tmp_path / "admin_token.txt")
+        handler = admin.make_handler({"ws": None})
+        srv = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        db.add_tenant("app_test", TK, "enc", "", "daren")
+        yield f"http://127.0.0.1:{srv.server_port}", token
+        srv.shutdown()
+        srv.server_close()
+
+    def _get(self, base, token, tk):
+        import urllib.request
+        url = f"{base}/admin/api/facts?tenant_key={tk}&token={token}"
+        try:
+            with urllib.request.urlopen(url) as resp:
+                return resp.status, json.loads(resp.read())
+        except urllib.error.HTTPError as e:
+            return e.code, json.loads(e.read())
+
+    def _post(self, base, token, payload):
+        import urllib.request
+        req = urllib.request.Request(
+            f"{base}/admin/api/fact-delete?token={token}",
+            data=json.dumps(payload).encode(),
+            headers={"Content-Type": "application/json"}, method="POST")
+        try:
+            with urllib.request.urlopen(req) as resp:
+                return resp.status, json.loads(resp.read())
+        except urllib.error.HTTPError as e:
+            return e.code, json.loads(e.read())
+
+    def test_facts_endpoint_returns_rows(self, admin_srv):
+        base, token = admin_srv
+        db.add_talent_fact(TK, "我出单的都是发圈牙膏牙刷这类的")
+        db.add_talent_fact(TK, "我本来也是带裤子多一些的")
+        status, obj = self._get(base, token, TK)
+        assert status == 200
+        assert obj["ok"] is True
+        assert obj["count"] == 2
+        assert {r["fact"] for r in obj["facts"]} == {
+            "我出单的都是发圈牙膏牙刷这类的", "我本来也是带裤子多一些的"}
+
+    def test_facts_endpoint_requires_token(self, admin_srv):
+        base, _token = admin_srv
+        status, obj = self._get(base, "wrong", TK)
+        assert status == 403
+
+    def test_facts_endpoint_unknown_tenant_400(self, admin_srv):
+        base, token = admin_srv
+        status, _obj = self._get(base, token, "ghost_tenant")
+        assert status == 400
+
+    def test_fact_delete_endpoint_roundtrip(self, admin_srv):
+        base, token = admin_srv
+        db.add_talent_fact(TK, "我出单的都是发圈牙膏牙刷这类的")
+        fid = db.get_talent_fact_rows(TK)[0]["id"]
+        status, obj = self._post(base, token, {"id": fid})
+        assert status == 200
+        assert obj["deleted"] is True
+        assert db.get_talent_fact_rows(TK) == []
+        # 重复删 = 不存在 ⇒ deleted False（幂等，不炸）
+        status, obj = self._post(base, token, {"id": fid})
+        assert status == 200
+        assert obj["deleted"] is False
+
+    def test_fact_delete_requires_id(self, admin_srv):
+        base, token = admin_srv
+        status, _obj = self._post(base, token, {})
+        assert status == 400

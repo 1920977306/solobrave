@@ -6,6 +6,8 @@
   GET  /admin/api/state      租户/积分/任务/流水聚合 JSON
   GET  /admin/api/credits    飞书 AI 积分聚合（§117：server 积分中心读取用）
   GET  /admin/api/chat?tenant_key=&limit=  聊天流水（§118：审计读接口）
+  GET  /admin/api/facts?tenant_key=  达人自述事实列表（2026-11-02 审核视图）
+  POST /admin/api/fact-delete {id}  删除一条达人自述（删错句用）
   POST /admin/api/grant      发放积分 {tenant_key, amount}（★ 积分发放权只归平台）
   POST /admin/api/bind       绑定/换绑抖音号 {tenant_key, douyin_id}
   POST /admin/api/agent-enable  升/降代理 {tenant_key, enabled}（P2 授予权只含发展下级，不动人格）
@@ -330,6 +332,24 @@ def make_handler(state: dict):
                 except Exception as e:  # noqa: BLE001
                     log.exception("chat failed")
                     return self._json(500, {"ok": False, "error": str(e)})
+            if u.path == "/admin/api/facts":
+                # 达人自述事实查看（2026-11-02：老大拍板「聊天的意义是训练知识库」
+                # 的平台侧审核视图——能看到每个达人告诉过 AI 什么）。
+                q = parse_qs(u.query)
+                if not self._auth(q):
+                    return self._json(403, {"ok": False, "error": "token 无效"})
+                tk = (q.get("tenant_key") or [""])[0].strip()
+                if not tk:
+                    return self._json(400, {"ok": False, "error": "缺少 tenant_key"})
+                if not db.get_tenant(tk):
+                    return self._json(400, {"ok": False, "error": f"租户不存在: {tk}"})
+                try:
+                    rows = db.get_talent_fact_rows(tk)
+                    return self._json(200, {"ok": True, "tenant_key": tk,
+                                            "count": len(rows), "facts": rows})
+                except Exception as e:  # noqa: BLE001
+                    log.exception("facts failed")
+                    return self._json(500, {"ok": False, "error": str(e)})
             self._json(404, {"ok": False, "error": "not found"})
 
         def do_POST(self):
@@ -339,7 +359,8 @@ def make_handler(state: dict):
                               "/admin/api/coop-scan",
                               "/admin/api/plan-scan",
                               "/admin/api/agent-enable",
-                              "/admin/api/agent-parent"):
+                              "/admin/api/agent-parent",
+                              "/admin/api/fact-delete"):
                 return self._json(404, {"ok": False, "error": "not found"})
             if not self._auth(q):
                 return self._json(403, {"ok": False, "error": "token 无效"})
@@ -400,6 +421,18 @@ def make_handler(state: dict):
                 log.info("admin agent-parent: %s -> '%s'", tk, agent_of)
                 return self._json(200, {"ok": True, "tenant_key": tk,
                                         "agent_of": agent_of})
+            if u.path == "/admin/api/fact-delete":
+                # 删除一条达人自述（删错句用，2026-11-02 老大批准可删）。
+                fid = body.get("id")
+                if fid is None:
+                    return self._json(400, {"ok": False, "error": "缺少 id"})
+                try:
+                    deleted = db.delete_talent_fact(int(fid))
+                except (TypeError, ValueError):
+                    return self._json(400, {"ok": False, "error": "id 必须是整数"})
+                log.info("admin fact-delete: id=%s -> %s", fid, deleted)
+                return self._json(200, {"ok": True, "id": int(fid),
+                                        "deleted": bool(deleted)})
             tk = str(body.get("tenant_key") or "").strip()
             if not db.get_tenant(tk):
                 return self._json(400, {"ok": False, "error": f"租户不存在: {tk}"})

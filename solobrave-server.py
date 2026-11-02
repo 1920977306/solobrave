@@ -9419,6 +9419,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if path == '/api/feishu/chat':
             self._handle_get_feishu_chat()
             return
+        # §130: 达人自述（bot_talent_facts）控制台审核视图 —— 查看 + 删错句
+        if path == '/api/feishu/console/facts':
+            self._handle_get_feishu_facts()
+            return
         # ★ 积分体系派单 (贾维斯派单, 2026-10-08): 签到状态查询 (checkin/admin-grant 是 POST, 另注册)
         if path == '/api/credits/checkin/status':
             self._handle_credits_checkin_status()
@@ -9789,6 +9793,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if path in ('/api/feishu/console/agent-enable',
                     '/api/feishu/console/agent-parent'):
             self._handle_post_feishu_console_agent_op(path)
+            return
+        if path == '/api/feishu/console/fact-delete':
+            self._handle_post_feishu_fact_delete()
             return
         if path.startswith('/api/credits/quotas/') and path.endswith('/recharge'):
             agent_id = path[len('/api/credits/quotas/'):-len('/recharge')]
@@ -18852,6 +18859,41 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if limit:
             bot_path += '&limit=' + urllib.parse.quote(limit, safe='')
         status, obj = _daren_bot_admin_api(bot_path)
+        self._send_json(status, obj)
+
+    # ─── §130: 达人自述（bot_talent_facts）控制台审核视图 ───
+    def _handle_get_feishu_facts(self):
+        """GET /api/feishu/console/facts?tenant_key= — 达人自述事实列表透传。
+        老大 2026-11-02 拍板：能看到每个达人告诉过 AI 什么（可删错句，见 POST 侧）。"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not (auth.is_admin or auth.is_tenant_admin):
+            self._send_json_error(403, '仅管理员可查看达人自述')
+            return
+        qs = parse_qs(urlparse(self.path).query)
+        tk = (qs.get('tenant_key') or [''])[0].strip()
+        if not tk:
+            self._send_json_error(400, '缺少 tenant_key')
+            return
+        bot_path = '/admin/api/facts?tenant_key=' + urllib.parse.quote(tk, safe='')
+        status, obj = _daren_bot_admin_api(bot_path)
+        self._send_json(status, obj)
+
+    def _handle_post_feishu_fact_delete(self):
+        """POST /api/feishu/console/fact-delete {id} — 删除一条达人自述（删错句用）。
+        bot 侧有存在性/类型校验；这边只做鉴权 + 参数透传。"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not (auth.is_admin or auth.is_tenant_admin):
+            self._send_json_error(403, '仅管理员可删除达人自述')
+            return
+        body = self._read_body() or {}
+        status, obj = _daren_bot_admin_api('/admin/api/fact-delete',
+                                           payload={'id': body.get('id')})
         self._send_json(status, obj)
 
     def _handle_get_credit_usage(self):

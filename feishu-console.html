@@ -227,6 +227,7 @@ function renderTenants(list) {
         <button onclick="recharge('${tk}')">充值</button>
         <button onclick="toggleAgent('${tk}', ${t.agent_enabled ? 1 : 0})">${t.agent_enabled ? '取消合伙人' : '设为合伙人'}</button>
         <button onclick="setParentDlg('${tk}')">挂靠</button>
+        <button onclick="viewFacts('${tk}')">自述</button>
       </td>
     </tr>`;
   }).join('');
@@ -281,6 +282,41 @@ async function confirmSetParent(tk) {
     await postAgentOp('/api/feishu/console/agent-parent', { tenant_key: tk, agent_of: v });
     closeDlg(); await loadConsole();
   } catch (e) { setErr('挂靠失败：' + (e.message || String(e))); }
+}
+
+/* §130：达人自述（bot_talent_facts）审核视图 —— 看达人告诉过 AI 什么，可删错句 */
+let FACTS_TK = '';
+async function viewFacts(tk) {
+  FACTS_TK = tk;
+  openDlg(`达人自述：${tk}`, '<p style="color:var(--sub)">加载中…</p>',
+          '<button onclick="closeDlg()">关闭</button>');
+  let rows;
+  try {
+    const data = await api('/api/feishu/console/facts?tenant_key=' + encodeURIComponent(tk));
+    rows = data.facts || [];
+  } catch (e) {
+    openDlg(`达人自述：${tk}`, `<p style="color:#c00;">加载失败：${esc(e.message || String(e))}</p>`,
+            '<button onclick="closeDlg()">关闭</button>');
+    return;
+  }
+  const body = rows.length
+    ? `<p style="font-size:12px;color:var(--sub);margin:0 0 8px;">该达人告诉过 AI 的经营事实（注入后续问答，最多保留最近 10 条）。发现错句可逐条删除：</p>
+       <table class="tbl" style="width:100%;"><tbody>${
+         rows.map(r => `<tr>
+           <td style="width:150px;color:var(--sub);font-size:12px;vertical-align:top;">${fmtTime(r.created_at)}</td>
+           <td>${esc(r.fact)}</td>
+           <td style="width:60px;text-align:right;"><button onclick="deleteFact(${Number(r.id)})">删除</button></td>
+         </tr>`).join('')}</tbody></table>`
+    : '<p style="color:var(--sub);">该达人还没有沉淀任何自述。</p>';
+  openDlg(`达人自述：${tk}`, body,
+          '<button onclick="closeDlg()">关闭</button>');
+}
+async function deleteFact(id) {
+  if (!confirm('确定删除这条达人自述？删除后不再注入该达人的后续问答。')) return;
+  try {
+    await postAgentOp('/api/feishu/console/fact-delete', { id: id });
+    await viewFacts(FACTS_TK);   // 刷新列表
+  } catch (e) { setErr('删除失败：' + (e.message || String(e))); }
 }
 
 function renderRoles(roles) {

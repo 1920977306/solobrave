@@ -343,6 +343,37 @@ def get_talent_facts(tenant_key: str, limit: int = 10) -> list:
     except Exception:
         return []
 
+
+def get_talent_fact_rows(tenant_key: str, limit: int = 50) -> list:
+    """取该租户自述的完整行 [{id, fact, created_at}]（时间升序）。
+
+    控制台审核视图专用——需要 id 才能逐条删除。与 get_talent_facts 同源同表。"""
+    tk = (tenant_key or "").strip()
+    if not tk:
+        return []
+    try:
+        with db_ctx() as conn:
+            return [{"id": r[0], "fact": r[1], "created_at": r[2]} for r in conn.execute(
+                "SELECT id, fact, created_at FROM bot_talent_facts WHERE tenant_key=?"
+                " ORDER BY created_at ASC LIMIT ?",
+                (tk, int(limit))).fetchall()]
+    except Exception:
+        return []
+
+
+def delete_talent_fact(fact_id: int) -> bool:
+    """删除一条达人自述（控制台删错句用，2026-11-02 老大批准可删）。
+
+    尽力而为：失败只记日志。"""
+    try:
+        with db_ctx() as conn:
+            cur = conn.execute("DELETE FROM bot_talent_facts WHERE id=?",
+                               (int(fact_id),))
+            return cur.rowcount > 0
+    except Exception:
+        log.exception("delete_talent_fact failed: id=%s", fact_id)
+        return False
+
 _SESSION_OBJECTS_KEEP = 6
 
 
