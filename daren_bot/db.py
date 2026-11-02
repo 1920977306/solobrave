@@ -280,6 +280,69 @@ CREATE INDEX IF NOT EXISTS idx_session_obj_tenant
   ON bot_session_objects(tenant_key, obj_type, created_at);
 """
 
+# ★ 2026-11-02 达人自述事实沉淀（老大拍板「聊天的意义是训练知识库」落地）：
+#   达人随口告诉 AI 的经营事实（「我出单的都是发圈牙膏牙刷」「我没有带过厨房
+#   收纳类」「我本来也是带裤子的」）——答完就丢太可惜，沉淀下来注入后续问答，
+#   选品/分析结论从此带上达人自己的口径。
+#   ★ 存**原句**（只丢不造，§14 三铁律同款）：不提炼、不改写语义，人工可审。
+#   每租户滚动留最近 10 条，完全重复的不记。
+DDL_TALENT_FACTS = """
+CREATE TABLE IF NOT EXISTS bot_talent_facts (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  tenant_key TEXT NOT NULL,
+  fact       TEXT NOT NULL,               -- 达人原句（截 120 字）
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_talent_facts_tenant
+  ON bot_talent_facts(tenant_key, created_at);
+"""
+
+_TALENT_FACTS_KEEP = 10
+
+
+def add_talent_fact(tenant_key: str, fact: str) -> bool:
+    """登记一条达人自述事实（去重：同租户同原文不重复记）。返回是否新增。
+
+    尽力而为：失败只记日志。"""
+    tk = (tenant_key or "").strip()
+    f = " ".join((fact or "").split())[:120]
+    if not tk or len(f) < 6:
+        return False
+    try:
+        with db_ctx() as conn:
+            dup = conn.execute(
+                "SELECT 1 FROM bot_talent_facts WHERE tenant_key=? AND fact=?",
+                (tk, f)).fetchone()
+            if dup:
+                return False
+            conn.execute(
+                "INSERT INTO bot_talent_facts (tenant_key, fact, created_at)"
+                " VALUES (?,?,?)", (tk, f, int(time.time())))
+            conn.execute(
+                "DELETE FROM bot_talent_facts WHERE tenant_key=? AND id NOT IN ("
+                "  SELECT id FROM bot_talent_facts WHERE tenant_key=?"
+                "  ORDER BY created_at DESC LIMIT ?)",
+                (tk, tk, _TALENT_FACTS_KEEP))
+            return True
+    except Exception:
+        log.exception("add_talent_fact failed: tk=%s", tk)
+        return False
+
+
+def get_talent_facts(tenant_key: str, limit: int = 10) -> list:
+    """取该租户沉淀的达人自述（时间升序）。人工审核入口读同一函数。"""
+    tk = (tenant_key or "").strip()
+    if not tk:
+        return []
+    try:
+        with db_ctx() as conn:
+            return [r[0] for r in conn.execute(
+                "SELECT fact FROM bot_talent_facts WHERE tenant_key=?"
+                " ORDER BY created_at ASC LIMIT ?",
+                (tk, int(limit))).fetchall()]
+    except Exception:
+        return []
+
 _SESSION_OBJECTS_KEEP = 6
 
 
@@ -352,6 +415,7 @@ def init_db():
         conn.executescript(DDL_COMMISSION_PENDING)
         conn.executescript(DDL_CHAT_MESSAGES)
         conn.executescript(DDL_SESSION_OBJECTS)
+        conn.executescript(DDL_TALENT_FACTS)
         # 轻量迁移：tasks 表补 payload 列（存名字提示等任务负载，JSON）
         cols = {r[1] for r in conn.execute("PRAGMA table_info(bot_collect_tasks)")}
         if "payload" not in cols:

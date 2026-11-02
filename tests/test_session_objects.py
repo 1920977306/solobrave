@@ -259,3 +259,86 @@ class TestInflightNudge:
     def test_tenant_isolation(self, botdb):
         self._mk_task("pending")
         assert db.has_inflight_task("nobody") is False
+
+
+class TestSelfFacts:
+    """达人自述事实沉淀（2026-11-02 老大拍板「聊天即训练知识库」落地）。"""
+
+    def test_add_and_get_roundtrip(self, botdb):
+        assert db.add_talent_fact(TK, "我出单的都是发圈牙膏牙刷这类的") is True
+        facts = db.get_talent_facts(TK)
+        assert facts == ["我出单的都是发圈牙膏牙刷这类的"]
+
+    def test_exact_dup_not_recorded(self, botdb):
+        db.add_talent_fact(TK, "我出单的都是发圈牙膏牙刷这类的")
+        assert db.add_talent_fact(TK, "我出单的都是发圈牙膏牙刷这类的") is False
+        assert len(db.get_talent_facts(TK)) == 1
+
+    def test_rolling_keep_ten(self, botdb):
+        for i in range(13):
+            db.add_talent_fact(TK, f"我主要带第{i}类商品测试")
+        facts = db.get_talent_facts(TK)
+        assert len(facts) == 10
+        assert facts[-1] == "我主要带第12类商品测试"
+
+    def test_short_fact_rejected(self, botdb):
+        assert db.add_talent_fact(TK, "我带") is False
+        assert db.get_talent_facts(TK) == []
+
+    def test_extract_from_real_daren_sentences(self, botdb):
+        from daren_bot import executors
+        assert "出单的都是" in executors._extract_self_fact(
+            "我本身出单的都是 发圈 牙膏 牙刷这类的")
+        assert "没有带过" in executors._extract_self_fact(
+            "我没有带过厨房收纳类")
+        assert "本来也是带" in executors._extract_self_fact(
+            "我本来也是带裤子多一些")
+        assert executors._extract_self_fact("这个品能带吗") == ""
+        assert executors._extract_self_fact("我还有多少积分") == ""
+
+    def test_qa_records_fact_and_injects_on_later_question(self, botdb, monkeypatch):
+        from daren_bot import executors
+        monkeypatch.setattr(executors, "_qa_llm", lambda p: "ok")
+        monkeypatch.setattr(executors, "_talent_context", lambda tk: "")
+        # 第一句：自述事实 → 入库
+        executors.execute_qa({"tenant_key": TK,
+                              "target": "我本身出单的都是发圈牙膏牙刷这类的",
+                              "payload": "{}"})
+        assert len(db.get_talent_facts(TK)) == 1
+        # 第二句：选品类问题 → prompt 里要带上自述
+        captured = {}
+        def _cap(p):
+            captured["prompt"] = p
+            return "ok"
+        monkeypatch.setattr(executors, "_qa_llm", _cap)
+        executors.execute_qa({"tenant_key": TK,
+                              "target": "给我分析几个适合我带货的商品",
+                              "payload": "{}"})
+        assert "达人自述" in captured["prompt"]
+        assert "发圈牙膏牙刷" in captured["prompt"]
+
+    def test_qa_no_inject_on_offtopic_question(self, botdb, monkeypatch):
+        from daren_bot import executors
+        db.add_talent_fact(TK, "我出单的都是发圈牙膏牙刷这类的")
+        captured = {}
+        monkeypatch.setattr(executors, "_qa_llm",
+                            lambda p: captured.setdefault("prompt", p) or "ok")
+        monkeypatch.setattr(executors, "_talent_context", lambda tk: "")
+        executors.execute_qa({"tenant_key": TK, "target": "你分析啊",
+                              "payload": "{}"})
+        assert "达人自述" not in captured["prompt"]
+
+    def test_commerce_role_no_inject(self, botdb, monkeypatch):
+        from daren_bot import executors
+        db.add_talent_fact(TK, "我出单的都是发圈牙膏牙刷这类的")
+        monkeypatch.setattr(executors, "_qa_llm", lambda p: "ok")
+        monkeypatch.setattr(executors, "_talent_context", lambda tk: "")
+        captured = {}
+        def _cap(p):
+            captured["prompt"] = p
+            return "ok"
+        monkeypatch.setattr(executors, "_qa_llm", _cap)
+        # 角色切到商务：db.get_tenant 返回 None ⇒ role=''（达人缺省），
+        # 这里直接验证 _self_facts_block 的 commerce 门。
+        assert executors._self_facts_block(
+            TK, "给我推荐几个品", role="commerce") == ""

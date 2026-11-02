@@ -1903,6 +1903,66 @@ def _session_objects_block(tk: str, q: str) -> str:
     return ""
 
 
+# ─── 达人自述事实沉淀（2026-11-02 老大拍板「聊天的意义是训练知识库」）────────
+# 检测是**确定性的正则**（零成本）：句式特征明显——「我 + (出单/卖/带) + 都是/
+# 多/主要」「我没有带过」「我本来也是带」。存原句不提炼（只丢不造），后续选品/
+# 分析类问题注入 prompt，结论带上达人自己的口径。
+_SELF_FACT_RE = None
+_FACT_INJECT_RE = None
+
+
+def _self_fact_re():
+    global _SELF_FACT_RE
+    if _SELF_FACT_RE is None:
+        import re as _re
+        _SELF_FACT_RE = _re.compile(
+            r"我(本身|平时|主要|现在|目前|本来|一直|以前)?"
+            r"(出单|卖|带货|带)的?(都|多|主要)?是|"
+            r"我(本身|还|目前|现在|以前|本来)?没有(带过|卖过|出过|做过)|"
+            r"我本来(也是|就是)?带|我(现在|目前|平时|主要)带")
+    return _SELF_FACT_RE
+
+
+def _fact_inject_re():
+    """什么问题形态值得注入自述事实（宁漏勿抢：闲聊/碎片词不注入）。"""
+    global _FACT_INJECT_RE
+    if _FACT_INJECT_RE is None:
+        import re as _re
+        _FACT_INJECT_RE = _re.compile(
+            r"推荐|选品|适合我|能带|可以带|带什么|卖什么|"
+            r"品类|类目|出单|怎么带|方向|定位|人群|客单|对标|提升|"
+            r"我的(账号|号|人群|画像|数据)|继续做|什么类型")
+    return _FACT_INJECT_RE
+
+
+def _extract_self_fact(q: str) -> str:
+    """从达人这句话里抽出自述事实子句（命中处起到句末标点止，≤120 字）。"""
+    import re as _re
+    m = _self_fact_re().search(q or "")
+    if not m:
+        return ""
+    rest = (q or "")[m.start():]
+    stop = _re.search(r"[。！？!?\n]", rest)
+    clause = rest[:stop.start()] if stop else rest
+    return clause.strip(" ，,、~～")[:120]
+
+
+def _self_facts_block(tk: str, q: str, role: str = "") -> str:
+    """达人自述事实注入块：有沉淀 + 问题是选品/分析形态 + 达人本人语境才注入。"""
+    if role == "commerce":   # 商务没有「自己的号」，自述事实不适用
+        return ""
+    if not _fact_inject_re().search(q or ""):
+        return ""
+    from . import db
+    facts = db.get_talent_facts(tk)
+    if not facts:
+        return ""
+    body = "\n".join(f"- {f}" for f in facts[-8:])
+    return ("【达人自述】以下是这位达人**亲口告诉我们**的经营事实，"
+            "做选品/分析时优先采信（权重高于平台画像推测），与数据冲突时点名说明：\n"
+            + body + "\n")
+
+
 def _talent_context(tk: str) -> str:
     """该达人绑定的账号画像摘要（问答上下文）：
     基础档案 + 粉丝画像分布 + 类目/品牌结构 + 近期视频表现。"""
@@ -2214,6 +2274,14 @@ def execute_qa(task: dict) -> str:
     # ★ 2026-11-02 多对象会话记忆：同会话分析过多个达人/商品/视频时，
     #   「上面那两个/怎么没有对比」才能接住（豆鲨包实锤：各分析各的、忘了上一个）。
     session_block = _session_objects_block(task.get("tenant_key", ""), q)
+    # ★ 2026-11-02 自述事实：先检测这句话本身是不是经营事实自述，是则入库；
+    #   再按问题形态决定是否把已沉淀的事实注入本轮 prompt。
+    self_fact = _extract_self_fact(q)
+    if self_fact:
+        try:
+            _db.add_talent_fact(task.get("tenant_key", ""), self_fact)
+        except Exception:
+            log.exception("add_talent_fact failed")
     # ★ 2026-10-28 飞书助理平台化：商务租户问答用商务人格 + 查达人档案注入
     _role = ""
     try:
@@ -2246,6 +2314,7 @@ def execute_qa(task: dict) -> str:
         + force_line
         + recent_line
         + (session_block or '')
+        + (_self_facts_block(task.get("tenant_key", ""), q, _role) or '')
         + commerce_line
         + compare_line
         + (f'【该达人的账号数据】{ctx}\n' if ctx else '')
