@@ -194,3 +194,45 @@ class TestExecuteProductCollectDelisted:
                             lambda _tk, _pk: None)
         with pytest.raises(ex.ProductNotFound):
             ex.execute_product_collect(dict(self.TASK))
+
+
+# ---------------------------------------------------------------- 短链分流
+
+class TestShortLinkRouting:
+    """v.douyin.com 短链商品/视频分流（fix/短链商品误判视频 2026-11-03）。
+
+    生产实锤：商品短链（能解出商品ID）被 VIDEO_LINK_RE 抢先判成视频拆解，
+    扣 30 分还 failed；视频短链（解析无商品参数）视频链 done。
+    """
+
+    def _spy_router(self, monkeypatch, resolved_pid):
+        monkeypatch.setattr(hd.product_link, "extract_product_id",
+                            lambda _u: resolved_pid)
+        router = hd.Router(ws_manager=None)
+        calls = {}
+        router._route_link = lambda *a: calls.setdefault("link", a)
+        router._route_video = lambda *a: calls.setdefault("video", a)
+        return router, calls
+
+    def test_product_short_link_goes_to_product(self, monkeypatch):
+        router, calls = self._spy_router(monkeypatch, "3848235384622416590")
+        router._route_text({"tenant_key": "tk1", "role": "daren"}, "chat1",
+                           "https://v.douyin.com/3HXXhXyDS8s/",
+                           FakeSender())
+        assert "link" in calls and "video" not in calls
+
+    def test_video_short_link_stays_on_video(self, monkeypatch):
+        router, calls = self._spy_router(monkeypatch, "")
+        router._route_text({"tenant_key": "tk1", "role": "daren"}, "chat1",
+                           "https://v.douyin.com/F6DKq9HC_yI/",
+                           FakeSender())
+        assert "video" in calls and "link" not in calls
+
+    def test_full_video_url_untouched(self, monkeypatch):
+        """全链视频分享页（iesdouyin.com/share/video/）不经短链解析，直接视频链。"""
+        router, calls = self._spy_router(monkeypatch, "")
+        router._route_text(
+            {"tenant_key": "tk1", "role": "daren"}, "chat1",
+            "https://www.iesdouyin.com/share/video/7702486399988367542/",
+            FakeSender())
+        assert "video" in calls and "link" not in calls

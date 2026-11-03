@@ -12,7 +12,7 @@ import re
 import time
 from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode
 
-from . import config, db, cockpit_link, product_intent
+from . import config, db, cockpit_link, product_intent, product_link
 from . import credits   # 积分闸门（扣费入口唯一真源，见 credits.py）
 
 log = logging.getLogger("daren-bot.handler")
@@ -406,7 +406,21 @@ class Router:
                                name_hint=_extract_name_hint(text, dy_only.group(1)),
                                question=text)
         elif VIDEO_LINK_RE.search(text):
-            self._route_video(tenant, chat_id, text, sender)
+            # ★ 2026-11-03 修：v.douyin.com 短链本体无数字，**商品和视频共用这个形态**。
+            #   生产实锤：3 条商品短链（3HXXhXyDS8s/aovVC37WH7k/kwOf3lZyeqk）被
+            #   VIDEO_LINK_RE 抢先判成视频拆解，扣 30 分还 failed（视频链反而 done）。
+            #   现在先解析一次短链：解出商品ID → 商品链路；解不出（真视频短链）
+            #   → 才走视频拆解。解析失败（网络异常）按视频处理，不阻塞达人。
+            _url = URL_RE.search(text).group(0)
+            try:
+                _host = urlsplit(_url).netloc.lower()
+            except Exception:
+                _host = ''
+            if _host == 'v.douyin.com' \
+                    and product_link.extract_product_id(_url):
+                self._route_link(tenant, chat_id, text, sender)
+            else:
+                self._route_video(tenant, chat_id, text, sender)
         elif URL_RE.search(text):
             self._route_link(tenant, chat_id, text, sender)
         elif BALANCE_RE.match(text.strip()):
