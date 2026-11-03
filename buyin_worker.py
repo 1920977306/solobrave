@@ -1546,10 +1546,13 @@ def _extract_video_rows(page):
     return items
 
 
-def _extract_tab_table_rows(page, marker: str):
+def _extract_tab_table_rows(page, marker: str, require_date: bool = True):
     """通用 auxo-table 抓行：视频详情/直播详情等明细 tab → [{cells:[...], title}]。
-    marker 用于定位包含该文本的最小表格容器；行首列含日期才保留（滤掉表头/汇总行）。"""
-    raw = page.evaluate("""(marker) => {
+    marker 用于定位包含该文本的最小表格容器。
+    require_date=True（默认，视频/直播明细）：行首列含日期才保留（滤掉表头/汇总行）；
+    require_date=False（商品明细）：首列是商品名不是日期，只滤表头短行。"""
+    raw = page.evaluate("""(args) => {
+      const marker = args.marker, requireDate = args.requireDate;
       const anchor = document.querySelector('#daren-profile-main-tabs');
       const root = (anchor && anchor.parentElement) || document;
       let wrap = null;
@@ -1564,11 +1567,11 @@ def _extract_tab_table_rows(page, marker: str):
         const cells = Array.from(tr.querySelectorAll('.auxo-table-cell'))
           .map(td => (td.innerText || '').trim()).filter(c => c !== '');
         if (cells.length < 3) return;
-        if (!/\\d{4}\\/\\d{2}\\/\\d{2}/.test(cells[0])) return;   // 只留含日期的明细行
+        if (requireDate && !/\\d{4}\\/\\d{2}\\/\\d{2}/.test(cells[0])) return;
         out.push({title: cells[0].slice(0, 150), cells: cells.slice(0, 10)});
       });
       return {rows: out.slice(0, 30), layout: 'auxo-table:' + out.length};
-    }""", marker)
+    }""", {'marker': marker, 'requireDate': bool(require_date)})
     rows = []
     for r in (raw or {}).get('rows') or []:
         rows.append({'title': r.get('title') or '', 'cells': r.get('cells') or []})
@@ -2024,12 +2027,23 @@ def collect_pipeline(collect_id, name, douyin_id):
                     log(f'  [Collect] {tab}/{sub} 子tab补拍失败（非致命）: {str(e)[:80]}')
             all_xhr.append({'tab': tab, 'xhr': bucket[-XHR_MAX_PER_TAB:]})
 
-        # ── 带货分析：点开 TOP 商品明细（可点的行）──
+        # ── 带货分析：先直读商品明细表格，再点开 TOP 商品明细（可点的行）──
         _ensure_alive(profile)
         top_products = []
+        top_rows_direct = []
         try:
             if _click_tab(profile, '带货分析'):
                 _human_sleep(2.5, 3.5)
+                # ★ 2026-11-03 直读商品明细表格：新版页面点击行**不一定弹详情抽屉**
+                #   （实测点击后快照整页 = 导航栏文本残渣）⇒ 先整表抓行兜底，
+                #   报告端「近期带的品」直接消费这份；点击明细作为补充。
+                try:
+                    top_rows_direct = _extract_tab_table_rows(
+                        profile, '商品', require_date=False)
+                    if top_rows_direct:
+                        log(f'  [Collect] 带货分析直读商品明细 {len(top_rows_direct)} 行')
+                except Exception as e:
+                    log(f'  [Collect] 商品明细直读失败（非致命）: {str(e)[:80]}')
                 rows = profile.locator('table tbody tr')
                 rn = min(rows.count(), 5)
                 for i in range(rn):
@@ -2040,6 +2054,13 @@ def collect_pipeline(collect_id, name, douyin_id):
                         cell.click()
                         _human_sleep(1.8, 2.8)
                         detail_txt = _dom_snapshot(profile)
+                        # 点击没弹抽屉时快照整页 = 导航残渣（「概览/场景分析…」且无数字），不存
+                        if '概览' in detail_txt[:200] and not re.search(r'\d', detail_txt[:200]):
+                            try:
+                                profile.keyboard.press('Escape')
+                            except Exception:
+                                pass
+                            continue
                         top_products.append({'row': i + 1, 'detail_text': detail_txt[:3000]})
                         try:
                             profile.keyboard.press('Escape')
@@ -2077,6 +2098,8 @@ def collect_pipeline(collect_id, name, douyin_id):
                 log(f'  [Collect] {tab_key} 明细抓取 {len(merged_rows)} 行')
             except Exception as e:
                 log(f'  [Collect] {tab_key} 明细抓取失败（非致命）: {e}')
+        if top_rows_direct:
+            details['product_details'] = top_rows_direct
 
         xhr_dump = []
         for group in all_xhr:
@@ -3610,7 +3633,7 @@ def _run_collect_impl(row):
         det = material.get('details') or {}
         if vf or det:
             raw_all = dict(vf)
-            for _k in ('video_details', 'live_details'):
+            for _k in ('video_details', 'live_details', 'product_details'):
                 if det.get(_k):
                     raw_all[_k] = det[_k]
                     fields[_k] = det[_k]          # 分析输入用（list），normalize 时会滤掉非表列

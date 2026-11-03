@@ -1438,6 +1438,24 @@ def verdict_cache_get(tenant_key: str, product_key: str):
         return d
 
 
+def verdict_cache_get_any(tenant_key: str, product_key: str):
+    """同租户同商品的**最新一条结论，不管有没有过期**。
+
+    用途（fix/缓存实查口径 2026-11-03）：平台**实时查无此品**但库里有过期结论时，
+    合并回答「平台查无此品 + 旧结论参考」——两个口径不再自相矛盾
+    （旧口径：缓存命中答🟢能带 vs 实查失败答已下架，达人看着就是系统神经）。
+    调用方必须向达人明示这是旧分析，不许伪装成新结论。"""
+    if not product_key:
+        return None
+    with db_ctx() as conn:
+        r = conn.execute(
+            """SELECT * FROM bot_product_verdicts
+               WHERE tenant_key=? AND product_key=?
+               ORDER BY created_at DESC LIMIT 1""",
+            (tenant_key, product_key)).fetchone()
+        return dict(r) if r else None
+
+
 def verdict_cache_put(tenant_key: str, product_key: str, name: str = "",
                       verdict: str = "", why: str = "", md: str = "",
                       stats: dict = None) -> None:

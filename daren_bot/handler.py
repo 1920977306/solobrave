@@ -84,6 +84,14 @@ ACCEPT_DEAL_RE = re.compile(
     r"^(?:我?接(了|下|了它|了这个品|了这单)|加进排品|排品加|要接|推这个)"
     r"[\s:：,，]*(?P<pid>[0-9]{15,22}|[A-Za-z0-9_-]{6,40})\s*$")
 
+# 「近期带的品」问法（2026-11-03 豆鲨包实锤：她问「我账号近期带的品你知道有哪些吗」
+# 被当成普通重采集，报告没答到点上）。判据刻意宽松（宁漏勿抢，同 §8.9 纪律）——
+# 只在「达人角色 + 自己绑定的号」上生效（商务发抖音号是查别人，不适用）。
+RECENT_PRODUCTS_RE = re.compile(
+    r"(近期|最近|近来|这段时间|这段日子|这几天|近期内).{0,10}(带|卖|推).{0,8}"
+    r"(品|货|商品|什么|哪些|啥|的货)"
+    r"|(带|卖)过.{0,6}(哪些|什么|啥).{0,4}(品|货|商品)")
+
 # ── 选品推荐（2026-10-25 老大目标 3：自算推荐指数接到飞书）──
 # 「推荐点什么 / 推荐几个品 / 选品建议」→ 走**我方自算的推荐指数**
 # （粉丝画像 → 类目策略 → 商品推荐 → ★ 星级），
@@ -388,13 +396,15 @@ class Router:
             self._route_accept_deal(tenant, chat_id, accept.group('pid'), sender)
         elif dy_in_text:
             self._route_douyin(tenant, chat_id, dy_in_text.group(1), sender,
-                               name_hint=_extract_name_hint(text, dy_in_text.group(1)))
+                               name_hint=_extract_name_hint(text, dy_in_text.group(1)),
+                               question=text)
         elif bare_pid:
             # 达人按引导语只发了一串商品ID → 和商品链接同一条链路
             self._route_product_id(tenant, chat_id, bare_pid, sender)
         elif dy_only:
             self._route_douyin(tenant, chat_id, dy_only.group(1), sender,
-                               name_hint=_extract_name_hint(text, dy_only.group(1)))
+                               name_hint=_extract_name_hint(text, dy_only.group(1)),
+                               question=text)
         elif VIDEO_LINK_RE.search(text):
             self._route_video(tenant, chat_id, text, sender)
         elif URL_RE.search(text):
@@ -754,7 +764,8 @@ class Router:
 
     # ---------- ① 抖音号（spec 4.1） ----------
 
-    def _route_douyin(self, tenant, chat_id, dy_id, sender, name_hint: str = "") -> None:
+    def _route_douyin(self, tenant, chat_id, dy_id, sender, name_hint: str = "",
+                      question: str = "") -> None:
         tk = tenant["tenant_key"]
         # ★ 2026-10-28 角色分流（飞书助理平台化）：
         #   商务助理发抖音号 = 查/分析**这个达人**（商务没有「自己的号」，
@@ -817,6 +828,14 @@ class Router:
                     "需要调整联系运营")
                 return
 
+        # ★「近期带的品」短链路（2026-11-03 豆鲨包实锤：她问「我账号近期带的品
+        #   你知道有哪些吗」被当成普通重采集，扣 100 分却收到通用账号报告、
+        #   没答到点上）。达人问自己的号 + 档案 ≤7 天 + 已有明细 ⇒ 纯读库秒答，
+        #   0 积分、不入队、不调 LLM；条件不满足返回 False，回落正常采集链路。
+        if is_self and question and RECENT_PRODUCTS_RE.search(question):
+            if self._answer_recent_products(tenant, chat_id, dy_id, sender):
+                return
+
         if db.get_week_count(tk, dy_id) >= 1:
             sender.send_text(
                 chat_id,
@@ -862,6 +881,35 @@ class Router:
         elif not is_self:
             log.info("tenant=%s peer-collect dy_id=%s (peers=%s)", tk, dy_id,
                      db.peer_douyin_count(tk, bound))
+
+    # ★「近期带的品」0 积分秒答（2026-11-03 豆鲨包承接质量）。
+    #   纯 DB 读取 + 纯函数渲染：不入队、不调 LLM、不扣积分（无消耗算力）。
+    #   返回 True = 已答（调用方 short-circuit return）；False = 答不了，
+    #   回落正常采集链路（扣 100 分走全量报告，报告里自带「近期带的品」节）。
+    def _answer_recent_products(self, tenant, chat_id, dy_id, sender) -> bool:
+        from . import executors as _exec
+        t = _exec._read_talent("", dy_id)
+        if not t:
+            return False
+        # 档案超过 7 天 ⇒ 明细可能过期，不拿旧数据糊弄（口径同 §9 复用层 TTL）
+        updated_at = int(t.get("updated_at") or 0)
+        if updated_at and (time.time() * 1000 - updated_at) > 7 * 86400 * 1000:
+            return False
+        items = _exec.recent_product_items(t)
+        if not items:
+            return False
+        day = time.strftime("%m-%d", time.localtime(updated_at / 1000)) \
+            if updated_at else "近期"
+        lines = [f"你近期带的品（档案更新于 {day}）："]
+        for i, it in enumerate(items, 1):
+            extra = ("｜" + "｜".join(it.get("extra") or [])) \
+                if it.get("extra") else ""
+            lines.append(f"  {i}. {it.get('name', '')}{extra}")
+        lines.append("想要最新明细跟我说「重新采集」，这次查询不扣积分～")
+        sender.send_text(chat_id, "\n".join(lines))
+        log.info("tenant=%s recent-products short-circuit dy_id=%s items=%d",
+                 tenant["tenant_key"], dy_id, len(items))
+        return True
 
     # ---------- ② 商品截图（spec 4.2） ----------
 

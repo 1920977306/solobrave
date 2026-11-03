@@ -253,6 +253,80 @@ def _bench_tag(t: dict, key: str) -> str:
     return f"（高于{higher:.0f}% {scope}{n}人）"
 
 
+def recent_product_items(t: dict) -> list:
+    """「近期带的品」清单（纯读档案，不调 LLM、不开浏览器）。
+
+    数据源（2026-11-03 豆鲨包「近期带的品」承接所依赖）：
+      ① ocr_raw_fields.product_details —— 采集端直读「带货分析」tab 商品明细表格
+         （新版页面点击行不弹详情抽屉，旧点击链路只抓到导航残渣）；
+      ② top_products 点击明细（残渣已滤：tab 名/单字符碎片不展示）。
+    返回 [{'name': str, 'extra': [str]}]，最多 5 条；没有数据返回 []。
+    """
+    if not isinstance(t, dict):
+        return []
+    ocr = {}
+    raw = t.get("ocr_raw_fields") or ""
+    for cand in (raw,):
+        try:
+            p = json.loads(cand) if cand else {}
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if isinstance(p, dict):
+            ocr = p
+            break
+        if isinstance(p, str):            # 双重 JSON 编码兜底
+            try:
+                p2 = json.loads(p)
+                if isinstance(p2, dict):
+                    ocr = p2
+                    break
+            except (json.JSONDecodeError, TypeError):
+                continue
+    items = []
+    pd = ocr.get('product_details') or t.get('product_details') or []
+    if isinstance(pd, str):
+        try:
+            pd = json.loads(pd)
+        except (json.JSONDecodeError, TypeError):
+            pd = []
+    if isinstance(pd, list):
+        for row in pd:
+            if isinstance(row, dict):
+                cells = [str(c).strip() for c in (row.get('cells') or [])
+                         if str(c).strip()]
+                # 商品名 = 第一个非表头、非日期的 cell；其余 cell 当销量/结算摘要
+                name = ''
+                for c in cells:
+                    if c in ('商品', '商品信息', '销量', '结算额', '到手价') \
+                            or _re.match(r'^\d{4}/\d{2}/\d{2}', c):
+                        continue
+                    name = c
+                    break
+                rest = [c for c in cells if c != name][:3]
+            else:
+                name, rest = str(row).strip(), []
+            if len(name) < 2 or '概览' in name:
+                continue
+            items.append({'name': name[:20], 'extra': [x[:12] for x in rest]})
+            if len(items) >= 5:
+                break
+    if not items:
+        try:
+            tops = json.loads(t.get("top_products") or "[]")
+            if isinstance(tops, str):      # 双重 JSON 编码兜底
+                tops = json.loads(tops)
+        except (json.JSONDecodeError, TypeError):
+            tops = []
+        for p in (tops if isinstance(tops, list) else []):
+            s = str(p).strip().replace('\n', ' ')
+            if len(s) < 4 or '概览' in s:
+                continue
+            items.append({'name': s[:60], 'extra': []})
+            if len(items) >= 3:
+                break
+    return items
+
+
 def _build_report(talent_id: str, douyin_id: str) -> str:
     t = _read_talent(talent_id, douyin_id)
     if not t:
@@ -633,6 +707,15 @@ def _build_report(talent_id: str, douyin_id: str) -> str:
             if shown >= 4:
                 break
 
+    # 近期带的品（带货分析 tab 商品明细直读行，2026-11-03 采集端补的；
+    #   达人问「我账号近期带的品」直接看这一节）
+    _items = recent_product_items(t)
+    if _items:
+        lines.append("近期带的品：")
+        for _i, _it in enumerate(_items, 1):
+            lines.append(f"  {_i}. {_it['name']}"
+                         + (f"｜{'｜'.join(_it['extra'])}" if _it['extra'] else ""))
+
     # 近期带货
     try:
         tops = json.loads(t.get("top_products") or "[]")
@@ -938,6 +1021,33 @@ def collect_product_by_url(url: str, timeout: int = 240) -> dict:
     return stats
 
 
+def _delisted_with_reference(old: dict) -> str:
+    """平台查无此品 + 库里的过期结论 → 合并口径的回答（fix/缓存实查口径 2026-11-03）。
+
+    必须向达人明示「这是旧分析」，不许伪装成新结论；同时给截图识别兜底
+    （截图链路不依赖平台商品接口，查无此品不影响识图）。
+    """
+    created = int(old.get("created_at") or 0)
+    age_days = max(0, (int(time.time()) - created) // 86400) if created else 0
+    date_str = time.strftime("%m-%d", time.localtime(created)) if created else "?"
+    old_md = (old.get("md") or "").strip()
+    old_label = _verdict_label(old_md) or (old.get("verdict") or "").strip()
+    lines = ["## 结论",
+             "⚪ 平台查无此品",
+             "平台现在查不到这个商品（可能已下架，或退出了当前推广池）",
+             "",
+             "## 说明",
+             f"- 这是你 {age_days} 天前（{date_str}）的分析，供参考："]
+    if old_label:
+        lines.append(f"- 当时结论：{old_label}")
+    _why = (old.get("why") or "").strip()
+    if _why:
+        lines.append(f"- 当时理由：{_why}")
+    lines.append("- 商品如果还在卖，可能是平台接口抖动，过会儿再发一次试试；")
+    lines.append("  也可以直接发商品截图给我，截图识别不受影响")
+    return "\n".join(lines)
+
+
 def execute_product_collect(task: dict) -> str:
     """商品链接分析：缓存命中直接用缓存；未命中调 buyin_worker /collect-product-url
     浏览器抓取 → 商品共享缓存 → 结合该达人画像出「能带/慎带/别带」结论。
@@ -975,7 +1085,22 @@ def execute_product_collect(task: dict) -> str:
                 stats = None
 
     if stats is None:
-        stats = collect_product_by_url(product_key, timeout=240)
+        try:
+            stats = collect_product_by_url(product_key, timeout=240)
+        except ProductNotFound:
+            # ★ fix/缓存实查口径合并（2026-11-03）：平台**实时查无此品**，但库里有过期结论
+            #   ⇒ 不当作纯失败（旧行为 = 退积分 + 「已下架」话术），而是合并回答：
+            #   「平台现在查不到 + N天前的旧结论供参考 + 截图识别兜底」。
+            #   旧口径下同一商品两个答案打架（缓存命中答🟢能带 vs 实查答已下架）。
+            #   ⚠️ 找不到旧结论时维持原样抛错（走 failure_text 的查无此品话术）。
+            _old = _db.verdict_cache_get_any(task.get("tenant_key", ""),
+                                             product_key)
+            if _old and (_old.get("md") or _old.get("verdict")):
+                _merged = _delisted_with_reference(_old)
+                return json.dumps({"title": _old.get("name") or "商品分析",
+                                   "stats": {}, "md": _merged},
+                                  ensure_ascii=False)
+            raise
         # 写商品共享缓存（全平台达人共用，TTL 7 天）
         try:
             _db.cache_put(product_key,
