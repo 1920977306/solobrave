@@ -173,3 +173,49 @@ def test_verdict_call_sites_use_the_llm_function():
         src = inspect.getsource(getattr(ex, fn_name))
         assert "_llm_product_verdict(" in src, f"{fn_name} 没在调 `_llm_product_verdict`"
         assert "_card_verdict(" not in src, f"{fn_name} 调错了函数（卡片取结论的那支）"
+
+
+# ─────────────────────────── 卡片摘要清洗（2026-11-03） ───────────────────────────
+# 实锤垃圾样本（识图卡片一句话摘要）：
+#   '"已售2万+" clearly.'        —— 模型跑飞的英文残渣，原样上了卡
+#   '- 券后价…'（截断）          —— 理由行带 markdown 列表符 + 截断在半截
+# 清洗红线：markdown 残渣/纯英文碎句绝不发给达人；正常中文理由句逐字不受影响。
+
+def test_clean_card_reason_strips_list_marker():
+    from daren_bot import executors as ex
+    assert ex._clean_card_reason("- 券后价¥29.9，佣金率20%，性价比不错") == \
+        "券后价¥29.9，佣金率20%，性价比不错"
+
+
+def test_clean_card_reason_drops_pure_english_garbage():
+    from daren_bot import executors as ex
+    assert ex._clean_card_reason('"已售2万+" clearly.') == ""
+    assert ex._clean_card_reason("Great product!") == ""
+
+
+def test_clean_card_reason_keeps_mixed_product_name():
+    """正常理由句里的英文品牌名/货号是合法内容，一个 CJK 就能保住。"""
+    from daren_bot import executors as ex
+    s = "Coolchap 拖鞋佣金 5% 偏低，慎带"
+    assert ex._clean_card_reason(s) == s
+
+
+def test_clean_card_reason_truncation_leaves_no_half_quote():
+    from daren_bot import executors as ex
+    long = "价格带非常合适且佣金率达标，" + "卖点突出、" * 20 + "（橱窗同品类已验证）"
+    out = ex._clean_card_reason(long)
+    assert len(out) <= 60
+    assert not out.endswith(("（", "(", "「", "“", "'", '"')), f"截断留了半拉引号：{out!r}"
+
+
+def test_card_summary_garbage_falls_back():
+    """整份报告的理由行是垃圾时，卡片摘要应为空（调用方回退默认话术）。"""
+    from daren_bot import executors as ex
+    bad = "## 结论\n🟢 能带\n" + '"已售2万+" clearly.'
+    assert ex._card_summary(bad) == ""
+
+
+def test_card_summary_real_report_still_works():
+    from daren_bot import executors as ex
+    summary = ex._card_summary(REAL_REPORT)
+    assert "价格偏高" in summary

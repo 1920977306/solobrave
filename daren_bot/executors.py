@@ -2584,6 +2584,32 @@ def _card_verdict(report: str):
     return (f"{emoji} {v}" if v else ""), tpl
 
 
+def _clean_card_reason(text: str) -> str:
+    """卡片一句话摘要的清洗（2026-11-03 实锤垃圾样本：'"已售2万+" clearly.'、'- 券后价…'截断）。
+
+    ① 剥行首列表符/序号/引号等 markdown 残渣；
+    ② 模型跑飞残渣的典型形态：截图标语 + 英文尾巴（实测：'"已售2万+" clearly.'）。
+       CJK 占比 <30% 且含 ASCII 字母 → 判为残渣，丢弃（卡片回退默认话术，
+       绝不能把英文碎句发给达人）；正常中文理由句占比远高于此，不受影响；
+    ③ 截断后不留半拉引号/括号。
+    """
+    s = (text or "").strip()
+    s = _re.sub(r'^[-*·•–—~]+[\s]*', '', s)
+    s = _re.sub(r'^\(?\d{1,2}[.、)]\s*', '', s)
+    s = s.strip('\'"“”‘’「」『』()（）[]【】<> ')
+    if not s:
+        return ""
+    # ② CJK 占比 <30% 且含 ASCII 字母 = 跑飞残渣（引号标语+英文尾巴）。
+    _cjk = len(_re.findall(r'[\u4e00-\u9fff]', s))
+    _nonspace = len(_re.sub(r'\s', '', s))
+    if _nonspace and _cjk / _nonspace < 0.3 and _re.search(r'[A-Za-z]', s):
+        return ""
+    if len(s) > 60:
+        s = s[:60]
+        s = _re.sub(r'[\'"“”‘’「『(（\[][^\'"“”‘’」』)）\]]*$', '', s)
+    return s.strip('，,。；;：:、 ')
+
+
 def _card_summary(report: str) -> str:
     """结论下面那一句话（价格偏高且佣金率仅5% 之类）。
 
@@ -2591,8 +2617,9 @@ def _card_summary(report: str) -> str:
       旧实现按 `"▎结论"` 切分 —— 但真实报告的标题是 `## 结论`，
       `▎结论` 这个串全仓只出现在它自己的 docstring 里
       ⇒ 摘要**恒为空**，卡片只能显示「（点上方长图看完整分析）」。
+    ★ 上卡前过 `_clean_card_reason` —— 理由行的 markdown 残渣/英文跑飞句绝不发给达人。
     """
-    return _verdict_reason(report)[:60]
+    return _clean_card_reason(_verdict_reason(report))
 
 
 def _send_product_card(sender, chat_id: str, title: str, report: str,
