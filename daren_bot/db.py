@@ -530,6 +530,13 @@ def init_db():
         if "stats_json" not in cols:
             conn.execute("ALTER TABLE bot_product_verdicts "
                          "ADD COLUMN stats_json TEXT DEFAULT ''")
+        # 轻量迁移：结论失效标记（2026-11-03 佣金口径变更）。
+        #   口径变更后旧结论不该再被 7 天 TTL 回放，但行是审计档案不能删、
+        #   created_at 也不能动（动了就毁了「哪天判的」）⇒ 加 invalidated_at：
+        #   0=正常；>0=被某次口径变更失效的时刻（读路径视同过期，行保留）。
+        if "invalidated_at" not in cols:
+            conn.execute("ALTER TABLE bot_product_verdicts "
+                         "ADD COLUMN invalidated_at INTEGER NOT NULL DEFAULT 0")
         # 轻量迁移：会话对象簿补「达人认错排除」标记（2026-11-02）。
         #   0=正常（存量行为零变化）；1=达人纠正过「这不是TA」⇒ 注入时过滤，
         #   但行保留做审计/负向注记。重新分析同一对象会复位成 0（新结论为准）。
@@ -1421,13 +1428,17 @@ def interaction_counts(tenant_key: str) -> dict:
 
 
 def verdict_cache_get(tenant_key: str, product_key: str):
-    """同租户同商品的结论缓存（7 天内直接复用，不重复调 LLM）。"""
+    """同租户同商品的结论缓存（7 天内直接复用，不重复调 LLM）。
+
+    ★ 失效标记（2026-11-03）：invalidated_at>0 的行视同过期 —— 口径变更后
+      旧结论不再回放，但行保留做审计（created_at 原样，「哪天判的」不毁）。
+    """
     if not product_key:
         return None
     with db_ctx() as conn:
         r = conn.execute(
             """SELECT * FROM bot_product_verdicts
-               WHERE tenant_key=? AND product_key=?
+               WHERE tenant_key=? AND product_key=? AND invalidated_at=0
                ORDER BY created_at DESC LIMIT 1""",
             (tenant_key, product_key)).fetchone()
         if not r:
@@ -1436,6 +1447,21 @@ def verdict_cache_get(tenant_key: str, product_key: str):
         if now_ts() - int(d["created_at"]) > VERDICT_CACHE_TTL:
             return None
         return d
+
+
+def verdict_cache_invalidate_active() -> int:
+    """把「还在 TTL 内会被回放」的结论行全部标记失效（口径变更后重算用）。
+
+    只标记 created_at 在 7 天 TTL 内的活跃行；历史行和已标记行不动。
+    返回标记的行数。调用方负责向运营汇报这次失效的规模。
+    """
+    cutoff = now_ts() - VERDICT_CACHE_TTL
+    with db_ctx() as conn:
+        cur = conn.execute(
+            "UPDATE bot_product_verdicts SET invalidated_at=? "
+            "WHERE created_at>=? AND invalidated_at=0",
+            (now_ts(), cutoff))
+        return cur.rowcount or 0
 
 
 def verdict_cache_get_any(tenant_key: str, product_key: str):

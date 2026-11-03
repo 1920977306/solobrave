@@ -20,6 +20,8 @@ import json
 import os
 import sys
 import time
+import importlib
+import tempfile
 
 import pytest
 
@@ -194,6 +196,66 @@ class TestExecuteProductCollectDelisted:
                             lambda _tk, _pk: None)
         with pytest.raises(ex.ProductNotFound):
             ex.execute_product_collect(dict(self.TASK))
+
+
+# ---------------------------------------------------------------- 结论失效标记
+
+class TestVerdictInvalidate:
+    """口径变更后旧结论不失效会被 7 天 TTL 回放（2026-11-03 佣金口径实拍）。
+
+    失效语义：读路径视同过期（达人再问会重算），但行保留、created_at 不动
+    （审计完好）；重算后新行正常命中。
+    """
+
+    @pytest.fixture()
+    def ddb(self, monkeypatch):
+        tmp = tempfile.mkdtemp(prefix='daren_invalidate_')
+        monkeypatch.setenv('DAREN_DB', os.path.join(tmp, 'daren_bot.db'))
+        import daren_bot.config as cfg
+        import daren_bot.db as ddb
+        importlib.reload(cfg)
+        importlib.reload(ddb)
+        ddb.init_db()
+        return ddb
+
+    def test_active_verdict_replayed_then_invalidated(self, ddb):
+        ddb.verdict_cache_put("tk1", "p1", name="品A", verdict="🟢 能带",
+                              md="## 结论\n🟢 能带")
+        assert ddb.verdict_cache_get("tk1", "p1") is not None, "TTL 内应命中"
+        n = ddb.verdict_cache_invalidate_active()
+        assert n == 1
+        assert ddb.verdict_cache_get("tk1", "p1") is None, "失效后视同过期"
+        # 行还在、created_at 没动（审计完好）
+        row = ddb.verdict_cache_get_any("tk1", "p1")
+        assert row is not None and row["verdict"] == "🟢 能带"
+        assert row["invalidated_at"] > 0
+        assert row["created_at"] <= int(time.time())
+
+    def test_recompute_replaces_and_hits_again(self, ddb):
+        ddb.verdict_cache_put("tk1", "p1", verdict="🟡 慎带")
+        ddb.verdict_cache_invalidate_active()
+        ddb.verdict_cache_put("tk1", "p1", verdict="🟢 能带")
+        got = ddb.verdict_cache_get("tk1", "p1")
+        assert got is not None and got["verdict"] == "🟢 能带"
+
+    def test_historical_rows_untouched(self, ddb):
+        """TTL 之外的历史行不被标记（它们本来就不会被回放）。"""
+        ddb.verdict_cache_put("tk1", "old", verdict="🟢 能带")
+        # 把行改成 10 天前
+        with ddb.db_ctx() as conn:
+            conn.execute("UPDATE bot_product_verdicts SET created_at=? "
+                         "WHERE product_key='old'",
+                         (int(time.time()) - 10 * 86400,))
+        assert ddb.verdict_cache_invalidate_active() == 0
+        with ddb.db_ctx() as conn:
+            r = conn.execute("SELECT invalidated_at FROM bot_product_verdicts "
+                             "WHERE product_key='old'").fetchone()
+        assert r[0] == 0
+
+    def test_idempotent(self, ddb):
+        ddb.verdict_cache_put("tk1", "p1", verdict="🟢 能带")
+        assert ddb.verdict_cache_invalidate_active() == 1
+        assert ddb.verdict_cache_invalidate_active() == 0, "重复调用不重复标记"
 
 
 # ---------------------------------------------------------------- 结论口径
