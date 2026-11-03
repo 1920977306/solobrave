@@ -196,7 +196,60 @@ class TestExecuteProductCollectDelisted:
             ex.execute_product_collect(dict(self.TASK))
 
 
+# ---------------------------------------------------------------- 结论口径
+
+class TestVerdictPromptCommissionPolicy:
+    """佣金不是判定依据（2026-11-03 老大拍板：专属佣金只有达人自己知道）。
+
+    锁定口径：🟢/🟡/🔴 由类目 + 价格两轴判定，佣金不得作为判定条件出现；
+    专属佣金重算话术必须固定在行动建议里。
+    """
+
+    PROMPT = ex.PRODUCT_VERDICT_PROMPT
+    # 「判定标准」章节（到「## 匹配分析」之前）
+    CRITERIA = PROMPT.split("## 判定标准", 1)[1].split("## 匹配分析", 1)[0]
+
+    def test_commission_not_a_verdict_condition(self):
+        assert "佣金率 ≥ 8%" not in self.CRITERIA
+        assert "佣金率 < 5%" not in self.CRITERIA
+        assert "佣金" not in self.CRITERIA.replace(
+            "不要因为佣金因素降级", ""), \
+            "判定标准章节里不应再出现佣金作为条件"
+
+    def test_green_bar_has_only_category_and_price(self):
+        assert "①商品类目" in self.CRITERIA and "②价格" in self.CRITERIA
+        assert "**两条同时成立就是能带**" in self.CRITERIA
+
+    def test_exclusive_commission_clause_locked(self):
+        assert "佣金不是判定依据" in self.PROMPT
+        assert "不参与" in self.PROMPT
+        assert "我按你的专属佣金重新算一版" in self.PROMPT
+
+
+class TestExclusiveCommissionFallback:
+    """专属佣金重算话术代码层兜底：LLM 漏写时由 _llm_product_verdict 追加。"""
+
+    def _run(self, monkeypatch, llm_md):
+        monkeypatch.setattr(ex, "_qa_llm", lambda *a, **kw: llm_md)
+        monkeypatch.setattr(ex, "_talent_context", lambda _tk: "")
+        out = ex._llm_product_verdict("tk1", {"name": "测试品", "price": "¥29.9"})
+        return out
+
+    def test_appended_when_missing(self, monkeypatch):
+        out = self._run(monkeypatch, "## 结论\n🟢 能带\n类目一致\n\n## 行动建议\n- 讲卖点")
+        assert "专属佣金" in out
+        assert "重新算一版" in out
+
+    def test_not_duplicated_when_present(self, monkeypatch):
+        md = ("## 结论\n🟢 能带\n\n## 行动建议\n"
+              "- 这个品你后台如果有商家给的专属佣金，把百分比数字发我，"
+              "我按你的专属佣金重新算一版")
+        out = self._run(monkeypatch, md)
+        assert out.count("重新算一版") == 1
+
+
 # ---------------------------------------------------------------- 短链分流
+
 
 class TestShortLinkRouting:
     """v.douyin.com 短链商品/视频分流（fix/短链商品误判视频 2026-11-03）。
