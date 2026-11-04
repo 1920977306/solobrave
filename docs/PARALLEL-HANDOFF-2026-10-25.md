@@ -10324,3 +10324,33 @@ D1b/D2a/D3a 拍板不变。
 验证：正则正负对照 8/8（「我想做合伙人」命中、「给我推荐几个合伙人」不误伤）；
 全量 1398 passed / 10 skipped；重启 bot+server 后生产冒烟：控制台租户卡 3 租户
 字段正常、层级状态全默认（agent_of='' / agent_enabled=0）。零分叉。
+
+## 90. 运维手册补两条：口径变更失效结论 + 商品链路探针（A 边 2026-11-04）
+
+### 90.1 改了结论口径后，失效活跃结论（一句话的事）
+
+`PRODUCT_VERDICT_PROMPT` 判定口径变更（佣金权重/🟢🟡🔴 标准等）后，
+7 天 TTL 内旧口径结论仍会被回放给达人。正规动作：
+
+```bash
+python3 daren_bot/tools/invalidate_verdicts.py          # 干跑：按租户预览规模
+python3 daren_bot/tools/invalidate_verdicts.py --apply  # 执行：备份→标记→验证
+```
+
+规矩内置：先 sqlite backup API 备份；只标 `invalidated_at`（不删行、
+不动 `created_at`，审计完好）；只碰 TTL 内活跃行；幂等。
+**2026-11-03 佣金口径已执行过一次**（18 条：mumu 14 / daren_test2 4，
+备份 `daren_bot.db.bak-20261103-185842-before-verdict-invalidate`）。
+
+### 90.2 商品链路探针（平台改版/登录态失效的哨兵）
+
+「达人发商品链接 → 出选品结论」链路失效时**不报错不炸日志**，探针每天真打一遍：
+
+```bash
+python3 daren_bot/tools/product_link_probe.py        # 自动挑达人真实发过的链接
+python3 daren_bot/tools/product_link_probe.py <url>   # 指定链接
+```
+
+exit 0 = 全通（抽 ID → 达人端采集 → 品名/到手价齐全）；
+exit 1 + 死因 = 挂在哪一步。已实测通过（10.0s，「芮杏 连裤袜」¥39.9）。
+建议接进每日巡检 cron/launchd。
