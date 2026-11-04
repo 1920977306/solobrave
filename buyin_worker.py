@@ -1835,21 +1835,42 @@ def _capture_one_video(profile, vid, dom_index, item, talent_name):
     clicked = False
     sels = (f'[data-tearank="{dom_index}"] img',
             f'[data-tearank="{dom_index}"] .auxo-table-cell >> nth=0')
-    for sel in sels:
-        try:
-            el = profile.locator(sel).first
-            if el.count() > 0 and el.is_visible():
-                if _robust_click(el, f'video-row-{dom_index}'):
-                    clicked = True
-                    break
-        except Exception:
-            continue
+    # 新卡片布局下 Playwright 常规点击总卡在 actionability 检查（~8s 超时才降级
+    # force，每次白等）⇒ 先走 JS click（React 事件委托，立即触发），不行再回退原链。
+    try:
+        clicked = bool(profile.evaluate("""(sel) => {
+          const el = document.querySelector(sel);
+          if (!el) return false;
+          el.scrollIntoView({block: 'center'});
+          el.click();
+          return true;
+        }""", f'[data-tearank="{dom_index}"] img'))
+    except Exception:
+        clicked = False
+    if not clicked:
+        for sel in sels:
+            try:
+                el = profile.locator(sel).first
+                if el.count() > 0 and el.is_visible():
+                    if _robust_click(el, f'video-row-{dom_index}'):
+                        clicked = True
+                        break
+            except Exception:
+                continue
     if not clicked:
         raise RuntimeError('视频行点击失败')
 
+    # 等抽屉/播放层出现（百应「历史内容」卡点击封面后抽屉有加载过程，实测偶发 >10s）
+    try:
+        profile.wait_for_selector(
+            '[role="dialog"] video, [role="dialog"], video',
+            timeout=10000, state='attached')
+    except Exception:
+        pass
+
     src = ''
-    for _ in range(2):
-        _human_sleep(6, 9)
+    for attempt in range(4):
+        _human_sleep(5, 7)
         try:
             srcs = profile.evaluate("""() => Array.from(document.querySelectorAll('video'))
                 .map(v => v.src || (v.querySelector('source')||{}).src || '').filter(Boolean)""")
@@ -1860,6 +1881,15 @@ def _capture_one_video(profile, vid, dom_index, item, talent_name):
         src = (srcs[0] if srcs else (fresh[-1] if fresh else ''))
         if src:
             break
+        if attempt < 3:
+            # 有 <video> 但没源 = 懒加载未触发：补点一下播放区（readyState=0 才点，防误暂停）
+            try:
+                profile.evaluate("""() => {
+                  const v = document.querySelector('video');
+                  if (v && v.readyState === 0) { v.click(); }
+                }""")
+            except Exception:
+                pass
     if not src:
         # 现场留存：点击后拿不到视频源 = 平台播放层改版（抽屉结构/懒加载/MSE blob），
         # 不留 DOM 只能瞎猜（2026-11-04 百应「历史内容」卡改版实锤过一次）
