@@ -10546,3 +10546,16 @@ H5 区块首行正确渲染。**小修**：product_name 里的 markdown `**` 在
   `sys.modules["daren_bot.crypto_util"]` 注入替身；`_post` helper 容忍短连接 ConnectionResetError。
 - 全量回归：**1563 passed**（上轮 1562 + 本轮钉死 1 条）+ secret_scan exit 0。
 - 已推 main+dev 双分支，零分叉（`git rev-list --count origin/dev..origin/main` = 0）。
+
+## §129 「创建飞书助理」入口挂进主系统控制台（A 边，2026-11-04 23:4x，commit `246e3ce`）
+
+- feishu-console.html（主系统 8443 飞书助理控制台）顶部新增创建区块：
+  表单（助理标识/角色/APP ID/Secret/绑定抖音号/初始积分）+ 飞书后台 5 步清单；
+  创建成功自动刷新租户总览。本体仍是 §128 的 daren_bot `/admin/api/tenant-create`。
+- 服务端 `POST /api/feishu/console/tenant-create`：admin/tenant_admin 鉴权 +
+  **白名单字段透传**（tenant_key/app_id/app_secret/role/douyin_id/credits），
+  app_secret 只透传、不落地、不进日志。
+- 守卫 `TestTenantCreateProxy` 3 条（403 不碰代理 / 缺必填 400 / 非白名单字段丢弃）。
+- 线上实测（admin JWT 走 8080 代理）：创建 credits=300 → 200 balance=300 ✅、
+  重复 App ID 400 拦截 ✅、缺必填 400 ✅（测试租户 daren_zs 已清理）。
+- 回归 1566 passed；已推 main+dev 零分叉。
