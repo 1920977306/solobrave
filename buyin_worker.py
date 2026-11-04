@@ -1487,6 +1487,77 @@ def _parse_cn_num(s):
     return int(n)
 
 
+def _parse_cn_amount(s):
+    """金额文案 → 元（float）：'100万' → 1e6；'5000' → 5000；解析不出 → 0。"""
+    s = str(s or '').replace(',', '').strip()
+    m = re.match(r'^(\d+(?:\.\d+)?)(万|亿)?', s)
+    if not m:
+        return 0.0
+    n = float(m.group(1))
+    if m.group(2) == '万':
+        n *= 10000
+    elif m.group(2) == '亿':
+        n *= 100000000
+    return n
+
+
+def _parse_gmv_text(s):
+    """结算额文案 → (件数, 金额中位数元)。
+    '192件；¥100万-¥250万' → (192, 1750000.0)；'-' / '' → (0, 0)。"""
+    s = str(s or '').strip()
+    if not s or s == '-':
+        return 0, 0.0
+    pieces = 0
+    m = re.search(r'(\d+)\s*件', s)
+    if m:
+        pieces = int(m.group(1))
+    amt = 0.0
+    rng = re.search(r'¥\s*([\d.,]+(?:万|亿)?)\s*-\s*¥?\s*([\d.,]+(?:万|亿)?)', s)
+    if rng:
+        lo = _parse_cn_amount(rng.group(1))
+        hi = _parse_cn_amount(rng.group(2))
+        amt = (lo + hi) / 2
+    return pieces, amt
+
+
+# 观看 50% + 点赞 15% + 评论 15% + 结算 20%（金额优先、件数次之）。
+# 2026-11-04 实测：洁洁 6 条视频观看人数全挤在 12–18，单看观看 ≈ 随机选，
+# 必须多指标加权才挑得出真正表现好的。
+TEARDOWN_RANK_WEIGHTS = {'plays': 0.5, 'likes': 0.15, 'comments': 0.15, 'gmv': 0.2}
+
+
+def _minmax(values):
+    """池内 min-max 归一到 [0,1]；全相同（含全 0）⇒ 全 0（零区分度，如实）。"""
+    if not values:
+        return []
+    lo, hi = min(values), max(values)
+    if hi <= lo:
+        return [0.0] * len(values)
+    return [(v - lo) / (hi - lo) for v in values]
+
+
+def _teardown_rank_scores(rows):
+    """多指标加权排序分（纯函数）：返回与 rows 等长的 float 列表。
+    维度在池内无区分度（全相同/全空）⇒ 该维度对所有人都是 0 ⇒ 权重自然失效，
+    不造假区分。"""
+    if not rows:
+        return []
+    plays = [_parse_cn_num(r.get('plays')) for r in rows]
+    likes = [_parse_cn_num(r.get('likes')) for r in rows]
+    comments = [_parse_cn_num(r.get('comments')) for r in rows]
+    gmvs = []
+    for r in rows:
+        pieces, amt = _parse_gmv_text(r.get('gmv'))
+        gmvs.append(amt if amt > 0 else float(pieces))
+    w = TEARDOWN_RANK_WEIGHTS
+    np_ = _minmax([float(v) for v in plays])
+    nl = _minmax([float(v) for v in likes])
+    nc = _minmax([float(v) for v in comments])
+    ng = _minmax(gmvs)
+    return [w['plays'] * np_[i] + w['likes'] * nl[i] + w['comments'] * nc[i]
+            + w['gmv'] * ng[i] for i in range(len(rows))]
+
+
 def _extract_video_rows(page):
     """视频详情 tab（auxo-table 布局，列可配：用表头映射取列）→ [视频项]。
     视频行特征：首列含发布日期 \\d{4}/\\d{2}/\\d{2}。"""
@@ -1977,11 +2048,18 @@ def teardown_pipeline(job_id, talent_id, name, douyin_id, top_n=3):
         if not rows:
             _dump_page(profile, 'no_video_rows', job_id)
             raise RuntimeError('视频详情 tab 未解析到视频列表（页面结构可能变化，现场已留存）')
+        scores = _teardown_rank_scores(rows)
+        order = sorted(range(len(rows)), key=lambda i: (-scores[i], i))
+        # 分数随行一起重排，保持行↔分对应（重排后 rows[i] 的分数是 sorted_scores[i]）
+        rows = [rows[i] for i in order]
+        sorted_scores = [scores[i] for i in order]
         for r in rows:
             r['plays_n'] = _parse_cn_num(r.get('plays'))
-        rows.sort(key=lambda r: -r['plays_n'])
         picked = rows[:max(1, min(top_n, len(rows)))]
-        log(f'[Teardown] {job_id} 解析到 {len(rows)} 条视频，取 TOP{len(picked)}')
+        log(f'[Teardown] {job_id} 解析到 {len(rows)} 条视频（多指标加权排序），'
+            f'取 TOP{len(picked)}: '
+            + ' | '.join(f"{r.get('title', '')[:12]}(分{sorted_scores[i]:.2f}/播{r['plays_n']})"
+                         for i, r in enumerate(picked)))
 
         _vdb_update('video_jobs', job_id, stage=f'逐条处理 TOP{len(picked)} 视频')
         video_ids = []
