@@ -10457,3 +10457,47 @@ H5 区块首行正确渲染。**小修**：product_name 里的 markdown `**` 在
 （多维表格 spec 确认无商品ID列，且该表已废弃；§8.2 n-gram 强证据那套可复用）；
 ③ 二期（批量爆款入库）继续缓——卡点不是反爬，是筛选条件
 （同品类/同粉丝量级/同内容形态/同客单价带）没想清楚，等一期客户用出来再设计。
+
+### 91.4 采集链路「视频/直播明细」回退修复 + 明细落库冻结修复（2026-11-04 19:2x–20:2x，A 边）
+
+**起因**：老大给后台让 A 边自测。端到端模拟达人发抖音号（daren_test2→hlb725，扣 100 分）
+任务 done、报告推送正常，但 worker.log 实锤 `tab「视频详情」/「直播详情」点击失败`
+——百应改版把这两个 tab 取消了，报告缺「近期明细」video/live 两节（优雅降级不炸，数据缺失）。
+
+**修法（三层，全部实测）**：
+
+1. **采集回退**（buyin_worker.py）：
+   - 新增 `_open_history_subtab(profile, label)`：以「只看带货视频」勾选项为锚定位
+     「历史内容」卡根，点卡内文本恰为 label 的叶子元素（React 事件委托，JS click）。
+   - 明细循环：`_click_tab` 失败 ⇒ 先 `_click_tab('概览')` **回主视图**（★关键：采集流程
+     此前在粉丝/带货分析等 tab 上，「历史内容」卡只在主视图渲染——19:25 首测卡不在 DOM
+     就是因为没回概览），`_open_video_history` 定位卡（加滚底重试 3 轮治懒渲染），
+     直播再 `_open_history_subtab('直播')`，统一走 `_extract_video_cards`（行结构
+     cells=[]+title 平铺，合并逻辑 key 有 title 兜底天然兼容）。
+   - `_open_video_history` 加滚底重试（scrollTo(bottom) + 重查 3 轮）。
+
+2. **明细落库冻结修复**（实锤的第二层 bug）：第一轮采集后 `ocr_raw_fields` 非空，
+   `PUT /api/talents` merge「只补空严禁覆盖」⇒ **第二轮起每轮采集的 video/live 明细
+   全被丢**（归档 archives/daren_hlb725.json 有、库里没有 = 声明端≠使用端又一例）。
+   - solobrave-server.py `_TALENT_REFRESHABLE_DERIVED` 加 `ocr_raw_fields`/`top_products`
+     （语义=最近一次采集的原始留档，与 notes 同族；suspect_cache 护栏按白名单过滤，同样覆盖）。
+   - buyin_worker PUT `__refresh_fields` 同步声明这两列。
+
+3. **消费端兼容**（daren_bot/executors.py `_talent_context`）：「近期视频」只认 auxo-table
+   `cells` 行 ⇒ 新卡片行（title+plays/likes/comments/gmv）静默读不出；补平铺字段分支，
+   gmv `-`（无数据）不进文本。
+
+**实测证据**（第三轮端到端，daren_test2→hlb725，20:06–20:12）：
+- worker.log：`卡可见=True` → `视频详情 明细抓取 6 行` → `子切换「直播」=True` → `直播详情 明细抓取 6 行`
+- 库验：`talents.ocr_raw_fields` 含 video_details 6 条 + live_details 6 条（updated_at=20:11 本轮）
+- 飞书推送：bot_chat_messages 最新 out 消息 = 达人报告正文 + 评估「潜力型」
+- 指标值抽查（防假值）：dump 里 6 卡观看人数 = 12/12/18/13/18/15、点赞含 1 个非 0
+  ⇒ 提取忠实于平台真值（该达人近期橱窗视频本就 10-20 观看，非 bug）。
+
+**测试**：1550 绿（+6）：
+- tests/test_talent_merge_refresh.py：白名单含原始留档两列 + 声明才刷新/空值不覆盖
+- tests/test_talent_context_details.py：auxo-table 行 / 历史卡行（含 gmv '-' 过滤）/ 空行跳过
+
+**过程记录**：19:25 首测回退失败（卡在别的 tab 上不在 DOM）→ 加回概览步骤后
+19:38 二轮明细 6 行×2 但库中仍空 → 查出 PUT 只补空 → 加白名单后 20:06 三轮落库闭环。
+**daren_test2 余额**：163（今天自测共扣 30+100+100+100+30 周报）。

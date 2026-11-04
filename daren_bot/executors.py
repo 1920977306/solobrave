@@ -2194,6 +2194,18 @@ def _talent_context(tk: str) -> str:
                         first = cells[0].splitlines()[0][:20]
                         stat = ' '.join(c.replace('\n', ' ')[:16] for c in cells[1:3])
                         tops.append(f"{first}（{stat}）")
+                    else:
+                        # 百应 2026-11 改版「历史内容」卡行：cells 为空、字段平铺
+                        title = (it.get('title') or '').splitlines()[0][:20]
+                        if not title:
+                            continue
+                        stats = []
+                        for lab, key in (('观看', 'plays'), ('点赞', 'likes'),
+                                         ('评论', 'comments'), ('结算', 'gmv')):
+                            v = str(it.get(key) or '').strip()
+                            if v and v != '-':
+                                stats.append(f'{lab}{v}')
+                        tops.append(f"{title}（{' '.join(stats[:2])}）" if stats else title)
                 if tops:
                     parts.append('近期视频: ' + '；'.join(tops))
         return '。'.join(parts)

@@ -1633,18 +1633,53 @@ def _open_video_history(profile):
     （概览页可见，含 视频/直播/图文 子切换 + 只看带货视频 勾选 + 卡片列表）。
     无需点任何 tab：定位容器 → 滚进视口触发渲染 → 验证可见。返回是否成功。"""
     try:
-        ok = profile.evaluate("""() => {
-          const wrap = document.querySelector(
-            '[class*="index-module__history-content___"]');
-          if (!wrap) return false;
-          wrap.scrollIntoView({block: 'center'});
-          const st = getComputedStyle(wrap);
-          return st.display !== 'none' && st.visibility !== 'hidden';
-        }""")
+        ok = False
+        for _ in range(3):
+            ok = profile.evaluate("""() => {
+              const wrap = document.querySelector(
+                '[class*="index-module__history-content___"]');
+              if (!wrap) return false;
+              wrap.scrollIntoView({block: 'center'});
+              const st = getComputedStyle(wrap);
+              return st.display !== 'none' && st.visibility !== 'hidden';
+            }""")
+            if ok:
+                break
+            # 卡懒渲染/不在 DOM：滚到底触发加载后再试
+            profile.evaluate("() => window.scrollTo(0, document.body.scrollHeight)")
+            _human_sleep(1.5, 2.5)
         log(f'  [Teardown] 新版「历史内容」卡可见={ok}')
         return bool(ok)
     except Exception as e:
         log(f'  [Teardown] 打开新版视频历史失败: {e}')
+        return False
+
+
+def _open_history_subtab(profile, label):
+    """百应 2026-11 改版：「历史内容」卡内的 视频/直播/图文 子切换。
+    以「只看带货视频」勾选项为锚定位卡根，再点卡内文本恰为 label 的叶子元素。
+    用于采集链路拿「直播」明细（视频子tab默认激活，可直接抽）。"""
+    try:
+        ok = profile.evaluate("""(args) => {
+          const label = args.label;
+          const anchor = Array.from(document.querySelectorAll('*')).find(
+            el => el.children.length === 0 &&
+                  (el.textContent || '').trim() === '只看带货视频');
+          if (!anchor) return false;
+          const card = anchor.closest('[class*="live-board-v2"]')
+                    || anchor.closest('[class*="content-box"]');
+          if (!card) return false;
+          const tabs = Array.from(card.querySelectorAll('*')).filter(
+            el => el.children.length === 0 &&
+                  (el.textContent || '').trim() === label);
+          if (!tabs.length) return false;
+          tabs[0].click();
+          return true;
+        }""", {'label': label})
+        log(f'  [Collect] 历史内容子切换「{label}」={bool(ok)}')
+        return bool(ok)
+    except Exception as e:
+        log(f'  [Collect] 打开历史内容子切换「{label}」失败: {e}')
         return False
 
 
@@ -2339,18 +2374,37 @@ def collect_pipeline(collect_id, name, douyin_id):
         for tab_key, out_key, marker in (('视频详情', 'video_details', '视频信息'),
                                          ('直播详情', 'live_details', '直播')):
             try:
-                if not _click_tab(profile, tab_key):
-                    continue
-                _human_sleep(2.0, 3.0)
-                rows = _extract_tab_table_rows(profile, marker)
-                for _ in range(2):
-                    profile.mouse.wheel(0, 1200)
-                    _human_sleep(1.0, 1.8)
-                if tab_key == '视频详情':
-                    tabs_dom['视频详情_滚动后'] = _dom_snapshot(profile)
-                rows2 = _extract_tab_table_rows(profile, marker)
+                if _click_tab(profile, tab_key):
+                    _human_sleep(2.0, 3.0)
+                    rows = _extract_tab_table_rows(profile, marker)
+                    for _ in range(2):
+                        profile.mouse.wheel(0, 1200)
+                        _human_sleep(1.0, 1.8)
+                    if tab_key == '视频详情':
+                        tabs_dom['视频详情_滚动后'] = _dom_snapshot(profile)
+                    rows2 = _extract_tab_table_rows(profile, marker)
+                    all_rows = rows + rows2
+                else:
+                    # 百应 2026-11 改版：视频/直播详情 tab 取消，回退「历史内容」卡。
+                    # 采集流程此前在别的 tab（粉丝/带货分析…），卡只在主视图（概览）
+                    # 下渲染 ⇒ 先回主视图再定位卡（2026-11-04 实测：不回概览卡不在 DOM）。
+                    try:
+                        _click_tab(profile, '概览')
+                        _human_sleep(1.5, 2.5)
+                    except Exception:
+                        pass
+                    if not _open_video_history(profile):
+                        continue
+                    if tab_key == '直播详情':
+                        _human_sleep(1.0, 2.0)
+                        if not _open_history_subtab(profile, '直播'):
+                            continue
+                    _human_sleep(2.0, 3.0)
+                    all_rows = _extract_video_cards(profile)
+                    if not all_rows:
+                        continue
                 seen, merged_rows = set(), []
-                for r in rows + rows2:
+                for r in all_rows:
                     key = ((r.get('cells') or [''])[0]) or r.get('title') or ''
                     if key and key not in seen:
                         seen.add(key)
@@ -3952,7 +4006,10 @@ def _run_collect_impl(row):
                 # ★ fix/suspect-cache-guard: followers 走了回填兜底 = 疑似缓存页坏采集，
                 #   打标让服务端跳过派生文本（ai_analysis/notes…）刷新，保留旧文本。
                 _put_body = {**fields, '__refresh_fields': ['notes', 'ai_summary', 'ai_analysis',
-                                                            'ai_reason', 'ai_rating', 'ai_tags']}
+                                                            'ai_reason', 'ai_rating', 'ai_tags',
+                                                            # 原始留档同 notes 语义 = 最近一次采集，
+                                                            # 不声明则第二轮起明细永远刷不进库
+                                                            'ocr_raw_fields', 'top_products']}
                 if suspect_cache:
                     _put_body['__suspect_cache'] = True
                 api('PUT', f'/api/talents/{talent_id}', _put_body,

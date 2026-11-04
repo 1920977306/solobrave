@@ -27106,6 +27106,11 @@ _TALENT_REFRESHABLE_DERIVED = frozenset({
     'ai_reason',      # 评估理由
     'ai_rating',      # AI 评级
     'ai_tags',        # AI 标签
+    # ★ fix/ocr-raw-refresh (2026-11-04 实锤)：ocr_raw_fields/top_products 语义 =
+    #   「最近一次采集的原始留档」，与 notes 同族；不刷新则第二次采集永远写不进去
+    #   （第一轮落库后非空，PUT「只补空」把后续每轮的 video/live 明细全丢了）。
+    #   suspect_cache 护栏同样覆盖这两列（护栏按本白名单过滤）。
+    'ocr_raw_fields', 'top_products',
 })
 
 

@@ -15,6 +15,7 @@
   - 新值为空 → 仍不覆盖（不拿空值冲掉好数据）
 """
 import importlib.util
+import json
 import os
 import sys
 
@@ -96,6 +97,29 @@ class TestExplicitRefresh:
     def test_whitelist_contains_the_summary_fields(self):
         for need in ("notes", "ai_summary", "ai_analysis"):
             assert need in WHITELIST, f"{need} 是派生字段，应该允许刷新"
+
+    def test_whitelist_contains_raw_archives(self):
+        """ocr_raw_fields / top_products = 「最近一次采集的原始留档」（fix/ocr-raw-refresh
+        2026-11-04 实锤：不刷新则第二轮采集的 video/live 明细永远写不进库）。
+        suspect_cache 护栏按白名单过滤 ⇒ 坏采集时这两列同样被保护。"""
+        for need in ("ocr_raw_fields", "top_products"):
+            assert need in WHITELIST, f"{need} 是派生留档，应该允许刷新"
+
+    def test_raw_archive_refresh(self):
+        """已落库的 ocr_raw_fields（无明细）必须能被新采集（含明细）刷新。"""
+        existing = {"ocr_raw_fields": json.dumps({"followers": 12804})}
+        new_raw = {"video_details": [{"title": "t", "plays": "1.2万"}]}
+        body = {"ocr_raw_fields": json.dumps(new_raw),
+                "__refresh_fields": ["ocr_raw_fields"]}
+        out = merge(existing, body)
+        assert json.loads(out["ocr_raw_fields"]) == new_raw
+
+    def test_raw_archive_not_refreshed_without_declaration(self):
+        """不声明刷新 ⇒ 行为与修之前一致（老值保留）。"""
+        existing = {"ocr_raw_fields": json.dumps({"a": 1})}
+        body = {"ocr_raw_fields": json.dumps({"b": 2})}
+        out = merge(existing, body)
+        assert json.loads(out["ocr_raw_fields"]) == {"a": 1}
 
 
 class TestRefreshFieldNameIsAccepted:
