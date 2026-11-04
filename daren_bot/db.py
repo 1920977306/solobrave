@@ -727,6 +727,30 @@ def grant(tenant_key: str, amount: int, action: str = 'grant') -> int:
         return new_balance
 
 
+def adjust_opening(tenant_key: str, delta: int, action: str = 'init_adjust') -> int:
+    """开户差额调整（运营后台创建助理时自定义初始积分）。
+    delta 可正可负（正=补发、负=回冲），留 ledger 可对账。
+    与 grant/deduct 的区别：这是**运营调账**，不对应任何任务消耗，
+    所以不走「扣费+入队原子入口」（那边只允许任务计费）。"""
+    if delta == 0:
+        return get_balance(tenant_key)
+    with db_ctx() as conn:
+        r = conn.execute("SELECT balance FROM bot_credits_accounts WHERE tenant_key=?",
+                         (tenant_key,)).fetchone()
+        balance = int(r["balance"]) if r else 0
+        new_balance = balance + delta
+        if new_balance < 0:
+            raise ValueError(f"回冲超出当前余额: {balance} < {-delta}")
+        conn.execute(
+            "INSERT INTO bot_credits_accounts (tenant_key, balance, updated_at) VALUES (?,?,?) "
+            "ON CONFLICT(tenant_key) DO UPDATE SET balance=excluded.balance, "
+            "updated_at=excluded.updated_at",
+            (tenant_key, new_balance, now_ts()))
+        # ledger 约定：负=入账（参考 grant 的 -amount），正=出账（参考 deduct 的 cost）
+        _ledger(conn, tenant_key, action, -delta, new_balance, 0, '')
+        return new_balance
+
+
 # ---------- P2 代理层级（docs/AGENT-TIER-DESIGN.md，2026-11-02 拍板 D1b/D2a） ----------
 # 铁律（§8）：
 #   agent_enabled = 授予权开关，只含「能不能发展下级」（拉达人）；★ 积分发放权

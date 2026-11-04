@@ -61,6 +61,11 @@ NUDGE_RE = re.compile(
 WEEKLY_UNSUB_RE = re.compile(r"^(取消订阅|退订|关闭)(每周)?(经营)?周报[呀啊哦~～!！\s]*$")
 WEEKLY_SUB_RE = re.compile(r"^(订阅|开通|恢复)(每周)?(经营)?周报[呀啊哦~～!！\s]*$")
 WEEKLY_STATUS_RE = re.compile(r"^周报(状态|订阅)?[?？!！~～\s]*$")
+# §126 换绑小号（2026-11-04 老大拍板「达人需要换自己的小号怎么办」）：
+#   「换绑 hlb725」「换绑 抖音号：xxx」。仅达人助理响应（商务无绑定概念）。
+#   ★ 必须排在 dy_in_text 之前——「换绑抖音号：xxx」会被「抖音号：」前缀抢走。
+REBIND_RE = re.compile(
+    r"^\s*换绑\s*(?:抖音号|账号|帐号)?\s*[:：]?\s*([A-Za-z0-9_]{4,24})\s*$")
 # §125 P2：达人想推广业务 ⇒ 申请成为合伙人（老大 11-02 口径：达人→合伙人是申请制，
 #   平台审核后开通授予权。当前纯话术登记，P2-B 做自助申请链路。
 #   ★ 对外叫「合伙人」，内部字段/端点名仍是 agent_*——11-02 老大定名）
@@ -394,6 +399,9 @@ class Router:
         elif is_daren and accept:
             # ★「接了 <商品ID>」→ 登记进排品池（必须在裸商品ID 分支之前！）
             self._route_accept_deal(tenant, chat_id, accept.group('pid'), sender)
+        elif is_daren and (rebind := REBIND_RE.match(text.strip())):
+            # ★ 换绑小号（零成本路由，无算力消耗）：必须在 dy_in_text 之前
+            self._route_rebind(tenant, chat_id, rebind.group(1), sender)
         elif dy_in_text:
             self._route_douyin(tenant, chat_id, dy_in_text.group(1), sender,
                                name_hint=_extract_name_hint(text, dy_in_text.group(1)),
@@ -895,6 +903,28 @@ class Router:
         elif not is_self:
             log.info("tenant=%s peer-collect dy_id=%s (peers=%s)", tk, dy_id,
                      db.peer_douyin_count(tk, bound))
+
+    # ★ 换绑小号（§126，2026-11-04）：达人要把助理绑到自己的另一个号。
+    #   零成本路由（无算力消耗不扣分）：改 bot_tenants.bind_douyin_id 即可——
+    #   积分/聊天记录/周报订阅都在租户上不动；周额度按 (租户, 抖音号) 计，
+    #   新号有自己的每周 1 次额度；旧号的档案数据保留在库里（历史报告不丢）。
+    def _route_rebind(self, tenant: dict, chat_id: str, dy_id: str, sender) -> None:
+        tk = tenant["tenant_key"]
+        old = tenant.get("bind_douyin_id") or ""
+        if dy_id == old:
+            sender.send_text(
+                chat_id,
+                f"已经是这个号（{dy_id}）啦，不用换～想分析直接发抖音号就行")
+            return
+        db.bind_douyin_id(tk, dy_id)
+        tenant["bind_douyin_id"] = dy_id
+        log.info("tenant=%s rebind douyin_id: %s -> %s", tk, old or "(未绑定)", dy_id)
+        prev = f"原绑定 {old}" if old else "之前没绑定过号"
+        sender.send_text(
+            chat_id,
+            f"已换绑到 {dy_id}（{prev}）。\n"
+            "积分和聊天记录都保留；新号本周还没分析过，直接发一次新号就开始出报告"
+            "（每号每周 1 次，100 积分）；原号的分析档案还留在系统里，随时能查。")
 
     # ★「近期带的品」0 积分秒答（2026-11-03 豆鲨包承接质量）。
     #   纯 DB 读取 + 纯函数渲染：不入队、不调 LLM、不扣积分（无消耗算力）。

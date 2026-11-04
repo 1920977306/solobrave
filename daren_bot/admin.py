@@ -10,6 +10,9 @@
   POST /admin/api/fact-delete {id}  删除一条达人自述（删错句用）
   POST /admin/api/grant      发放积分 {tenant_key, amount}（★ 积分发放权只归平台）
   POST /admin/api/bind       绑定/换绑抖音号 {tenant_key, douyin_id}
+  POST /admin/api/tenant-create 一键创建飞书助理 {tenant_key, app_id, app_secret,
+                              role, douyin_id?, credits?}（2026-11-04 填表即创建，
+                              secret 加密入库；app_id 已占用/tenant_key 重复都拒）
   POST /admin/api/agent-enable  升/降代理 {tenant_key, enabled}（P2 授予权只含发展下级，不动人格）
   POST /admin/api/agent-parent  挂靠/解挂上级 {tenant_key, agent_of}（''=直属平台；服务端防环）
   ★ 无代理转账端点：老大 11-02 拍板「代理无法控制积分，积分只能我来」，transfer 链路已全拆
@@ -153,6 +156,45 @@ _PAGE = """<!DOCTYPE html>
 </header>
 <main>
   <section>
+    <h2>创建飞书助理（填表即创建）</h2>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px 20px;max-width:760px">
+      <label style="font-size:12px;color:#6b7280">助理标识（小写字母开头，3-32位）<br>
+        <input id="nc-key" style="width:100%;padding:6px 8px;border:1px solid var(--b);border-radius:6px"
+               placeholder="如 daren_jiejie / biz_lily"></label>
+      <label style="font-size:12px;color:#6b7280">角色<br>
+        <select id="nc-role" style="width:100%;padding:6px 8px;border:1px solid var(--b);border-radius:6px">
+          <option value="daren">达人助理</option>
+          <option value="commerce">商务助理</option>
+        </select></label>
+      <label style="font-size:12px;color:#6b7280">飞书 App ID<br>
+        <input id="nc-app" style="width:100%;padding:6px 8px;border:1px solid var(--b);border-radius:6px"
+               placeholder="cli_xxxxxxxxxxxxxxxx"></label>
+      <label style="font-size:12px;color:#6b7280">飞书 App Secret<br>
+        <input id="nc-secret" type="password" style="width:100%;padding:6px 8px;border:1px solid var(--b);border-radius:6px"
+               placeholder="创建后仅加密入库，页面不回显"></label>
+      <label style="font-size:12px;color:#6b7280">绑定抖音号（达人助理可选，之后聊天里也能换绑）<br>
+        <input id="nc-dy" style="width:100%;padding:6px 8px;border:1px solid var(--b);border-radius:6px"
+               placeholder="可留空"></label>
+      <label style="font-size:12px;color:#6b7280">初始积分（默认 500）<br>
+        <input id="nc-credits" type="number" value="500" min="0" max="100000"
+               style="width:100%;padding:6px 8px;border:1px solid var(--b);border-radius:6px"></label>
+    </div>
+    <div style="margin-top:12px;display:flex;gap:10px;align-items:center">
+      <button class="primary" onclick="createTenant()">创建助理</button>
+      <span class="hint" style="margin-top:0">创建后长连接约 5 秒内自动建立，无需重启服务。</span>
+    </div>
+    <div class="hint" style="margin-top:12px;line-height:1.9">
+      <b>填表前来飞书开放平台做这 5 步（约 3 分钟）：</b><br>
+      ① open.feishu.cn 开发者后台 → 创建「企业自建应用」；<br>
+      ② 添加应用能力 → 选「机器人」；<br>
+      ③ 事件与回调 → 事件订阅 → 添加事件「接收消息 im.message.receive_v1」，
+      接收方式选「<b>使用长连接接收事件</b>」；<br>
+      ④ 权限管理 → 开通 <code>im:message</code>（读消息）和 <code>im:resource</code>（读图片）；<br>
+      ⑤ 创建版本并发布（企业自建应用免审，发布即生效）。<br>
+      做完把 App ID / App Secret 填进来点创建。
+    </div>
+  </section>
+  <section>
     <h2>租户总览</h2>
     <table id="tenants">
       <thead><tr>
@@ -202,6 +244,24 @@ async function api(path, body){
   const j = await r.json().catch(()=>({ok:false, error:'响应非JSON'}));
   if(!r.ok || j.ok===false) throw new Error(j.error || `HTTP ${r.status}`);
   return j;
+}
+async function createTenant(){
+  const body = {
+    tenant_key: document.getElementById('nc-key').value.trim(),
+    role: document.getElementById('nc-role').value,
+    app_id: document.getElementById('nc-app').value.trim(),
+    app_secret: document.getElementById('nc-secret').value,
+    douyin_id: document.getElementById('nc-dy').value.trim(),
+    credits: parseInt(document.getElementById('nc-credits').value || '0', 10) || 0,
+  };
+  if(!body.tenant_key || !body.app_id || !body.app_secret)
+    return toast('助理标识 / App ID / App Secret 都不能为空', true);
+  try {
+    const j = await api('/admin/api/tenant-create', body);
+    toast(`已创建 ${j.tenant_key}（余额 ${j.balance}），长连接建立中…`);
+    document.getElementById('nc-secret').value = '';
+    load();
+  } catch(e){ toast(e.message, true); }
 }
 async function grant(tk){
   const v = prompt(`给 ${tk} 发放积分（正数）：`, '100');
@@ -360,7 +420,8 @@ def make_handler(state: dict):
                               "/admin/api/plan-scan",
                               "/admin/api/agent-enable",
                               "/admin/api/agent-parent",
-                              "/admin/api/fact-delete"):
+                              "/admin/api/fact-delete",
+                              "/admin/api/tenant-create"):
                 return self._json(404, {"ok": False, "error": "not found"})
             if not self._auth(q):
                 return self._json(403, {"ok": False, "error": "token 无效"})
@@ -433,6 +494,69 @@ def make_handler(state: dict):
                 log.info("admin fact-delete: id=%s -> %s", fid, deleted)
                 return self._json(200, {"ok": True, "id": int(fid),
                                         "deleted": bool(deleted)})
+            if u.path == "/admin/api/tenant-create":
+                # ★ 系统后台一键创建飞书助理（2026-11-04 老大拍板「填表即创建」）。
+                #   飞书侧前置只能在开放平台做（见页面 checklist）：建企业自建应用、
+                #   加「机器人」能力、事件订阅收消息（长连接方式）、
+                #   权限 im:message + im:resource、发布版本。
+                #   本端负责：校验 → secret 加密入库 → 积分开户（默认 INITIAL_CREDITS）
+                #   → 长连接每 5s 自动收敛新租户（无需重启）。
+                import re as _re
+                from . import crypto_util
+                tk = str(body.get("tenant_key") or "").strip()
+                app_id = str(body.get("app_id") or "").strip()
+                secret = str(body.get("app_secret") or "").strip()
+                role = str(body.get("role") or config.ROLE_DAREN).strip()
+                dyid = str(body.get("douyin_id") or "").strip()
+                try:
+                    credits0 = int(body.get("credits") or 0)
+                except (TypeError, ValueError):
+                    credits0 = 0
+                if not _re.fullmatch(r"[a-z][a-z0-9_-]{2,31}", tk):
+                    return self._json(400, {"ok": False, "error":
+                        "助理标识：小写字母开头，3-32 位小写字母/数字/下划线/中划线"})
+                if db.get_tenant(tk):
+                    return self._json(400, {"ok": False, "error":
+                        f"助理标识已存在: {tk}"})
+                if not _re.fullmatch(r"cli_[A-Za-z0-9]{10,24}", app_id):
+                    return self._json(400, {"ok": False, "error":
+                        "App ID 格式不对（应形如 cli_ 开头的一串字母数字）"})
+                with db.db_ctx() as _c:
+                    _dup = _c.execute("SELECT tenant_key FROM bot_tenants WHERE app_id=?",
+                                      (app_id,)).fetchone()
+                if _dup:
+                    # add_tenant 是 ON CONFLICT(app_id) DO UPDATE——不拦的话填重复
+                    # 应用会把已有助理**静默改绑**到新标识（劫持）。
+                    return self._json(400, {"ok": False, "error":
+                        f"这个 App ID 已被助理 {_dup['tenant_key']} 占用"})
+                if not (8 <= len(secret) <= 128):
+                    return self._json(400, {"ok": False, "error":
+                        "App Secret 长度不对（8-128 字符），注意别带空格/引号"})
+                if role not in (config.ROLE_DAREN, config.ROLE_COMMERCE):
+                    return self._json(400, {"ok": False, "error":
+                        "角色只支持 达人助理/商务助理；商家助理暂未开放"})
+                if dyid and not _re.fullmatch(r"[A-Za-z0-9_]{4,24}", dyid):
+                    return self._json(400, {"ok": False, "error":
+                        "抖音号格式不对（4-24 位字母/数字/下划线）"})
+                mk = crypto_util.load_or_create_master_key()
+                enc = crypto_util.encrypt_secret(mk, secret)
+                db.add_tenant(app_id, tk, enc, bind_douyin_id=dyid, role=role)
+                bal = db.get_balance(tk)
+                if credits0 > 0 and credits0 != config.INITIAL_CREDITS:
+                    # 初始积分与默认值不同 ⇒ 差额调账（可正可负，留 ledger 可对账）。
+                    # ⚠️ 不能用 db.grant(负数)——它只收正数，会抛 ValueError
+                    #    且此时租户已建完 ⇒ 响应写不回（2026-11-04 线上实测）。
+                    # ⚠️ 也不能用 db.deduct——那是任务计费入口，
+                    #    对抗闸门（test_deduct_is_only_used_as_zero_cost_tracing）会拦。
+                    bal = db.adjust_opening(tk, credits0 - config.INITIAL_CREDITS)
+                log.info("admin tenant-create: %s role=%s app=%s… bind=%s balance=%s",
+                         tk, role, app_id[:8], dyid or "-", bal)
+                return self._json(200, {"ok": True, "tenant_key": tk,
+                                        "role": role, "balance": bal,
+                                        "next": "长连接约 5 秒内自动建立"
+                                                "（本页「长连接」列变 ✓）；"
+                                                "若一直 ✗：去飞书后台确认事件订阅选了"
+                                                "「使用长连接接收事件」并保存、应用已发布"})
             tk = str(body.get("tenant_key") or "").strip()
             if not db.get_tenant(tk):
                 return self._json(400, {"ok": False, "error": f"租户不存在: {tk}"})
