@@ -281,7 +281,7 @@ def load_videos(talent_id: str = "", limit: int = 50) -> list:
                 "rank": r["rank"] or 0, "title": r["title"] or "",
                 "plays": m.get("plays") or "", "gmv": m.get("gmv") or "",
                 "gpm": m.get("gpm") or "",
-                "product_name": r["product_name"] or "",
+                "product_name": (r["product_name"] or "").replace("**", ""),
                 "product_points": (r["product_points"] or "")[:500],
                 "selling_expr": (r["selling_expr"] or "")[:500],
                 "feedback": r["feedback"] or "", "status": r["status"] or "",
