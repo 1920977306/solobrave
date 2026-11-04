@@ -10501,3 +10501,48 @@ H5 区块首行正确渲染。**小修**：product_name 里的 markdown `**` 在
 **过程记录**：19:25 首测回退失败（卡在别的 tab 上不在 DOM）→ 加回概览步骤后
 19:38 二轮明细 6 行×2 但库中仍空 → 查出 PUT 只补空 → 加白名单后 20:06 三轮落库闭环。
 **daren_test2 余额**：163（今天自测共扣 30+100+100+100+30 周报）。
+
+## §128 换绑小号 + 后台一键创建飞书助理（A 边，2026-11-04 20:2x–21:1x，commit `f505fb0`）
+
+老大两个需求，均已上线实测：
+
+### ① 达人聊天内换绑小号（`daren_bot/handler.py`）
+
+- 飞书发「换绑 <抖音号>」（支持「换绑抖音号：xxx」形态）即换绑，零成本不扣分。
+- 口径：积分和聊天记录保留；新号独立周额度；原号分析档案留在系统里不丢；同号 noop 回「不用换」。
+- ⚠️ 路由纪律：`REBIND_RE` 分支**必须排在 `dy_in_text` 之前**，且用海象表达式
+  先匹配——否则「换绑抖音号：xxx」会被「抖音号：」前缀的采集分支抢走（§8.10 同款坑）。
+- 实测：daren_test2 换绑 testrebind1 → 换回 hlb725，飞书真实推送确认 ✅（已还原 bind=hlb725）。
+
+### ② 运营后台一键创建飞书助理（`daren_bot/admin.py`）
+
+- 入口：`:8092/admin` 顶部「创建飞书助理（填表即创建）」表单（助理标识/角色/APP ID/Secret/
+  绑定抖音号/初始积分），表单旁钉**飞书后台 5 步清单**（建企业自建应用→加机器人能力→
+  事件订阅 im.message.receive_v1 选「使用长连接接收事件」→权限 im:message + im:resource→发布版本）。
+- 端点 `POST /admin/api/tenant-create`：校验 tenant_key 形态且不存在、app_id 形态且**未被占用**
+  （add_tenant 是 `ON CONFLICT(app_id) DO UPDATE`，不拦=静默劫持已有助理）、secret 8-128、
+  role 限 daren/commerce（merchant 回「商家助理暂未开放」，老大口径商家先不做）；
+  secret `crypto_util` 加密入库，`db.add_tenant` 自动开户 500 积分，
+  长连接收敛线程 5s 内自动连上**无需重启**。
+- 实测：curl 创建成功（第二次报「App ID 已被占用」证明落库）✅。
+
+### ★ 线上实测抓出并已修的真 bug：初始积分 < 500 时响应写不回
+
+- 症状：创建自定义积分 300 的助理 ⇒ HTTP=000（empty reply），但租户**已建进库**。
+- 根因：`db.grant(tk, 300-500)` 传负数 ⇒ `grant` 只收正数抛 ValueError ⇒
+  异常发生在 `add_tenant` **之后**、响应写出之前 ⇒ 连接被掐断。
+- 修法：新增 `db.adjust_opening(tk, delta)`——**有符号**运营调账（可正可负，
+  ledger 留痕 `-delta` 与 grant/deduct 同约定）。
+- ⚠️ **第一版修法用 `db.deduct` 回冲，被对抗闸门拦下**
+  （`test_deduct_is_only_used_as_zero_cost_tracing`：db.deduct 是任务计费入口，
+  只许零成本留痕）⇒ 这正说明闸门在干活。调账不是任务计费，**单独一个入口**才对。
+- 终验：重启后 curl `credits:300` → HTTP 200 + `balance:300` ✅（测试租户已清理）。
+
+### 测试与回归
+
+- 新增 `tests/test_rebind_and_tenant_create.py` 13 条（换绑 4 + tenant-create 9，
+  含本 bug 的钉死用例 `test_create_low_credits_adjusts_down`）。
+  注意点：基线 python（/usr/bin/python3）无 pycryptodome，fixture 对
+  `sys.modules["daren_bot.crypto_util"]` 注入替身；`_post` helper 容忍短连接 ConnectionResetError。
+- 全量回归：**1563 passed**（上轮 1562 + 本轮钉死 1 条）+ secret_scan exit 0。
+- 已推 main+dev 双分支，零分叉（`git rev-list --count origin/dev..origin/main` = 0）。
