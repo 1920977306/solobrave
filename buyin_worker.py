@@ -1557,6 +1557,83 @@ def _extract_video_rows(page):
     return items
 
 
+def _open_video_history(profile):
+    """百应 2026-11 改版：「视频详情」tab 取消，「历史内容」卡直接挂在达人主页
+    （概览页可见，含 视频/直播/图文 子切换 + 只看带货视频 勾选 + 卡片列表）。
+    无需点任何 tab：定位容器 → 滚进视口触发渲染 → 验证可见。返回是否成功。"""
+    try:
+        ok = profile.evaluate("""() => {
+          const wrap = document.querySelector(
+            '[class*="index-module__history-content___"]');
+          if (!wrap) return false;
+          wrap.scrollIntoView({block: 'center'});
+          const st = getComputedStyle(wrap);
+          return st.display !== 'none' && st.visibility !== 'hidden';
+        }""")
+        log(f'  [Teardown] 新版「历史内容」卡可见={ok}')
+        return bool(ok)
+    except Exception as e:
+        log(f'  [Teardown] 打开新版视频历史失败: {e}')
+        return False
+
+
+def _extract_video_cards(page):
+    """百应 2026-11 改版后的「历史内容」卡布局（达人主页直接可见的卡片列表）。
+    与 _extract_video_rows 返回结构一致，下游（排序/点击/落库）共用。
+    指标映射：plays=观看人数、likes=点赞数、comments=评论数、gmv=结算额；
+    新布局无 播放量/GPM/互动率/转发 ⇒ 如实留空。"""
+    raw = page.evaluate("""() => {
+      const wrap = document.querySelector('[class*="index-module__history-content___"]');
+      if (!wrap) return {rows: [], dbg: {layout: 'no-history-content'}};
+      const LABELS = {'观看人数': 'plays', '点赞数': 'likes',
+                      '评论数': 'comments', '结算额': 'gmv'};
+      const out = [];
+      const cards = Array.from(
+        wrap.querySelectorAll('[class*="index-module__history-content-item___"]'));
+      cards.forEach((card) => {
+        const t = card.textContent || '';
+        if (!t.includes('发布时间')) return;
+        if (!/发布时间[:：]\\s*\\d{4}-\\d{2}-\\d{2}/.test(t)) return;
+        const fields = {plays: '', likes: '', comments: '', gmv: ''};
+        Object.keys(LABELS).forEach((lab) => {
+          const labEl = Array.from(card.querySelectorAll('div')).find(
+            d => (d.textContent || '').trim() === lab && d.children.length === 0);
+          if (!labEl || !labEl.parentElement) return;
+          const valEl = labEl.parentElement.firstElementChild;
+          fields[LABELS[lab]] = valEl ? (valEl.textContent || '').trim() : '';
+        });
+        const cd = card.querySelector('[class*="index-module__content-data___"]');
+        let title = '';
+        if (cd && cd.firstElementChild) {
+          title = (cd.firstElementChild.textContent || '').trim();
+        }
+        const img = card.querySelector('img');
+        const cover = img ? (img.currentSrc || img.src || '') : '';
+        const k = out.length;
+        card.setAttribute('data-tearank', String(k));   // 点击阶段用
+        out.push({index: k, title: title.slice(0, 200), cover: cover,
+          plays: fields.plays, likes: fields.likes,
+          comments: fields.comments, gmv: fields.gmv});
+      });
+      return {rows: out.slice(0, 30),
+              dbg: {layout: 'history-cards:' + out.length}};
+    }""")
+    dbg = (raw or {}).get('dbg') or {}
+    log(f'  [Teardown] 视频列表布局={dbg.get("layout")}')
+    items = []
+    for r in (raw or {}).get('rows') or []:
+        items.append({
+            'index': r.get('index', 0),
+            'title': r.get('title') or '',
+            'cover': r.get('cover') or '',
+            'plays': r.get('plays') or '', 'interact': '',
+            'gmv': r.get('gmv') or '', 'gpm': '',
+            'likes': r.get('likes') or '', 'comments': r.get('comments') or '',
+            'shares': '', 'cells': [], 'layout': 'history-cards',
+        })
+    return items
+
+
 def _extract_tab_table_rows(page, marker: str, require_date: bool = True):
     """通用 auxo-table 抓行：视频详情/直播详情等明细 tab → [{cells:[...], title}]。
     marker 用于定位包含该文本的最小表格容器。
@@ -1784,6 +1861,20 @@ def _capture_one_video(profile, vid, dom_index, item, talent_name):
         if src:
             break
     if not src:
+        # 现场留存：点击后拿不到视频源 = 平台播放层改版（抽屉结构/懒加载/MSE blob），
+        # 不留 DOM 只能瞎猜（2026-11-04 百应「历史内容」卡改版实锤过一次）
+        try:
+            diag = profile.evaluate("""() => ({
+              videos: Array.from(document.querySelectorAll('video')).map(
+                v => (v.src || '').slice(0, 200)),
+              dialogs: document.querySelectorAll(
+                '[role="dialog"], [class*="drawer"], [class*="modal"]').length,
+              url: location.href,
+            })""")
+            log(f'  [Teardown] {vid} 无视频源诊断: {diag}')
+        except Exception:
+            pass
+        _dump_page(profile, f'no_video_src_{dom_index}', vid)
         raise RuntimeError('未嗅探到视频源地址')
 
     resp = profile.context.request.get(src, headers={'Referer': 'https://buyin.jinritemai.com/'},
@@ -1830,15 +1921,29 @@ def teardown_pipeline(job_id, talent_id, name, douyin_id, top_n=3):
         talent_name = profile_name or name
 
         _vdb_update('video_jobs', job_id, stage='读取视频详情 tab')
-        if not _click_tab(profile, '视频详情'):
-            raise RuntimeError('视频详情 tab 点击失败')
-        _human_sleep(2.5, 3.5)
-        for _ in range(3):
-            _ensure_alive(profile)
-            profile.mouse.wheel(0, 1500)
-            _human_sleep(1.2, 2.0)
-
-        rows = _extract_video_rows(profile)
+        rows = []
+        if _open_video_history(profile):
+            # 百应 2026-11 改版：「视频详情」tab 没了，列表改挂主页「历史内容」卡
+            _human_sleep(1.5, 2.5)
+            for _ in range(3):
+                _ensure_alive(profile)
+                profile.mouse.wheel(0, 1500)
+                _human_sleep(1.2, 2.0)
+            rows = _extract_video_cards(profile)
+        if not rows:
+            # 回退旧版布局：个别账号可能仍是 auxo-table 版「视频详情」tab
+            log('  [Teardown] 新版卡片解析 0 行，回退旧版「视频详情」tab')
+            if not _click_tab(profile, '视频详情'):
+                # 现场留存：tab 点击失败多半是平台改版（tab 文案/容器变更），
+                # 不留存 DOM 就只能瞎猜（2026-11-04 百应改版实锤过一次）
+                _dump_page(profile, 'tab_video_detail', job_id)
+                raise RuntimeError('视频详情 tab 点击失败')
+            _human_sleep(2.5, 3.5)
+            for _ in range(3):
+                _ensure_alive(profile)
+                profile.mouse.wheel(0, 1500)
+                _human_sleep(1.2, 2.0)
+            rows = _extract_video_rows(profile)
         if not rows:
             _dump_page(profile, 'no_video_rows', job_id)
             raise RuntimeError('视频详情 tab 未解析到视频列表（页面结构可能变化，现场已留存）')

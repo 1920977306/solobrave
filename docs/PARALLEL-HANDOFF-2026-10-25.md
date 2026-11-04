@@ -10413,14 +10413,35 @@ cockpit 已重启。
 H5 区块首行正确渲染。**小修**：product_name 里的 markdown `**` 在展示层剥掉
 （LLM 输出习惯，esc 后原样显示会露星号）。
 
-**待修故障：达人维度拆解（/teardown → 视频详情 tab）失效**。
+**~~待修故障：达人维度拆解（/teardown → 视频详情 tab）失效~~ ✅ 已修（11-04 16:2x，生产实测通过）**。
 15:50 给洁洁爱户外触发 TOP1：团长端搜索达人→身份核验均成功，
 卡在 `_click_tab('视频详情')`——`#daren-profile-main-tabs` 里 8s 等不到
 「视频详情」文本（buyin_worker.py:1328）。该链路最后成功是 10-31，
-疑似**百应达人主页结构改版**（tab 文案/容器变更）。
-修法方向：任务失败时 `_dump_page` 留存现场（现在 tab 点击失败不留存），
-对照真实 DOM 改选择器；或改用达人端 authorStatData 接口取视频列表。
-直链链路（达人实际在用的）不受影响。**遗留**：① ~~H5 区块~~ ✅ 已完成；② product_id 精确关联推荐结论表留给未来
+**根因实锤：百应达人主页改版**——tab 文案变为 `概览/场景分析/粉丝分析/带货分析/评价详情`，
+「视频详情」tab 取消，视频列表改挂主页**「历史内容」卡**（`live-board-v2`，
+概览页直接可见：子切换 视频/直播/图文 + 只看带货视频 勾选 + 卡片网格，
+留存：`data/buyin_browser/shots/dbg_vjob_1793779433518_127599_tab_video_detail.html` 3.6MB）。
+
+**修法**（buyin_worker.py）：
+- 新增 `_open_video_history`：无需点任何 tab，定位 `index-module__history-content` 容器
+  滚进视口即可（第一版曾误判为「藏在隐藏 tabpanel 里要按 aria-controls 点宿主 tab」，
+  截图实锤它在主页直接可见，简化）。
+- 新增 `_extract_video_cards`：新卡片布局解析（返回结构与 `_extract_video_rows` 完全一致，
+  下游排序/点击/落库共用）。指标映射：plays=观看人数、likes=点赞数、comments=评论数、
+  gmv=结算额；**新布局无 播放量/GPM/互动率/转发 ⇒ 如实留空**（别造）。
+  卡片特征：CSS module 类 `index-module__history-content(-item)___<hash>`、
+  封面 64×96 img、标题 `-webkit-line-clamp`、指标行「值在上、灰色标签在下」。
+- `teardown_pipeline`：先新布局（卡片解析 0 行 → 回退旧 `_click_tab('视频详情')`
+  + `_extract_video_rows`，双布局兼容）；tab 点击失败与卡片解析 0 行均 `_dump_page` 留存。
+- `_capture_one_video` 无视频源时加诊断日志（video/dialog/url）+ `_dump_page` 留存。
+- 点击选择器 `[data-tearank] img` 对新卡片天然兼容（data-tearank 打在卡片上）。
+
+**生产实测（11-04 16:26，job vjob_1793780773364_108bd3，洁洁爱户外 TOP1）**：全链路 done——
+6 卡解析 → TOP1（观看人数 18）→ 下载+转写(ok)+MiniMax 画面分析+三节报告落库
+（product_name 如实报不确定 / 产品卖点 / 卖点表达，两列不混）。
+注意：第一次重跑曾偶发「未嗅探到视频源地址」（抽屉加载慢），第二次即成功，
+`_robust_click` 的 force 降级路径兜底；若复发看留存 `no_video_src_*` 现场。
+**遗留**：① ~~H5 区块~~ ✅ 已完成；② product_id 精确关联推荐结论表留给未来
 （多维表格 spec 确认无商品ID列，且该表已废弃；§8.2 n-gram 强证据那套可复用）；
 ③ 二期（批量爆款入库）继续缓——卡点不是反爬，是筛选条件
 （同品类/同粉丝量级/同内容形态/同客单价带）没想清楚，等一期客户用出来再设计。
