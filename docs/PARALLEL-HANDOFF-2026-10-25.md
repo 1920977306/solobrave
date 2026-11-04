@@ -10354,3 +10354,42 @@ python3 daren_bot/tools/product_link_probe.py <url>   # 指定链接
 exit 0 = 全通（抽 ID → 达人端采集 → 品名/到手价齐全）；
 exit 1 + 死因 = 挂在哪一步。已实测通过（10.0s，「芮杏 连裤袜」¥39.9）。
 建议接进每日巡检 cron/launchd。
+
+
+## §91 爆款拆解一期：两列卖点结构化落库 + 反馈埋点后端（A 边，2026-11-04）
+
+老大 13:30 拍板一期可以动（豆包案例页竞争分析后的落地方）。**形态更正**：bitable_sync
+链路 2026-10-27 已废弃（多维表格→驾驶舱换代），「加第 4 张多维表格」无地基 ⇒ 一期交付面 =
+**结构化落库 talent_videos + 反馈埋点后端**（H5 区块等 cockpit UI 占用空出来再贴）。
+
+### 91.1 改了什么
+
+**buyin_worker.py**
+- `_teardown_report` prompt 重构：删 `## 卖点呈现方式`，新增三节——
+  `## 产品露出`（一句话说清视频里是什么产品）、`## 产品卖点(客观属性)`（材质/功能/规格/人群）、
+  `## 卖点表达(达人话术)`（场景+话术+情绪+钩子），**各带正反例防两列混**
+  （一期约束②：不给正反例模型会把属性塞进话术列）。600 字上限放宽到 800。
+- `talent_videos` 加 4 列：`product_name` / `product_points` / `selling_expr` / `feedback`
+  （TEXT DEFAULT ''），`_ensure_video_tables` 内置幂等 ALTER 迁移
+  （`PRAGMA table_info` 缺列才补）——**本库无 ALTER 先例，这是第一处，照 daren_bot/db.py 523 模式**。
+- `_parse_teardown_sections(report)` 纯函数：按 `## ` 切段解析三节 → dict，
+  缺节/报告失败串都留空不炸；两个 pipeline（达人维度 `teardown_pipeline` /
+  直链 `teardown_url_pipeline`）报告生成后解析写入新列。
+
+**daren_cockpit/server.py**
+- `POST /api/video_feedback`：body `{id, feedback}`，feedback ∈ {对, 不对, 说不清}
+  （一期约束③：反馈埋点做结构化列，解决 v2 人工驳回率数据源）。
+  鉴权 = `x-ops-key`（仿 /api/coop/status）；写前幂等补 feedback 列（worker 未重启也能写）。
+
+**tests/test_teardown_sections.py**（16 条）：prompt 守卫（三节+正反例+不许并回单节）/
+解析纯函数（齐全/缺节/失败串/不串节）/迁移（老库补列+重复跑不炸+新库直建）/端点行为
+（三值可写、非法值/非法 id/未知 id 拒）。
+
+### 91.2 验证与遗留
+
+全量 1531 passed / 10 skipped（基线 1515 + 16 新）。
+**遗留**：① H5 驾驶舱视频拆解列表区块（含反馈下拉）未做——cockpit `index.html`
+mini 在改，等占用空出；② product_id 精确关联推荐结论表留给未来
+（多维表格 spec 确认无商品ID列，且该表已废弃；§8.2 n-gram 强证据那套可复用）；
+③ 二期（批量爆款入库）继续缓——卡点不是反爬，是筛选条件
+（同品类/同粉丝量级/同内容形态/同客单价带）没想清楚，等一期客户用出来再设计。

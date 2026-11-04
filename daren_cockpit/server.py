@@ -223,6 +223,34 @@ def coop_set_status(record_id: str, status: str) -> tuple:
         return False, str(e)[:200]
 
 
+_VIDEO_FEEDBACK_CHOICES = ("对", "不对", "说不清")
+
+
+def _video_feedback(vid: str, feedback: str) -> tuple:
+    """爆款拆解反馈埋点：写 talent_videos.feedback。返回 (ok, err)。"""
+    if not vid or not re.fullmatch(r"[A-Za-z0-9_]+", vid):
+        return False, "bad id"
+    if feedback not in _VIDEO_FEEDBACK_CHOICES:
+        return False, f"feedback 必须是：{'/'.join(_VIDEO_FEEDBACK_CHOICES)}"
+    try:
+        con = sqlite3.connect(str(config.DB_PATH), timeout=10)
+        try:
+            # 幂等迁移：与 buyin_worker._ensure_video_tables 同列（worker 未重启也能写）
+            existing = {r[1] for r in con.execute("PRAGMA table_info(talent_videos)")}
+            if "feedback" not in existing:
+                con.execute("ALTER TABLE talent_videos ADD COLUMN feedback TEXT DEFAULT ''")
+            cur = con.execute("UPDATE talent_videos SET feedback = ?, updated_at = ? "
+                              "WHERE id = ?", (feedback, int(time.time() * 1000), vid))
+            con.commit()
+        finally:
+            con.close()
+        if cur.rowcount == 0:
+            return False, "video not found"
+        return True, ""
+    except Exception as e:
+        return False, str(e)[:200]
+
+
 _GMVTEXT_RE = re.compile(r"(\d+(?:\.\d+)?)\s*[万kK]?\s*[-~—～]\s*[¥￥]?\s*(\d+(?:\.\d+)?)\s*([万kK]?)")
 
 def gmv_mid_yuan(total_gmv, total_gmv_text):
@@ -851,6 +879,24 @@ class Handler(BaseHTTPRequestHandler):
                            "application/json; charset=utf-8")
                 return
             self._send(200, json.dumps({"ok": True, "code": code}, ensure_ascii=False),
+                       "application/json; charset=utf-8")
+        elif u.path == "/api/video_feedback":
+            # 爆款拆解反馈埋点：运营对 talent_videos 行标注「这个卖点对不对」
+            if not _is_ops(self):
+                self._send(403, json.dumps({"ok": False, "error": "unauthorized"}),
+                           "application/json; charset=utf-8")
+                return
+            try:
+                n = int(self.headers.get("Content-Length") or 0)
+                body = json.loads(self.rfile.read(n).decode("utf-8") or "{}")
+            except Exception:
+                self._send(400, json.dumps({"ok": False, "error": "bad json"}),
+                           "application/json; charset=utf-8")
+                return
+            ok, err = _video_feedback(str(body.get("id") or ""),
+                                      str(body.get("feedback") or ""))
+            self._send(200 if ok else 400,
+                       json.dumps({"ok": ok, "error": err}, ensure_ascii=False),
                        "application/json; charset=utf-8")
         elif u.path == "/api/coop/status":
             if not _is_ops(self):

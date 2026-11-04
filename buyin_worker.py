@@ -1385,11 +1385,17 @@ CREATE TABLE IF NOT EXISTS talent_videos (
     transcript_status TEXT DEFAULT '',
     visual_desc TEXT DEFAULT '',
     report TEXT DEFAULT '',
+    product_name TEXT DEFAULT '',
+    product_points TEXT DEFAULT '',
+    selling_expr TEXT DEFAULT '',
+    feedback TEXT DEFAULT '',
     status TEXT DEFAULT 'pending',
     error TEXT DEFAULT '',
     created_at INTEGER DEFAULT 0,
     updated_at INTEGER DEFAULT 0
 )'''
+# 爆款拆解一期新增列（老库幂等迁移，见 _ensure_video_tables）
+VIDEO_TABLE_NEW_COLS = ('product_name', 'product_points', 'selling_expr', 'feedback')
 VIDEO_JOB_TABLE_SQL = '''
 CREATE TABLE IF NOT EXISTS video_jobs (
     id TEXT PRIMARY KEY,
@@ -1414,6 +1420,11 @@ def _ensure_video_tables():
     try:
         conn.execute(VIDEO_TABLE_SQL)
         conn.execute(VIDEO_JOB_TABLE_SQL)
+        # 幂等迁移：老库补爆款拆解一期新列（CREATE TABLE IF NOT EXISTS 不会改已有表）
+        existing = {row[1] for row in conn.execute('PRAGMA table_info(talent_videos)')}
+        for col in VIDEO_TABLE_NEW_COLS:
+            if col not in existing:
+                conn.execute(f"ALTER TABLE talent_videos ADD COLUMN {col} TEXT DEFAULT ''")
         conn.commit()
     finally:
         conn.close()
@@ -1685,22 +1696,57 @@ def _teardown_report(talent_name, item, transcript, visual_desc):
 【画面描述(glm-4v-plus 实看)】{(visual_desc or '(画面分析失败)')[:1500]}
 
 报告必须包含:
+## 产品露出
+## 产品卖点(客观属性)
+## 卖点表达(达人话术)
 ## 钩子(前3秒)
 ## 口播文案骨架
-## 卖点呈现方式
 ## 节奏与剪辑
 ## 字幕与包装
 ## 结尾引导
 ## 可复制清单(表格: 元素 | 怎么抄)
 ## 数据诊断(播放量/互动率/GPM 哪里强哪里弱，直说)
 
-要求: 只基于给定材料推理，标注不确定处；数据弱就直说弱；总长度 600 字内，清单具体可执行。"""
+三节新内容的严格口径（两列不许混）:
+- ## 产品露出: 视频里实际出现/讲的是什么产品，一句话说清（品名+品类），认不出就写「未明确露出」。
+- ## 产品卖点(客观属性): 只写产品**本身有什么**——材质/功能/规格/适用人群/认证。
+  ✅ 正确示例: 「316不锈钢内胆」「500ml 大容量」「母婴级材质，可装热水」
+  ❌ 错误示例（这是话术，不是属性）: 「办公室姐妹听我一句」
+- ## 卖点表达(达人话术): 只写**达人怎么讲**这个卖点——场景+话术+情绪+钩子。
+  ✅ 正确示例: 「办公室姐妹听我一句，这杯子放包里从来不漏——我摔过三次都没撒」
+  ❌ 错误示例（这是属性，不是话术）: 「杯子密封性好」
+- 要求: 只基于给定材料推理，标注不确定处；数据弱就直说弱；总长度 800 字内，清单具体可执行。"""
     try:
         return llm_chat_fb([{'role': 'user', 'content': prompt}], max_tokens=2500,
                            timeout=180, truncate_chars=25000,
                            site=llm_usage.SITE_WORKER_REPORT)
     except Exception as e:
         return f'(拆解报告生成失败: {e})'
+
+
+# 报告 md 里的结构化节 → talent_videos 新列。解析失败留空不炸（报告仍可读）。
+_TEARDOWN_SECTION_MAP = (
+    ('product_name', '产品露出'),
+    ('product_points', '产品卖点'),
+    ('selling_expr', '卖点表达'),
+)
+
+
+def _parse_teardown_sections(report):
+    """从拆解报告 md 解析三节结构化内容。缺节/解析失败 ⇒ 该列留空字符串。"""
+    out = {col: '' for col, _ in _TEARDOWN_SECTION_MAP}
+    if not report or not isinstance(report, str):
+        return out
+    # 按 ## 标题切段，标题匹配允许括号注释：(客观属性)/(达人话术) 等
+    parts = re.split(r'\n(?=##\s)', report)
+    for col, kw in _TEARDOWN_SECTION_MAP:
+        for part in parts:
+            head = part.split('\n', 1)[0]
+            if head.lstrip('#').strip().startswith(kw):
+                body = part.split('\n', 1)[1] if '\n' in part else ''
+                out[col] = body.strip()[:4000]
+                break
+    return out
 
 
 def _capture_one_video(profile, vid, dom_index, item, talent_name):
@@ -1768,7 +1814,8 @@ def _capture_one_video(profile, vid, dom_index, item, talent_name):
 
     _vdb_update('talent_videos', vid, status='analyzing')
     report = _teardown_report(talent_name, item, transcript, visual_desc)
-    _vdb_update('talent_videos', vid, status='done', report=report)
+    _vdb_update('talent_videos', vid, status='done', report=report,
+                **_parse_teardown_sections(report))
 
 
 def teardown_pipeline(job_id, talent_id, name, douyin_id, top_n=3):
@@ -1932,7 +1979,8 @@ def teardown_url_pipeline(job_id, url):
 
             _vdb_update('talent_videos', vid, status='analyzing')
             report = _teardown_report(title, item, transcript, visual_desc)
-            _vdb_update('talent_videos', vid, status='done', report=report)
+            _vdb_update('talent_videos', vid, status='done', report=report,
+                        **_parse_teardown_sections(report))
             _vdb_update('video_jobs', job_id, video_ids=json.dumps([vid]), stage='完成')
         except Exception as e:
             err = f'{type(e).__name__}: {e}'[:300]
