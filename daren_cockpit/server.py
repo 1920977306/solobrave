@@ -233,7 +233,8 @@ def _video_feedback(vid: str, feedback: str) -> tuple:
     if feedback not in _VIDEO_FEEDBACK_CHOICES:
         return False, f"feedback 必须是：{'/'.join(_VIDEO_FEEDBACK_CHOICES)}"
     try:
-        con = sqlite3.connect(str(config.DB_PATH), timeout=10)
+        # ⚠️ talent_videos 在 solobrave.db（buyin_worker 的库），不在 daren_bot.db
+        con = sqlite3.connect(str(SOLOBRAVE_DB), timeout=10)
         try:
             # 幂等迁移：与 buyin_worker._ensure_video_tables 同列（worker 未重启也能写）
             existing = {r[1] for r in con.execute("PRAGMA table_info(talent_videos)")}
@@ -249,6 +250,65 @@ def _video_feedback(vid: str, feedback: str) -> tuple:
         return True, ""
     except Exception as e:
         return False, str(e)[:200]
+
+
+def load_videos(talent_id: str = "", limit: int = 50) -> list:
+    """爆款拆解列表：talent_videos 近 N 行（运营全量 / 达人只看自己）。"""
+    limit = max(1, min(int(limit or 50), 200))
+    try:
+        # ⚠️ talent_videos 在 solobrave.db（buyin_worker 的库），不在 daren_bot.db
+        con = sqlite3.connect(str(SOLOBRAVE_DB), timeout=10)
+        con.row_factory = sqlite3.Row
+        sql = ("SELECT id, talent_id, talent_name, rank, title, metrics, source_url, "
+               "report, product_name, product_points, selling_expr, feedback, "
+               "status, created_at FROM talent_videos")
+        args = []
+        if talent_id:
+            sql += " WHERE talent_id = ?"
+            args.append(talent_id)
+        sql += " ORDER BY created_at DESC LIMIT ?"
+        args.append(limit)
+        rows = []
+        for r in con.execute(sql, args):
+            m = {}
+            try:
+                m = json.loads(r["metrics"] or "{}")
+            except Exception:
+                pass
+            rows.append({
+                "id": r["id"], "talent_id": r["talent_id"],
+                "talent_name": r["talent_name"] or "",
+                "rank": r["rank"] or 0, "title": r["title"] or "",
+                "plays": m.get("plays") or "", "gmv": m.get("gmv") or "",
+                "gpm": m.get("gpm") or "",
+                "product_name": r["product_name"] or "",
+                "product_points": (r["product_points"] or "")[:500],
+                "selling_expr": (r["selling_expr"] or "")[:500],
+                "feedback": r["feedback"] or "", "status": r["status"] or "",
+                "report": r["report"] or "",
+                "created_at": r["created_at"] or 0,
+                "has_report": bool(r["report"]),
+            })
+        con.close()
+        return rows
+    except Exception:
+        return []
+
+
+def _tenant_talent_id(tenant_key: str) -> str:
+    """租户 → talents.id（爆款拆解过滤用）。判据同 load_cockpit：达人号 → talents 行。"""
+    dyid = botdb.get_latest_douyin_id(tenant_key) or ""
+    if not dyid:
+        return ""
+    try:
+        con = sqlite3.connect(str(SOLOBRAVE_DB), timeout=10)
+        row = con.execute(
+            "SELECT id FROM talents WHERE douyin_id=? ORDER BY updated_at DESC LIMIT 1",
+            (dyid,)).fetchone()
+        con.close()
+        return row[0] if row else ""
+    except Exception:
+        return ""
 
 
 _GMVTEXT_RE = re.compile(r"(\d+(?:\.\d+)?)\s*[万kK]?\s*[-~—～]\s*[¥￥]?\s*(\d+(?:\.\d+)?)\s*([万kK]?)")
@@ -849,6 +909,31 @@ class Handler(BaseHTTPRequestHandler):
                 return
             self._send(200, json.dumps(data, ensure_ascii=False),
                        "application/json; charset=utf-8")
+        elif u.path == "/api/videos":
+            # 爆款拆解列表：x-ops-key → 全量；?t=&k= → 该达人自己的（自动过滤）
+            q = parse_qs(u.query)
+            t = q.get("t", [""])[0]
+            k = q.get("k", [""])[0]
+            is_ops = _is_ops(self)
+            talent_id = ""
+            if not is_ops:
+                if not re.fullmatch(r"[A-Za-z0-9_]+", t):
+                    self._send(400, json.dumps({"error": "bad tenant"}),
+                               "application/json")
+                    return
+                lk = tenant_link_key(t)
+                if not lk or k != lk:
+                    self._send(403, json.dumps({"error": "unauthorized"}),
+                               "application/json; charset=utf-8")
+                    return
+                talent_id = _tenant_talent_id(t)
+            try:
+                limit = int(q.get("limit", ["50"])[0])
+            except (TypeError, ValueError):
+                limit = 50
+            self._send(200, json.dumps(
+                {"videos": load_videos(talent_id, limit), "can_feedback": is_ops},
+                ensure_ascii=False), "application/json; charset=utf-8")
         else:
             self._send(404, "not found", "text/plain")
 

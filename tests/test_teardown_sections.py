@@ -50,6 +50,13 @@ CREATE TABLE talent_videos (
 
 NEW_COLS = ("product_name", "product_points", "selling_expr", "feedback")
 
+# 读侧（load_videos）不做迁移 —— 查的就是新库形态（worker/feedback 写侧负责迁移）
+NEW_VIDEO_DDL = OLD_VIDEO_DDL.replace(
+    "report TEXT DEFAULT '',",
+    "report TEXT DEFAULT '',\n    product_name TEXT DEFAULT '',\n"
+    "    product_points TEXT DEFAULT '',\n    selling_expr TEXT DEFAULT '',\n"
+    "    feedback TEXT DEFAULT '',")
+
 
 def _cols(con):
     return {r[1] for r in con.execute("PRAGMA table_info(talent_videos)")}
@@ -173,7 +180,9 @@ class TestVideoFeedback:
         con.execute("INSERT INTO talent_videos (id, title) VALUES ('vid_abc1', 't')")
         con.commit()
         con.close()
-        monkeypatch.setattr("daren_bot.config.DB_PATH", db)
+        # ⚠️ 生产里 talent_videos 在 solobrave.db（server.SOLOBRAVE_DB），
+        #    不在 daren_bot.db —— 锁死这个口径，谁改回 config.DB_PATH 谁红
+        monkeypatch.setattr(server, "SOLOBRAVE_DB", db)
         return db
 
     def test_write_ok(self, tmp_path, monkeypatch):
@@ -207,3 +216,49 @@ class TestVideoFeedback:
         self._mk_db(tmp_path, monkeypatch)
         ok, err = server._video_feedback("vid_nope", "对")
         assert not ok and "not found" in err
+
+
+# ---------- 5. 爆款拆解列表（读侧） ----------
+
+class TestLoadVideos:
+    def _mk_db(self, tmp_path, monkeypatch):
+        db = tmp_path / "test.db"
+        con = sqlite3.connect(str(db))
+        con.execute(NEW_VIDEO_DDL)
+        con.executemany(
+            "INSERT INTO talent_videos (id, talent_id, talent_name, title, metrics,"
+            " report, product_name, created_at) VALUES (?,?,?,?,?,?,?,?)",
+            [("v1", "tal_a", "达人A", "标题1",
+              '{"plays": "1.2万", "gmv": "3000"}', "## 报告", "暖水袋", 1000),
+             ("v2", "tal_b", "达人B", "标题2",
+              '{"plays": 5000}', "", "", 2000),
+             ("v3", "", "", "直链视频", "{}", "", "", 3000)])
+        con.commit()
+        con.close()
+        monkeypatch.setattr(server, "SOLOBRAVE_DB", db)
+        return db
+
+    def test_ops_sees_all_desc(self, tmp_path, monkeypatch):
+        self._mk_db(tmp_path, monkeypatch)
+        rows = server.load_videos("", 50)
+        assert [r["id"] for r in rows] == ["v3", "v2", "v1"]  # created_at DESC
+        assert rows[2]["product_name"] == "暖水袋"
+        assert rows[2]["plays"] == "1.2万"
+        assert rows[2]["has_report"] is True
+        assert rows[0]["has_report"] is False
+
+    def test_talent_filter(self, tmp_path, monkeypatch):
+        self._mk_db(tmp_path, monkeypatch)
+        rows = server.load_videos("tal_a", 50)
+        assert [r["id"] for r in rows] == ["v1"]
+
+    def test_bad_metrics_json_survives(self, tmp_path, monkeypatch):
+        db = tmp_path / "test.db"
+        con = sqlite3.connect(str(db))
+        con.execute(NEW_VIDEO_DDL)
+        con.execute("INSERT INTO talent_videos (id, metrics) VALUES ('v9', '{bad')")
+        con.commit()
+        con.close()
+        monkeypatch.setattr(server, "SOLOBRAVE_DB", db)
+        rows = server.load_videos("", 50)
+        assert rows and rows[0]["plays"] == "" and rows[0]["gmv"] == ""

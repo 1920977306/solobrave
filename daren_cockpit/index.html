@@ -201,6 +201,7 @@ async function boot(){
     return;
   }
   render(d);
+  loadVideosInto('videosZone', {t, k: p.get('k') || ''});
   // 等 Tailwind CDN 把动态注入的类名样式生成完再量尺寸，避免 canvas 定格在错误宽度
   setTimeout(() => drawCharts(d), 350);
 }
@@ -280,6 +281,7 @@ async function bootAdmin(){
     return;
   }
   renderAdmin(d);
+  loadVideosInto('videosZone', {ops: true});
   setTimeout(() => drawAdminDonut(d), 350);
 }
 
@@ -402,6 +404,10 @@ function renderAdmin(d){
     <div class="sub mb-3">商家只填 2 项 + 商品链接/图片/描述，商品字段由 AI 自动补齐</div>
     ${appliesBlock}
   </div>
+
+  <!-- 爆款拆解（2026-11-04）：结构化两列卖点 + 人工审核反馈 -->
+  <div id="videosZone"></div>
+
   <div class="sub text-center pt-1">口径声明：评分为系统采集评估，GMV 为平台档位口径，仅供参考。</div>`;
 }
 
@@ -743,6 +749,9 @@ function render(d){
   <!-- 排品表（AI 排好哪天推哪个） -->
   ${planSection(d)}
 
+  <!-- 爆款拆解（2026-11-04）：达人自己的视频拆解记录 -->
+  <div id="videosZone"></div>
+
   <!-- 合作 -->
   <div class="card p-5">
     <div class="sec-title mb-3">合作机会</div>
@@ -799,6 +808,138 @@ function drawCharts(d){
       itemStyle:{borderRadius:[0,9,9,0]},
       label:{show:true,position:'right',color:'#191919',fontSize:12}}]});
 }
+
+/* ---------- 爆款拆解（2026-11-04）：两列卖点 + 人工审核反馈 ----------
+   运营视图看全部（可标注反馈），达人视图只看自己的（只读）。
+   数据：GET /api/videos；反馈：POST /api/video_feedback（仅运营）。 */
+const _vState = {rows: [], sort: 'time', dir: -1, canFeedback: false, isOps: false};
+
+function _vNum(v){
+  if (v === null || v === undefined || v === '') return -1;
+  const s = String(v).replace(/[,，\s]/g, '');
+  const m = s.match(/^([\d.]+)(万)?/);
+  if (!m) return -1;
+  let n = parseFloat(m[1]);
+  if (isNaN(n)) return -1;
+  if (m[2]) n *= 10000;
+  return n;
+}
+
+function _vDate(ms){
+  if (!ms) return '';
+  const d = new Date(Number(ms));
+  return `${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+
+async function loadVideosInto(zoneId, opts){
+  const zone = document.getElementById(zoneId);
+  if (!zone) return;
+  _vState.isOps = !!(opts && opts.ops);
+  let url = '/api/videos?limit=50';
+  if (opts && opts.t) {
+    url += '&t=' + encodeURIComponent(opts.t) + '&k=' + encodeURIComponent(opts.k || '');
+  }
+  zone.innerHTML = `<div class="card p-5"><div class="sec-title mb-2">爆款拆解</div>
+    <div class="sub">加载中…</div></div>`;
+  let d;
+  try{
+    const r = await fetch(url, {headers: opsHeaders()});
+    d = await r.json();
+    if (!r.ok) throw new Error(d.error || r.status);
+  }catch(e){
+    zone.innerHTML = '';
+    return;  // 无拆解数据/权限不足时整块不显示，不打扰主视图
+  }
+  _vState.rows = d.videos || [];
+  _vState.canFeedback = !!d.can_feedback;
+  if (!_vState.rows.length) { zone.innerHTML = ''; return; }
+  renderVideos(zone);
+}
+
+function renderVideos(zone){
+  const rows = _vState.rows.slice();
+  const key = _vState.sort;
+  rows.sort((a, b) => {
+    const va = key === 'time' ? Number(a.created_at || 0)
+             : key === 'gmv' ? _vNum(a.gmv)
+             : _vNum(a.plays);
+    const vb = key === 'time' ? Number(b.created_at || 0)
+             : key === 'gmv' ? _vNum(b.gmv)
+             : _vNum(b.plays);
+    return (va - vb) * _vState.dir;
+  });
+  const sortBtn = (k, label) => {
+    const on = _vState.sort === k;
+    return `<button class="v-sort" data-k="${k}" style="border:1px solid var(--line);border-radius:99px;
+      padding:3px 12px;font-size:12px;background:${on ? 'var(--green-bg)' : '#fff'};
+      color:${on ? 'var(--green-dk)' : 'var(--sub)'}">${label}${on ? (_vState.dir < 0 ? ' ↓' : ' ↑') : ''}</button>`;
+  };
+  const items = rows.map(v => {
+    const fbSel = _vState.canFeedback ? `
+      <select class="video-fb" data-id="${esc(v.id)}" data-fb="${esc(v.feedback)}"
+        style="border:1px solid var(--line);border-radius:8px;padding:3px 6px;background:#fff;font-size:12px">
+        <option value="">审核…</option>
+        ${['对','不对','说不清'].map(f => `<option${f === v.feedback ? ' selected' : ''}>${f}</option>`).join('')}
+      </select>` : (v.feedback ? `<span class="tag st-已合作">${esc(v.feedback)}</span>` : '');
+    const metric = [v.plays && `播放 ${esc(v.plays)}`, v.gmv && `结算 ${esc(v.gmv)}`,
+                    v.gpm && `GPM ${esc(v.gpm)}`].filter(Boolean).join(' · ');
+    const points = v.product_points ? `<div class="sub mt-1"><b>卖点</b> ${esc(v.product_points).slice(0, 120)}</div>` : '';
+    const expr = v.selling_expr ? `<div class="sub mt-1"><b>话术</b> ${esc(v.selling_expr).slice(0, 120)}</div>` : '';
+    const report = v.has_report ? `
+      <details class="pmore" style="margin-top:8px"><summary>完整拆解报告</summary>
+        <div class="pbody"><pre class="break" style="white-space:pre-wrap;font-size:12px;margin:0">${esc(v.report)}</pre></div>
+      </details>` : '';
+    return `<div style="border-top:1px solid var(--line);padding:10px 2px" class="break">
+      <div class="flex items-center gap-2 flex-wrap">
+        <span class="font-semibold text-sm">${esc(v.product_name || v.title || '视频')}</span>
+        <span class="sub">${esc(_vDate(v.created_at))}</span>
+        ${_vState.isOps && v.talent_name ? `<span class="tag" style="background:#f2f2f2;color:#888">${esc(v.talent_name)}</span>` : ''}
+        <span class="flex-1"></span>${fbSel}
+      </div>
+      ${metric ? `<div class="sub mt-1">${metric}</div>` : ''}
+      ${points}${expr}${report}
+    </div>`;
+  }).join('');
+  zone.innerHTML = `<div class="card p-5">
+    <div class="flex items-center justify-between mb-2 flex-wrap gap-2">
+      <div><div class="sec-title">爆款拆解</div>
+        <div class="sub mt-1">${_vState.isOps ? '全量达人 · 标注「卖点对不对」回流优化' : '你的视频拆解记录'}</div></div>
+      <div class="flex gap-2">${sortBtn('time','按时间')}${sortBtn('gmv','按结算')}${sortBtn('plays','按播放')}</div>
+    </div>
+    ${items}
+  </div>`;
+}
+
+document.addEventListener('click', e => {
+  const btn = e.target.closest && e.target.closest('.v-sort');
+  if (!btn) return;
+  const k = btn.dataset.k;
+  if (_vState.sort === k) { _vState.dir *= -1; } else { _vState.sort = k; _vState.dir = -1; }
+  const zone = document.getElementById('videosZone');
+  if (zone) renderVideos(zone);
+});
+
+document.addEventListener('change', async e => {
+  const sel = e.target.closest && e.target.closest('.video-fb');
+  if (!sel) return;
+  const v = sel.value;
+  if (!v) return;
+  sel.disabled = true;
+  try{
+    const r = await fetch('/api/video_feedback', {method: 'POST',
+      headers: {'Content-Type': 'application/json', ...opsHeaders()},
+      body: JSON.stringify({id: sel.dataset.id, feedback: v})});
+    const d = await r.json();
+    if (!r.ok || !d.ok) throw new Error(d.error || ('HTTP ' + r.status));
+    const row = _vState.rows.find(x => x.id === sel.dataset.id);
+    if (row) row.feedback = v;
+    sel.style.borderColor = 'var(--green)';
+    setTimeout(() => { sel.disabled = false; sel.style.borderColor = ''; }, 800);
+  }catch(err){
+    sel.disabled = false;
+    alert('反馈保存失败：' + err.message);
+  }
+});
 
 boot();
 </script>

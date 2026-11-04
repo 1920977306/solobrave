@@ -10388,8 +10388,22 @@ exit 1 + 死因 = 挂在哪一步。已实测通过（10.0s，「芮杏 连裤�
 ### 91.2 验证与遗留
 
 全量 1531 passed / 10 skipped（基线 1515 + 16 新）。
-**遗留**：① H5 驾驶舱视频拆解列表区块（含反馈下拉）未做——cockpit `index.html`
-mini 在改，等占用空出；② product_id 精确关联推荐结论表留给未来
+### 91.2b 驾驶舱 H5 区块 + 读侧 API（A 边同日 14:2x 追加，mini 未占用，老大拍板直接做）
+
+- `GET /api/videos`：x-ops-key → 全量（`can_feedback=true`）；`?t=&k=` → 该达人自己的
+  （服务端 `_tenant_talent_id` 解析：botdb.get_latest_douyin_id → talents.id），只读。
+- `index.html`：运营视图与达人视图都加了「爆款拆解」区块——按时间/结算/播放排序、
+  卖点/话术两列摘要、完整报告折叠展开；运营可对每行下拉标注「对/不对/说不清」
+  （POST /api/video_feedback）。
+- ★★ **教训（库归属）**：`talent_videos` / `talents` 在 **solobrave.db**
+  （buyin_worker 的库，server.py 里常量 `SOLOBRAVE_DB`），**不在** `daren_bot.db`
+  （`config.DB_PATH`）。第一版 `_video_feedback`/`load_videos` 误用 config.DB_PATH，
+  单测全绿（猴子补丁跟着错常量走）但生产 0 行——**「测试替错了变量」型假绿**。
+  已修 + 测试改 patch `server.SOLOBRAVE_DB` 锁死口径。
+  ⇒ 判据：cockpit server 里 bot_* 表 → config.DB_PATH；talents/products/talent_videos → SOLOBRAVE_DB。
+
+**验证**：19 条单测绿；生产冒烟 读 200/写 200 读回一致（测试残留已清库还原）；
+cockpit 已重启。**遗留**：① ~~H5 区块~~ ✅ 已完成；② product_id 精确关联推荐结论表留给未来
 （多维表格 spec 确认无商品ID列，且该表已废弃；§8.2 n-gram 强证据那套可复用）；
 ③ 二期（批量爆款入库）继续缓——卡点不是反爬，是筛选条件
 （同品类/同粉丝量级/同内容形态/同客单价带）没想清楚，等一期客户用出来再设计。
