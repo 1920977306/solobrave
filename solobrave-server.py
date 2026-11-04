@@ -9797,6 +9797,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if path == '/api/feishu/console/fact-delete':
             self._handle_post_feishu_fact_delete()
             return
+        # §128: 一键创建飞书助理（代理 daren_bot /admin/api/tenant-create）
+        if path == '/api/feishu/console/tenant-create':
+            self._handle_post_feishu_tenant_create()
+            return
         if path.startswith('/api/credits/quotas/') and path.endswith('/recharge'):
             agent_id = path[len('/api/credits/quotas/'):-len('/recharge')]
             if agent_id and '/' not in agent_id:
@@ -18894,6 +18898,30 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         body = self._read_body() or {}
         status, obj = _daren_bot_admin_api('/admin/api/fact-delete',
                                            payload={'id': body.get('id')})
+        self._send_json(status, obj)
+
+    # ─── §128: 一键创建飞书助理 ───
+    def _handle_post_feishu_tenant_create(self):
+        """POST /api/feishu/console/tenant-create — 填表创建飞书助理。
+        代理 daren_bot /admin/api/tenant-create：标识/app_id 校验、secret 加密入库、
+        积分开户、长连接自动收敛全在 bot 侧；这里只做鉴权 + 白名单字段透传。
+        ★ app_secret 只透传不落地、不进日志（bot 侧加密后才入库）。"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not (auth.is_admin or auth.is_tenant_admin):
+            self._send_json_error(403, '仅管理员可创建飞书助理')
+            return
+        body = self._read_body() or {}
+        payload = {k: body.get(k) for k in
+                   ('tenant_key', 'app_id', 'app_secret', 'role', 'douyin_id', 'credits')
+                   if body.get(k) not in (None, '')}
+        if not payload.get('tenant_key') or not payload.get('app_id') \
+                or not payload.get('app_secret'):
+            self._send_json_error(400, '缺少必填项：助理标识 / APP ID / App Secret')
+            return
+        status, obj = _daren_bot_admin_api('/admin/api/tenant-create', payload=payload)
         self._send_json(status, obj)
 
     def _handle_get_credit_usage(self):

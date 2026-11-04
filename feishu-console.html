@@ -93,6 +93,24 @@
     background: #f7f8fa; border: 1px solid var(--line); border-radius: 8px; padding: 12px;
     max-height: 56vh; overflow: auto; margin: 0;
   }
+  /* §131 创建助理表单 */
+  .create-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px 14px; }
+  .create-grid label { font-size: 12px; color: var(--sub); display: block; margin-bottom: 4px; }
+  .create-grid input, .create-grid select {
+    width: 100%; padding: 7px 10px; border: 1px solid var(--line);
+    border-radius: 6px; font-size: 13px; background: #fff;
+  }
+  .create-actions { display: flex; gap: 10px; align-items: center; margin-top: 12px; flex-wrap: wrap; }
+  .create-actions button.primary { background: var(--accent); color: #fff; border-color: var(--accent); padding: 7px 22px; }
+  .create-actions button.primary:disabled { opacity: .5; cursor: default; }
+  .create-result { font-size: 13px; display: none; border-radius: 8px; padding: 10px 14px; margin-top: 12px; }
+  .create-result.show { display: block; }
+  .create-result.ok { background: #e8f8ee; border: 1px solid #a9e6bd; color: #0a7a33; }
+  .create-result.err { background: #ffece8; border: 1px solid #fdcdc5; color: var(--bad); }
+  details.steps { margin-top: 12px; font-size: 13px; }
+  details.steps summary { cursor: pointer; color: var(--accent); font-size: 13px; }
+  details.steps ol { margin: 8px 0 0 20px; line-height: 1.9; color: var(--text); }
+  details.steps code { background: #f2f3f5; border-radius: 4px; padding: 0 5px; font-size: 12px; }
 </style>
 </head>
 <body>
@@ -111,6 +129,43 @@
     <div class="dlg-foot" id="dlgFoot"></div>
   </div>
 </div>
+
+<section>
+  <h2>创建飞书助理<span class="subnote">填表即创建：校验 → secret 加密入库 → 自动开户 500 积分 → 长连接约 5 秒自动连上（无需重启）</span></h2>
+  <div class="create-grid">
+    <div><label>助理标识 *（小写字母开头，3-32 位）</label>
+      <input type="text" id="ctKey" placeholder="如 daren_jiejie"></div>
+    <div><label>角色 *</label>
+      <select id="ctRole">
+        <option value="daren">达人助理</option>
+        <option value="commerce">商务助理</option>
+        <option value="merchant" disabled>商家助理（暂未开放）</option>
+      </select></div>
+    <div><label>飞书 App ID *（cli_ 开头）</label>
+      <input type="text" id="ctAppId" placeholder="cli_xxxxxxxxxxxxxxxx"></div>
+    <div><label>App Secret *（8-128 字符）</label>
+      <input type="password" id="ctSecret" placeholder="从飞书开发者后台复制"></div>
+    <div><label>绑定抖音号（可选，4-24 位）</label>
+      <input type="text" id="ctDyid" placeholder="如 hlb725"></div>
+    <div><label>初始积分（默认 500）</label>
+      <input type="number" id="ctCredits" placeholder="500" min="1" step="1"></div>
+  </div>
+  <div class="create-actions">
+    <button class="primary" id="ctBtn" onclick="createTenant()">创建助理</button>
+    <span style="font-size:12px;color:var(--sub);">创建成功后到下方「租户总览」确认「在线」列变绿</span>
+  </div>
+  <div class="create-result" id="ctResult"></div>
+  <details class="steps">
+    <summary>飞书后台要准备什么？（5 步清单，建应用拿 App ID / Secret）</summary>
+    <ol>
+      <li>飞书开放平台 → 创建「企业自建应用」，起个名字（如「木木-达人助理」）</li>
+      <li>应用能力 → 添加「机器人」能力</li>
+      <li>事件订阅 → 添加事件 <code>im.message.receive_v1</code>（接收消息），接收方式选「<b>使用长连接接收事件</b>」并保存</li>
+      <li>权限管理 → 开通 <code>im:message</code>（读消息）+ <code>im:resource</code>（读图片），发布一个版本</li>
+      <li>把「凭证与基础信息」页的 <b>App ID</b> 和 <b>App Secret</b> 填进上面表单 → 点创建</li>
+    </ol>
+  </details>
+</section>
 
 <section>
   <h2>租户总览<span class="subnote">飞书 AI 租户 = 一个绑定的飞书机器人应用</span></h2>
@@ -381,6 +436,46 @@ async function viewRole(role, label) {
     $('dlgBody').innerHTML = `<div class="dlg-content"><pre>${esc(obj.content)}</pre></div>`;
   } catch (e) {
     $('dlgBody').innerHTML = `<div style="color:var(--bad);">加载失败：${esc(e.message || String(e))}</div>`;
+  }
+}
+
+/* §131 一键创建飞书助理（代理 /api/feishu/console/tenant-create → daren_bot admin） */
+function ctShow(ok, text) {
+  const el = $('ctResult');
+  el.className = 'create-result show ' + (ok ? 'ok' : 'err');
+  el.textContent = text;
+}
+async function createTenant() {
+  setErr('');
+  const body = {
+    tenant_key: ($('ctKey').value || '').trim(),
+    role: $('ctRole').value,
+    app_id: ($('ctAppId').value || '').trim(),
+    app_secret: ($('ctSecret').value || '').trim(),
+    douyin_id: ($('ctDyid').value || '').trim(),
+    credits: ($('ctCredits').value || '').trim()
+  };
+  if (!body.tenant_key || !body.app_id || !body.app_secret) {
+    ctShow(false, '请填齐必填项：助理标识 / App ID / App Secret'); return;
+  }
+  $('ctBtn').disabled = true;
+  ctShow(true, '创建中…');
+  try {
+    const resp = await fetch('/api/feishu/console/tenant-create', {
+      method: 'POST',
+      headers: Object.assign({ 'Content-Type': 'application/json' }, authHeaders()),
+      body: JSON.stringify(body)
+    });
+    const obj = await resp.json();
+    if (!resp.ok || !obj.ok) throw new Error(obj.error || `HTTP ${resp.status}`);
+    ctShow(true, `创建成功：${obj.tenant_key}（角色 ${ROLE_NAMES[obj.role] || obj.role}，余额 ${obj.balance}）。${obj.next || ''}`);
+    $('ctKey').value = ''; $('ctAppId').value = ''; $('ctSecret').value = '';
+    $('ctDyid').value = ''; $('ctCredits').value = '';
+    await loadConsole();   // 租户总览立刻能看到新行
+  } catch (e) {
+    ctShow(false, '创建失败：' + (e.message || String(e)));
+  } finally {
+    $('ctBtn').disabled = false;
   }
 }
 

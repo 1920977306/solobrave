@@ -477,3 +477,52 @@ class TestAgentOpProxy:
             assert sent['code'] == 200
             assert calls == [(bot_p, {'tenant_key': 'tk1'})], \
                 f'{p} 必须透传到 {bot_p}，实际 {calls}'
+
+
+# ---------- 守卫 6：§131 一键创建飞书助理代理（老大 11-04「把创建入口挂到主系统控制台」） ----------
+class TestTenantCreateProxy:
+    """POST /api/feishu/console/tenant-create — server 只做鉴权 + 白名单字段透传，
+    校验/加密/开户全在 bot 侧（§128）。守卫：非管理员 403 不碰代理；
+    缺必填 400 不碰代理；只透传白名单字段（app_secret 不得落地/进日志）。"""
+
+    def _call(self, srv, monkeypatch, payload, auth=None):
+        calls = []
+
+        def fake_api(p, payload=None):
+            calls.append((p, payload))
+            return 200, {'ok': True, 'tenant_key': 'daren_x', 'role': 'daren',
+                         'balance': 500}
+        monkeypatch.setattr(srv, '_daren_bot_admin_api', fake_api)
+        monkeypatch.setattr(srv, '_authenticate', lambda *a, **k: auth or _admin_auth())
+        bound, sent = _make_handler(srv, '_handle_post_feishu_tenant_create')
+        bound.__self__._read_body = lambda: payload   # fake H 类不带基类实现，实例级补
+        bound()
+        return sent, calls
+
+    def test_non_admin_forbidden(self, srv, monkeypatch):
+        auth = type('A', (), {'is_authenticated': True, 'is_admin': False,
+                              'is_tenant_admin': False, 'error': None,
+                              'status': 401, 'user_id': 'u1'})
+        sent, calls = self._call(srv, monkeypatch,
+                                 {'tenant_key': 'x', 'app_id': 'a', 'app_secret': 'b'},
+                                 auth=auth)
+        assert sent['code'] == 403
+        assert not calls, '无权时不许碰代理'
+
+    def test_missing_required_rejected(self, srv, monkeypatch):
+        sent, calls = self._call(srv, monkeypatch, {'tenant_key': 'daren_x'})
+        assert sent['code'] == 400
+        assert not calls, '缺必填项不许碰代理'
+
+    def test_forwards_whitelist_fields_only(self, srv, monkeypatch):
+        payload = {'tenant_key': 'daren_x', 'app_id': 'cli_abc123def456',
+                   'app_secret': 's' * 20, 'role': 'commerce',
+                   'douyin_id': 'hlb725', 'credits': 300,
+                   'evil': 'drop me'}
+        sent, calls = self._call(srv, monkeypatch, payload)
+        assert sent['code'] == 200
+        (p, body), = calls
+        assert p == '/admin/api/tenant-create'
+        assert 'evil' not in body, '非白名单字段必须丢弃'
+        assert body['app_secret'] == 's' * 20, 'secret 要透传给 bot 加密（不落 server 日志）'
+        assert body['credits'] == 300
