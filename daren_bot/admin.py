@@ -258,7 +258,7 @@ async function createTenant(){
     return toast('App ID / App Secret 都不能为空（助理标识留空会自动生成）', true);
   try {
     const j = await api('/admin/api/tenant-create', body);
-    toast(`已创建 ${j.tenant_key}（余额 ${j.balance}），长连接建立中…`);
+    toast(`已创建 ${j.tenant_key}（余额 ${j.balance}）。下一步：飞书里搜机器人私聊发「你好」测试；不回则查开放平台版本是否已发布。`);
     document.getElementById('nc-secret').value = '';
     load();
   } catch(e){ toast(e.message, true); }

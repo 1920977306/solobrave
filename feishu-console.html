@@ -440,11 +440,17 @@ async function viewRole(role, label) {
 }
 
 /* §131 一键创建飞书助理（代理 /api/feishu/console/tenant-create → daren_bot admin） */
-function ctShow(ok, text) {
+function ctShow(ok, html) {
   const el = $('ctResult');
   el.className = 'create-result show ' + (ok ? 'ok' : 'err');
-  el.textContent = text;
+  el.innerHTML = html;   // 调用方负责转义（esc）；成功提示里带验收步骤列表
 }
+const _CT_NEXT_STEPS = [
+  '到飞书开放平台确认「版本管理与发布」里已有一个<b>已发布</b>的版本（没发布机器人收不到消息）',
+  '在飞书里搜索机器人名字，私聊发一条「你好」——能秒回即算接通',
+  '达人助理：发一个<b>抖音号</b>开始分析；商务助理：发一个<b>商品链接或商品ID</b>试试',
+  '回本页看「租户总览」：新助理「在线」变绿、余额随使用扣减，即全链路正常'
+];
 async function createTenant() {
   setErr('');
   const body = {
@@ -468,12 +474,14 @@ async function createTenant() {
     });
     const obj = await resp.json();
     if (!resp.ok || !obj.ok) throw new Error(obj.error || `HTTP ${resp.status}`);
-    ctShow(true, `创建成功：${obj.tenant_key}（角色 ${ROLE_NAMES[obj.role] || obj.role}，余额 ${obj.balance}）。${obj.next || ''}`);
+    ctShow(true,
+      `✅ 创建成功：<b>${esc(obj.tenant_key)}</b>（${ROLE_NAMES[obj.role] || esc(obj.role)}，余额 ${fmt(obj.balance)}）。${esc(obj.next || '')}` +
+      `<ol style="margin:8px 0 0 18px;line-height:1.9;">${_CT_NEXT_STEPS.map((s, i) => `<li>${i + 1}. ${s}</li>`).join('')}</ol>`);
     $('ctKey').value = ''; $('ctAppId').value = ''; $('ctSecret').value = '';
     $('ctDyid').value = ''; $('ctCredits').value = '';
     await loadConsole();   // 租户总览立刻能看到新行
   } catch (e) {
-    ctShow(false, '创建失败：' + (e.message || String(e)));
+    ctShow(false, '创建失败：' + esc(e.message || String(e)));
   } finally {
     $('ctBtn').disabled = false;
   }
