@@ -8883,7 +8883,12 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
     """自定义请求处理器：静态文件 + 认证 + CORS 代理 + OpenClaw API"""
     def end_headers(self):
         # 开发模式禁用缓存
-        if self.path.endswith('.html') or self.path == '/' or self.path.endswith('.js'):
+        # ★ 2026-11-05 真 bug 修复：self.path 含 query string，
+        #   `/feishu-console.html?v=xxx`.endswith('.html') 恒 False ⇒ 带版本参数的
+        #   HTML 漏发 no-store ⇒ 浏览器启发式缓存（10%×龄期）把旧 iframe 页面存几天。
+        #   老大实测：刷新主页面后飞书助理控制台还是旧版。
+        _cache_path = self.path.split('?')[0].split('#')[0]
+        if _cache_path.endswith('.html') or _cache_path == '/' or _cache_path.endswith('.js'):
             self.send_header('Cache-Control', 'no-cache, no-store, must-revalidate')
             self.send_header('Pragma', 'no-cache')
         # ─── 安全响应头（防御深度，覆盖所有 endpoint） ───
