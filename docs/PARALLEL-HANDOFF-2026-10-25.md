@@ -10577,3 +10577,13 @@ H5 区块首行正确渲染。**小修**：product_name 里的 markdown `**` 在
   「你好」测回 ③达人发抖音号/商务发商品链接 ④租户总览在线变绿+余额扣减。
 - ctShow 改 innerHTML（调用方 esc 转义，错误分支已补 esc）；8092 后台 toast 同步加一句。
 - 线上 grep 验证页面已更新；测试 45 全绿；已推 main+dev 零分叉。
+
+## §132 带 query 的 HTML/JS 漏发 no-store——浏览器启发式缓存让旧版页面存活数天（A 边，2026-11-05 18:5x，commit `8b4de5a`）
+
+- 真 bug（老大实测）：刷新主页面后飞书助理控制台 iframe 仍是旧版
+  「助理标识必填」。根因：`self.path` **含 query string**，
+  `/feishu-console.html?v=xxx`.endswith('.html') 恒 False ⇒ 漏发
+  Cache-Control: no-store ⇒ 浏览器启发式缓存（10%×文件龄期）生效数天。
+- 修：end_headers 先剥 `?`/`#` 再判后缀；iframe data-src bump 到 v=20261105a（双保险）。
+- 验证：curl -sI '?v=20261105a' 已带 no-store；回归 1567 passed；已推零分叉。
+- ★ 同类排查口径：任何「按 self.path 后缀做判定」的逻辑都必须先剥 query。
