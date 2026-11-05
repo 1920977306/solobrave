@@ -111,6 +111,14 @@
   details.steps summary { cursor: pointer; color: var(--accent); font-size: 13px; }
   details.steps ol { margin: 8px 0 0 20px; line-height: 1.9; color: var(--text); }
   details.steps code { background: #f2f3f5; border-radius: 4px; padding: 0 5px; font-size: 12px; }
+  /* §133 角色能力说明（选中角色时动态显示） */
+  .role-desc {
+    margin-top: 12px; border: 1px solid var(--line); border-left: 3px solid var(--accent);
+    border-radius: 8px; background: #f7f8fa; padding: 10px 14px; font-size: 12.5px; line-height: 1.9;
+  }
+  .role-desc .rd-title { font-weight: 600; margin-bottom: 4px; }
+  .role-desc ul { margin: 0 0 0 16px; padding: 0; color: var(--text); }
+  .role-desc .rd-note { color: var(--sub); margin-top: 4px; }
 </style>
 </head>
 <body>
@@ -136,7 +144,7 @@
     <div><label>助理标识（可选，留空自动生成，小写字母开头 3-32 位）</label>
       <input type="text" id="ctKey" placeholder="留空即可，系统按 App ID 自动生成"></div>
     <div><label>角色 *</label>
-      <select id="ctRole">
+      <select id="ctRole" onchange="renderRoleDesc()">
         <option value="daren">达人助理</option>
         <option value="commerce">商务助理</option>
         <option value="merchant" disabled>商家助理（暂未开放）</option>
@@ -150,6 +158,7 @@
     <div><label>初始积分（默认 500）</label>
       <input type="number" id="ctCredits" placeholder="500" min="1" step="1"></div>
   </div>
+  <div class="role-desc" id="ctRoleDesc"></div>
   <div class="create-actions">
     <button class="primary" id="ctBtn" onclick="createTenant()">创建助理</button>
     <span style="font-size:12px;color:var(--sub);">创建成功后到下方「租户总览」确认「在线」列变绿</span>
@@ -451,6 +460,35 @@ const _CT_NEXT_STEPS = [
   '达人助理：发一个<b>抖音号</b>开始分析；商务助理：发一个<b>商品链接或商品ID</b>试试',
   '回本页看「租户总览」：新助理「在线」变绿、余额随使用扣减，即全链路正常'
 ];
+
+/* §133 角色能力说明：选中角色时动态显示（老大 2026-11-05「给客户开助理时一眼知道给了什么」） */
+const _ROLE_DESCS = {
+  daren: {
+    title: '达人助理 —— 开给带货达人',
+    caps: ['发<b>抖音号</b> → 账号分析（粉丝画像、带货数据、经营建议）',
+           '发<b>商品链接 / 商品ID</b> → 判断能不能带（🟢能带 / 🟡慎带 / 🔴别带）',
+           '发<b>商品截图</b> → 图片识别分析',
+           '说「推荐 / 选品」→ 智能选品推荐；说「接了 &lt;商品ID&gt;」→ 排品与每日提醒',
+           '发「换绑 &lt;抖音号&gt;」→ 换绑小号；每周自动出经营周报'],
+    note: '积分照常计费（账号分析 100 / 商品分析 20 / 问答 1，缓存命中免费）'
+  },
+  commerce: {
+    title: '商务助理 —— 开给商务同事',
+    caps: ['<b>查达人数据</b> / 达人账号分析',
+           '<b>商品分析</b>（商品链接 / 商品ID → 数据与结论）',
+           '<b>图片识别</b>（商品截图直接分析）'],
+    note: '积分照常计费；能力清单 = 系统上商务 AI 的标配'
+  },
+  merchant: { title: '商家助理', caps: [], note: '暂未开放（老大口径：商家先不做）' }
+};
+function renderRoleDesc() {
+  const d = _ROLE_DESCS[$('ctRole').value] || { title: '', caps: [], note: '' };
+  $('ctRoleDesc').innerHTML =
+    `<div class="rd-title">${d.title}</div>` +
+    (d.caps.length ? `<ul>${d.caps.map(c => `<li>${c}</li>`).join('')}</ul>` : '') +
+    (d.note ? `<div class="rd-note">${d.note}</div>` : '');
+}
+renderRoleDesc();   // 页面加载即按默认角色（达人助理）显示
 async function createTenant() {
   setErr('');
   const body = {

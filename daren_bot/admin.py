@@ -162,7 +162,8 @@ _PAGE = """<!DOCTYPE html>
         <input id="nc-key" style="width:100%;padding:6px 8px;border:1px solid var(--b);border-radius:6px"
                placeholder="留空即可，系统按 App ID 自动生成"></label>
       <label style="font-size:12px;color:#6b7280">角色<br>
-        <select id="nc-role" style="width:100%;padding:6px 8px;border:1px solid var(--b);border-radius:6px">
+        <select id="nc-role" onchange="renderRoleDesc()"
+                style="width:100%;padding:6px 8px;border:1px solid var(--b);border-radius:6px">
           <option value="daren">达人助理</option>
           <option value="commerce">商务助理</option>
         </select></label>
@@ -179,6 +180,7 @@ _PAGE = """<!DOCTYPE html>
         <input id="nc-credits" type="number" value="500" min="0" max="100000"
                style="width:100%;padding:6px 8px;border:1px solid var(--b);border-radius:6px"></label>
     </div>
+    <div id="nc-role-desc" style="margin-top:12px;border:1px solid var(--b);border-left:3px solid #165dff;border-radius:8px;background:#f7f8fa;padding:10px 14px;font-size:12.5px;line-height:1.9"></div>
     <div style="margin-top:12px;display:flex;gap:10px;align-items:center">
       <button class="primary" onclick="createTenant()">创建助理</button>
       <span class="hint" style="margin-top:0">创建后长连接约 5 秒内自动建立，无需重启服务。</span>
@@ -234,6 +236,27 @@ const token = new URLSearchParams(location.search).get('token') || '';
 function esc(s){ return String(s??'').replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 function fmt(ts){ const d=new Date(ts*1000); const p=n=>String(n).padStart(2,'0');
   return `${d.getMonth()+1}-${d.getDate()} ${p(d.getHours())}:${p(d.getMinutes())}`; }
+/* §133 角色能力说明（与 8443 控制台 feishu-console.html 同源口径） */
+const ROLE_DESCS = {
+  daren: { title:'达人助理 —— 开给带货达人',
+    caps:['发<b>抖音号</b> → 账号分析（粉丝画像、带货数据、经营建议）',
+          '发<b>商品链接 / 商品ID</b> → 判断能不能带（🟢能带 / 🟡慎带 / 🔴别带）',
+          '发<b>商品截图</b> → 图片识别分析',
+          '说「推荐 / 选品」→ 智能选品推荐；说「接了 &lt;商品ID&gt;」→ 排品与每日提醒',
+          '发「换绑 &lt;抖音号&gt;」→ 换绑小号；每周自动出经营周报'],
+    note:'积分照常计费（账号分析 100 / 商品分析 20 / 问答 1，缓存命中免费）' },
+  commerce: { title:'商务助理 —— 开给商务同事',
+    caps:['<b>查达人数据</b> / 达人账号分析','<b>商品分析</b>（商品链接 / 商品ID）','<b>图片识别</b>（商品截图直接分析）'],
+    note:'积分照常计费；能力清单 = 系统上商务 AI 的标配' },
+};
+function renderRoleDesc(){
+  const d = ROLE_DESCS[document.getElementById('nc-role').value] || {title:'',caps:[],note:''};
+  document.getElementById('nc-role-desc').innerHTML =
+    `<div style="font-weight:600;margin-bottom:4px">${d.title}</div>` +
+    (d.caps.length ? `<ul style="margin:0 0 0 16px;padding:0">${d.caps.map(c=>`<li>${c}</li>`).join('')}</ul>` : '') +
+    (d.note ? `<div style="color:#6b7280;margin-top:4px">${d.note}</div>` : '');
+}
+renderRoleDesc();
 function toast(msg, bad){ const t=document.getElementById('toast');
   t.textContent=msg; t.style.background=bad?'#dc2626':'#111827';
   t.style.display='block'; setTimeout(()=>t.style.display='none', 2500); }
