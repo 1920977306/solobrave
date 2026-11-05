@@ -133,8 +133,8 @@
 <section>
   <h2>创建飞书助理<span class="subnote">填表即创建：校验 → secret 加密入库 → 自动开户 500 积分 → 长连接约 5 秒自动连上（无需重启）</span></h2>
   <div class="create-grid">
-    <div><label>助理标识 *（小写字母开头，3-32 位）</label>
-      <input type="text" id="ctKey" placeholder="如 daren_jiejie"></div>
+    <div><label>助理标识（可选，留空自动生成，小写字母开头 3-32 位）</label>
+      <input type="text" id="ctKey" placeholder="留空即可，系统按 App ID 自动生成"></div>
     <div><label>角色 *</label>
       <select id="ctRole">
         <option value="daren">达人助理</option>
@@ -455,8 +455,8 @@ async function createTenant() {
     douyin_id: ($('ctDyid').value || '').trim(),
     credits: ($('ctCredits').value || '').trim()
   };
-  if (!body.tenant_key || !body.app_id || !body.app_secret) {
-    ctShow(false, '请填齐必填项：助理标识 / App ID / App Secret'); return;
+  if (!body.app_id || !body.app_secret) {
+    ctShow(false, '请填齐必填项：App ID / App Secret（助理标识留空会自动生成）'); return;
   }
   $('ctBtn').disabled = true;
   ctShow(true, '创建中…');

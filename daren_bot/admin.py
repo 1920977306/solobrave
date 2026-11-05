@@ -158,9 +158,9 @@ _PAGE = """<!DOCTYPE html>
   <section>
     <h2>创建飞书助理（填表即创建）</h2>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px 20px;max-width:760px">
-      <label style="font-size:12px;color:#6b7280">助理标识（小写字母开头，3-32位）<br>
+      <label style="font-size:12px;color:#6b7280">助理标识（可选，留空自动生成）<br>
         <input id="nc-key" style="width:100%;padding:6px 8px;border:1px solid var(--b);border-radius:6px"
-               placeholder="如 daren_jiejie / biz_lily"></label>
+               placeholder="留空即可，系统按 App ID 自动生成"></label>
       <label style="font-size:12px;color:#6b7280">角色<br>
         <select id="nc-role" style="width:100%;padding:6px 8px;border:1px solid var(--b);border-radius:6px">
           <option value="daren">达人助理</option>
@@ -254,8 +254,8 @@ async function createTenant(){
     douyin_id: document.getElementById('nc-dy').value.trim(),
     credits: parseInt(document.getElementById('nc-credits').value || '0', 10) || 0,
   };
-  if(!body.tenant_key || !body.app_id || !body.app_secret)
-    return toast('助理标识 / App ID / App Secret 都不能为空', true);
+  if(!body.app_id || !body.app_secret)
+    return toast('App ID / App Secret 都不能为空（助理标识留空会自动生成）', true);
   try {
     const j = await api('/admin/api/tenant-create', body);
     toast(`已创建 ${j.tenant_key}（余额 ${j.balance}），长连接建立中…`);
@@ -512,12 +512,25 @@ def make_handler(state: dict):
                     credits0 = int(body.get("credits") or 0)
                 except (TypeError, ValueError):
                     credits0 = 0
-                if not _re.fullmatch(r"[a-z][a-z0-9_-]{2,31}", tk):
+                if not _re.fullmatch(r"cli_[A-Za-z0-9]{10,24}", app_id):
                     return self._json(400, {"ok": False, "error":
-                        "助理标识：小写字母开头，3-32 位小写字母/数字/下划线/中划线"})
-                if db.get_tenant(tk):
+                        "App ID 格式不对（应形如 cli_ 开头的一串字母数字）"})
+                _auto_tk = not tk
+                if _auto_tk:
+                    # ★ 老大 2026-11-05：助理标识（=内部唯一主键，达人不可见）不该让人手填——
+                    #   留空则从 App ID 自动生成（App ID 全局唯一，天然不会撞）。
+                    base = "t_" + app_id[-8:].lower()
+                    tk = base
+                    _n = 1
+                    while db.get_tenant(tk):
+                        _n += 1
+                        tk = f"{base[:31]}_{_n}"
+                elif db.get_tenant(tk):
                     return self._json(400, {"ok": False, "error":
                         f"助理标识已存在: {tk}"})
+                if not _re.fullmatch(r"[a-z][a-z0-9_-]{2,31}", tk):
+                    return self._json(400, {"ok": False, "error":
+                        "助理标识：小写字母开头，3-32 位小写字母/数字/下划线/中划线（留空可自动生成）"})
                 if not _re.fullmatch(r"cli_[A-Za-z0-9]{10,24}", app_id):
                     return self._json(400, {"ok": False, "error":
                         "App ID 格式不对（应形如 cli_ 开头的一串字母数字）"})

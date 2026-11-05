@@ -18917,9 +18917,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         payload = {k: body.get(k) for k in
                    ('tenant_key', 'app_id', 'app_secret', 'role', 'douyin_id', 'credits')
                    if body.get(k) not in (None, '')}
-        if not payload.get('tenant_key') or not payload.get('app_id') \
-                or not payload.get('app_secret'):
-            self._send_json_error(400, '缺少必填项：助理标识 / APP ID / App Secret')
+        if not payload.get('app_id') or not payload.get('app_secret'):
+            self._send_json_error(400, '缺少必填项：APP ID / App Secret（助理标识留空自动生成）')
             return
         status, obj = _daren_bot_admin_api('/admin/api/tenant-create', payload=payload)
         self._send_json(status, obj)
