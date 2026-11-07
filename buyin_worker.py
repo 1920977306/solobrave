@@ -522,10 +522,19 @@ def _fallback_cfgs():
     """
     return llm_channels.vision_rings()
 
+def _strip_think(text):
+    """剥离 reasoning 模型（MiniMax-M3 等）原始输出里的 <think>…</think> 思考块。
+    2026-11-05 核查实锤：visual_desc 落库混入整段思考过程（4/4 样本命中）。
+    思考块不参与任何下游消费（落库/报告/展示），只留最终回答。
+    无 think 块原样返回；只有 think 块（空回答）返回 ''。"""
+    return re.sub(r'<think>.*?</think>', '', str(text or ''),
+                  flags=re.S).strip()
+
+
 def _vision_chat(base, key, model, prompt, content_parts, temperature=0.0,
                  timeout=300):
     """通用多模态 chat：content_parts 为 [{'type':'text'|'image_url'|'video_url',...}]。
-    返回 content 字符串。"""
+    返回 content 字符串（已剥 <think> 思考块，唯一出口，所有视觉消费方共享）。"""
     req = urllib.request.Request(
         base + '/chat/completions',
         data=json.dumps({
@@ -539,7 +548,8 @@ def _vision_chat(base, key, model, prompt, content_parts, temperature=0.0,
         method='POST')
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         data = json.loads(resp.read().decode('utf-8'))
-    return (data.get('choices') or [{}])[0].get('message', {}).get('content') or ''
+    return _strip_think(
+        (data.get('choices') or [{}])[0].get('message', {}).get('content') or '')
 
 
 def _vision_extract_fields(shots):
@@ -1576,6 +1586,21 @@ def _teardown_rank_scores(rows):
             + w['gmv'] * ng[i] for i in range(len(rows))]
 
 
+def _teardown_rank_audit_lines(rows, scores):
+    """候选池审计行（纯函数）：每候选一行「标题 + 观看/赞/评/结算 + 总分」。
+    2026-11-05 核查实锤：排序只落库 TOP N，其余候选指标无任何留存，
+    事后无法重算核对（撞上实例：6 候选只存 2）。打全池行让 TOP N 永远可审计。
+    顺序与 rows 一致（DOM 序，排序前），scores 必须与 rows 等长。"""
+    lines = []
+    for i, (r, s) in enumerate(zip(rows, scores or [])):
+        lines.append(
+            f'候选{i + 1}/{len(rows)}: {(r.get("title") or "")[:20]} '
+            f'观看{r.get("plays") or "-"} 赞{r.get("likes") or "-"} '
+            f'评{r.get("comments") or "-"} 结算{r.get("gmv") or "-"} '
+            f'→ 分{float(s):.2f}')
+    return lines
+
+
 def _extract_video_rows(page):
     """视频详情 tab（auxo-table 布局，列可配：用表头映射取列）→ [视频项]。
     视频行特征：首列含发布日期 \\d{4}/\\d{2}/\\d{2}。"""
@@ -2102,6 +2127,9 @@ def teardown_pipeline(job_id, talent_id, name, douyin_id, top_n=3):
             _dump_page(profile, 'no_video_rows', job_id)
             raise RuntimeError('视频详情 tab 未解析到视频列表（页面结构可能变化，现场已留存）')
         scores = _teardown_rank_scores(rows)
+        # 全池审计行：候选只落 TOP N，不打全池行则其余候选指标无任何留存（不可重算）
+        for line in _teardown_rank_audit_lines(rows, scores):
+            log(f'  [Teardown] 排名审计 {job_id} {line}')
         order = sorted(range(len(rows)), key=lambda i: (-scores[i], i))
         # 分数随行一起重排，保持行↔分对应（重排后 rows[i] 的分数是 sorted_scores[i]）
         rows = [rows[i] for i in order]

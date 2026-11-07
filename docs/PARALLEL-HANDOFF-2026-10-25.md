@@ -10605,3 +10605,36 @@ H5 区块首行正确渲染。**小修**：product_name 里的 markdown `**` 在
 - commerce.md 加「被问你能干什么时的标准回答」节（查达人/商品分析/图片识别/
   建联辅助 + 参考句式），明确「不许多承诺也不许多拒绝」。
 - persona_text 每次实时读盘，无缓存无需重启；角色相关测试 54 全绿；零分叉。
+
+## §135 视频拆解两处核查缺陷修复（Kimi Work 核查边，2026-11-07 13:2x，分支 `feat/teardown-audit-fix`）
+
+> 触发：11-05 达人视频拆解链路全链路核查（11-04 百应改版修复 + 多指标加权排序上线后的运行质量）。
+> 工作目录：`/Users/qichen/sb-dev/teardown-audit-fix`（自有 worktree，**未碰部署目录**）。
+
+### 背景（生产实锤，非推测）
+
+- 11-04 18:00 后至 11-07 12:58 **无达人真实触发的列表拆解样本**（全表复查仅 1 条直链任务，触发方待确认）。
+- 11-07 12:58 经老大确认补跑一次真实路径验证（`POST /teardown`，top_n=3，洁洁 hlb725，
+  job `vjob_1794027539439_60241f`）：全链路通过——新布局解析 6 候选、TOP3 全 done、
+  转写/画面/报告/三节齐全；`_teardown_rank_scores` 重算排序与日志一致（无并列）。
+
+### 两处修复（`buyin_worker.py`）
+
+| 缺陷 | 证据 | 修法 |
+|---|---|---|
+| `visual_desc` 混入 MiniMax-M3 `<think>` 思考块 | 生产 4/4 样本命中（11-04 直链任务 + 17:42 列表任务 3 条），3000 字符字段大半是推理噪音 | `_strip_think` 纯函数 + `_vision_chat` **唯一出口**统一剥离（列表/直链两条管线共用，不各改一处） |
+| 排序候选池无留存，事后不可重算 | 6 候选只落 TOP2/3，其余指标无留存；核查时撞上全池重算不可行 | `_teardown_rank_audit_lines` 纯函数，排序前打全池审计行（标题+观看/赞/评/结算+总分） |
+
+### 本轮占用登记
+
+| 对象 | 谁占用 | 状态 |
+|---|---|---|
+| `buyin_worker.py` | **Kimi Work 核查边** | 本轮已交付（本 § 记录）|
+| `tests/test_teardown_audit_fix.py`（新）| **Kimi Work 核查边** | 本轮已交付 |
+
+- 守门：`test_vision_chat_returns_stripped_content` 是**行为守卫**（monkeypatch urlopen
+  喂带 think 块的假响应，断言返回被剥净），不是符号检查；审计行用例断言「每候选一行
+  + 真实指标 + 该候选自己的总分」，防「有日志行但核对不了」的恒真形态。
+- 验证：`test_teardown_audit_fix.py` 11 条 + `test_teardown_rank.py` 9 条 +
+  buyin/vision 相关 151 条全绿；`secret_scan` exit 0。
+- 部署影响：worker 重启后生效（launchd）；历史 visual_desc 脏数据不回刷（报告产物未受影响，字段若被前端展示才需要清，待 A 边定）。
