@@ -17147,6 +17147,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             return
         agent = _get_agent_by_id(auth.user_id)
         agent_config = dict(agent) if agent else None
+        # ★ 审核决策留痕（2026-11-07）：body.review = {reason_code, confidence,
+        #   reason_note}——审核界面方案 B（强制选理由）随 PUT 带上来，
+        #   过审成功才落 kb_decisions（失败不留痕，避免脏样本）。
+        review = body.get('review') if isinstance(body.get('review'), dict) else None
         try:
             updated = ks.kb_entry_update(
                 entry_id=entry_id,
@@ -17164,6 +17168,13 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 agent_config=agent_config,
                 is_admin=auth.is_admin,
             )
+            if review and new_status == 'ok' and (doc.get('status') or 'ok') != 'ok':
+                ks.log_kb_decision(
+                    entry_id, 'approved',
+                    reason_code=review.get('reason_code') or 'verified',
+                    confidence=review.get('confidence') or 'sure',
+                    reason_note=review.get('reason_note') or '',
+                    decided_by=auth.user_id, entry_row=doc)
             self._send_json(200, updated)
         except RuntimeError as e:
             # ★ 审核面板（2026-10-29）：过审兜底向量化失败（无 embedding key / 向量化挂）
@@ -17195,6 +17206,23 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             return
         try:
             deleted = ks.kb_entry_delete(entry_id, is_admin=auth.is_admin, operator_id=auth.user_id)
+            # ★ 审核决策留痕（2026-11-07）：审核面板「拒绝」走 DELETE 并带
+            #   body.review = {reason_code, confidence, reason_note}（方案 B 强制
+            #   选理由）。rejected 存删前全文——不可逆数据的唯一保底。
+            # 详情页普通删除不带 review，不强制（非审核动作）。
+            if deleted:
+                try:
+                    body = self._read_body() or {}
+                except Exception:
+                    body = {}
+                review = body.get('review') if isinstance(body.get('review'), dict) else None
+                if review:
+                    ks.log_kb_decision(
+                        entry_id, 'rejected',
+                        reason_code=review.get('reason_code') or '',
+                        confidence=review.get('confidence') or 'sure',
+                        reason_note=review.get('reason_note') or '',
+                        decided_by=auth.user_id, entry_row=doc)
             self._send_json(200, {'success': deleted, 'id': entry_id, 'soft_delete': True})
         except Exception as e:
             logger.error(f'  [KBEntry] soft delete failed: {e}')

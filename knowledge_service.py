@@ -2162,6 +2162,32 @@ def init_kb_entries_db():
         conn.execute('CREATE INDEX IF NOT EXISTS idx_kb_recall_hits_query ON kb_recall_hits(query_id)')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_kb_recall_hits_entry ON kb_recall_hits(entry_id)')
 
+        # ★ 审核决策留痕（2026-11-07，老大拍板）：状态变更 ≠ 学习样本——
+        #   生产实测 soft_delete 192 次 0 条理由，案例池是空的。
+        #   每次审核（通过/拒绝）落一行：给 few-shot 检索攒「带理由的案例」。
+        #   content_snapshot：rejected 必须存删前全文（不可逆数据的唯一保底，
+        #   删了就没，唯一一次机会）；其他决策原文还在，存前 500 字够复盘。
+        #   confidence=sure/unsure：unsure 是边界案例采集位（让人犹豫的才值钱），
+        #   few-shot 检索时优先用。
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS kb_decisions (
+                id TEXT PRIMARY KEY,
+                entry_id TEXT NOT NULL,
+                entry_snapshot TEXT DEFAULT '{}',
+                content_snapshot TEXT DEFAULT '',
+                decision TEXT NOT NULL,
+                reason_code TEXT DEFAULT '',
+                confidence TEXT DEFAULT 'sure',
+                reason_note TEXT DEFAULT '',
+                merged_into TEXT DEFAULT '',
+                decided_by TEXT DEFAULT '',
+                created_at INTEGER
+            )
+        ''')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_kb_decisions_entry ON kb_decisions(entry_id)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_kb_decisions_created ON kb_decisions(created_at)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_kb_decisions_reason ON kb_decisions(decision, reason_code)')
+
         conn.execute('''
             CREATE TABLE IF NOT EXISTS token_usage (
                 id TEXT PRIMARY KEY,
@@ -2248,6 +2274,61 @@ def _kb_entry_row_to_dict(row):
         'createdByLabel': (_parse_source_meta(row['source_meta'] if 'source_meta' in _row_keys else '')
                            .get('tenant_label') or (row['created_by'] or '')),
     }
+
+
+REJECT_REASON_CODES = ('duplicate', 'stale', 'inaccurate', 'out_of_scope', 'unclear', 'other')
+DECISION_REASON_CODES = REJECT_REASON_CODES + ('verified',)
+# reason_code 中文口径（审核界面 chip / 导出清单共用，别在两处各写一份）
+REASON_CODE_LABELS = {
+    'duplicate': '重复了',
+    'stale': '过期了',
+    'inaccurate': '不准',
+    'out_of_scope': '不该入库',
+    'unclear': '表述不清',
+    'other': '其他',
+    'verified': '核实无误',
+}
+
+
+def log_kb_decision(entry_id, decision, reason_code='', confidence='sure',
+                    reason_note='', merged_into='', decided_by='', entry_row=None):
+    """审核决策留痕（2026-11-07）：给 few-shot 检索攒「带理由的案例」。
+
+    - rejected：content_snapshot 存删前**全文**（不可逆数据的唯一保底，删了就没）
+    - 其他决策：原文还在库里，存前 500 字够复盘
+    - confidence='unsure'：边界案例采集位（让人犹豫的才值钱），检索时优先用
+    - 写库失败只记日志：观测层绝不冒泡打死审核主链路
+    """
+    snap = {}
+    full = ''
+    if isinstance(entry_row, dict):
+        title = entry_row.get('title') or ''
+        content = entry_row.get('content') or ''
+        snap = {
+            'title': title,
+            'category': entry_row.get('category') or '',
+            'scope': entry_row.get('scope') or 'global',
+            'content_head': content[:500],
+        }
+        full = content if decision == 'rejected' else content[:500]
+    now = int(time.time() * 1000)
+    conn = None
+    try:
+        conn = _db_conn()
+        conn.execute(
+            'INSERT INTO kb_decisions (id, entry_id, entry_snapshot, content_snapshot, '
+            'decision, reason_code, confidence, reason_note, merged_into, decided_by, created_at) '
+            'VALUES (?,?,?,?,?,?,?,?,?,?,?)',
+            (f'kbd_{now}_{uuid.uuid4().hex[:8]}', entry_id or '',
+             json.dumps(snap, ensure_ascii=False), full,
+             decision or '', reason_code or '', confidence or 'sure',
+             reason_note or '', merged_into or '', decided_by or '', now))
+        conn.commit()
+    except Exception as e:
+        logger.error(f'[KB] decision log failed: {e}')
+    finally:
+        if conn is not None:
+            conn.close()
 
 
 def log_kb_recall(query, requester_id, emp_id, docs, duration_ms):

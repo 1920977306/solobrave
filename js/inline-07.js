@@ -1192,11 +1192,114 @@ function _sb2KbReviewRerender(){
   _sb2KbDoFilter(); /* 保留当前页码（审核中途翻页不被重置打断） */
 }
 
+/* ============================================================
+ * ★ 审核决策留痕（2026-11-07，老大拍板方案 B）：理由强制 + 快捷键。
+ * 背景：生产实测 soft_delete 192 次 0 条理由——状态变更 ≠ 学习样本。
+ * 拒绝必须选理由（按 1-6）；通过默认「核实无误」直接 Enter。
+ * U = 标「不确定」（边界案例：让人犹豫的判断单独一档，few-shot 优先用）；
+ * Esc = 取消。reason_code 口径与服务端 ks.REJECT_REASON_CODES 对齐。
+ * ============================================================ */
+var _sb2KbReviewReasons = [
+  ['duplicate', '重复了'],
+  ['stale', '过期了'],
+  ['inaccurate', '不准'],
+  ['out_of_scope', '不该入库'],
+  ['unclear', '表述不清'],
+  ['other', '其他（建议补一句）']
+];
+
+function sb2KbReviewModal(opts){
+  /* opts: {title, entryTitle, mode: 'approve'|'reject'} → Promise<payload|null> */
+  return new Promise(function(resolve){
+    var overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(15,18,30,.55);z-index:9999;display:flex;align-items:center;justify-content:center;';
+    var isReject = opts.mode === 'reject';
+    var chipsHtml = '';
+    if (isReject) {
+      chipsHtml = '<div style="margin-bottom:10px;"><div style="color:#888;margin-bottom:6px;">拒绝理由（按 1-6 选择，必选）</div><div style="display:flex;flex-wrap:wrap;gap:6px;" id="sb2KbReviewChips">' +
+        _sb2KbReviewReasons.map(function(r, i){
+          return '<button type="button" class="sb2-kb-chip" data-reason="' + r[0] + '" style="cursor:pointer;">' + (i + 1) + ' ' + escapeHtml(r[1]) + '</button>';
+        }).join('') + '</div></div>';
+    }
+    overlay.innerHTML = '<div style="background:#fff;border-radius:12px;padding:20px 22px;width:430px;max-width:92vw;box-shadow:0 12px 40px rgba(0,0,0,.25);font-size:13px;color:#333;">' +
+      '<div style="font-weight:600;margin-bottom:4px;font-size:14px;">' + escapeHtml(opts.title) + '</div>' +
+      (opts.entryTitle ? '<div style="color:#888;margin-bottom:12px;word-break:break-all;">' + escapeHtml(opts.entryTitle) + '</div>' : '') +
+      chipsHtml +
+      '<label style="display:flex;align-items:center;gap:6px;cursor:pointer;margin-bottom:10px;color:#555;">' +
+        '<input type="checkbox" id="sb2KbReviewUnsure"> <span>这个判断我不确定 <kbd style="border:1px solid #ccc;border-radius:3px;padding:0 4px;font-size:11px;">U</kbd></span></label>' +
+      '<input id="sb2KbReviewNote" placeholder="' + (isReject ? '选「其他」时建议补一句（选填）' : '备注（选填）') + '" ' +
+        'style="width:100%;box-sizing:border-box;padding:6px 8px;border:1px solid #ddd;border-radius:6px;font-size:12px;margin-bottom:14px;">' +
+      '<div style="display:flex;justify-content:flex-end;gap:8px;">' +
+        '<button type="button" id="sb2KbReviewCancel" style="padding:6px 14px;border:1px solid #ddd;border-radius:6px;background:#fff;cursor:pointer;">取消 (Esc)</button>' +
+        '<button type="button" id="sb2KbReviewOk" style="padding:6px 14px;border:none;border-radius:6px;background:#4f6ef7;color:#fff;cursor:pointer;">' +
+          (isReject ? '确认拒绝' : '确认通过') + ' (Enter)</button>' +
+      '</div></div>';
+    document.body.appendChild(overlay);
+    var selectedReason = null;
+    var noteInput = overlay.querySelector('#sb2KbReviewNote');
+    var unsureBox = overlay.querySelector('#sb2KbReviewUnsure');
+    var okBtn = overlay.querySelector('#sb2KbReviewOk');
+    function refresh(){
+      okBtn.disabled = isReject && !selectedReason;
+      overlay.querySelectorAll('#sb2KbReviewChips .sb2-kb-chip').forEach(function(c){
+        var on = c.getAttribute('data-reason') === selectedReason;
+        c.style.background = on ? '#4f6ef7' : '';
+        c.style.color = on ? '#fff' : '';
+        c.style.borderColor = on ? '#4f6ef7' : '';
+      });
+    }
+    overlay.querySelectorAll('#sb2KbReviewChips .sb2-kb-chip').forEach(function(c){
+      c.addEventListener('click', function(){
+        selectedReason = c.getAttribute('data-reason');
+        refresh();
+        if (selectedReason === 'other') noteInput.focus();
+      });
+    });
+    function cleanup(){
+      document.removeEventListener('keydown', onKey, true);
+      overlay.remove();
+    }
+    function confirm(){
+      if (isReject && !selectedReason) return;
+      cleanup();
+      resolve({ reason_code: isReject ? selectedReason : 'verified',
+                confidence: unsureBox.checked ? 'unsure' : 'sure',
+                reason_note: noteInput.value.trim() });
+    }
+    function onKey(ev){
+      if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); cleanup(); resolve(null); }
+      else if (ev.key === 'Enter') { ev.preventDefault(); ev.stopPropagation(); confirm(); }
+      else if ((ev.key === 'u' || ev.key === 'U') && document.activeElement !== noteInput) {
+        ev.preventDefault(); unsureBox.checked = !unsureBox.checked;
+      }
+      else if (isReject && ev.key >= '1' && ev.key <= '6' && document.activeElement !== noteInput) {
+        ev.preventDefault();
+        selectedReason = _sb2KbReviewReasons[parseInt(ev.key, 10) - 1][0];
+        refresh();
+      }
+    }
+    document.addEventListener('keydown', onKey, true);
+    overlay.addEventListener('mousedown', function(ev){ if (ev.target === overlay) { cleanup(); resolve(null); } });
+    overlay.querySelector('#sb2KbReviewCancel').addEventListener('click', function(){ cleanup(); resolve(null); });
+    okBtn.addEventListener('click', confirm);
+    refresh();
+  });
+}
+
+function _sb2KbFindEntry(entryId){
+  var list = (typeof _sb2KbEntries !== 'undefined') ? _sb2KbEntries : [];
+  for (var i = 0; i < list.length; i++) { if (list[i].id === entryId) return list[i]; }
+  return null;
+}
+
 async function sb2KbApproveEntry(entryId){
   if (!entryId) return;
+  var entry = _sb2KbFindEntry(entryId);
+  var review = await sb2KbReviewModal({ title: '通过这条知识？', entryTitle: entry ? entry.title : '', mode: 'approve' });
+  if (!review) return;
   try {
     var resp = await apiFetch('/api/knowledge/entries/' + encodeURIComponent(entryId), {
-      method: 'PUT', body: JSON.stringify({ status: 'ok' })
+      method: 'PUT', body: JSON.stringify({ status: 'ok', review: review })
     });
     if (resp && resp.ok) {
       var doc = await resp.json().catch(function(){ return null; });
@@ -1215,9 +1318,16 @@ async function sb2KbApproveEntry(entryId){
 
 async function sb2KbRejectEntry(entryId){
   if (!entryId) return;
-  if (!confirm('拒绝后该条目会移出知识库（软删，7 天内可找回）。确定拒绝？')) return;
+  var entry = _sb2KbFindEntry(entryId);
+  var review = await sb2KbReviewModal({
+    title: '拒绝这条知识？（软删，7 天内可找回；拒绝理由会存为学习样本）',
+    entryTitle: entry ? entry.title : '', mode: 'reject'
+  });
+  if (!review) return;
   try {
-    var resp = await apiFetch('/api/knowledge/entries/' + encodeURIComponent(entryId), { method: 'DELETE' });
+    var resp = await apiFetch('/api/knowledge/entries/' + encodeURIComponent(entryId), {
+      method: 'DELETE', body: JSON.stringify({ review: review })
+    });
     if (resp && resp.ok) {
       _sb2KbRemoveLocal(entryId);
       showToast('已拒绝（软删）', 'success');
@@ -1240,14 +1350,16 @@ async function sb2KbApprovePage(){
   var cur = Math.min(Math.max(1, _sb2KbPage || 1), Math.max(1, Math.ceil(filtered.length / pageSize)));
   var slice = filtered.slice((cur - 1) * pageSize, cur * pageSize);
   if (!slice.length) { showToast('本页没有待审核条目', 'info'); return; }
-  if (!confirm('将通过本页 ' + slice.length + ' 条待审核条目（每条会自动完成向量化）。继续？')) return;
+  /* ★ 决策留痕（2026-11-07）：批量通过也要带一次理由（Enter 即确认，默认核实无误） */
+  var review = await sb2KbReviewModal({ title: '本页 ' + slice.length + ' 条全部通过？', mode: 'approve' });
+  if (!review) return;
   var okCount = 0, failCount = 0;
   for (var i = 0; i < slice.length; i++){
     var entryId = slice[i].id;
     showToast('正在通过 ' + (i + 1) + '/' + slice.length + '…', 'info');
     try {
       var resp = await apiFetch('/api/knowledge/entries/' + encodeURIComponent(entryId), {
-        method: 'PUT', body: JSON.stringify({ status: 'ok' })
+        method: 'PUT', body: JSON.stringify({ status: 'ok', review: review })
       });
       if (resp && resp.ok) {
         var doc = await resp.json().catch(function(){ return null; });
