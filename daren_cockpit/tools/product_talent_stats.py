@@ -62,7 +62,9 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import sqlite3
 import time
+from pathlib import Path
 
 # ─────────────────────────── 解析（纯函数）───────────────────────────
 
@@ -312,3 +314,115 @@ def save_rows(conn, rows: list[dict]) -> int:
         n += 1
     conn.commit()
     return n
+
+
+# ─────────────────────────── 周采集编排（feedback loop）───────────────────────────
+
+def _repo_root() -> Path:
+    return Path(__file__).resolve().parents[2]
+
+
+def _monday_utc8(ts: float | None = None) -> str:
+    """本周一（北京时间）的 YYYY-MM-DD。周闸门按自然周切。"""
+    from datetime import datetime, timedelta, timezone
+    d = datetime.fromtimestamp(ts or time.time(),
+                               tz=timezone(timedelta(hours=8))).date()
+    return (d - timedelta(days=d.weekday())).isoformat()
+
+
+def collect_for_matched_products(db_path=None, cache_path=None, limit: int = 15,
+                                 log_fn=print,
+                                 attempts_path=None) -> dict:
+    """周采集钩子：把挂载了平台商品 ID 的商品逐个采「前几位带货达人」落库。
+
+    触发点：daren_bot weekly.post_collect（周采集成功后）。post_collect 是
+    **每个达人**都会调的 ⇒ 必须有周闸门：本周采够配额就整体跳过。
+
+    数据源：daren-dim-cache.json（商品ID → promotion_id，dim collector
+    跑 material_list 的缓存，47/47 全覆盖）——不重复调商品查询接口。
+
+    周闸门双记录（2026-11-07 实测修补）：无内容商品不落库，没这层的话
+    同一批无内容商品会每周反复吃掉配额——
+      - 落库行（stat_date>=本周一）= 本周采到了；
+      - attempts 文件（{商品ID: 日期}）= 今天尝试过（含无内容/失败）；
+      ⇒ todo = 本周没落库、且今天没尝试过的。
+
+    只丢不造：单个商品失败（无带货内容/风控/超时）记 err 继续下一个；
+    「商品无带货内容」不是技术故障，与失败分列。
+    """
+    root = _repo_root()
+    db_path = Path(db_path) if db_path else root / "data" / "solobrave.db"
+    cache_path = Path(cache_path) if cache_path else root / "data" / "daren-dim-cache.json"
+    attempts_path = Path(attempts_path) if attempts_path else \
+        root / "data" / "loop2-attempts.json"
+    out = {"candidates": 0, "quota": 0, "done": 0, "no_content": 0,
+           "errors": 0, "skipped": False}
+    if not cache_path.exists() or not db_path.exists():
+        out["skipped"] = True
+        return out
+    cache = json.loads(cache_path.read_text())
+    attempts = {}
+    if attempts_path.exists():
+        try:
+            attempts = json.loads(attempts_path.read_text())
+        except Exception:  # noqa: BLE001
+            attempts = {}
+    today = time.strftime("%Y-%m-%d", time.localtime())
+    conn = sqlite3.connect(str(db_path), timeout=15)
+    try:
+        ensure = None
+        try:
+            from daren_cockpit.tools import captain_stats
+            ensure = captain_stats.ensure_schema
+        except Exception:  # noqa: BLE001
+            pass
+        if ensure:
+            ensure(conn)
+        # 待采 = cache 里有 promotion_id 的商品
+        promo_by_pid = {str(k): str(v.get("promotion_id") or "")
+                        for k, v in cache.items()
+                        if isinstance(v, dict) and v.get("promotion_id")}
+        out["candidates"] = len(promo_by_pid)
+        # 周闸门：本周一（含）已采过 或 今天已尝试过 的都跳过
+        monday = _monday_utc8()
+        done_this_week = {r[0] for r in conn.execute(
+            "SELECT DISTINCT platform_product_id FROM platform_product_talent"
+            " WHERE stat_date>=?", (monday,))}
+        todo = [(pid, promo) for pid, promo in promo_by_pid.items()
+                if pid not in done_this_week and attempts.get(pid) != today]
+        quota = min(limit, len(todo))
+        out["quota"] = quota
+        if quota <= 0:
+            out["skipped"] = True
+            return out
+        todo = todo[:quota]
+    finally:
+        conn.close()
+
+    def _mark(pid: str):
+        attempts[pid] = today
+        try:
+            attempts_path.write_text(json.dumps(attempts, ensure_ascii=False))
+        except Exception:  # noqa: BLE001
+            pass
+
+    import random
+    for pid, promo in todo:
+        rows, err = fetch_top_talents(promo)
+        _mark(pid)                                       # 成功与否都记尝试
+        if rows:
+            conn = sqlite3.connect(str(db_path), timeout=15)
+            try:
+                n = save_rows(conn, rows)
+            finally:
+                conn.close()
+            out["done"] += 1
+            log_fn(f"[loop2] top 达人采集 ok: {pid} → {n} 达人")
+        elif "无带货内容" in err or "解析不出" in err:
+            out["no_content"] += 1
+            log_fn(f"[loop2] {pid} 无带货内容（跳过，不算失败）")
+        else:
+            out["errors"] += 1
+            log_fn(f"[loop2] {pid} 采集失败：{err}")
+        time.sleep(random.uniform(2.0, 5.0))   # 减速防风控
+    return out

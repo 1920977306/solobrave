@@ -94,12 +94,34 @@ def post_collect(tenant_key: str, douyin_id: str, task: dict) -> None:
     try:
         from . import reco_log
         reco_log.backfill_data_status()
-        # 出单回填（二期）：platform_product_talent 有数据就配对，空表是 no-op。
-        #   ⚠️ 前提是达人端采集口已把 top 带货达人采进主库——采集触发在
-        #   buyin_worker 侧，没采到时这里配对 0 行，如实不算命中。
         reco_log.backfill_sold()
     except Exception:
         log.exception("reco backfill failed: %s", tenant_key)
+    # 出单回填（二期）前置：把挂载商品的平台 top 带货达人采进主库。
+    #   ⚠️ 必须**异步线程**跑（2026-11-07 实测单商品 1-4 分钟页面驱动，
+    #   47 个商品同步跑会卡死 daren_bot 任务线程几小时）：线程内逐商品
+    #   走 worker HTTP 端点，天然串行不抢浏览器；周闸门 + attempts 记录
+    #   保证每个达人 post_collect 都触发也不会重复采。
+    try:
+        import threading
+        from daren_cockpit.tools import product_talent_stats
+
+        def _loop2_collect():
+            try:
+                out = product_talent_stats.collect_for_matched_products(
+                    log_fn=lambda m: log.info(m))
+                log.info("loop2 collect result: %s", out)
+                # 采完立刻配对一次，闭环当周生效（幂等：只动 sold_gmv
+                # IS NULL 且从没配对过的行）。
+                from . import reco_log
+                reco_log.backfill_sold()
+            except Exception:
+                log.exception("loop2 product talent collect failed")
+
+        threading.Thread(target=_loop2_collect, daemon=True,
+                         name="loop2-product-talent").start()
+    except Exception:
+        log.exception("loop2 product talent collect failed")
 
 
 # ---------------- 调度器 ----------------

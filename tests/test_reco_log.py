@@ -330,6 +330,112 @@ def test_save_rows_idempotent(tmp_path):
     conn.close()
 
 
+# ─────────────── collect_for_matched_products 周采集编排 ───────────────
+
+def _mk_loop2_env(tmp_path, monkeypatch, cache, fetch_results):
+    """造 cache + 空主库，mock fetch_top_talents 按 promotion_id 顺序返回。"""
+    cache_path = tmp_path / "cache.json"
+    cache_path.write_text(json.dumps(cache, ensure_ascii=False))
+    dbf = tmp_path / "loop2.db"
+    conn = sqlite3.connect(str(dbf))
+    captain.ensure_schema(conn)
+    conn.close()
+    it = iter(fetch_results)
+
+    def _fake_fetch(promotion_id, *a, **kw):
+        return next(it)
+    monkeypatch.setattr(pts, "fetch_top_talents", _fake_fetch)
+    # 减速 sleep 砍掉，测试跑快
+    monkeypatch.setattr(pts.time, "sleep", lambda *a, **kw: None)
+    attempts_path = tmp_path / "attempts.json"
+    return dbf, cache_path, attempts_path
+
+
+def test_loop2_week_gate_skips_when_done_this_week(tmp_path, monkeypatch):
+    """周闸门：本周一（含）以来已采过的商品不再采；采够配额整体跳过。"""
+    dbf, cache_path, att = _mk_loop2_env(
+        tmp_path, monkeypatch,
+        {"pid_a": {"promotion_id": "promo_a"}}, [])
+    conn = sqlite3.connect(str(dbf))
+    rows = pts.parse_top_talents(_wrap([_item()]), "pid_a", now=NOW)
+    pts.save_rows(conn, rows)                       # stat_date = 今天 ≥ 本周一
+    conn.close()
+    called = []
+
+    def _boom(*a, **kw):
+        called.append(1)
+        return [], "不该被调"
+    monkeypatch.setattr(pts, "fetch_top_talents", _boom)
+    out = pts.collect_for_matched_products(db_path=str(dbf),
+                                           cache_path=str(cache_path))
+    assert out["skipped"] is True and called == []
+
+
+def test_loop2_collects_only_not_yet_done(tmp_path, monkeypatch):
+    """本周未采的进 todo；mock 两行返回 ⇒ done=2 且落库。"""
+    dbf, cache_path, att = _mk_loop2_env(
+        tmp_path, monkeypatch,
+        {"pid_a": {"promotion_id": "promo_a"},
+         "pid_b": {"promotion_id": "promo_b"}},
+        [(pts.parse_top_talents(_wrap([_item()]), "pid_a", now=NOW), ""),
+         (pts.parse_top_talents(_wrap([_item("福宝", "3859746845373659",
+                                             54905)]), "pid_b", now=NOW), "")])
+    out = pts.collect_for_matched_products(db_path=str(dbf),
+                                           cache_path=str(cache_path),
+                                           attempts_path=str(att))
+    assert out["done"] == 2 and out["errors"] == 0
+    conn = sqlite3.connect(str(dbf))
+    n = conn.execute("SELECT COUNT(*) FROM platform_product_talent").fetchone()[0]
+    assert n == 2
+    conn.close()
+
+
+def test_loop2_single_failure_does_not_abort_others(tmp_path, monkeypatch):
+    """单商品失败记 errors 继续下一个；无带货内容单独计数。"""
+    dbf, cache_path, att = _mk_loop2_env(
+        tmp_path, monkeypatch,
+        {"pid_a": {"promotion_id": "promo_a"},
+         "pid_b": {"promotion_id": "promo_b"},
+         "pid_c": {"promotion_id": "promo_c"}},
+        [([], "worker 采集失败：异常"),            # pid_a 失败（通用 err）
+         ([], "采集超时：页面 XHR 未返回带货内容（该商品可能无带货内容，"
+              "或页面加载失败）"),               # pid_b 无内容
+         (pts.parse_top_talents(_wrap([_item()]), "pid_c", now=NOW), "")])
+    out = pts.collect_for_matched_products(db_path=str(dbf),
+                                           cache_path=str(cache_path),
+                                           attempts_path=str(att))
+    assert out["errors"] == 1 and out["no_content"] == 1 and out["done"] == 1
+    conn = sqlite3.connect(str(dbf))
+    n = conn.execute("SELECT COUNT(*) FROM platform_product_talent").fetchone()[0]
+    assert n == 1                                    # 只有 pid_c 落库
+    conn.close()
+
+
+def test_loop2_attempted_today_skipped_until_tomorrow(tmp_path, monkeypatch):
+    """无内容商品今天尝试过就进 attempts ⇒ 当天不再重复采（配额不被吃掉）；
+    明天（日期变）会重新进 todo。"""
+    dbf, cache_path, att = _mk_loop2_env(
+        tmp_path, monkeypatch,
+        {"pid_a": {"promotion_id": "promo_a"}},
+        [([], "采集超时：页面 XHR 未返回带货内容（该商品可能无带货内容，"
+              "或页面加载失败）")])
+    out = pts.collect_for_matched_products(db_path=str(dbf),
+                                           cache_path=str(cache_path),
+                                           attempts_path=str(att))
+    assert out["no_content"] == 1
+    assert json.loads(att.read_text())              # attempts 已写
+    called = []
+
+    def _boom(*a, **kw):
+        called.append(1)
+        return [], "不该被调"
+    monkeypatch.setattr(pts, "fetch_top_talents", _boom)
+    out2 = pts.collect_for_matched_products(db_path=str(dbf),
+                                            cache_path=str(cache_path),
+                                            attempts_path=str(att))
+    assert out2["skipped"] is True and called == []   # 今天不再尝试
+
+
 # ─────────────── backfill_sold 配对回填 ───────────────
 
 def _mk_main_with_talents(tmp_path, monkeypatch, bot_db, ptt_rows):
