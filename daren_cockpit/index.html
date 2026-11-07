@@ -282,7 +282,77 @@ async function bootAdmin(){
   }
   renderAdmin(d);
   loadVideosInto('videosZone', {ops: true});
+  loadRecoLoop();
   setTimeout(() => drawAdminDonut(d), 350);
+}
+
+/* 推荐闭环 · 命中率对账（2026-11-07 四个设计点口径） */
+async function loadRecoLoop(){
+  let d;
+  try{
+    const r = await fetch('/api/reco_loop', {headers: opsHeaders()});
+    d = await r.json();
+    if(!r.ok) throw new Error(d.error || r.status);
+  }catch(e){
+    const z = document.getElementById('recoLoopZone');
+    if(z) z.innerHTML = `<div class="card p-5"><div class="sec-title mb-1">推荐闭环 · 命中率对账</div>
+      <div class="sub">加载失败：${esc(e.message)}</div></div>`;
+    return;
+  }
+  renderRecoLoop(d);
+}
+
+function renderRecoLoop(d){
+  const pct = r => r.total ? Math.round(r.rate * 100) : null;
+  const pctTxt = r => pct(r) === null ? '—' : pct(r) + '%';
+  const h = d.health || {};
+  const healthTotal = (h.ok||0) + (h.stale||0) + (h.missing||0) + (h.unset||0);
+  const hb = (n, c) => healthTotal ? Math.round(n / healthTotal * 100) : 0;
+  const bands = d.gmv_bands || {};
+  const bandTotal = (bands['<1k']||0) + (bands['1k-1w']||0) + (bands['>1w']||0) + (bands['unknown']||0);
+  const BAND_LABEL = {'<1k':'<1千','1k-1w':'1千~1万','>1w':'>1万','unknown':'未知'};
+  const hits = (d.hits || []).slice().sort((a,b) => (b.sold_at||0) - (a.sold_at||0));
+  const hitRows = hits.map(x => `<tr style="border-bottom:1px solid var(--line)">
+      <td class="py-2 pr-2">${esc(x.product_name || '—')}</td>
+      <td class="py-2 pr-2">${'★'.repeat(x.star_level || 0) || '—'}</td>
+      <td class="py-2 pr-2">${x.accepted ? '<span class="tag" style="background:#e8f8ef;color:#05914d">已采纳</span>' : '<span class="sub">未采纳</span>'}</td>
+      <td class="py-2 pr-2">${esc(x.gmv_text)} <span class="sub">${esc(BAND_LABEL[x.gmv_band] || x.gmv_band)}</span></td>
+      <td class="py-2 pr-2 sub">${x.sold_at ? new Date(x.sold_at * 1000).toLocaleDateString('zh-CN') : '—'}</td>
+      <td class="py-2 sub">${esc(x.douyin_id)}</td>
+    </tr>`).join('');
+  document.getElementById('recoLoopZone').innerHTML = `
+  <div class="card p-5">
+    <div class="sec-title mb-1">推荐闭环 · 命中率对账</div>
+    <div class="sub mb-3">口径：只统计采集新鲜的（ok）推荐 · 采纳与命中率分列 · 一期只算正向
+      · 数据时间 ${d.generated_at ? new Date(d.generated_at * 1000).toLocaleString('zh-CN') : '—'}</div>
+    <div class="grid grid-cols-2 gap-3 mb-3">
+      <div class="card p-3"><div class="sub mb-1">推荐命中率（AI 准不准）</div>
+        <div class="kpi-num">${pctTxt(d.recommend)}</div>
+        <div class="sub mt-1">命中 ${d.recommend.hit} / 观察 ${d.recommend.total} 条</div></div>
+      <div class="card p-3"><div class="sub mb-1">采纳命中率（说服力）</div>
+        <div class="kpi-num" style="color:var(--green-dk)">${pctTxt(d.accept)}</div>
+        <div class="sub mt-1">命中 ${d.accept.hit} / 采纳 ${d.accept.total} 条</div></div>
+    </div>
+    <div class="sub mb-1">采集健康度（data_status 全部留档行）</div>
+    <div class="mb-3" style="display:flex;height:10px;border-radius:99px;overflow:hidden">
+      <div style="width:${hb(h.ok||0)}%;background:var(--green,#05914d)" title="ok"></div>
+      <div style="width:${hb(h.stale||0)}%;background:var(--amber,#fa9d3b)" title="stale"></div>
+      <div style="width:${hb(h.missing||0)}%;background:var(--red,#fa5151)" title="missing"></div>
+      <div style="width:${hb(h.unset||0)}%;background:#c9c9c9" title="unset"></div>
+    </div>
+    <div class="sub mb-3">ok ${h.ok||0} · stale ${h.stale||0} · missing ${h.missing||0} · 未回填 ${h.unset||0}
+      <span class="sub">（missing = 采集没跟上，单独看，不混进命中率）</span></div>
+    <div class="sub mb-1">命中 GMV 档位（区间文案，平台不给真值）</div>
+    <div class="mb-3">${Object.keys(BAND_LABEL).map(b =>
+      `<span class="tag" style="background:#f2f2f2;margin-right:6px">${BAND_LABEL[b]}：${bands[b]||0} 条</span>`).join('')}
+      ${bandTotal ? '' : '<span class="sub">暂无命中</span>'}</div>
+    <div class="sub mb-1">命中明细（${hits.length} 条）</div>
+    ${hits.length ? `<table class="w-full text-sm"><thead><tr class="sub" style="text-align:left">
+        <th class="py-1">商品</th><th class="py-1">星级</th><th class="py-1">采纳</th>
+        <th class="py-1">GMV 档</th><th class="py-1">确认日</th><th class="py-1">抖音号</th>
+      </tr></thead><tbody>${hitRows}</tbody></table>`
+      : '<div class="empty sub">还没有命中样本——周采集跑起来后数据会长出来</div>'}
+  </div>`;
 }
 
 function renderAdmin(d){
@@ -368,6 +438,8 @@ function renderAdmin(d){
     <div class="card p-4"><div class="sub mb-1">待评估合作</div>
       <div class="kpi-num" style="color:var(--amber)">${k.pending_coop || 0}<span class="text-base" style="color:var(--sub)"> / ${k.total_coop || 0} 条</span></div></div>
   </div>
+
+  <div id="recoLoopZone"></div>
 
   <div class="charts2">
     <div class="card p-5"><div class="sec-title mb-1">达人评分分布</div>

@@ -527,3 +527,128 @@ def test_backfill_sold_prefers_latest_capture(tmp_path, monkeypatch):
     reco_log.log_recommendations("tk1", "dy_1", "", _RECOS[:1], now=NOW)
     reco_log.backfill_sold(now=NOW)
     assert _rows(bot_db)[0]["sold_gmv"] == 200
+
+
+# ═══════════════ 对账视图 hit_stats（四个设计点口径）═══════════════
+# 2026-11-07 老大拍板：①命中率只算 data_status='ok'，missing 进健康度；
+# ②推荐命中率（准不准）与采纳命中率（accepted=1，说服力）分开；
+# ③一期只算正向；④GMV 分档 <1k / 1k-1w / >1w（区间文案从 extra_json 解析，只丢不造）。
+
+def test_amount_floor_parses_platform_range_text():
+    f = reco_log.amount_floor
+    assert f("1千+") == 1000
+    assert f("2.5千+") == 2500
+    assert f("40+") == 40
+    assert f("2万+") == 20000
+    assert f("0-10") == 0          # 区间下限就是 0（真 0，不是缺失）
+    assert f("500+") == 500
+    assert f("") is None           # 解析不出 ⇒ None，绝不用 0 冒充
+    assert f("abc") is None
+    assert f(None) is None
+
+
+def test_gmv_band_buckets():
+    b = reco_log.gmv_band
+    assert b(None) == "unknown"
+    assert b(0) == "<1k" and b(999) == "<1k"
+    assert b(1000) == "1k-1w" and b(9999) == "1k-1w"
+    assert b(10000) == ">1w"
+
+
+def _seed_hit_stats_env(tmp_path, monkeypatch):
+    """bot 库 5 行（ok/missing/stale × accepted/sold 混合）+ 主库命中明细源。"""
+    bot_db = tmp_path / "daren_bot.db"
+    main = _mk_main_with_talents(tmp_path, monkeypatch, bot_db, [
+        # prod_a → plat_1：命中 dy_1（Wgg292），区间文案 2万+ → >1w
+        ("ppt_1", "2026-11-07", "plat_1", 1, "Wgg292", "", "洁洁",
+         12500.0, 300, '{"format_sales_amount": "2万+"}', NOW),
+    ])
+    conn = sqlite3.connect(str(main))
+    conn.execute("INSERT INTO products VALUES ('prod_d','面膜D','plat_2')")
+    conn.executemany(
+        "INSERT INTO platform_product_talent (id, stat_date,"
+        " platform_product_id, rank, author_id, douyin_id, nickname,"
+        " gmv, sales, extra_json, captured_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+        [("ppt_2", "2026-11-06", "plat_2", 2, "Wgg292", "", "洁洁",
+          None, 3, "{}", NOW - 86400),
+         ("ppt_3", "2026-11-07", "plat_2", 1, "Wgg292", "", "洁洁",
+          None, 8, '{"format_sales_amount": "500+"}', NOW)])
+    conn.commit()
+    conn.close()
+
+    recos = [{"product_id": p, "name": n, "stars": s, "reasons": ["x"]}
+             for p, n, s in (("prod_a", "面霜A", 5), ("prod_b", "面霜B", 3),
+                             ("prod_d", "面膜D", 4))]
+    # A: ok + 采纳 + 命中；B: ok 未采纳未命中；D: ok 采纳命中（<1k 档）
+    reco_log.log_recommendations("tk1", "dy_1", "", recos, now=NOW)
+    # C: missing + 采纳 + sold_source 已填（采集失败行，绝不能混进命中率）
+    reco_log.log_recommendations("tk2", "dy_2", "", recos[:1], now=NOW)
+    # E: stale 未采纳
+    reco_log.log_recommendations("tk1", "dy_3", "", recos[1:2], now=NOW)
+    with reco_log.db.db_ctx() as conn:
+        conn.execute("UPDATE bot_reco_log SET data_status='ok' WHERE douyin_id='dy_1'")
+        conn.execute("UPDATE bot_reco_log SET data_status='missing' WHERE douyin_id='dy_2'")
+        conn.execute("UPDATE bot_reco_log SET data_status='stale' WHERE douyin_id='dy_3'")
+        conn.execute("UPDATE bot_reco_log SET accepted=1, accepted_at=? WHERE product_id IN ('prod_a','prod_d')", (NOW,))
+        conn.execute("UPDATE bot_reco_log SET sold_gmv=12500.0, sold_at=?, sold_source='daren_product_detail' WHERE product_id='prod_a'", (NOW,))
+        conn.execute("UPDATE bot_reco_log SET sold_at=?, sold_source='daren_product_detail' WHERE douyin_id='dy_2'", (NOW,))
+        conn.execute("UPDATE bot_reco_log SET sold_gmv=NULL, sold_at=?, sold_source='daren_product_detail' WHERE product_id='prod_d'", (NOW,))
+    return bot_db
+
+
+def test_hit_stats_counts_only_ok_rows(tmp_path, monkeypatch):
+    """设计点①：missing 行（即便 sold_source 已填）不进命中率分母分子，只进健康度。"""
+    _seed_hit_stats_env(tmp_path, monkeypatch)
+    s = reco_log.hit_stats(now=NOW)
+    assert s["health"] == {"ok": 3, "stale": 1, "missing": 1, "unset": 0}
+    # ok 行 = A/B/D 三行；命中 = A/D；missing 的 C 被排除
+    assert s["recommend"] == {"total": 3, "hit": 2, "rate": round(2 / 3, 4)}
+    # 命中明细也只列 ok 行（missing 的 sold_source 不混进来对不上账）
+    assert len(s["hits"]) == 2
+    assert {h["product_name"] for h in s["hits"]} == {"面霜A", "面膜D"}
+
+
+def test_hit_stats_separates_accept_rate(tmp_path, monkeypatch):
+    """设计点②：采纳命中率（accepted=1 且 ok）与推荐命中率分开。"""
+    _seed_hit_stats_env(tmp_path, monkeypatch)
+    s = reco_log.hit_stats(now=NOW)
+    # 采纳且 ok = A/D 两行，全命中；C 虽采纳但 missing 不算
+    assert s["accept"] == {"total": 2, "hit": 2, "rate": 1.0}
+    assert s["accept"]["rate"] != s["recommend"]["rate"]  # 两个指标必须能分开诊断
+
+
+def test_hit_stats_gmv_bands_from_extra_json(tmp_path, monkeypatch):
+    """设计点④：档位从主库 extra_json 区间文案解析（2万+→>1w、500+→<1k），只丢不造。"""
+    _seed_hit_stats_env(tmp_path, monkeypatch)
+    s = reco_log.hit_stats(now=NOW)
+    assert s["gmv_bands"] == {"<1k": 1, "1k-1w": 0, ">1w": 1, "unknown": 0}
+    by_name = {h["product_name"]: h for h in s["hits"]}
+    assert by_name["面霜A"]["gmv_text"] == "2万+" and by_name["面霜A"]["gmv_band"] == ">1w"
+    assert by_name["面膜D"]["gmv_text"] == "500+" and by_name["面膜D"]["gmv_band"] == "<1k"
+    assert by_name["面霜A"]["accepted"] is True
+    assert by_name["面膜D"]["star_level"] == 4 and by_name["面膜D"]["sold_at"] == NOW
+
+
+def test_hit_stats_unknown_band_when_range_text_missing(tmp_path, monkeypatch):
+    """主库命中行无区间文案 ⇒ 档位 unknown + 文案「未知」，不编金额。"""
+    bot_db = tmp_path / "daren_bot.db"
+    _mk_main_with_talents(tmp_path, monkeypatch, bot_db, [
+        ("ppt_9", "2026-11-07", "plat_1", 1, "Wgg292", "", "洁洁",
+         None, 5, "{}", NOW),                       # extra_json 无 format_sales_amount
+    ])
+    reco_log.log_recommendations("tk1", "dy_1", "", _RECOS[:1], now=NOW)
+    with reco_log.db.db_ctx() as conn:
+        conn.execute("UPDATE bot_reco_log SET data_status='ok'")
+        conn.execute("UPDATE bot_reco_log SET sold_at=?, sold_source='daren_product_detail'", (NOW,))
+    s = reco_log.hit_stats(now=NOW)
+    assert s["gmv_bands"]["unknown"] == 1
+    assert s["hits"][0]["gmv_text"] == "未知"
+
+
+def test_hit_stats_per_tenant_filter(tmp_path, monkeypatch):
+    _seed_hit_stats_env(tmp_path, monkeypatch)
+    s1 = reco_log.hit_stats(tenant_key="tk1", now=NOW)
+    assert s1["recommend"]["total"] == 3 and s1["health"]["missing"] == 0
+    s2 = reco_log.hit_stats(tenant_key="tk2", now=NOW)
+    assert s2["recommend"]["total"] == 0      # 唯一 ok 行在 tk1；missing 不进分母
+    assert s2["health"]["missing"] == 1

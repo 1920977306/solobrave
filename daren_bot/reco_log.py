@@ -15,6 +15,7 @@
 """
 from __future__ import annotations
 
+import json
 import logging
 import sqlite3
 import time
@@ -255,3 +256,135 @@ def backfill_sold(now: int | None = None) -> dict:
         return {"matched": matched, "gmv_filled": gmv_filled}
     finally:
         main.close()
+
+
+# ─────────── 对账视图（2026-11-07 老大拍板四个设计点）───────────
+
+import re as _re
+
+_CN_UNIT = {"百": 100, "千": 1000, "万": 10000}
+
+
+def amount_floor(fmt: str) -> int | None:
+    """平台区间文案 → 下限金额（纯函数，只丢不造）。
+
+    「1千+」→1000、「2.5千+」→2500、「40+」→40、「2万+」→20000、
+    「0-10」→0、「500+」→500。解析不出 ⇒ None（绝不用 0 冒充）。
+    """
+    if not fmt:
+        return None
+    m = _re.match(r"\s*([\d.]+)\s*(百|千|万)?", str(fmt))
+    if not m:
+        return None
+    try:
+        base = float(m.group(1))
+    except (TypeError, ValueError):
+        return None
+    unit = _CN_UNIT.get(m.group(2) or "", 1)
+    return int(base * unit)
+
+
+def gmv_band(floor: int | None) -> str:
+    """下限金额 → 档位（老大口径：一期只算正向，按 GMV 分三档）。"""
+    if floor is None:
+        return "unknown"
+    if floor < 1000:
+        return "<1k"
+    if floor < 10000:
+        return "1k-1w"
+    return ">1w"
+
+
+def _fmt_of_extra(extra_json: str) -> str:
+    try:
+        d = json.loads(extra_json or "{}")
+    except (TypeError, ValueError):
+        return ""
+    return str(d.get("format_sales_amount") or "")
+
+
+def hit_stats(tenant_key: str | None = None, now: int | None = None) -> dict:
+    """对账视图（四个设计点口径）：
+
+      recommend  推荐命中率（AI 准不准）：data_status='ok' 的行里
+                 sold_source 命中的比例 —— 命中率只算 ok，missing 进健康度
+      accept     采纳命中率（说服力）：accepted=1 且 ok 的行里命中比例
+      health     采集健康度：全部行三态分布（missing 单独看，不混进命中率）
+      gmv_bands  命中行的 GMV 档位分布（<1k / 1k-1w / >1w / unknown），
+                 金额从主库命中行 extra_json.format_sales_amount 区间文案解析
+      hits       命中明细（达人昵称/品/采纳与否/档位/采集日），供视图列表
+
+    一期只算正向（推荐了→出单）；负样本（建议别带→没带）二期。
+    """
+    where = "WHERE tenant_key=?" if tenant_key else ""
+    args = (tenant_key,) if tenant_key else ()
+    out = {
+        "recommend": {"total": 0, "hit": 0, "rate": 0.0},
+        "accept": {"total": 0, "hit": 0, "rate": 0.0},
+        "health": {DATA_STATUS_OK: 0, DATA_STATUS_STALE: 0,
+                   DATA_STATUS_MISSING: 0, "unset": 0},
+        "gmv_bands": {"<1k": 0, "1k-1w": 0, ">1w": 0, "unknown": 0},
+        "hits": [],
+        "generated_at": int(now or time.time()),
+    }
+    with db.db_ctx() as conn:
+        # 健康度：全部行（不管采纳与否）
+        for st, n in conn.execute(
+                f"SELECT COALESCE(NULLIF(data_status,''),'unset'), COUNT(*)"
+                f" FROM bot_reco_log {where} GROUP BY 1", args):
+            out["health"][st] = n
+        # 推荐命中率：ok 的行
+        total_ok, hit_ok = conn.execute(
+            f"SELECT COUNT(*),"
+            f" COALESCE(SUM(sold_source!=''),0) FROM bot_reco_log"
+            f" {where + ' AND' if where else 'WHERE'} data_status=?",
+            args + (DATA_STATUS_OK,)).fetchone()
+        out["recommend"]["total"], out["recommend"]["hit"] = total_ok, hit_ok
+        out["recommend"]["rate"] = round(hit_ok / total_ok, 4) if total_ok else 0
+        # 采纳命中率：accepted 且 ok
+        at, ah = conn.execute(
+            f"SELECT COUNT(*),"
+            f" COALESCE(SUM(sold_source!=''),0) FROM bot_reco_log"
+            f" {where + ' AND' if where else 'WHERE'} accepted=1"
+            f" AND data_status=?", args + (DATA_STATUS_OK,)).fetchone()
+        out["accept"]["total"], out["accept"]["hit"] = at, ah
+        out["accept"]["rate"] = round(ah / at, 4) if at else 0
+        # 命中明细 + GMV 档位（回主库取区间文案）
+        # 口径与 recommend 一致：只列 data_status='ok' 的命中——
+        # missing 行的 sold_source 混进明细会跟命中率分母对不上账。
+        hit_rows = conn.execute(
+            f"SELECT douyin_id, product_id, product_name, star_level,"
+            f" accepted, sold_at FROM bot_reco_log"
+            f" {where + ' AND' if where else 'WHERE'} sold_source!=''"
+            f" AND data_status=?",
+            args + (DATA_STATUS_OK,)).fetchall()
+
+    if hit_rows and SOLOBRAVE_DB.is_file():
+        # 不用 mode=ro：活 WAL 库在 -shm 不在场时 ro 句柄打不开（AGENTS.md §16 Y.7）
+        main = sqlite3.connect(str(SOLOBRAVE_DB))
+        try:
+            for dyid, pid, pname, stars, acc, sold_at in hit_rows:
+                ppid = _resolve_platform_product_id(main, str(pid))
+                fmt = ""
+                if ppid:
+                    r = main.execute(
+                        "SELECT extra_json FROM platform_product_talent"
+                        " WHERE platform_product_id=?"
+                        " AND captured_at=(SELECT MAX(captured_at) FROM"
+                        "  platform_product_talent WHERE platform_product_id=?)"
+                        " AND author_id IN (SELECT platform_talent_id FROM"
+                        "  talents WHERE douyin_id=? AND platform_talent_id!='')",
+                        (ppid, ppid, dyid)).fetchone()
+                    if r:
+                        fmt = _fmt_of_extra(r[0])
+                band = gmv_band(amount_floor(fmt))
+                out["gmv_bands"][band] += 1
+                out["hits"].append({
+                    "douyin_id": dyid, "product_name": pname,
+                    "star_level": stars, "accepted": bool(acc),
+                    "gmv_text": fmt or "未知", "gmv_band": band,
+                    "sold_at": int(sold_at or 0),
+                })
+        finally:
+            main.close()
+    return out

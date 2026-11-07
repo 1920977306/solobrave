@@ -889,6 +889,22 @@ class Handler(BaseHTTPRequestHandler):
                 return
             self._send(200, json.dumps(data, ensure_ascii=False),
                        "application/json; charset=utf-8")
+        elif u.path == "/api/reco_loop":
+            # 推荐闭环对账视图（运营口令保护）：
+            # 推荐命中率 vs 采纳命中率 + 采集健康度 + GMV 档位 + 命中明细
+            if not _is_ops(self):
+                self._send(403, json.dumps({"error": "unauthorized"}),
+                           "application/json; charset=utf-8")
+                return
+            try:
+                from daren_bot import reco_log as _reco_log
+                data = _reco_log.hit_stats()
+            except Exception as e:
+                self._send(500, json.dumps({"error": str(e)}),
+                           "application/json")
+                return
+            self._send(200, json.dumps(data, ensure_ascii=False),
+                       "application/json; charset=utf-8")
         elif u.path == "/api/plan":
             # 排品表 H5 的数据源（运营口令保护）
             if not _is_ops(self):
