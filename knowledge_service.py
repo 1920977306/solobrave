@@ -2127,6 +2127,41 @@ def init_kb_entries_db():
         conn.execute('CREATE INDEX IF NOT EXISTS idx_kb_op_entry ON kb_operation_log(entry_id)')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_kb_op_created ON kb_operation_log(created_at)')
 
+        # ★ 召回观测双表（2026-11-07，老大拍板）：kb_operation_log 记的是「条目被改/被审」
+        #   （一行一条目），塞召回会丢掉最关键的信息——「查了但 0 命中」。
+        #   双表分工：kb_recall_log 一次查询一行；kb_recall_hits 一条命中一行。
+        #   hits.used 留 NULL：召回时不知道回答有没有用上，后续回填
+        #   （1=用上 0=没用上）；命中 ≠ 用上，只有用上的才算真帮到了。
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS kb_recall_log (
+                id TEXT PRIMARY KEY,
+                query TEXT NOT NULL,
+                requester_id TEXT DEFAULT '',
+                emp_id TEXT DEFAULT '',
+                hit_count INTEGER DEFAULT 0,
+                top_score REAL,
+                duration_ms INTEGER,
+                created_at INTEGER
+            )
+        ''')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_kb_recall_log_created ON kb_recall_log(created_at)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_kb_recall_log_requester ON kb_recall_log(requester_id)')
+
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS kb_recall_hits (
+                id TEXT PRIMARY KEY,
+                query_id TEXT NOT NULL,
+                entry_id TEXT DEFAULT '',
+                entry_type TEXT DEFAULT 'kb',
+                score REAL,
+                rank INTEGER,
+                used INTEGER,
+                created_at INTEGER
+            )
+        ''')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_kb_recall_hits_query ON kb_recall_hits(query_id)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_kb_recall_hits_entry ON kb_recall_hits(entry_id)')
+
         conn.execute('''
             CREATE TABLE IF NOT EXISTS token_usage (
                 id TEXT PRIMARY KEY,
@@ -2213,6 +2248,40 @@ def _kb_entry_row_to_dict(row):
         'createdByLabel': (_parse_source_meta(row['source_meta'] if 'source_meta' in _row_keys else '')
                            .get('tenant_label') or (row['created_by'] or '')),
     }
+
+
+def log_kb_recall(query, requester_id, emp_id, docs, duration_ms):
+    """召回留痕：一次查询落 kb_recall_log，N 条命中落 kb_recall_hits。
+
+    docs = rag_retrieve_kb 返回的 docs 列表（元素字段 id/title/similarity/type）。
+    hits.used 落 NULL —— 召回这一刻不知道回答用没用上，回填是后续的事；
+    命中 ≠ 用上，只有用上的才算这条知识真帮到了。
+    写库失败只记日志，绝不让观测层冒泡打死检索主链路。
+    """
+    now = int(time.time() * 1000)
+    qid = f'rcl_{now}_{uuid.uuid4().hex[:8]}'
+    scores = [(d.get('similarity') or 0.0) for d in docs]
+    top_score = max(scores) if scores else None
+    conn = None
+    try:
+        conn = _db_conn()
+        conn.execute(
+            'INSERT INTO kb_recall_log (id, query, requester_id, emp_id, hit_count, '
+            'top_score, duration_ms, created_at) VALUES (?,?,?,?,?,?,?,?)',
+            (qid, query or '', requester_id or '', emp_id or '',
+             len(docs), top_score, duration_ms, now))
+        for rank, d in enumerate(docs, 1):
+            conn.execute(
+                'INSERT INTO kb_recall_hits (id, query_id, entry_id, entry_type, '
+                'score, rank, used, created_at) VALUES (?,?,?,?,?,?,?,?)',
+                (f'{qid}_{rank}', qid, d.get('id') or '', d.get('type') or 'kb',
+                 d.get('similarity'), rank, None, now))
+        conn.commit()
+    except Exception as e:
+        logger.error(f'[KB] recall log failed: {e}')
+    finally:
+        if conn is not None:
+            conn.close()
 
 
 def _parse_source_meta(raw):

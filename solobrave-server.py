@@ -19428,6 +19428,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
         try:
             allowed_cats = _allowed_knowledge_categories(auth)
+            _rag_t0 = time.time()
             result = ks.rag_retrieve_kb(
                 query, emp_id, api_key, provider, agent_config,
                 top_k_docs=top_k, allowed_categories=allowed_cats,
@@ -19435,6 +19436,15 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 requester_id=auth.user_id, is_admin=auth.is_admin, team_ids=auth.team_ids,
                 group_ids=auth.group_ids
             )
+            # ★ 召回留痕（kb_recall_log + kb_recall_hits 双表，2026-11-07）：
+            #   「答不出」是不是检索的锅，答案在 0 命中的查询里——kb_operation_log
+            #   塞不下这个粒度。观测层失败不许冒泡打死检索主链路。
+            try:
+                ks.log_kb_recall(query, auth.user_id, emp_id,
+                                 result.get('docs') or [],
+                                 int((time.time() - _rag_t0) * 1000))
+            except Exception as _log_e:
+                logger.error(f'  [RAG] recall logging failed: {_log_e}')
             # 同时检索产品库（所有员工共享，从 SQLite 读取）
             conn = _db_conn()
             try:
