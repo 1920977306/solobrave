@@ -8283,7 +8283,8 @@ function renderPermissionSettings() {
   html += '<div class="settings-card-title">角色模板</div>';
   html += '<div class="settings-segmented">';
   (_permissionConfig.roleTemplates || []).forEach(function (r) {
-    html += '<button class="settings-segmented-item ' + (_selectedPermissionRole === r.id ? 'active' : '') + '" onclick="selectPermissionRole(\'' + r.id + '\')">' + escapeHtml(r.name) + '</button>';
+    var badge = r.provisional ? '<span title="packs 体系落地前的临时实现，阶段 1 将按 ' + escapeHtml(r.provisional) + ' 重新推导" style="font-size:10px;color:var(--text-tertiary);border:0.5px solid var(--text-tertiary);border-radius:4px;padding:0 3px;margin-left:4px;">临时</span>' : '';
+    html += '<button class="settings-segmented-item ' + (_selectedPermissionRole === r.id ? 'active' : '') + '" onclick="selectPermissionRole(\'' + r.id + '\')">' + escapeHtml(r.name) + badge + '</button>';
   });
   html += '</div>';
   html += '</div>';

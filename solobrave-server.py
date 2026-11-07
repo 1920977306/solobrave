@@ -1768,8 +1768,16 @@ AVAILABLE_MODULES = [
 def _default_permission_templates():
     """默认角色权限模板
 
-    角色：超级管理员 / 管理员 / 普通用户
+    角色：超级管理员 / 管理员 / 普通用户 / 合伙人（2026-11-02 D3 拍板）
     模块 key：dashboard/messages/knowledge/settings/products/groups/influencers/employees
+
+    ★ 合伙人模板（id=reseller）：P2-B 能力矩阵口径（AGENT-TIER-DESIGN §4）——
+      看自己下级（dashboard/influencers）+ 给下级推品（products）+ AI 办公室
+      （messages）；知识库/设置/项目组/员工管理不给（P2-B 视图未建，先不放行）。
+      `provisional: 'pack.reseller.console'` 是 D3 拍板补充的**临时标记**：
+      表示该条目是 packs 体系（主体×能力包）落地前的临时实现——阶段 1
+      迁移时凡带此标记的条目必须按 pack.reseller.console 重新推导，
+      不允许把临时白名单直接当终态（防临时实现一年后变硬编码）。
     """
     superadmin_modules = {m: True for m in AVAILABLE_MODULES}
     admin_modules = {m: True for m in AVAILABLE_MODULES}
@@ -1785,12 +1793,25 @@ def _default_permission_templates():
         'settings': True,
         'employees': False,
     }
+    reseller_modules = {
+        'dashboard': True,     # 合伙人工作台（P2-B：下级数据/消耗汇总入口）
+        'messages': True,      # AI 办公室
+        'knowledge': False,    # P2-B 未建视图，先不放行
+        'settings': False,     # 权限管理在 settings 内，合伙人不可进
+        'products': True,      # 给下级推品
+        'groups': False,
+        'influencers': True,   # 下级达人（P2-B 按 subtree 裁剪）
+        'employees': False,
+    }
     return {
         'version': '1.0',
         'roleTemplates': [
             {'id': 'admin', 'name': '超级管理员', 'modules': superadmin_modules, 'knowledgeCategories': ['*']},
             {'id': 'leader', 'name': '管理员', 'modules': admin_modules, 'knowledgeCategories': ['*']},
             {'id': 'employee', 'name': '普通用户', 'modules': user_modules, 'knowledgeCategories': ['*']},
+            {'id': 'reseller', 'name': '合伙人', 'modules': reseller_modules,
+             'knowledgeCategories': [],
+             'provisional': 'pack.reseller.console'},
         ],
         'userOverrides': {}
     }
@@ -10986,6 +11007,18 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             override['modules'] = {m: bool(v) for m, v in body['modules'].items() if m in AVAILABLE_MODULES}
         if 'knowledgeCategories' in body and isinstance(body['knowledgeCategories'], list):
             override['knowledgeCategories'] = [str(c) for c in body['knowledgeCategories']]
+        # ★ D3 拍板（2026-11-02）：白名单条目自动打 provisional 标记。
+        #   账号挂了带 provisional 的角色模板（现仅 reseller/合伙人）时，
+        #   其模块白名单覆盖条目同步标注 pack 名——阶段 1 packs 落地时
+        #   这些条目按 pack 重新推导，不许当终态硬编码。
+        #   账号换绑别的模板/删除覆盖 ⇒ 标记随之消失（此处每次保存重算）。
+        user_rec = next((u for u in _load_users() if u.get('id') == user_id), None)
+        tmpl = _get_role_template(perms, (user_rec or {}).get('roleTemplateId') or '')
+        marker = (tmpl or {}).get('provisional') or ''
+        if marker:
+            override['provisional'] = marker
+        else:
+            override.pop('provisional', None)
         _save_permissions(perms)
         self._send_json(200, {'success': True, 'userOverride': override})
 
