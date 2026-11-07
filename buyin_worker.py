@@ -387,6 +387,24 @@ def _vision_text_ok(key, value) -> bool:
     return guard(value) if guard else True
 
 
+def _resolve_talent_name(fields_name, hint_name, profile_name):
+    """档案名裁决：平台核验过的真名优先。
+
+    三种必须用 profile_name 覆盖 fields_name 的情形：
+      ① fields_name 为空；
+      ② fields_name 是纯数字串（纯抖音号下单，名字就是号）；
+      ③ fields_name 仍等于入参 hint_name —— 说明 extract_fields 没从 DOM 提出真名、
+        兜底用了用户消息原样。生产实锤 2026-11-06：达人发
+        「CO师傅分析一下这个账号呢 DJcoco888」⇒ 档案名变成整句请求话，
+        报告标题跟着没法看（t_20359bf4/一百 同款污染）。
+    DOM 提出过真名（≠入参、非纯数字）⇒ 尊重 DOM，不动。
+    """
+    if profile_name and (not fields_name or str(fields_name).isdigit()
+                         or fields_name == hint_name):
+        return profile_name
+    return fields_name or hint_name or profile_name
+
+
 def _vision_junk_value(v) -> bool:
     """视觉提取占位垃圾判定：None/空容器/纯零值。
     glm-4v 识别失败时常返回 {"男性": 0.0, "女性": 0.0}、0、'0.0'、'0%' 这类占位，
@@ -3914,11 +3932,11 @@ def _run_collect_impl(row):
         _job_set(cid, stage='AI 结构化提取')
         fields = extract_fields(name, douyin_id, material['tabs_dom'], material['xhr_dump'])
         fields['name'] = fields.get('name') or name
-        # 纯抖音号下单时 name 是数字串——用主页核验过的真实昵称覆盖
-        _pn = material.get('profile_name') or ''
-        if _pn and (not fields.get('name') or str(fields['name']).isdigit()):
-            fields['name'] = _pn
-            log(f'[Job] {cid} 名字回填为首页昵称: {_pn}')
+        _resolved = _resolve_talent_name(fields.get('name'), name,
+                                         material.get('profile_name') or '')
+        if _resolved != fields.get('name'):
+            fields['name'] = _resolved
+            log(f'[Job] {cid} 名字回填为首页昵称: {_resolved}')
         if douyin_id and not fields.get('douyin_id'):
             fields['douyin_id'] = douyin_id
         fields['platform'] = '抖音'
