@@ -4025,6 +4025,7 @@ def _run_collect_impl(row):
                 #   打标让服务端跳过派生文本（ai_analysis/notes…）刷新，保留旧文本。
                 _put_body = {**fields, '__refresh_fields': ['notes', 'ai_summary', 'ai_analysis',
                                                             'ai_reason', 'ai_rating', 'ai_tags',
+                                                            'name',
                                                             # 原始留档同 notes 语义 = 最近一次采集，
                                                             # 不声明则第二轮起明细永远刷不进库
                                                             'ocr_raw_fields', 'top_products']}

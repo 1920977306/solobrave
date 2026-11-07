@@ -27143,6 +27143,12 @@ _TALENT_REFRESHABLE_DERIVED = frozenset({
     #   （第一轮落库后非空，PUT「只补空」把后续每轮的 video/live 明细全丢了）。
     #   suspect_cache 护栏同样覆盖这两列（护栏按本白名单过滤）。
     'ocr_raw_fields', 'top_products',
+    # ★ fix/name-pollution-refresh (2026-11-07 实锤)：name 会被采集链路自己污染
+    #   （extract_fields 兜底把用户消息原样当名字，2026-11-06 CO师傅/一百 两款）。
+    #   worker 侧已用核验过的首页真名覆盖（_resolve_talent_name），但 PUT merge
+    #   「严禁覆盖」会把真名挡在库外 ⇒ 污染名永远刷不回真名。name 语义 =
+    #   「最近一次采集核验的达人真名」，纳入刷新族；空值仍不覆盖（保护已有人工命名）。
+    'name',
 })
 
 

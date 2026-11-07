@@ -130,3 +130,30 @@ class TestRefreshFieldNameIsAccepted:
     def test_unknown_field_name_is_ignored(self):
         out = merge({"notes": "旧"}, {"notes": "新", "__refresh_fields": ["不存在"]})
         assert out["notes"] == "旧"
+
+
+class TestNameRefresh:
+    """★ fix/name-pollution-refresh (2026-11-07 实锤)：name 会被采集链路自己污染
+    （用户消息原样当名字），worker 已核验出真名但 PUT merge「严禁覆盖」挡在库外。
+    name 纳入刷新白名单：声明后可被「最近一次采集核验的真名」覆盖；
+    不声明/空值 行为完全不变。"""
+
+    def test_name_is_in_whitelist(self):
+        assert "name" in WHITELIST, "name 应允许按采集核验真名刷新"
+
+    def test_polluted_name_refreshed_by_verified_name(self):
+        existing = {"name": "CO师傅分析一下这个账号呢"}   # 生产污染原值
+        body = {"name": "CO师傅",                        # 主页核验真名
+                "__refresh_fields": ["name"]}
+        out = merge(existing, body)
+        assert out["name"] == "CO师傅"
+
+    def test_name_not_refreshed_without_declaration(self):
+        """不声明 ⇒ 老行为（保留老值），保护人工命名。"""
+        out = merge({"name": "人工命名的达人"}, {"name": "CO师傅"})
+        assert out["name"] == "人工命名的达人"
+
+    def test_empty_verified_name_never_overwrites(self):
+        """核验真名为空（极端）⇒ 不拿空值冲掉现名。"""
+        out = merge({"name": "现名"}, {"name": "", "__refresh_fields": ["name"]})
+        assert out["name"] == "现名"
