@@ -342,6 +342,29 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
             captured_at INTEGER,
             UNIQUE(stat_date, platform_product_id)
         );
+        -- 达人端「商品详情 top 带货达人」（2026-11-07 闭环二期数据源）。
+        --   ⚠️ 与 platform_product_stats（团长端机构汇总）口径完全不同：
+        --   这张是「商品 × 平台带货达人」维明细，给「推荐→出单」配对用；
+        --   gmv/sales 平台没给的维度一律 NULL（只丢不造）。
+        --   ⚠️ 达人标识三类值混装铁律（AGENTS.md §8.1）：
+        --   author_id / douyin_id / nickname 三个都留，配对时优先
+        --   author_id（对 talents.platform_talent_id），绝不靠格式猜。
+        CREATE TABLE IF NOT EXISTS platform_product_talent (
+            id TEXT PRIMARY KEY,
+            stat_date TEXT NOT NULL,
+            platform_product_id TEXT NOT NULL,
+            rank INTEGER DEFAULT 0,            -- 详情页「前几位」第几名（1 起）
+            author_id TEXT DEFAULT '',         -- 平台达人 id（接口给才填）
+            douyin_id TEXT DEFAULT '',         -- 真抖音号（接口给才填）
+            nickname TEXT DEFAULT '',
+            gmv REAL,                          -- NULL=平台没给；>=0=真值
+            sales INTEGER,                     -- NULL=平台没给；>=0=真值
+            extra_json TEXT DEFAULT '{}',      -- 视频等原始留档
+            captured_at INTEGER,
+            UNIQUE(stat_date, platform_product_id, author_id, nickname)
+        );
+        CREATE INDEX IF NOT EXISTS idx_ppt_pid ON platform_product_talent(platform_product_id);
+        CREATE INDEX IF NOT EXISTS idx_ppt_author ON platform_product_talent(author_id);
         CREATE INDEX IF NOT EXISTS idx_pts_douyin ON platform_talent_stats(douyin_id);
         CREATE INDEX IF NOT EXISTS idx_pts_stat ON platform_talent_stats(stat_date);
         CREATE INDEX IF NOT EXISTS idx_pps_pid ON platform_product_stats(platform_product_id);

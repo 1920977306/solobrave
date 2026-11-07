@@ -212,3 +212,163 @@ def test_stats_per_tenant_filter(botdb):
     assert s["total"] == 2 and s["accepted"] == 1
     assert s["accept_rate"] == 0.5
     assert s["tenants"] == []               # 单租户视图不重复列明细
+
+
+# ═══════════════ 二期：达人端商品详情 top 带货达人 ═══════════════
+
+import importlib as _il
+pts = _il.import_module("daren_cockpit.tools.product_talent_stats")
+captain = _il.import_module("daren_cockpit.tools.captain_stats")
+
+
+# ─────────────── parse_top_talents（纯函数，只丢不造）───────────────
+
+def test_parse_direct_list_with_rank():
+    raw = [{"author_id": "Wgg292", "nickname": "洁洁", "gmv": "12,500",
+            "sales": 300},
+           {"authorId": "hlb725", "name": "CO师傅", "pay_gmv": 8800}]
+    rows = pts.parse_top_talents(raw, "3668788850777522321", now=NOW)
+    assert len(rows) == 2
+    assert rows[0]["rank"] == 1 and rows[1]["rank"] == 2
+    assert rows[0]["author_id"] == "Wgg292"
+    assert rows[0]["gmv"] == 12500          # 千分位逗号剥掉
+    assert rows[0]["sales"] == 300
+    assert rows[1]["douyin_id"] == ""       # 没给的维度是空串/NULL 不是编造
+    assert rows[0]["platform_product_id"] == "3668788850777522321"
+    assert rows[0]["stat_date"] == time.strftime("%Y-%m-%d", time.localtime(NOW))
+
+
+def test_parse_nested_data_shapes():
+    for wrap in ({"data": [{"uid": "u1", "gmv": 1}]},
+                 {"data": {"list": [{"uid": "u1", "gmv": 1}]}},
+                 {"list": [{"uid": "u1", "gmv": 1}]}):
+        rows = pts.parse_top_talents(wrap, "p1", now=NOW)
+        assert len(rows) == 1 and rows[0]["author_id"] == "u1"
+
+
+def test_parse_unknown_shape_returns_empty_not_fabricated():
+    assert pts.parse_top_talents({"code": 0, "msg": "ok"}, "p1", now=NOW) == []
+    assert pts.parse_top_talents(None, "p1", now=NOW) == []
+    assert pts.parse_top_talents("garbage", "p1", now=NOW) == []
+
+
+def test_parse_drops_identifierless_rows():
+    """author_id / douyin_id / nickname 全空的行丢弃——不凑数。"""
+    raw = [{"gmv": 999, "sales": 10}, {"uid": "u1"}]
+    rows = pts.parse_top_talents(raw, "p1", now=NOW)
+    assert len(rows) == 1 and rows[0]["author_id"] == "u1"
+
+
+def test_parse_missing_gmv_is_none():
+    rows = pts.parse_top_talents([{"uid": "u1", "nickname": "x"}], "p1",
+                                 now=NOW)
+    assert rows[0]["gmv"] is None and rows[0]["sales"] is None
+
+
+# ─────────────── save_rows 幂等落库 ───────────────
+
+def test_save_rows_idempotent(tmp_path):
+    dbf = tmp_path / "main.db"
+    conn = sqlite3.connect(str(dbf))
+    captain.ensure_schema(conn)
+    rows = pts.parse_top_talents([{"uid": "u1", "gmv": 100}], "p1", now=NOW)
+    assert pts.save_rows(conn, rows) == 1
+    assert pts.save_rows(conn, rows) == 1          # 重复采集覆盖不堆行
+    n = conn.execute("SELECT COUNT(*) FROM platform_product_talent").fetchone()[0]
+    assert n == 1
+    gmv = conn.execute("SELECT gmv FROM platform_product_talent").fetchone()[0]
+    assert gmv == 100
+    conn.close()
+
+
+# ─────────────── backfill_sold 配对回填 ───────────────
+
+def _mk_main_with_talents(tmp_path, monkeypatch, bot_db, ptt_rows):
+    """主库：products/talents 最小表 + platform_product_talent（ensure_schema）。"""
+    main = tmp_path / "sb.db"
+    conn = sqlite3.connect(str(main))
+    captain.ensure_schema(conn)
+    conn.execute("CREATE TABLE products (id TEXT PRIMARY KEY, name TEXT,"
+                 " platform_product_id TEXT)")
+    conn.execute("CREATE TABLE talents (id TEXT PRIMARY KEY, name TEXT,"
+                 " douyin_id TEXT, platform_talent_id TEXT DEFAULT '',"
+                 " douyin_uid TEXT DEFAULT '')")
+    conn.execute("INSERT INTO products VALUES ('prod_a','面霜A','plat_1')")
+    conn.execute("INSERT INTO products VALUES ('prod_c','面霜C','')")
+    conn.execute("INSERT INTO talents VALUES ('tal_1','洁洁','dy_1','Wgg292','')")
+    conn.executemany(
+        "INSERT INTO platform_product_talent (id, stat_date,"
+        " platform_product_id, rank, author_id, douyin_id, nickname,"
+        " gmv, sales, extra_json, captured_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+        ptt_rows)
+    conn.commit()
+    conn.close()
+    monkeypatch.setattr(reco_log, "SOLOBRAVE_DB", main)
+    monkeypatch.setattr(reco_log.db.config, "DB_PATH", bot_db)
+    reco_log.db.init_db()
+    return main
+
+
+def test_backfill_sold_matches_via_author_id(tmp_path, monkeypatch):
+    bot_db = tmp_path / "daren_bot.db"
+    _mk_main_with_talents(tmp_path, monkeypatch, bot_db, [
+        ("ppt_1", "2026-11-07", "plat_1", 1, "Wgg292", "", "洁洁",
+         12500.0, 300, "{}", NOW)])
+    reco_log.log_recommendations("tk1", "dy_1", "",
+                                 _RECOS[:1], now=NOW)   # product_id=prod_a
+    out = reco_log.backfill_sold(now=NOW)
+    assert out == {"matched": 1, "gmv_filled": 1}
+    r = _rows(bot_db)[0]
+    assert r["sold_gmv"] == 12500 and r["sold_at"] == NOW
+    assert r["sold_source"] == "daren_product_detail"
+    # 幂等：重跑不再改（sold_source 已非空）
+    assert reco_log.backfill_sold(now=NOW) == {"matched": 0, "gmv_filled": 0}
+
+
+def test_backfill_sold_matches_via_douyin_id(tmp_path, monkeypatch):
+    bot_db = tmp_path / "daren_bot.db"
+    _mk_main_with_talents(tmp_path, monkeypatch, bot_db, [
+        ("ppt_2", "2026-11-07", "plat_1", 3, "", "dy_1", "洁洁小号",
+         None, 5, "{}", NOW)])
+    reco_log.log_recommendations("tk1", "dy_1", "", _RECOS[:1], now=NOW)
+    out = reco_log.backfill_sold(now=NOW)
+    assert out == {"matched": 1, "gmv_filled": 0}   # 命中但平台没给金额
+    r = _rows(bot_db)[0]
+    assert r["sold_gmv"] is None and r["sold_source"] == "daren_product_detail"
+    assert r["sold_at"] == NOW
+
+
+def test_backfill_sold_no_false_match_on_other_talent(tmp_path, monkeypatch):
+    """榜单上是别人的达人 ⇒ 不配对（不在 top N ≠ 没出单，保持 NULL）。"""
+    bot_db = tmp_path / "daren_bot.db"
+    _mk_main_with_talents(tmp_path, monkeypatch, bot_db, [
+        ("ppt_3", "2026-11-07", "plat_1", 1, "OTHER99", "", "别人",
+         99999.0, 9, "{}", NOW)])
+    reco_log.log_recommendations("tk1", "dy_1", "", _RECOS[:1], now=NOW)
+    assert reco_log.backfill_sold(now=NOW) == {"matched": 0, "gmv_filled": 0}
+    r = _rows(bot_db)[0]
+    assert r["sold_gmv"] is None and r["sold_source"] == ""
+
+
+def test_backfill_sold_unresolvable_product_skipped(tmp_path, monkeypatch):
+    """product_id 解析不出平台商品ID（prod_c 未建档平台ID）⇒ 跳过不比猜。"""
+    bot_db = tmp_path / "daren_bot.db"
+    _mk_main_with_talents(tmp_path, monkeypatch, bot_db, [
+        ("ppt_4", "2026-11-07", "plat_x", 1, "Wgg292", "", "洁洁",
+         1.0, 1, "{}", NOW)])
+    reco = [{"product_id": "prod_c", "name": "面霜C", "stars": 3,
+             "reasons": ["x"]}]
+    reco_log.log_recommendations("tk1", "dy_1", "", reco, now=NOW)
+    assert reco_log.backfill_sold(now=NOW) == {"matched": 0, "gmv_filled": 0}
+
+
+def test_backfill_sold_prefers_latest_capture(tmp_path, monkeypatch):
+    bot_db = tmp_path / "daren_bot.db"
+    _mk_main_with_talents(tmp_path, monkeypatch, bot_db, [
+        ("ppt_5", "2026-11-06", "plat_1", 1, "Wgg292", "", "洁洁",
+         100.0, 1, "{}", NOW - 86400),
+        ("ppt_6", "2026-11-07", "plat_1", 1, "Wgg292", "", "洁洁",
+         200.0, 2, "{}", NOW)])
+    reco_log.log_recommendations("tk1", "dy_1", "", _RECOS[:1], now=NOW)
+    reco_log.backfill_sold(now=NOW)
+    assert _rows(bot_db)[0]["sold_gmv"] == 200

@@ -94,8 +94,12 @@ def post_collect(tenant_key: str, douyin_id: str, task: dict) -> None:
     try:
         from . import reco_log
         reco_log.backfill_data_status()
+        # 出单回填（二期）：platform_product_talent 有数据就配对，空表是 no-op。
+        #   ⚠️ 前提是达人端采集口已把 top 带货达人采进主库——采集触发在
+        #   buyin_worker 侧，没采到时这里配对 0 行，如实不算命中。
+        reco_log.backfill_sold()
     except Exception:
-        log.exception("reco data_status backfill failed: %s", tenant_key)
+        log.exception("reco backfill failed: %s", tenant_key)
 
 
 # ---------------- 调度器 ----------------

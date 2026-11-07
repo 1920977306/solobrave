@@ -170,3 +170,88 @@ def stats(tenant_key: str | None = None) -> dict:
         "sold_pending_source": True,
         "tenants": tenants,
     }
+
+
+# ─────────── 出单回填（二期：达人端商品详情 top 带货达人数据源）───────────
+
+# sold_source 取值：''=未回填；'daren_product_detail'=达人端商品详情配对命中。
+#   ⚠️ 命中的行 sold_gmv 也可能为 NULL（平台榜单没给金额）——
+#   sold_at/sold_source 非空 = 「确认这个达人带过这个品」，
+#   sold_gmv 非空 = 「且知道金额」；stats() 的 sold 按金额口径（分列二期再做）。
+
+def _resolve_platform_product_id(conn, product_id: str) -> str:
+    """bot_reco_log.product_id（product_reco 取 products.id 优先、
+    platform_product_id 兜底）→ 平台商品ID。两步都查不到 ⇒ ''（不配对比猜）。"""
+    r = conn.execute(
+        "SELECT platform_product_id FROM products WHERE id=?",
+        (product_id,)).fetchone()
+    if r and r[0]:
+        return str(r[0])
+    r = conn.execute(
+        "SELECT platform_product_id FROM products WHERE platform_product_id=?",
+        (product_id,)).fetchone()
+    return str(r[0]) if r and r[0] else ""
+
+
+def backfill_sold(now: int | None = None) -> dict:
+    """「推荐→出单」配对回填：bot_reco_log × platform_product_talent。
+
+    配对键（不靠格式猜，AGENTS.md §8.1 三类混装铁律）：
+      商品侧  bot_reco_log.product_id → products.platform_product_id
+      达人侧  ① platform_product_talent.author_id == talents.platform_talent_id
+              ② platform_product_talent.douyin_id == bot_reco_log.douyin_id
+              （nickname 不做配对键——宁可漏不可错挂）
+    「不在 top N」≠「没出单」：配对不上保持 NULL（那是采不到，不是卖了 0）。
+    只更新 sold_gmv IS NULL 的行（已有值不覆盖）；返回 {matched, gmv_filled}。
+    """
+    now = int(now or time.time())
+    if not SOLOBRAVE_DB.is_file():
+        return {"matched": 0, "gmv_filled": 0}
+    main = sqlite3.connect(f"file:{SOLOBRAVE_DB}?mode=ro", uri=True)
+    matched = gmv_filled = 0
+    try:
+        with db.db_ctx() as bconn:
+            pairs = [(r[0], r[1]) for r in bconn.execute(
+                "SELECT DISTINCT product_id, douyin_id FROM bot_reco_log"
+                # sold_source='' ⇒ 从没配对过；gmv NULL 但已配对的行（平台没给
+                # 金额）不重跑——那是终态不是「还没回填」
+                " WHERE sold_gmv IS NULL AND sold_source=''")]
+        for product_id, dyid in pairs:
+            ppid = _resolve_platform_product_id(main, product_id)
+            if not ppid:
+                continue
+            # 我方达人的平台 id 集合（author_id 配对用）
+            tids = {str(r[0]) for r in main.execute(
+                "SELECT platform_talent_id FROM talents"
+                " WHERE douyin_id=? AND platform_talent_id!=''", (dyid,))}
+            clauses, args = ["douyin_id=?"], [ppid, ppid, dyid]
+            if tids:
+                clauses.insert(0, "author_id IN (%s)"
+                               % ",".join("?" * len(tids)))
+                args[2:2] = sorted(tids)
+            row = main.execute(
+                "SELECT author_id, douyin_id, gmv, captured_at"
+                " FROM platform_product_talent"
+                " WHERE platform_product_id=?"
+                " AND captured_at=(SELECT MAX(captured_at) FROM"
+                "  platform_product_talent WHERE platform_product_id=?)"
+                " AND (" + " OR ".join(clauses) + ")",
+                args).fetchone()
+            if not row:
+                continue
+            gmv, cap_at = row[2], int(row[3] or now)
+            with db.db_ctx() as bconn:
+                cur = bconn.execute(
+                    "UPDATE bot_reco_log SET sold_gmv=?, sold_at=?,"
+                    " sold_source='daren_product_detail'"
+                    " WHERE product_id=? AND douyin_id=?"
+                    " AND sold_gmv IS NULL AND sold_source=''",
+                    (gmv, cap_at, product_id, dyid))
+            matched += cur.rowcount
+            if gmv is not None:
+                gmv_filled += cur.rowcount
+        log.info("reco sold backfill: matched=%d gmv_filled=%d",
+                 matched, gmv_filled)
+        return {"matched": matched, "gmv_filled": gmv_filled}
+    finally:
+        main.close()
