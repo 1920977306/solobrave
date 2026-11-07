@@ -268,6 +268,13 @@ class Router:
             dyid = (db.get_latest_douyin_id(tk)
                     or (db.get_tenant(tk) or {}).get("bind_douyin_id") or "").strip()
             ok, msg = plan_notify.register_deal(dyid, pid)
+            if ok:
+                # ★ 反馈闭环：这个品被采纳了（推荐→采纳配对的数据源）
+                from . import reco_log
+                try:
+                    reco_log.mark_accepted(tk, dyid, pid)
+                except Exception:
+                    log.exception("reco mark accepted failed tenant=%s", tk)
             tip = "已接进排品表 ✅" if ok else msg
             return {"toast": {"type": "success" if ok else "info", "content": tip[:60]}}
         except Exception:
@@ -680,6 +687,14 @@ class Router:
             sender.send_text(chat_id, "登记失败，我这边查一下再回你～")
             return
         log.info("accept deal: tenant=%s product=%s ok=%s", tk, product_id, ok)
+        if ok:
+            # ★ 反馈闭环：这个品被采纳了（与卡片按钮同一条口径）
+            from . import reco_log
+            try:
+                reco_log.mark_accepted(tk, dyid,
+                                       str(product_id or "").strip())
+            except Exception:
+                log.exception("reco mark accepted failed tenant=%s", tk)
         sender.send_text(chat_id, msg)
 
     def _route_plan_query(self, tenant, chat_id, sender):
@@ -743,6 +758,14 @@ class Router:
             sender.send_text(chat_id, "我这边暂时算不出你的选品推荐"
                              + (f"（{why}）" if why else "") + "～")
             return
+        # ★ 反馈闭环留档（2026-11-07）：推荐一旦发生就落档——即使下面发卡失败
+        #   走文字兜底，推荐这个事实也在（配对/采纳率统计不认卡片发没发出去）。
+        from . import reco_log
+        try:
+            reco_log.log_recommendations(tk, dyid,
+                                         str(talent.get("id") or ""), recos)
+        except Exception:
+            log.exception("reco log failed tenant=%s", tk)
         prof = chain.get("profile") or {}
         bits = []
         if prof.get("main_gender"):

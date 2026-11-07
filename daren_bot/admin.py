@@ -208,6 +208,15 @@ _PAGE = """<!DOCTYPE html>
     <div class="hint">本周抓取按 ISO 周计数，每号每周限 1 次；多维表格 ✓ 表示已建表。</div>
   </section>
   <section>
+    <h2>推荐闭环（一期）</h2>
+    <div id="reco-summary" style="display:flex;gap:28px;flex-wrap:wrap;margin-bottom:12px"></div>
+    <table id="reco-tenants">
+      <thead><tr><th>租户</th><th>推荐数</th><th>采纳数</th><th>采纳率</th></tr></thead>
+      <tbody></tbody>
+    </table>
+    <div class="hint">口径：采纳率 = 采纳 / 推荐；数据状态只统计已采纳行（ok=结算采集≤7天 / stale=&gt;7天 / missing=没采到），missing 单独算采集健康度、不进命中率；出单回填数据源（达人端商品详情 top 带货达人采集口）建设中，一期如实显示「待接入」，不显示假数字。</div>
+  </section>
+  <section>
     <h2>最近积分流水（30 条）</h2>
     <table id="ledger">
       <thead><tr><th>时间</th><th>租户</th><th>动作</th><th>变动</th><th>余额</th></tr></thead>
@@ -338,6 +347,23 @@ function render(s){
 async function load(){
   try { render(await api('/admin/api/state')); }
   catch(e){ toast(e.message, true); }
+  try { renderReco(await api('/admin/api/reco-stats')); }
+  catch(e){ /* 表未建/旧版进程兼容：闭环区块留空，不阻塞总览 */ }
+}
+function renderReco(s){
+  const pct = (s.accept_rate * 100).toFixed(1);
+  const ds = s.data_status || {};
+  document.getElementById('reco-summary').innerHTML = [
+    ['推荐总数', s.total], ['采纳数', s.accepted], ['采纳率', pct + '%'],
+    ['出单（回填待接入）', s.sold_pending_source ? '待接入' : s.sold],
+  ].map(([k,v]) => `<div><div style="color:#6b7280;font-size:12px">${k}</div>` +
+    `<div style="font-size:20px;font-weight:600">${v}</div></div>`).join('') +
+    `<div><div style="color:#6b7280;font-size:12px">数据状态（已采纳）</div>` +
+    `<div style="font-size:13px">ok ${ds.ok||0} · stale ${ds.stale||0} · missing ${ds.missing||0}</div></div>`;
+  document.querySelector('#reco-tenants tbody').innerHTML = (s.tenants||[]).map(t=>`<tr>
+    <td><b>${esc(t.tenant_key)}</b></td><td>${t.total}</td><td>${t.accepted}</td>
+    <td>${t.total ? (t.accepted/t.total*100).toFixed(1)+'%' : '—'}</td></tr>`).join('')
+    || '<tr><td colspan="4" style="color:#9ca3af">暂无推荐记录</td></tr>';
 }
 load(); setInterval(load, 15000);
 </script>
@@ -394,6 +420,16 @@ def make_handler(state: dict):
                     return self._json(200, {"ok": True, **_get_credits()})
                 except Exception as e:  # noqa: BLE001
                     log.exception("credits failed")
+                    return self._json(500, {"ok": False, "error": str(e)})
+            if u.path == "/admin/api/reco-stats":
+                q = parse_qs(u.query)
+                if not self._auth(q):
+                    return self._json(403, {"ok": False, "error": "token 无效"})
+                try:
+                    from . import reco_log
+                    return self._json(200, {"ok": True, **reco_log.stats()})
+                except Exception as e:  # noqa: BLE001
+                    log.exception("reco stats failed")
                     return self._json(500, {"ok": False, "error": str(e)})
             if u.path == "/admin/api/chat":
                 q = parse_qs(u.query)

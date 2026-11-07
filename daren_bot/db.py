@@ -171,8 +171,41 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_coop_push_uniq
 CREATE INDEX IF NOT EXISTS idx_coop_push_week
   ON bot_coop_push_log(tenant_key, week_no);
 
--- 3.9 商家招商减负提交（极简表单落地）
--- 商家只给：品牌 + 联系方式 + （商品链接 | 商品图片 | 一段话描述）任一
+-- 3.8b 推荐→出单反馈闭环留档（2026-11-07 老大拍板，评估方四条设计点定稿）
+--   价值：推荐完就断是最大缺口；回收「推荐 → 实际出单」配对，权重才能自己长。
+--   ★ data_status 三态（评估方设计点①）：ok=这周采到达人结算数据 / stale=采到但>7天 /
+--     missing=这周没采到。统计命中率**只算 ok**，missing 单独汇总成「采集健康度」——
+--     否则会把「采集失败」当成「这个品不适合这个号」，结论是反的且貌似有数据支撑。
+--   ★ accepted（评估方设计点②）：达人点「接这个品」/说「接了 xxx」时标 1。
+--     两个指标分开算：推荐命中率(准不准) vs 采纳命中率(有没有说服力)。
+--   ★ sold_gmv/sold_at 一期预留可空（评估方点③：一期只算正向，负样本二期）。
+--     达人×商品出单明细目前**无现成数据源**（talent_videos 无商品关联、
+--     material_list 只有达人数）⇒ 待接「达人端商品详情 top 带货达人」采集口后回填，
+--     sold_source 标注来源；没接之前视图如实显示「待接入」，不编造（只丢不造）。
+CREATE TABLE IF NOT EXISTS bot_reco_log (
+  id            TEXT PRIMARY KEY,
+  tenant_key    TEXT NOT NULL,
+  douyin_id     TEXT NOT NULL,                -- 配对主键之一（达人维度）
+  talent_id     TEXT DEFAULT '',
+  product_id    TEXT NOT NULL,                -- 我方商品 id（配对主键之一）
+  product_name  TEXT DEFAULT '',              -- 快照：防商品改名/删除后展示断链
+  recommend_at  INTEGER NOT NULL,
+  star_level    INTEGER NOT NULL DEFAULT 0,   -- 当时算的星级（判断会随时间变，留痕）
+  verdict       TEXT DEFAULT '',              -- 当时的判断摘要（卡片理由第一句）
+  accepted      INTEGER NOT NULL DEFAULT 0,
+  accepted_at   INTEGER NOT NULL DEFAULT 0,
+  data_status   TEXT NOT NULL DEFAULT '',     -- ''=未回填 / ok / stale / missing
+  sold_gmv      REAL,                         -- NULL=未知（一期常态）；>=0=实际出单
+  sold_at       INTEGER NOT NULL DEFAULT 0,
+  sold_source   TEXT DEFAULT '',
+  created_at    INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_reco_log_dyp
+  ON bot_reco_log(douyin_id, product_id);
+CREATE INDEX IF NOT EXISTS idx_reco_log_tenant
+  ON bot_reco_log(tenant_key, recommend_at);
+
+-- 3.9 商家招商减负提交（极简表单落地）-- 商家只给：品牌 + 联系方式 + （商品链接 | 商品图片 | 一段话描述）任一
 -- 解析结果（商品名/价格/佣金/类目）由后台异步回填；再同步到飞书合作机会表
 -- 走运营既有的「待评估 → 有意向/已合作」管道。
 -- ⚠️ 只丢不造：解析不出来就留空 + status='partial'，绝不编商品字段。

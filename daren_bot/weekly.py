@@ -88,6 +88,14 @@ def post_collect(tenant_key: str, douyin_id: str, task: dict) -> None:
     if payload.get("auto"):
         db.log_system_cost(tenant_key, "weekly_auto_collect",
                            100, task.get("id", ""))
+    # ★ 反馈闭环（2026-11-07）：周采集成功 ⇒ 结算数据新鲜度变了，
+    #   顺手把 bot_reco_log 的 data_status 全部重估（幂等、按 douyin_id 分组、
+    #   只动 data_status 不碰 sold_*——出单数据源未接入前绝不编造）。
+    try:
+        from . import reco_log
+        reco_log.backfill_data_status()
+    except Exception:
+        log.exception("reco data_status backfill failed: %s", tenant_key)
 
 
 # ---------------- 调度器 ----------------
