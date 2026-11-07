@@ -2,17 +2,58 @@
 
 链路（老大口径 AGENTS.md §8.1：商品数据走达人端，详情页有「前几位带货达人 + 视频」）：
 
-    buyin_worker（页面上下文，带签名）
-      → 商品详情 top 带货达人接口（路径待扫码实测后钉死，见 buyin_worker 白名单）
+    buyin_worker（页面驱动，签名天然具备）
+      → 导航商品决策页 → 点「带货内容」tab（页面自己发
+        POST /pc/selection/decision/pack_detail，已扫码实测钉死）
+      → worker 流量监听截全量响应 → /daren-kol 取件
       → parse_top_talents()（纯函数，只丢不造）
       → platform_product_talent（主库，本模块落库）
       → daren_bot.reco_log.backfill_sold()（推荐→出单配对回填）
 
+★ 采集口为什么是页面驱动（2026-11-07 实测定案）：
+  外部 fetch 重放 pack_detail **经常被平台风控返回空 200**（19:43-19:55
+  六连空，参数逐字段对齐页面 XHR 也没用），而页面自己的 XHR 每次都能
+  拿到全量数据 ⇒ 不跟签名斗智斗勇，直接让页面发请求、我们截响应。
+
+实测契约（2026-11-07 达人端扫码实测，样本：漫花抽纸
+product_id=3644272059510584408 / promotion_id=3696059559421573288，
+原始响应留档 data/buyin_browser/manhua_content.json）：
+
+  请求（buyin_worker 白名单 /pc/selection/decision/pack_detail，页面上下文 fetch）：
+    POST https://buyin.jinritemai.com/pc/selection/decision/pack_detail
+    {"scene_info": {"request_page": 2},
+     "biz_id": "<promotion_id>",          # ⚠️ 是推广 id 不是商品 id
+     "biz_id_type": 2,
+     "data_module": "dynamic",
+     "dynamic_params": {"param_type": 12,
+       "sale_content_data_params": {"content_type": "video",
+         "time_range": "30", "page_no": 1, "count": 12,
+         "query_key": "", "sort_field": "sales_amount", "sort_type": "desc"}}}
+    content_type: video/live/window/artc；time_range: 7/30/90。
+    ⚠️ 必须先有 promotion_id：选品库 material_list 搜商品ID → 列表项的
+    promotion_id（即决策页 URL 的 commodity_id）。
+
+  响应：
+    data.model.sale_content_data.content_list[]（同层 count = 总条数，翻页
+    用 page_no*count 与 count 比）。单条关键字段（实测钉死）：
+      author_name           达人昵称
+      author_sec_id         加密 sec_uid（留档 extra_json，不作配对键）
+      author_fans_count     粉丝数
+      share_url             「https://www.douyin.com/share/user/<达人ID>」
+                            → 尾部数字 = 平台达人 id（对 talents.platform_talent_id）
+      format_sales          销量区间文案（如「2.5千+」）
+      format_sales_amount   GMV 区间文案（如「1千+」）
+      play_count/like_count/comment_count/share_count/order_conversion_rate
+      content_id/content_title/content_cover/media_info.video_url/publish_time
+      is_self_sale          是否自卖
+
 三条铁律：
-  ① 只丢不造：接口没给的维度（gmv/sales）一律 NULL；解析不出来的行**丢弃**，
-    不编排行/名字凑数。
-  ② 达人标识不靠格式猜（§8.1 三类混装）：author_id / douyin_id / nickname
-    三个都留，配对优先 author_id；rank 反映详情页第几位。
+  ① 只丢不造：平台**只给区间文案不给真值**（format_sales_amount/format_sales），
+    gmv/sales 一律 NULL——区间原文在 extra_json，报表层自取，绝不把
+    「1千+」的下限冒充真值塞进 REAL 列。
+  ② 达人标识不靠格式猜（§8.1 三类混装）：author_id 只从 share_url 尾部数字
+    取（= talents.platform_talent_id 同口径）；nickname 用 author_name；
+    douyin_id 接口没给，留空。
   ③ 「不在 top N」≠「没出单」：榜单只列前几位，配对不上保持 sold_gmv NULL，
     那是「采不到」，不是「卖了 0」。
 """
@@ -20,59 +61,47 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import time
 
 # ─────────────────────────── 解析（纯函数）───────────────────────────
-# ⚠️ 字段映射为「扫码实测前」的候选键多路尝试：每维度取第一个非空候选键。
-#   实测拿到真响应后：把命中的键序钉死、删掉其余候选，并在这里写实测样例链接。
-#   在那之前**不许**把任何解析结果写进 sold 回填链路以外的地方当结论展示。
 
-_AUTHOR_ID_KEYS = ("author_id", "authorId", "uid", "user_id", "promoter_id",
-                   "kol_id", "dy_uid")
-_DOUYIN_ID_KEYS = ("douyin_id", "douyinId", "dy_id", "sec_uid")
-_NICKNAME_KEYS = ("nickname", "name", "nick_name", "author_name", "title")
-_GMV_KEYS = ("gmv", "pay_gmv", "settle_gmv", "sales_gmv", "amount",
-             "pay_amount")
-_SALES_KEYS = ("sales", "pay_num", "order_pay_num", "sold_num", "sale_num",
-               "order_count")
+_SHARE_URL_RE = re.compile(r"/share/user/(\d+)")
+_LIST_PATH = ("data", "model", "sale_content_data", "content_list")
 
 
-def _first(item: dict, keys) -> str:
-    for k in keys:
-        v = item.get(k)
-        if v is not None and str(v).strip() != "":
-            return str(v).strip()
-    return ""
-
-
-def _first_num(item: dict, keys):
-    for k in keys:
-        v = item.get(k)
-        if v is None or (isinstance(v, str) and not v.strip()):
-            continue
-        try:
-            return float(str(v).replace(",", ""))
-        except (TypeError, ValueError):
-            continue
-    return None
+def _extract_list(raw):
+    """响应 → content_list。结构不是实测契约 ⇒ None（由调用方判失败，不造空榜）。"""
+    node = raw
+    for key in _LIST_PATH:
+        if not isinstance(node, dict):
+            return None
+        node = node.get(key)
+    return node if isinstance(node, list) else None
 
 
 def normalize_top_talent(item: dict) -> dict | None:
-    """一条原始达人记录 → 规范行。 identifier 一个都没有（author_id /
-    douyin_id / nickname 全空）⇒ 返回 None（丢弃，不凑数）。"""
+    """一条原始视频记录 → 规范行。author_id 与 nickname 都空 ⇒ None（丢弃，不凑数）。"""
     if not isinstance(item, dict):
         return None
-    author_id = _first(item, _AUTHOR_ID_KEYS)
-    douyin_id = _first(item, _DOUYIN_ID_KEYS)
-    nickname = _first(item, _NICKNAME_KEYS)
-    if not (author_id or douyin_id or nickname):
+    share = str(item.get("share_url") or "")
+    m = _SHARE_URL_RE.search(share)
+    author_id = m.group(1) if m else ""
+    nickname = str(item.get("author_name") or "").strip()
+    if not (author_id or nickname):
         return None
+    fans = item.get("author_fans_count")
+    try:
+        fans_count = int(fans) if fans is not None else None
+    except (TypeError, ValueError):
+        fans_count = None
     return {
-        "author_id": author_id,
-        "douyin_id": douyin_id,
+        "author_id": author_id,          # share_url 尾部数字；空 = 接口没给
+        "douyin_id": "",                 # 接口没给真抖音号（只丢不造）
         "nickname": nickname,
-        "gmv": _first_num(item, _GMV_KEYS),      # None = 平台没给（只丢不造）
-        "sales": _first_num(item, _SALES_KEYS),
+        "gmv": None,                     # 平台只给区间文案，真值没给（只丢不造）
+        "sales": None,
+        "fans_count": fans_count,
     }
 
 
@@ -80,37 +109,174 @@ def parse_top_talents(raw, platform_product_id: str,
                       now: int | None = None) -> list[dict]:
     """接口原始响应 → 规范行列表（带 rank / stat_date / captured_at）。
 
-    结构兼容：直接 list / {"data": [...]} / {"data": {"list": [...]}} /
-    {"list": [...]}——哪层是 list 用哪层；全都不是 ⇒ 返回 []
-    （只丢不造：结构不认识就不产出假空榜以外的任何东西，由调用方判失败）。
+    按达人聚合：同一达人多条视频（列表已按销售额降序）只留第一条
+    （= 该达人卖得最好的那条），rank 取最高名次。响应结构不是实测契约
+    ⇒ 返回 []（只丢不造，由调用方判失败）。
     """
     now = int(now or time.time())
-    node = raw
-    for _ in range(4):
-        if isinstance(node, list):
-            break
-        if isinstance(node, dict):
-            node = (node.get("data") if node.get("data") is not None
-                    else node.get("list"))
-            continue
-        node = None
-        break
-    if not isinstance(node, list):
+    lst = _extract_list(raw)
+    if lst is None:
         return []
     rows = []
-    for i, item in enumerate(node):
+    seen = set()                     # author_id 优先，其次 nickname
+    for item in lst:
         norm = normalize_top_talent(item)
         if norm is None:
             continue
+        key = norm["author_id"] or f"n:{norm['nickname']}"
+        if key in seen:
+            continue                 # 同达人后面的视频名次更低，丢弃
+        seen.add(key)
         norm.update({
             "platform_product_id": str(platform_product_id),
-            "rank": i + 1,                       # 详情页第几位（1 起）
+            "rank": len(rows) + 1,   # 聚合后的「前几位」名次（1 起）
             "stat_date": time.strftime("%Y-%m-%d", time.localtime(now)),
             "captured_at": now,
             "extra_json": json.dumps(item, ensure_ascii=False)[:4000],
         })
         rows.append(norm)
     return rows
+
+
+# ─────────────────────────── 采集（走 buyin_worker）───────────────────────────
+
+WORKER = "http://127.0.0.1:8095"
+WORKER_PATH = "/pc/selection/decision/pack_detail"
+DECISION_URL = ("https://buyin.jinritemai.com/dashboard/merch-picking-library/"
+                "merch-promoting?commodity_id={pid}&id={pid}")
+
+
+def build_request(promotion_id: str, content_type: str = "video",
+                  time_range: str = "30", page_no: int = 1,
+                  count: int = 12) -> dict:
+    """实测钉死的请求体（见模块 docstring 契约）。直连 fetch 用；
+    页面驱动流程下这个请求由页面自己发出，签名天然具备。"""
+    return {"scene_info": {"request_page": 2},
+            "biz_id": str(promotion_id),
+            "biz_id_type": 2,
+            "data_module": "dynamic",
+            "dynamic_params": {"param_type": 12,
+                               "sale_content_data_params": {
+                                   "content_type": content_type,
+                                   "time_range": str(time_range),
+                                   "page_no": int(page_no),
+                                   "count": int(count),
+                                   "query_key": "",
+                                   "sort_field": "sales_amount",
+                                   "sort_type": "desc"}},
+            "extra": {}}
+
+
+def _http_json(url: str, payload: dict | None = None, timeout: int = 30) -> dict:
+    import urllib.request
+    data = json.dumps(payload).encode() if payload is not None else None
+    req = urllib.request.Request(
+        url, data=data, headers={"Content-Type": "application/json"},
+        method="POST" if payload is not None else "GET")
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        return json.loads(r.read().decode())
+
+
+def _wait_job(cid: str, timeout_s: int = 180) -> tuple[dict | None, str]:
+    deadline = time.time() + timeout_s
+    while time.time() < deadline:
+        time.sleep(3)
+        try:
+            job = _http_json(f"{WORKER}/jobs/{cid}")
+        except Exception as e:  # noqa: BLE001
+            return None, f"查 job 失败：{e}"
+        st = job.get("status")
+        if st == "done":
+            raw = job.get("result")
+            if not raw:
+                return None, "worker 返回空结果"
+            try:
+                return (json.loads(raw) if isinstance(raw, str) else raw), ""
+            except json.JSONDecodeError as e:
+                return None, f"结果不是 JSON：{e}"
+        if st in ("failed", "error"):
+            return None, f"worker 采集失败：{job.get('stage') or job.get('error')}"
+    return None, "超时"
+
+
+def _poll_state(endpoint: str, match, timeout_s: float) -> dict | None:
+    """轮询 worker 的 STATE 型端点（/daren-search /daren-click），
+    直到返回结果满足 match(out)（STATE 里混着历史结果，必须内容匹配）。"""
+    deadline = time.time() + timeout_s
+    while time.time() < deadline:
+        time.sleep(2)
+        try:
+            out = _http_json(f"{WORKER}{endpoint}")
+        except Exception:  # noqa: BLE001
+            continue
+        if out.get('error') and 'not run yet' in str(out.get('error')):
+            continue
+        try:
+            if match(out):
+                return out
+        except Exception:  # noqa: BLE001
+            continue
+    return None
+
+
+def _in(out: dict, *keys: str) -> str:
+    return " ".join(str(out.get(k) or '') for k in keys)
+
+
+def fetch_top_talents(promotion_id: str, content_type: str = "video",
+                      time_range: str = "30", timeout_s: int = 180
+                      ) -> tuple[list[dict], str]:
+    """promotion_id → 采集 + 解析 + 按达人聚合的规范行列表。
+
+    采集口（2026-11-07 扫码实测定案）：外部 fetch 重放 pack_detail
+    **经常被平台风控返回空 200**（19:43-19:55 六连空实测），而页面自己的
+    XHR 必带完整签名 ⇒ **页面驱动**：导航商品决策页 → 点「带货内容」tab
+    → worker 在流量监听里截全量响应 → /daren-kol 取件。
+
+    返回 (rows, err)：err 非空 = 采集失败（rows 为 []，调用方别当空榜用）；
+    「商品无带货内容」也会走 err（与「采不到」区分不了时宁说采不到）。
+    """
+    promotion_id = str(promotion_id).strip()
+    if not promotion_id:
+        return [], "promotion_id 为空"
+    deadline = time.time() + timeout_s
+    try:
+        _http_json(f"{WORKER}/daren-kol?clear=1")           # ① 清捕获桶
+        _http_json(f"{WORKER}/daren-search",                # ② 导航决策页
+                   {"pid": "x", "tag": f"nav_{promotion_id[-8:]}",
+                    "url": DECISION_URL.format(pid=promotion_id)})
+        out = _poll_state(
+            '/daren-search',
+            lambda o: promotion_id in _in(o, 'goto_url', 'result_url',
+                                          'start_url', 'url'),
+            90)
+        if out is None:
+            return [], "导航商品决策页超时"
+        if 'merch-promoting' not in _in(out, 'goto_url', 'result_url', 'url'):
+            return [], f"决策页导航失败：{_in(out, 'error', 'goto_url')[:150]}"
+        _http_json(f"{WORKER}/daren-click",                 # ③ 点带货内容 tab
+                   {"text": "带货内容", "tag": f"kol_{promotion_id[-8:]}",
+                    "wait": 8})
+        _poll_state('/daren-click',
+                    lambda o: (o.get('text') == '带货内容'
+                               and promotion_id in _in(o, 'url')),
+                    90)
+        # ④ 轮询取件（页面 XHR 的响应被 worker 截获存桶）
+        while time.time() < deadline:
+            ent = _http_json(
+                f"{WORKER}/daren-kol?promotion_id={promotion_id}")
+            if ent.get('ok'):
+                data = json.loads(ent['text'])
+                product_id = ent.get('product_id') or promotion_id
+                rows = parse_top_talents(data, product_id)
+                if not rows:
+                    return [], "捕获到响应但解析不出达人行（结构不符）"
+                return rows, ""
+            time.sleep(3)
+        return [], ("采集超时：页面 XHR 未返回带货内容（该商品可能无带货内容，"
+                    "或页面加载失败）")
+    except Exception as e:  # noqa: BLE001
+        return [], f"采集异常：{e}"
 
 
 # ─────────────────────────── 落库 ───────────────────────────
@@ -131,15 +297,17 @@ def save_rows(conn, rows: list[dict]) -> int:
         conn.execute(
             "INSERT INTO platform_product_talent (id, stat_date,"
             " platform_product_id, rank, author_id, douyin_id, nickname,"
-            " gmv, sales, extra_json, captured_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)"
+            " gmv, sales, fans_count, extra_json, captured_at)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)"
             " ON CONFLICT(stat_date, platform_product_id, author_id, nickname)"
             " DO UPDATE SET rank=excluded.rank, douyin_id=excluded.douyin_id,"
             " gmv=excluded.gmv, sales=excluded.sales,"
+            " fans_count=excluded.fans_count,"
             " extra_json=excluded.extra_json, captured_at=excluded.captured_at",
             (_row_id(r), r["stat_date"], r["platform_product_id"],
              int(r.get("rank") or 0), r.get("author_id") or "",
              r.get("douyin_id") or "", r.get("nickname") or "",
-             r.get("gmv"), r.get("sales"),
+             r.get("gmv"), r.get("sales"), r.get("fans_count"),
              r.get("extra_json") or "{}", int(r.get("captured_at") or 0)))
         n += 1
     conn.commit()

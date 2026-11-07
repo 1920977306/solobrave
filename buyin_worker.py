@@ -838,6 +838,12 @@ class Browser:
         self.net_log = []
         self.net_enabled = True
         self.net_max = 800
+        # 「带货内容」全量响应捕获（2026-11-07）：pack_detail dynamic 的
+        # content_list 只在此接口给出，且**页面自己发的 XHR 必带平台签名、
+        # 外部 fetch 重放经常被风控返回空 200**（19:43-19:55 实测三连空）。
+        # 所以采集口 = 页面驱动（导航决策页 + 点带货内容 tab），在这里截全量
+        # 响应。键 = promotion_id 与 product_id 都存，消费端按任一键取。
+        self.kol_capture = {}
 
     def up(self):
         return self.ctx is not None
@@ -880,6 +886,28 @@ class Browser:
                         if 'json' in ct and not big:
                             # 4000 字符：够装下 summary_promotions[0] 的商品主体
                             rec['b'] = resp.text()[:4000]
+                            # ★ 带货内容全量捕获：net_log 只留 4000 字，这里
+                            #   把完整 content_list 响应另存（resp.text 有缓存，
+                            #   重复读不花钱）。只存有真实列表的响应。
+                            if bare.endswith('/pc/selection/decision/pack_detail'):
+                                try:
+                                    j = json.loads(resp.text())
+                                    d = (j or {}).get('data') or {}
+                                    scd = ((d.get('model') or {}).get(
+                                        'sale_content_data') or {})
+                                    if isinstance(scd.get('content_list'), list) \
+                                            and scd['content_list']:
+                                        ent = {'at': time.time(),
+                                               'promotion_id': str(d.get('promotion_id') or ''),
+                                               'product_id': str(d.get('product_id') or ''),
+                                               'text': json.dumps(j, ensure_ascii=False)}
+                                        with _job_lock:
+                                            for k in (ent['promotion_id'],
+                                                      ent['product_id']):
+                                                if k:
+                                                    self.kol_capture[k] = ent
+                                except Exception:
+                                    pass
                     except Exception:
                         pass
                 with _job_lock:
@@ -3337,6 +3365,13 @@ DAREN_API_ALLOWED = (
     '/pc/leaderboard_26/board_pmt',
     '/pc/leaderboard_26/get_board_default_info',
     '/pc/selection_square/get_filter',
+    # 商品决策页「带货内容」模块（2026-11-07 扫码实测钉死，闭环二期
+    #   「前几位带货达人」数据源）。POST，body 契约见
+    #   daren_cockpit/tools/product_talent_stats.py 模块 docstring：
+    #   biz_id=promotion_id + data_module=dynamic + param_type=12
+    #   → data.model.sale_content_data.content_list[]（达人昵称/粉丝/
+    #   销量·GMV 区间文案/share_url 里的平台达人 id）
+    '/pc/selection/decision/pack_detail',
     # 菜单/权限（拿「联盟榜单 / 选品AI助手 / 热点趋势」等子页真实路径用）
     '/api/permission/menu',
     '/api/permission/menu/match',
@@ -4155,6 +4190,27 @@ class ControlHandler(BaseHTTPRequestHandler):
                 net = [r for r in net if q in r.get('u', '') or q in (r.get('b') or '')]
             self._json(200, {'ok': True, 'enabled': enabled, 'total': len(net),
                              'log': net[-limit:]})
+            return
+        if self._path == '/daren-kol':
+            # 「带货内容」全量响应取件（一次性消费）：?product_id= 或
+            # ?promotion_id= 任一键命中即弹出返回；?clear=1 清空。
+            from urllib.parse import parse_qs
+            qs = parse_qs(self._qs)
+            with _job_lock:
+                cap = DAREN_BROWSER.kol_capture
+                if qs.get('clear'):
+                    cap.clear()
+                    self._json(200, {'ok': True, 'cleared': True})
+                    return
+                key = (qs.get('product_id') or qs.get('promotion_id')
+                       or [''])[0]
+                ent = cap.pop(key, None) if key else None
+            if ent:
+                self._json(200, {'ok': True, **ent})
+            else:
+                self._json(200, {'ok': False,
+                                 'pending': sorted(set(
+                                     k for k in cap.keys()))})
             return
         if self._path == '/daren-shot':
             with _job_lock:

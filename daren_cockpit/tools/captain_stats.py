@@ -357,8 +357,10 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
             author_id TEXT DEFAULT '',         -- 平台达人 id（接口给才填）
             douyin_id TEXT DEFAULT '',         -- 真抖音号（接口给才填）
             nickname TEXT DEFAULT '',
-            gmv REAL,                          -- NULL=平台没给；>=0=真值
+            gmv REAL,                          -- NULL=平台没给真值（只给区间文案，
+                                               -- 见 extra_json.format_sales_amount）
             sales INTEGER,                     -- NULL=平台没给；>=0=真值
+            fans_count INTEGER,                -- 粉丝数（达人端接口实测字段 author_fans_count）
             extra_json TEXT DEFAULT '{}',      -- 视频等原始留档
             captured_at INTEGER,
             UNIQUE(stat_date, platform_product_id, author_id, nickname)

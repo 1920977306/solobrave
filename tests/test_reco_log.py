@@ -11,6 +11,7 @@ data_status 三态分类（纯函数钉死口径）→ 周采集后分组回填 
 - 同一品再次推荐**新增一行**（看判断变化），mark_accepted 幂等（重复点不重复计时）。
 """
 import importlib
+import json
 import sqlite3
 import sys
 import time
@@ -222,47 +223,92 @@ captain = _il.import_module("daren_cockpit.tools.captain_stats")
 
 
 # ─────────────── parse_top_talents（纯函数，只丢不造）───────────────
+# 契约 2026-11-07 扫码实测钉死：达人端商品决策页「带货内容」模块
+# POST /pc/selection/decision/pack_detail → data.model.sale_content_data.content_list
+# 真实样本留档 data/buyin_browser/manhua_content.json
 
-def test_parse_direct_list_with_rank():
-    raw = [{"author_id": "Wgg292", "nickname": "洁洁", "gmv": "12,500",
-            "sales": 300},
-           {"authorId": "hlb725", "name": "CO师傅", "pay_gmv": 8800}]
-    rows = pts.parse_top_talents(raw, "3668788850777522321", now=NOW)
+def _item(nickname="芝士百宝箱", author_id="4013663505615021", fans=33992,
+          sales_fmt="2.5千+", gmv_fmt="1千+"):
+    return {"content_id": "7698379366615254518", "content_type": "video",
+            "content_title": "万万没想到我们擦嘴用的纸巾居然是这样加工出来的",
+            "author_name": nickname, "author_fans_count": fans,
+            "author_sec_id": "v2_0a2c", "format_sales": sales_fmt,
+            "format_sales_amount": gmv_fmt, "like_count": 10281,
+            "play_count": 2058836, "order_conversion_rate": 0.0752,
+            "share_url": f"https://www.douyin.com/share/user/{author_id}",
+            "is_self_sale": False}
+
+
+def _wrap(items, count=None):
+    return {"code": 0, "st": 0, "msg": "",
+            "data": {"model": {"sale_content_data":
+                               {"content_list": items,
+                                "count": count if count is not None else len(items),
+                                "code": 0}}}}
+
+
+def test_parse_real_contract_shape():
+    """实测结构：share_url 尾部数字 → author_id；nickname/粉丝解析正确。"""
+    rows = pts.parse_top_talents(_wrap([_item()]), "3644272059510584408",
+                                 now=NOW)
+    assert len(rows) == 1
+    r = rows[0]
+    assert r["rank"] == 1
+    assert r["author_id"] == "4013663505615021"   # share_url 解析，非格式猜
+    assert r["nickname"] == "芝士百宝箱"
+    assert r["fans_count"] == 33992
+    assert r["platform_product_id"] == "3644272059510584408"
+    assert r["stat_date"] == time.strftime("%Y-%m-%d", time.localtime(NOW))
+
+
+def test_parse_platform_only_gives_ranges_so_gmv_sales_are_none():
+    """平台只给区间文案（format_sales_amount「1千+」）不给真值 ⇒ 只丢不造。"""
+    rows = pts.parse_top_talents(_wrap([_item()]), "p1", now=NOW)
+    assert rows[0]["gmv"] is None and rows[0]["sales"] is None
+    assert rows[0]["douyin_id"] == ""             # 真抖音号接口没给
+    # 区间文案留在 extra_json 里，报表层自取
+    extra = json.loads(rows[0]["extra_json"])
+    assert extra["format_sales_amount"] == "1千+"
+    assert extra["format_sales"] == "2.5千+"
+
+
+def test_parse_aggregates_same_author_best_rank():
+    """同一达人多条视频（列表已按销售额降序）⇒ 只留第一条，rank 取最高名次。"""
+    items = [_item("芝士百宝箱", "4013663505615021", 33992, "2.5千+", "1千+"),
+             _item("团团不吃香菜", "4013663505615999", 1469391, "2.5千+", "500+"),
+             _item("团团不吃香菜", "4013663505615999", 1469391, "250+", "200+")]
+    rows = pts.parse_top_talents(_wrap(items, count=78), "p1", now=NOW)
     assert len(rows) == 2
-    assert rows[0]["rank"] == 1 and rows[1]["rank"] == 2
-    assert rows[0]["author_id"] == "Wgg292"
-    assert rows[0]["gmv"] == 12500          # 千分位逗号剥掉
-    assert rows[0]["sales"] == 300
-    assert rows[1]["douyin_id"] == ""       # 没给的维度是空串/NULL 不是编造
-    assert rows[0]["platform_product_id"] == "3668788850777522321"
-    assert rows[0]["stat_date"] == time.strftime("%Y-%m-%d", time.localtime(NOW))
-
-
-def test_parse_nested_data_shapes():
-    for wrap in ({"data": [{"uid": "u1", "gmv": 1}]},
-                 {"data": {"list": [{"uid": "u1", "gmv": 1}]}},
-                 {"list": [{"uid": "u1", "gmv": 1}]}):
-        rows = pts.parse_top_talents(wrap, "p1", now=NOW)
-        assert len(rows) == 1 and rows[0]["author_id"] == "u1"
+    tt = next(r for r in rows if r["nickname"] == "团团不吃香菜")
+    assert tt["rank"] == 2                        # 聚合后名次，不是原始第 3 条
+    assert tt["fans_count"] == 1469391
+    extra = json.loads(tt["extra_json"])
+    assert extra["format_sales"] == "2.5千+"      # 留的是卖得最好的那条
 
 
 def test_parse_unknown_shape_returns_empty_not_fabricated():
     assert pts.parse_top_talents({"code": 0, "msg": "ok"}, "p1", now=NOW) == []
     assert pts.parse_top_talents(None, "p1", now=NOW) == []
     assert pts.parse_top_talents("garbage", "p1", now=NOW) == []
+    # 空 content_list ≠ 失败：结构对但没数据 ⇒ 空列表（调用方自己判）
+    assert pts.parse_top_talents(_wrap([]), "p1", now=NOW) == []
 
 
 def test_parse_drops_identifierless_rows():
-    """author_id / douyin_id / nickname 全空的行丢弃——不凑数。"""
-    raw = [{"gmv": 999, "sales": 10}, {"uid": "u1"}]
-    rows = pts.parse_top_talents(raw, "p1", now=NOW)
-    assert len(rows) == 1 and rows[0]["author_id"] == "u1"
+    """share_url 无达人 ID 且 author_name 空 ⇒ 丢弃——不凑数。"""
+    bad = _item()
+    bad["author_name"] = ""
+    bad["share_url"] = ""
+    rows = pts.parse_top_talents(_wrap([bad, _item()]), "p1", now=NOW)
+    assert len(rows) == 1 and rows[0]["nickname"] == "芝士百宝箱"
 
 
-def test_parse_missing_gmv_is_none():
-    rows = pts.parse_top_talents([{"uid": "u1", "nickname": "x"}], "p1",
-                                 now=NOW)
-    assert rows[0]["gmv"] is None and rows[0]["sales"] is None
+def test_parse_no_share_url_falls_back_to_nickname():
+    """接口没给 share_url ⇒ author_id 空串但行保留（nickname 在）。"""
+    it = _item()
+    it["share_url"] = ""
+    rows = pts.parse_top_talents(_wrap([it]), "p1", now=NOW)
+    assert rows[0]["author_id"] == "" and rows[0]["nickname"] == "芝士百宝箱"
 
 
 # ─────────────── save_rows 幂等落库 ───────────────
@@ -271,13 +317,16 @@ def test_save_rows_idempotent(tmp_path):
     dbf = tmp_path / "main.db"
     conn = sqlite3.connect(str(dbf))
     captain.ensure_schema(conn)
-    rows = pts.parse_top_talents([{"uid": "u1", "gmv": 100}], "p1", now=NOW)
+    rows = pts.parse_top_talents(_wrap([_item()]), "p1", now=NOW)
+    assert len(rows) == 1
     assert pts.save_rows(conn, rows) == 1
     assert pts.save_rows(conn, rows) == 1          # 重复采集覆盖不堆行
     n = conn.execute("SELECT COUNT(*) FROM platform_product_talent").fetchone()[0]
     assert n == 1
-    gmv = conn.execute("SELECT gmv FROM platform_product_talent").fetchone()[0]
-    assert gmv == 100
+    gmv, fans = conn.execute(
+        "SELECT gmv, fans_count FROM platform_product_talent").fetchone()
+    assert gmv is None                             # 只丢不造：平台没给真值
+    assert fans == 33992
     conn.close()
 
 
