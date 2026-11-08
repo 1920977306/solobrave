@@ -17211,9 +17211,13 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         conn = ks._db_conn()
         try:
             data = kb_conflict_service.scan_by_subject(conn)
+            # 〔fix/kb-conflict-dismiss 2026-11-08〕decide 接口落痕写的是
+            # 'conflict_not_conflict'（conflict_+action 前缀），原查询只认 'not_conflict'
+            # ⇒ 已裁决 pair 永不消解。兼容两种写法。
             dismissed = {(r['entry_id'], r['merged_into']) for r in conn.execute(
                 "SELECT entry_id, merged_into FROM kb_decisions"
-                " WHERE decision='not_conflict' AND merged_into!=''")}
+                " WHERE decision IN ('not_conflict','conflict_not_conflict')"
+                " AND merged_into!=''")}
             clusters = []
             for c in data.get('clusters', []):
                 pairs = [p for p in c['pairs']
