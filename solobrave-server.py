@@ -2793,6 +2793,11 @@ def _check_agent_role_write_scope(auth, resource):
     - resource: 'talent'（达人录入/修改/删除）或 'product'（商品录入/修改/删除）
     - 真实用户（含管理员、子账号本人）不受此限制，走原有权限体系
     - agent role='admin' 不限；其他 role 只放行 _AGENT_ROLE_WRITE_SCOPE 规定的资源
+
+    ★ 守卫（阶段 1 前置 #4，2026-11-08）：此处的 role 是 **AI 人格角色**（商务/达人/商家等），
+      与 subjects 体系的 kind（super_admin / tenant_owner / biz_staff…）**永不互通**——
+      不许给这里挂业务身份，不许用 kind 推导人格，人格变更也不反向写 subjects。
+      人格 ≠ 身份，两边各自演进。（依据：docs/SUBJECTS-PACKS-RECONCILE.md §2 #4）
     """
     agent_id = getattr(auth, 'localhost_agent_id', None)
     if not agent_id:
