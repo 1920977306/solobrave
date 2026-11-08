@@ -69,6 +69,7 @@ import v3_scorer as v3
 
 # 知识库服务（分段向量化 + 全局公共，独立模块避免循环导入）
 import knowledge_service as ks
+import kb_conflict_service
 # ★ MT 租户路由注册（P0-1 根因修复）: server 文件名带 dash 无法被 ks import，
 # 旧 fallback `import solobrave_server` 从未生效 → ks 一直直连 DB_PATH（默认库），
 # 全部知识数据面绕开 M2 线程路由。这里由 server 主动注册自身，ks._db_conn 优先走 server 连接。
@@ -9326,6 +9327,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if path == '/api/knowledge/stats':
             self._handle_get_kb_stats()
             return
+        # ★ 矛盾检测（2026-11-08）：同主体多条目簇，AI 发现、人裁决（kb_decisions 留痕）
+        if path == '/api/knowledge/conflicts':
+            self._handle_get_kb_conflicts()
+            return
         if path == '/api/admin/llm-usage':
             self._handle_get_llm_usage()
             return
@@ -10054,6 +10059,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             return
         if path == '/api/knowledge/entries/reindex':
             self._handle_post_kb_reindex()
+            return
+        # ★ 矛盾检测裁决（2026-11-08）
+        if path == '/api/knowledge/conflicts/decide':
+            self._handle_post_kb_conflict_decide()
             return
         # ★ refactor/kb-vectorization-error-handling: 批量重试所有失败 embedding (admin only)
         if path == '/api/knowledge/retry-all-failed':
@@ -17184,6 +17193,121 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         except Exception as e:
             logger.error(f'  [KBEntry] update failed: {e}')
             self._send_json_error(500, 'Update failed')
+
+    def _handle_get_kb_conflicts(self):
+        """GET /api/knowledge/conflicts — 矛盾检测：同主体多条目簇（AI 发现、人裁决）。
+
+        校准结论（scripts/kb_conflict_calibrate.py，2026-11-08）：纯嵌入阈值筛不出矛盾——
+        达人画像/分析报告是强模板，不同主体的条目相似度也 0.95+（噪音），
+        而真矛盾（同主体不同结论）反而埋在模板噪音下 ⇒ 改用主体归组：
+        同主体 ≥2 条即候选簇，嵌入相似度只排序不过滤。
+        人已判「不矛盾」的 pair 不再出现（kb_decisions decision='not_conflict'）。
+        """
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'knowledge'): return
+        conn = ks._db_conn()
+        try:
+            data = kb_conflict_service.scan_by_subject(conn)
+            dismissed = {(r['entry_id'], r['merged_into']) for r in conn.execute(
+                "SELECT entry_id, merged_into FROM kb_decisions"
+                " WHERE decision='not_conflict' AND merged_into!=''")}
+            clusters = []
+            for c in data.get('clusters', []):
+                pairs = [p for p in c['pairs']
+                         if (p['a'], p['b']) not in dismissed
+                         and (p['b'], p['a']) not in dismissed]
+                if not pairs:
+                    continue
+                c2 = dict(c)
+                c2['pairs'] = pairs
+                clusters.append(c2)
+            data['clusters'] = clusters
+            data['dismissed_pairs'] = len(dismissed)
+        finally:
+            conn.close()
+        self._send_json(200, data)
+
+    _KB_CONFLICT_REASONS = ('duplicate', 'conflict', 'outdated',
+                            'not_same_subject', 'other')
+
+    def _handle_post_kb_conflict_decide(self):
+        """POST /api/knowledge/conflicts/decide — 簇裁决（kb_decisions 留痕）。
+
+        body: {decisions: [{entry_id, decision, target_id, reason_code,
+                            confidence, reason_note}]}
+          decision='not_conflict'：不矛盾（误报）——只留痕 pair，条目不动
+          decision='merge'：合并——target 保留，entry_id 软删 + 留痕 merged_into
+          decision='keep'：存疑保留——只留痕（confidence='unsure' 是边界样本采集位）
+        """
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'knowledge'): return
+        n = int(self.headers.get('Content-Length') or 0)
+        try:
+            body = json.loads(self.rfile.read(n).decode('utf-8') or '{}')
+        except Exception:
+            self._send_json_error(400, 'Bad JSON')
+            return
+        decisions = body.get('decisions')
+        if not isinstance(decisions, list) or not decisions:
+            self._send_json_error(400, 'Missing decisions')
+            return
+        applied, errors = [], []
+        for d in decisions[:50]:
+            eid = str(d.get('entry_id') or '')
+            action = str(d.get('decision') or '')
+            target = str(d.get('target_id') or '')
+            reason = str(d.get('reason_code') or 'other')
+            if reason not in self._KB_CONFLICT_REASONS:
+                reason = 'other'
+            confidence = 'unsure' if d.get('confidence') == 'unsure' else 'sure'
+            if action not in ('not_conflict', 'merge', 'keep') or not eid:
+                errors.append({'entry_id': eid, 'error': 'bad decision'})
+                continue
+            doc = ks.kb_entry_get_by_id(eid)
+            if not doc:
+                errors.append({'entry_id': eid, 'error': 'not found'})
+                continue
+            try:
+                if action == 'merge':
+                    if not target or not ks.kb_entry_get_by_id(target):
+                        self._send_json_error(400, 'merge 需要有效 target_id')
+                        return
+                    if not ks.can_delete_knowledge(
+                            doc, auth.user_id, is_admin=auth.is_admin,
+                            managed_team_ids=auth.managed_team_ids,
+                            managed_group_ids=auth.managed_group_ids,
+                            user_group_ids=auth.group_ids,
+                            emp_ids=_get_user_emp_ids(auth.user_id)):
+                        self._send_auth_error('Permission denied', 403)
+                        return
+                    ks.kb_entry_delete(eid, is_admin=auth.is_admin,
+                                       operator_id=auth.user_id)
+                    ks.log_kb_decision(
+                        eid, 'merged', reason_code=reason,
+                        confidence=confidence,
+                        reason_note=str(d.get('reason_note') or ''),
+                        merged_into=target, decided_by=auth.user_id,
+                        entry_row=doc)
+                else:
+                    # not_conflict / keep：不动条目，只留痕（AI 发现、人裁决）
+                    ks.log_kb_decision(
+                        eid, 'conflict_' + action, reason_code=reason,
+                        confidence=confidence,
+                        reason_note=str(d.get('reason_note') or ''),
+                        merged_into=target, decided_by=auth.user_id,
+                        entry_row=doc)
+                applied.append({'entry_id': eid, 'decision': action})
+            except Exception as e:
+                logger.error(f'  [KBConflict] decide failed: {e}')
+                errors.append({'entry_id': eid, 'error': str(e)})
+        self._send_json(200, {'ok': not errors, 'applied': applied,
+                              'errors': errors})
 
     def _handle_delete_kb_entry(self, entry_id):
         """DELETE /api/knowledge/entries/<id> — 删除新版知识(★ refactor/kb-soft-delete-cascade:

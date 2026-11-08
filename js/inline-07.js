@@ -755,7 +755,9 @@ function sb2KbRenderChips(cats, entries){
   entries.forEach(function(e){ if ((e.status || 'ok') === 'pending') pendingCount++; });
   var reviewHtml = '<button class="sb2-kb-chip-row-label">审核</button>' +
     '<button class="sb2-kb-chip' + (_sb2KbActiveStatus === 'all' ? ' active' : '') + '" data-sb2-kb-status="all">全部 · ' + total + '</button>' +
-    '<button class="sb2-kb-chip' + (_sb2KbActiveStatus === 'pending' ? ' active' : '') + '" data-sb2-kb-status="pending"' + (pendingCount ? '' : ' disabled') + '>待审核 · ' + pendingCount + '</button>';
+    '<button class="sb2-kb-chip' + (_sb2KbActiveStatus === 'pending' ? ' active' : '') + '" data-sb2-kb-status="pending"' + (pendingCount ? '' : ' disabled') + '>待审核 · ' + pendingCount + '</button>' +
+    /* ★ 矛盾检测（2026-11-08）：同主体多条目簇裁决入口（不参与 status 过滤链，点开是独立面板） */
+    '<button class="sb2-kb-chip" data-sb2-kb-conflicts="1" title="同一主体（达人/商品）有多条目——可能是重复或矛盾，等你裁决">矛盾检测</button>';
   var catHtml = '<button class="sb2-kb-chip-row-label">分类</button>' +
     '<button class="sb2-kb-chip active" data-sb2-kb-cat="all">全部 · ' + total + '</button>';
   Object.keys(catMap).sort().forEach(function(cname){
@@ -779,10 +781,14 @@ function sb2KbRenderChips(cats, entries){
 
   if (!el._sb2KbBound) {
     el.addEventListener('click', function(ev){
+      var conflictBtn = ev.target.closest('[data-sb2-kb-conflicts]');
       var catBtn = ev.target.closest('[data-sb2-kb-cat]');
       var scopeBtn = ev.target.closest('[data-sb2-kb-scope]');
       var statusBtn = ev.target.closest('[data-sb2-kb-status]');
-      if (statusBtn) {
+      if (conflictBtn) {
+        /* ★ 矛盾检测（2026-11-08）：独立裁决面板，不碰 status/cat/scope 过滤链 */
+        if (typeof sb2KbOpenConflicts === 'function') sb2KbOpenConflicts();
+      } else if (statusBtn) {
         /* ★ 审核面板（2026-10-29）：待审核视图切换 */
         if (statusBtn.disabled) return;
         _sb2KbActiveStatus = statusBtn.getAttribute('data-sb2-kb-status') || 'all';
@@ -9192,3 +9198,136 @@ function permanentlyDeleteSettingsMember(empId) {
 }
 
 
+
+
+/* ═══════════════ 知识库矛盾检测（2026-11-08）═══════════════
+   口径：同主体（达人/商品）≥2 条 = 候选簇；AI 发现、人裁决（kb_decisions 留痕）。
+   呈现按簇不按对：一个簇判一次，不按 N 对判 N 次。
+   处置：标不矛盾（误报，只留痕）/ 合并（保留 keeper，其余软删）/ 存疑保留（只留痕）。 */
+
+async function sb2KbOpenConflicts(){
+  var old = document.getElementById('sb2KbConflictsPanel');
+  if (old) old.remove();
+  var panel = document.createElement('div');
+  panel.id = 'sb2KbConflictsPanel';
+  panel.style.cssText = 'position:fixed;inset:0;background:rgba(20,20,20,.45);z-index:9990;display:flex;align-items:center;justify-content:center;padding:24px;';
+  panel.innerHTML = '<div style="background:#fff;border-radius:14px;width:min(920px,96vw);max-height:88vh;display:flex;flex-direction:column;overflow:hidden;">' +
+    '<div style="padding:16px 20px;border-bottom:1px solid #eee;display:flex;align-items:center;justify-content:space-between;">' +
+      '<div><b>矛盾检测 · 同主体多条目</b><div id="sb2KbConflictSub" style="font-size:12px;color:#888;margin-top:2px;">扫描中…</div></div>' +
+      '<button onclick="sb2KbCloseConflicts()" style="border:0;background:#f2f2f2;border-radius:8px;padding:6px 12px;cursor:pointer;">关闭 ✕</button>' +
+    '</div>' +
+    '<div id="sb2KbConflictBody" style="overflow:auto;padding:16px 20px;flex:1;"></div></div>';
+  document.body.appendChild(panel);
+  var body = document.getElementById('sb2KbConflictBody');
+  try {
+    var r = await apiFetch('/api/knowledge/conflicts');
+    if (!r.ok) {
+      var eb = await r.json().catch(function(){return {};});
+      throw new Error((eb && eb.error) || r.status);
+    }
+    var d = await r.json();
+    sb2KbRenderConflicts(d);
+  } catch (e) {
+    document.getElementById('sb2KbConflictSub').textContent = '加载失败';
+    body.innerHTML = '<div style="color:#c00;">' + escapeHtml(String(e.message || e)) + '</div>';
+  }
+}
+
+function sb2KbCloseConflicts(){
+  var p = document.getElementById('sb2KbConflictsPanel');
+  if (p) p.remove();
+}
+
+function sb2KbRenderConflicts(d){
+  var clusters = (d && d.clusters) || [];
+  var sub = document.getElementById('sb2KbConflictSub');
+  sub.textContent = '候选主体 ' + (d.subjects || 0) + ' 个 · 待裁决簇 ' + clusters.length +
+    ' 个' + (d.dismissed_pairs ? ' · 已判不矛盾 ' + d.dismissed_pairs + ' 对' : '') +
+    ' · 口径：同主体即候选，AI 发现、人裁决';
+  var body = document.getElementById('sb2KbConflictBody');
+  if (!clusters.length) {
+    body.innerHTML = '<div style="color:#888;text-align:center;padding:40px 0;">没有待裁决的簇——知识库现在是干净的（或都已处理完）</div>';
+    return;
+  }
+  body.innerHTML = clusters.map(function(c, i){
+    var eids = c.entries.map(function(e){ return e.id; });
+    var rows = c.entries.map(function(e){
+      var simBest = null;
+      (c.pairs || []).forEach(function(p){
+        if (p.a === e.id || p.b === e.id) if (simBest === null || (p.sim != null && p.sim > simBest)) simBest = p.sim;
+      });
+      var dt = e.updated_at ? new Date(Number(e.updated_at)).toLocaleDateString('zh-CN') : '—';
+      return '<label style="display:flex;gap:8px;align-items:flex-start;padding:10px;border:1px solid #eee;border-radius:10px;margin-bottom:8px;cursor:pointer;">' +
+        '<input type="radio" name="sb2kb-keep-' + i + '" value="' + escapeAttr(e.id) + '"' +
+          (eids.indexOf(e.id) === 0 ? ' checked' : '') + ' style="margin-top:3px;">' +
+        '<div style="flex:1;min-width:0;">' +
+          '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">' +
+            '<b style="font-size:13px;">' + escapeHtml(e.title || e.id) + '</b>' +
+            '<span style="font-size:11px;color:#888;">' + escapeHtml(e.tier || '') + ' · ' + escapeHtml(e.source || '') + ' · ' + dt + '</span>' +
+            (simBest != null ? '<span style="font-size:11px;color:#2f6fed;">近邻相似 ' + simBest.toFixed(3) + '</span>' : '') +
+          '</div>' +
+          '<div style="font-size:12px;color:#666;margin-top:4px;white-space:pre-wrap;">' + escapeHtml((e.content || '').slice(0, 220)) + '</div>' +
+        '</div></label>';
+    }).join('');
+    return '<div style="border:1px solid #e5e5e5;border-radius:12px;padding:14px;margin-bottom:14px;" data-cluster-idx="' + i + '">' +
+      '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:6px;">' +
+        '<div><b>' + escapeHtml(c.subject) + '</b>' +
+        '<span style="font-size:12px;color:#888;margin-left:8px;">' + c.entries.length + ' 条 · 最高相似 ' + (c.top_sim != null ? c.top_sim.toFixed(3) : '—') + '</span></div>' +
+        '<span style="font-size:12px;color:#888;">选中保留项 → 点「合并」软删其余</span>' +
+      '</div>' +
+      rows +
+      '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:4px;">' +
+        '<button onclick="sb2KbConflictAct(' + i + ',\'dismiss\')" style="border:1px solid #ddd;background:#fff;border-radius:8px;padding:6px 14px;cursor:pointer;">标为不矛盾（误报）</button>' +
+        '<button onclick="sb2KbConflictAct(' + i + ',\'merge\')" style="border:0;background:#05914d;color:#fff;border-radius:8px;padding:6px 14px;cursor:pointer;">合并（保留选中项）</button>' +
+        '<button onclick="sb2KbConflictAct(' + i + ',\'keep\')" style="border:1px solid #fa9d3b;color:#fa9d3b;background:#fff;border-radius:8px;padding:6px 14px;cursor:pointer;">存疑保留（都留着）</button>' +
+      '</div></div>';
+  }).join('');
+  window._sb2KbConflicts = clusters;
+}
+
+async function sb2KbConflictAct(idx, action){
+  var c = (window._sb2KbConflicts || [])[idx];
+  if (!c) return;
+  var decisions = [];
+  var pairs = c.pairs || [];
+  if (action === 'dismiss') {
+    pairs.forEach(function(p){
+      decisions.push({entry_id: p.a, decision: 'not_conflict', target_id: p.b,
+                      reason_code: 'not_same_subject', confidence: 'sure'});
+    });
+  } else if (action === 'keep') {
+    pairs.forEach(function(p){
+      decisions.push({entry_id: p.a, decision: 'keep', target_id: p.b,
+                      reason_code: 'conflict', confidence: 'unsure'});
+    });
+  } else if (action === 'merge') {
+    var keeper = (document.querySelector('input[name="sb2kb-keep-' + idx + '"]:checked') || {}).value;
+    if (!keeper) { alert('先选一个保留项'); return; }
+    c.entries.forEach(function(e){
+      if (e.id !== keeper) decisions.push({entry_id: e.id, decision: 'merge', target_id: keeper,
+                                           reason_code: 'duplicate', confidence: 'sure'});
+    });
+  }
+  if (!decisions.length) return;
+  try {
+    var r = await apiFetch('/api/knowledge/conflicts/decide', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({decisions: decisions})
+    });
+    var d = await r.json().catch(function(){return {};});
+    if (!r.ok) throw new Error((d && d.error) || r.status);
+    if (d.errors && d.errors.length) alert('部分失败：' + JSON.stringify(d.errors));
+    var card = document.querySelector('[data-cluster-idx="' + idx + '"]');
+    if (card) card.remove();
+    var left = document.querySelectorAll('[data-cluster-idx]').length;
+    var sub = document.getElementById('sb2KbConflictSub');
+    if (sub) sub.textContent = sub.textContent.replace(/待裁决簇 \d+ 个/, '待裁决簇 ' + left + ' 个');
+    if (!left) document.getElementById('sb2KbConflictBody').innerHTML =
+      '<div style="color:#888;text-align:center;padding:40px 0;">全部处理完了 👍</div>';
+    /* 合并/软删后条目列表变了，刷新主列表 */
+    if (typeof sb2KbInit === 'function') sb2KbInit();
+  } catch (e) {
+    alert('裁决失败：' + (e.message || e));
+  }
+}
