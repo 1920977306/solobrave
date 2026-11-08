@@ -4584,6 +4584,28 @@ def init_db():
         conn.execute('CREATE INDEX IF NOT EXISTS idx_proposals_agent_id ON proposals(agent_id)')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_proposals_created_at ON proposals(created_at DESC)')
 
+        # ★ AI 调 AI 审计日志（2026-11-08 老大拍板）：谁调了谁、传了什么、返回什么。
+        # 地基表：当前记 proposal 拍板后执行器落地（message.send 即 AI→AI 消息投递），
+        # 将来 AI 直接互调/调度统一走 _log_agent_call 留痕，不再各写各的。
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS agent_call_log (
+                id TEXT PRIMARY KEY,
+                caller_agent_id TEXT DEFAULT '',      -- 发起方 AI 员工
+                caller_name TEXT DEFAULT '',
+                callee_agent_id TEXT DEFAULT '',      -- 接收方 AI（message.send 有值；世界动作为 ''）
+                action TEXT NOT NULL,                 -- message.send | task.create | talent.create | ...
+                payload TEXT DEFAULT '',              -- JSON 摘要（截断 2000 字）
+                result TEXT DEFAULT '',               -- JSON 摘要（截断 2000 字）
+                status TEXT DEFAULT 'ok',             -- ok | failed
+                proposal_id TEXT DEFAULT '',          -- 关联拍板单（'' = 未走拍板通道）
+                decided_by TEXT DEFAULT '',           -- 拍板人 user_xxx
+                created_at INTEGER                    -- 毫秒
+            )
+        ''')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_agent_call_log_created_at ON agent_call_log(created_at DESC)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_agent_call_log_caller ON agent_call_log(caller_agent_id)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_agent_call_log_callee ON agent_call_log(callee_agent_id)')
+
         conn.commit()
 
         # 旧 JSON 数据迁移（幂等）
@@ -4750,6 +4772,42 @@ def _send_message_internal(target_agent_id, content, sender_user_id, agent_name)
         _save_chat(target_agent_id, messages)
     finally:
         lock.release()
+
+
+# ★ AI 调 AI 审计（2026-11-08 老大拍板）：谁调了谁、传了什么、返回什么。
+# 所有 AI 员工跨主体动作（AI→AI 消息 / AI 发起的世界动作 / 将来的直接互调）
+# 统一走这一个口子落 agent_call_log，不许旁路。
+_AGENT_CALL_FIELD_LIMIT = 2000
+
+
+def _log_agent_call(*, action, caller_agent_id='', caller_name='',
+                    callee_agent_id='', payload=None, result=None,
+                    status='ok', proposal_id='', decided_by=''):
+    """写一条 AI 动作审计。payload/result 序列化后各截断 2000 字。
+    落库失败只记 logger 错误，绝不阻断主链路（审计是观察器不是闸门）。"""
+    try:
+        payload_s = ''
+        if payload is not None:
+            payload_s = _json.dumps(payload, ensure_ascii=False)[:_AGENT_CALL_FIELD_LIMIT]
+        result_s = ''
+        if result is not None:
+            result_s = _json.dumps(result, ensure_ascii=False)[:_AGENT_CALL_FIELD_LIMIT]
+        conn = _db_conn()
+        try:
+            conn.execute('''
+                INSERT INTO agent_call_log
+                    (id, caller_agent_id, caller_name, callee_agent_id, action,
+                     payload, result, status, proposal_id, decided_by, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', ('acall_' + uuid.uuid4().hex[:12], caller_agent_id or '',
+                  caller_name or '', callee_agent_id or '', action or '',
+                  payload_s, result_s, status or 'ok', proposal_id or '',
+                  decided_by or '', int(time.time() * 1000)))
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception as e:
+        logger.error(f'  [AgentCallLog] 写入失败（不阻断主链路）: {e}')
 
 
 # 通知类型与通知开关字段的映射
@@ -9537,6 +9595,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             rest = path[len('/api/proposals/'):]
             if rest and '/' not in rest:
                 self._handle_get_proposal(rest)
+            return
+
+        # AI 调 AI 审计日志查询（admin-only）
+        if path == '/api/agent_calls':
+            self._handle_get_agent_calls()
             return
 
         # Product API
@@ -22560,6 +22623,49 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             conn.close()
         self._send_json(201, {**_proposal_row_to_dict(row), 'dispatched_agent': agent_name})
 
+    def _handle_get_agent_calls(self):
+        """GET /api/agent_calls — AI 调 AI 审计日志查询（人类 admin 专属）。
+        口径同审批中心：admin-only，且 localhost AI 员工通道 403——
+        AI 不能查自己干过的活（防自我审计抹除，权限阶段 1 的地基数据）。
+        过滤：caller / callee / action / status，limit ≤ 200。"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status); return
+        if not auth.is_admin or getattr(auth, 'localhost_agent_id', None):
+            self._send_json_error(403, '仅人类管理员可查 AI 调用审计')
+            return
+        query = parse_qs(urlparse(self.path).query)
+        caller = (query.get('caller') or [''])[0].strip()
+        callee = (query.get('callee') or [''])[0].strip()
+        action = (query.get('action') or [''])[0].strip()
+        status = (query.get('status') or [''])[0].strip()
+        limit = min(int((query.get('limit') or ['50'])[0] or 50), 200)
+        offset = int((query.get('offset') or ['0'])[0] or 0)
+        where, params = [], []
+        if caller:
+            where.append('caller_agent_id = ?'); params.append(caller)
+        if callee:
+            where.append('callee_agent_id = ?'); params.append(callee)
+        if action:
+            where.append('action = ?'); params.append(action)
+        if status:
+            where.append('status = ?'); params.append(status)
+        where_sql = ('WHERE ' + ' AND '.join(where)) if where else ''
+        conn = _db_conn()
+        try:
+            total = conn.execute(
+                f'SELECT COUNT(*) FROM agent_call_log {where_sql}', params).fetchone()[0]
+            rows = conn.execute(
+                f'SELECT * FROM agent_call_log {where_sql}'
+                ' ORDER BY created_at DESC LIMIT ? OFFSET ?',
+                params + [limit, offset]).fetchall()
+        finally:
+            conn.close()
+        self._send_json(200, {
+            'calls': [dict(r) for r in rows],
+            'total': total, 'limit': limit, 'offset': offset,
+        })
+
     def _handle_get_proposals(self):
         """GET /api/proposals — 列表 (审批中心), admin-only 收窄 (老大拍板)
         spec §2.2 + 老大 19:05 收窄: 人类用户原文 → admin-only 更稳, 审批中心本来就给老大用.
@@ -22732,6 +22838,27 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 row = conn.execute('SELECT * FROM proposals WHERE id = ?', (proposal_id,)).fetchone()
             finally:
                 conn.close()
+            # ★ AI 调 AI 审计（2026-11-08）：拍板后执行器落地统一留痕 agent_call_log。
+            # message.send 记 callee（真 AI→AI 投递）；task/talent.create 是世界动作 callee=''。
+            # rejected 不算动作不记；failed 也记（status='failed'），审计要能看到失败。
+            if choice:
+                _callee = ''
+                if row['type'] == 'message.send':
+                    _callee = (payload.get('target_agent_id')
+                               or payload.get('agent_id') or '')
+                _log_agent_call(
+                    action=row['type'],
+                    caller_agent_id=row['agent_id'],
+                    caller_name=row['agent_name'],
+                    callee_agent_id=_callee,
+                    payload=payload,
+                    result={'exec_status': exec_status,
+                            'exec_result': exec_result or {},
+                            'exec_note': exec_note},
+                    status='ok' if exec_status == 'executed' else 'failed',
+                    proposal_id=proposal_id,
+                    decided_by=auth.user_info.get('userId', ''),
+                )
         self._send_json(200, _proposal_row_to_dict(row))
 
     def _handle_delete_proposal(self, proposal_id):
