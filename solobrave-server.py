@@ -17031,7 +17031,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_auth_error(auth.error, auth.status)
             return
         if not self._require_module_permission(auth, 'knowledge'): return
-        if not auth.is_admin:
+        # ★ 阶段2批0 平台维护口子归 platform only（老大 16:18 拍板，TENANT-OWNER-MAPPING §4#3）
+        if not auth.is_platform_admin:
             self._send_auth_error('Admin only', 403)
             return
         body = self._read_body() or {}
@@ -17173,7 +17174,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         try:
             result = ks.kb_entry_retry_embedding(
                 entry_id,
-                is_admin=auth.is_admin,
+                is_admin=auth.is_platform_admin,
                 operator_id=auth.user_id,
                 user_id=auth.user_id,
                 managed_team_ids=auth.managed_team_ids,
@@ -17202,7 +17203,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_auth_error(auth.error, auth.status)
             return
         if not self._require_module_permission(auth, 'knowledge'): return
-        if not auth.is_admin:
+        # ★ 阶段2批0 平台维护口子归 platform only（老大 16:18 拍板，TENANT-OWNER-MAPPING §4#3）
+        if not auth.is_platform_admin:
             self._send_auth_error('Admin only', 403)
             return
         try:
@@ -17485,7 +17487,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
-        if not auth.is_admin:
+        # ★ 阶段2批0 平台维护口子归 platform only（老大 16:18 拍板，TENANT-OWNER-MAPPING §4#3）
+        if not auth.is_platform_admin:
             self._send_auth_error('Admin only', 403)
             return
         if not self._require_module_permission(auth, 'knowledge'): return
@@ -17516,7 +17519,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
-        if not auth.is_admin:
+        # ★ 阶段2批0 平台维护口子归 platform only（老大 16:18 拍板，TENANT-OWNER-MAPPING §4#3）
+        if not auth.is_platform_admin:
             self._send_auth_error('Admin only', 403)
             return
         if not self._require_module_permission(auth, 'knowledge'): return
@@ -17550,7 +17554,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
-        if not auth.is_admin:
+        # ★ 阶段2批0 平台维护口子归 platform only（老大 16:18 拍板，TENANT-OWNER-MAPPING §4#3）
+        if not auth.is_platform_admin:
             self._send_auth_error('Admin only', 403)
             return
         if not self._require_module_permission(auth, 'knowledge'): return
@@ -18061,7 +18066,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 conds.append('category = ?')
                 params.append(category)
             # ★ 数据隔离：非管理员（含 AI 员工本地调用）只看自己 + 自己 AI 员工创建的规律
-            if not auth.is_admin or getattr(auth, 'localhost_agent_id', None):
+            if not auth.is_platform_admin or getattr(auth, 'localhost_agent_id', None):
                 uid = _resolve_talent_owner_id(auth)
                 visible_ids = {uid} | set(_get_user_emp_ids(uid))
                 if visible_ids:
@@ -18696,7 +18701,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         user_emp_ids = _get_user_emp_ids(auth.user_id)
         where = []
         params = []
-        if not auth.is_admin:
+        if not auth.is_platform_admin:
             placeholders = ', '.join('?' for _ in user_emp_ids) if user_emp_ids else None
             if group_by == 'agent' and placeholders:
                 where.append(f'(agent_id IN ({placeholders}) OR user_id = ?)')

@@ -135,13 +135,13 @@
 | :2661 | `is_admin` | `def is_admin(self):` | 语义锚点保留 | AuthResult.is_admin property 本体 |
 | :32697 | `_call_ai_api` | `allowed_knowledge_categories=None, requester_id=None, is_admin=False, team_ids=None,` | 签名默认参数 | is_admin=False 默认形参 |
 
-## 4. 决策点（阶段 2 动手前需老大拍板）
+## 4. 决策点（2026-11-09 老大拍板 ✅）
 
-1. **tenant_owner 的"本租户"边界**：阶段 2 只做角色身份、不做行级 tenant_id 隔离（建议）。单租户期 tenant_owner 看到的就是全量业务数据；等阶段 3 数据带 tenant_id 后再收紧。→ 是否认可「先身份后隔离」的两步走？
-2. **B 桶知识库口径**：tenant_owner 对知识库是否享有当前 admin 的「越过 scope 读本租户全部」？（建议：是。合伙人对本租户知识库透明，scope 隔离对 tenant_owner 放行；员工互相之间的 personal scope 仍隔离。）
-3. **C 桶 `_handle_post_kb_retry_embedding`（单条重试）**：归 platform only 还是给 tenant_owner 对本租户 entry 重试？（文档默认 platform only，可议。）
-4. **D 桶 `AuthResult.is_admin` property 的最终去留**：阶段 2 全部切完后，is_admin 只剩 `_get_effective_permissions` 的框架输入用途。建议保留 property 但业务代码零消费（打标清单归零即验收），不做物理删除。
-5. **种子数据**：tenant_owner 行的来源——目前 users.json 无 `role=='tenant_admin'` 的人，阶段 2 第一批 tenant_owner 是谁？（合伙人后台开通时由 super_admin 指定，需一条 grant 口子，归阶段 2 批 1 一起做。）
+1. **tenant_owner 的"本租户"边界**：先身份后隔离 ✅ 拍板。阶段 2 只做角色，行级 tenant_id 隔离归阶段 3。
+2. **B 桶知识库口径** ✅ 拍板：**合伙人穿透看本租户全部**（= 平台超管现在的视角，限本租户；员工间 personal 仍互相隔离，唯一例外是合伙人）。改/删同权，留痕审计。
+3. **C 桶 `_handle_post_kb_retry_embedding`（单条重试）** ✅ 拍板：**平台维护全部归 platform only**（含单条重试；批量维护更不例外）。
+4. **D 桶 `AuthResult.is_admin` property 的最终去留** ✅ 按建议执行（老大无异议）：保留 property 当权限菜单计算零件，业务零消费，打标清单归零即验收，不物理删除。
+5. **种子数据**：⏳ 待拍板——第一批 tenant_owner 是谁（批 1 开工时由 super_admin 指定，grant 口子随批 1 一起上）。
 
 ## 5. 分批执行计划（每批：切 → 守卫测试 → 全量回归 → 推送 → 重启，同阶段 1 纪律）
 

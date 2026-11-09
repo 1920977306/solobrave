@@ -57,9 +57,9 @@ def test_label_generator_counts_consistent(capsys):
     out = capsys.readouterr().out
     assert '[platform]' in out and '[tenant]' in out
     assert '**[framework]**' in out
-    # 每行都是五列表格行；批 1 切换后裸消费减少，阈值留余量
+    # 每行都是五列表格行；阶段2批0后剩 94（[tenant] 91 + [platform] 3），随批次递减
     rows = [l for l in out.splitlines() if l.startswith('| :')]
-    assert len(rows) >= 100, f'站点数异常：{len(rows)}'
+    assert len(rows) >= 85, f'站点数异常：{len(rows)}'
 
 
 def test_label_generator_known_sites(capsys):
@@ -236,6 +236,29 @@ def test_batch3_sites_switched():
         assert 'auth.is_platform_admin' in body, f'{fn} 未切换到 is_platform_admin'
         bare = body.replace('auth.is_platform_admin', '')
         assert 'auth.is_admin' not in bare, f'{fn} 仍残留裸 auth.is_admin'
+
+
+# 阶段2批0（2026-11-09）：C 桶平台维护面 8 处切 is_platform_admin（老大 16:18 拍板：平台维护归 platform only）
+BATCH0_FNS = {
+    '_handle_post_kb_reindex', '_handle_post_kb_retry_embedding',
+    '_handle_post_kb_retry_all_failed', '_handle_cleanup_kb_dangling',
+    '_handle_post_verify_kb_index', '_handle_post_repair_kb_index',
+    '_handle_get_knowledge_patterns', '_handle_get_stats_compute',
+}
+
+
+def test_batch0_platform_maintenance_switched():
+    spans, lines = _fn_spans()
+    for fn in BATCH0_FNS:
+        s, e = spans[fn]
+        body = '\n'.join(lines[s - 1:e])
+        assert 'auth.is_platform_admin' in body, f'{fn} 未切换到 is_platform_admin'
+        bare = body.replace('auth.is_platform_admin', '')
+        assert 'auth.is_admin' not in bare, f'{fn} 仍残留裸 auth.is_admin'
+    # ks 层字面量 is_admin=True（系统级操作语义）保留，不算消费
+    s, e = spans['_handle_cleanup_kb_dangling']
+    body = '\n'.join(lines[s - 1:e])
+    assert 'is_admin=True' in body
 
 
 def test_credit_bypass_reads_subjects_kind(mod):
