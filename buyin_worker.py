@@ -2597,6 +2597,15 @@ JOBS = {}          # collect_id -> {status, stage, started, error, shots}
 _job_lock = threading.Lock()
 _running = threading.Event()
 JOB_Q = __import__('queue').Queue()
+# ★ 2026-11-09 去重登记：同一 collect_id 只许入队一次。
+# 背景：/collect 控制口 INSERT 后立即 submit_collect，而 queue_loop 每 POLL_INTERVAL
+# 扫一次 db_pending()——任务在队列里排队期间 DB 行仍是 'pending'，会被反复再入队。
+# 浏览器线程是串行的：第一个实例正常采集到 done，后面 N 个孪生实例 claim 时
+# 撞到旧状态（collecting/done）→ 服务端 409 → 孪生体把内存任务表覆盖成
+# 「认领失败: HTTP Error 409: Conflict」（11-08 20:13 / 22:13 实锤，周报白fail）。
+# collect_id 全局唯一（tcr_<ms>_<hex>），集合只增不减，内存代价可忽略。
+_ENQUEUED = set()
+_ENQUEUED_LOCK = threading.Lock()
 STATE = {'browser_up': False, 'logged_in': False,
          'daren_browser_up': False, 'daren_logged_in': False}   # 浏览器线程维护，HTTP线程只读
 
@@ -2629,7 +2638,20 @@ def _refresh_browser_state():
 
 
 def submit_collect(row):
-    """任意线程调用：把任务放入队列，由唯一浏览器线程执行。"""
+    """任意线程调用：把任务放入队列，由唯一浏览器线程执行。
+
+    ★ 同一 collect_id 幂等：已登记过的直接跳过（防 queue_loop 与 /collect
+    双入口重复入队，孪生实例 claim 409 覆盖任务状态——见 _ENQUEUED 注释）。
+    注意：BrowserLoopPoisoned 自愈路径（浏览器线程内 JOB_Q.put 重新入队）
+    不走本函数，不受影响。
+    """
+    cid = row.get('id') if isinstance(row, dict) else None
+    if cid:
+        with _ENQUEUED_LOCK:
+            if cid in _ENQUEUED:
+                log(f'[Queue] {cid} 已在队列/执行中，跳过重复入队')
+                return
+            _ENQUEUED.add(cid)
     JOB_Q.put(row)
 
 
