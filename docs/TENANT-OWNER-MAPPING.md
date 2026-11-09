@@ -147,10 +147,10 @@
 
 | 批次 | 内容 | 处数 | 风险 |
 |---|---|---|---|
-| 阶段2批0 | C 桶平台维护面切 `is_platform_admin` | 12 | 低，纯收窄 |
-| 阶段2批1 | A 桶业务管理面并联 `is_platform_admin or is_tenant_owner` + tenant_owner property + grant 口子 + 种子 | 40 | 中，含新 property 与开角色 |
-| 阶段2批2 | B 桶 ks 传参层加租户维度 | 37 | 高，动 ks.can_*/rag 核心，需 ks 层单测先补齐 |
-| 阶段2批3 | D 桶验收：打标清单 [tenant] 归零、is_admin 零业务消费 | — | 回归 |
+| 阶段2批0 | C 桶平台维护面切 `is_platform_admin` | 12 | ✅ 已完成（50ff8ce） |
+| 阶段2批1 | A 桶业务管理面并联 `is_tenant_manager` + is_tenant_owner property + grant 口子 | 40 | ✅ 已完成（58e1c21） |
+| 阶段2批2 | B 桶 ks 传参层：`is_admin` 更名 `tenant_manager`（84处），调用点统一传 `auth.is_tenant_manager` | 37 | ✅ 已完成（49aedf8），is_admin 业务消费清零 |
+| 阶段2批3 | D 桶验收：打标清单归零、is_admin 零业务消费 | — | ✅ 已随批2达成（清单 0 消费，留 property 零件） |
 
 ## 6. 与既有文档的关系
 
