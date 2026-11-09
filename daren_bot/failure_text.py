@@ -91,9 +91,21 @@ _FALLBACK_GENERIC = (
     "过几分钟再发一次就行。"
 )
 
+# ★ 2026-11-09 批B-B6（周报 P2 实锤）：auto 任务（周报自动采集/生成）失败时
+#   达人没发任何消息却收到「我再试一次就好」——凌晨被吵醒，且 409/登录态这类
+#   **重试无效**的错误也会原样重试。这两类给「延迟」话术（不承诺重试），
+#   且只在白天窗口推送（23:00-08:00 只告警运营，不打扰达人）。
+AUTO_DELAY_PRODUCT = (
+    "这周的商品数据报告会晚一点出来，运营在处理中，你不用管我～"
+)
+AUTO_DELAY_GENERIC = (
+    "这周的报告会晚一点出来，运营在处理中，你不用管我～"
+)
+
 
 def classify(exc: BaseException) -> str:
-    """把异常归类成一个 key（need_login / not_found / collector_down / timeout / other）。
+    """把异常归类成一个 key（need_login / not_found / collector_down / timeout
+    / conflict / other）。
 
     ★ 认**类名 + 消息特征**，不精确 import —— 避免 worker ↔ executors 的循环依赖，
       也避免测试里 monkeypatch 类之后判定失效。
@@ -104,6 +116,8 @@ def classify(exc: BaseException) -> str:
         return "not_found"
     if _is_collector_down(exc):
         return "collector_down"
+    if _is_conflict(exc):
+        return "conflict"
     if _is_timeout(exc):
         return "timeout"
     return "other"
@@ -149,6 +163,14 @@ def _is_not_found(exc: BaseException) -> bool:
 def _is_collector_down(exc: BaseException) -> bool:
     msg = str(exc)
     return ("采集器未启动" in msg or "不可达" in msg)
+
+
+def _is_conflict(exc: BaseException) -> bool:
+    """409/认领竞态 —— 重试按原样再跑一次还是同样结果（批B-B6 实锤：
+    认领 409 两小时后被原样重试、原样失败，还推给达人）。归「延迟」类。"""
+    msg = str(exc)
+    return ("409" in msg or "Conflict" in msg or "认领" in msg
+            or "conflict" in msg.lower())
 
 
 def _is_timeout(exc: BaseException) -> bool:

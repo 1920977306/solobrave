@@ -206,14 +206,42 @@ def normalize_product_url(url: str) -> str:
 
 
 def _extract_name_hint(text: str, dy_id: str) -> str:
-    """客户常带名字发号：「洁洁爱户外\n抖音号：hlb725」→ 「洁洁爱户外」。
-    去掉抖音号标注和 id 后剩余的中文/字母数字视作名字提示，仅作搜索核验用。"""
+    """客户常带名字发号：「洁洁爱户外\\n抖音号：hlb725」→ 「洁洁爱户外」。
+    去掉抖音号标注和 id 后剩余的中文/字母数字视作名字提示，仅作搜索核验用。
+
+    ★ 2026-11-09 批B-B3（周报 P2 实锤）：「CO师傅分析一下这个账号呢」
+      「我的小号发给你跟我分析一下名称一百」整句被当达人名，报告标题没法看，
+      搜索核验也直接废掉（与 B2「反复要截图」同源）。这里把口语尾巴剥掉：
+      归属前缀（我的…）、转移动词（发给你/跟我）、分析动词短语、
+      句尾语气词全清掉，只留昵称本体。
+    """
     t = text.replace(dy_id, ' ')
     t = re.sub(r'抖音名\s*[:：]?', ' ', t)                      # 「抖音名：一百」
     t = re.sub(r'抖音(?:(?:账)?号|ID|id)\s*[:：]?', ' ', t)     # 「抖音号/抖音账号/抖音ID：」
     t = re.sub(r'[^\w\u4e00-\u9fff]', '', t)
     # 客户常写「昵称：萌萌超会买」，剥掉标注词本身
     t = re.sub(r'^(昵称|名字|姓名|达人名|达人昵称)', '', t)
+    # ---- 口语尾巴剥离（B3）----
+    t = re.sub(r'^(我的|俺的)', '', t)                         # 「我的小号…」
+    t = re.sub(r'这是我的(小号|账号|号|抖音号|抖音)', '', t)
+    t = re.sub(r'(发给你|发过去|给你了?|你看下?|帮忙|麻烦)', '', t)
+    # 先试着从**句尾**剥「(跟我/帮我)分析一下(这个账号)呢」整段尾巴
+    t = re.sub(
+        r'(跟我|给我|帮我|我要|我要你)?'
+        r'(分析一下|分析分析|分析看看|分析|看看|瞧瞧|了解一下)'
+        r'(一下)?'
+        r'(这个|那个|这|那|我|你|个|本)?(个)?'
+        r'(账号|号|账户|抖音号|抖音|人|达人|博主|主播)?'
+        r'(呢|啊|呀|嘛|吧|哦|哇|哈|一下)?$', '', t)
+    # 动词后面还拖着名字（「跟我分析一下名称一百」→ 名字在动词**后**）：
+    # 取动词后的尾部当候选，剥掉「名称/叫/这个号」这类引导词
+    m = re.search(r'(分析一下|分析分析|分析|看看|瞧瞧|了解一下)', t)
+    if m:
+        before, after = t[:m.start()], t[m.end():]
+        after = re.sub(
+            r'^(这个|那个|这|那|个|本|是)?'
+            r'(账号|号|账户|抖音号|抖音|达人|博主|主播|名称|名字|昵称|叫)?', '', after)
+        t = after if after else before
     return t[:20] if 1 < len(t) <= 20 else ''
 
 
@@ -381,11 +409,14 @@ class Router:
         elif msg.message_type == "post":
             # ★ 2026-10-28：富文本（图+文组合）此前直接掉兜底话术——
             #   达人手机端「图片加一句话」就是 post。拆出文字与图，图走视觉（文字作上下文）。
+            # ★ 2026-11-09 批B-B9（周报复发实锤：双图消息只出 1 张卡片，第二张漏分析）：
+            #   逐张走视觉链路，每张独立出卡片（独立下载/独立计费/独立 payload）。
             caption, image_keys = _parse_post(content)
             if image_keys:
-                self._route_image(tenant, msg,
-                                  {"image_key": image_keys[0]}, sender,
-                                  caption=caption)
+                for key in image_keys:
+                    self._route_image(tenant, msg,
+                                      {"image_key": key}, sender,
+                                      caption=caption)
             elif caption:
                 self._route_text(tenant, chat_id, caption, sender)
             else:
@@ -539,6 +570,16 @@ class Router:
             #   ⇒ 软排除错数据 + 零成本确认话术 + 纠正原文进知识库（训练层）。
             #   在 QA 之前拦：不扣积分、不调 LLM。
             pass
+        elif is_daren and product_intent.is_correction(text):
+            # ★ 2026-11-09 批B-B8（周报 P2：「分析错了」「为啥呢 什么原因」被扣 qa 1 分）：
+            #   纠错/质疑是在帮我们改错，不是买服务 ⇒ 零成本兜底（不调 LLM、不扣费），
+            #   由 execute_qa 的质疑承接话术回复。判据在 product_intent.is_correction，
+            #   宁漏勿抢（正常提问不许被吞）。
+            self._route_correction_free(tenant, chat_id, text, sender)
+        elif is_daren and product_intent.wants_script(text):
+            # ★ 2026-11-09 批B-B1（周报 P1：保温杯脚本被「包」模板顶替，6 条才解决）：
+            #   脚本意图复用 QA 链（带 script_mode payload），强制绑定上文已确认商品。
+            self._route_script(tenant, chat_id, text, sender)
         else:
             # 业务问答：入队异步走 LLM（扣 1 积分），超出带货范围由模型拒答
             self._route_qa(tenant, chat_id, text, sender)
@@ -1055,6 +1096,21 @@ class Router:
 
     # ---------- ③ 业务问答（spec ① 意图分类的问答类） ----------
 
+    def _route_correction_free(self, tenant, chat_id, text, sender) -> None:
+        """纠错/质疑消息：零成本兜底入队（批B-B8）。
+
+        ★ 独立成函数（§16 Q 纪律）：enqueue_free 的白名单是**函数级**粒度，
+          挂在 _route_text 上会一并放过该函数里未来新增的零成本调用点。
+          execute_qa 收到 qa_correction 后不调 LLM，直接回质疑承接话术
+          （承认 + 核对已有档案 + 给下一步），所以这条**零算力、零扣费**。
+        """
+        tk = tenant["tenant_key"]
+        credits.enqueue_free(
+            tk, "qa", text.strip()[:200], "qa_correction", chat_id=chat_id,
+            payload=json.dumps({"qa_correction": True}, ensure_ascii=False))
+        sender.send_text(chat_id,
+                         "收到，我去核对一下刚才的分析，结论马上回你～")
+
     def _route_qa(self, tenant, chat_id, text, sender) -> None:
         tk = tenant["tenant_key"]
         q = text.strip()
@@ -1074,7 +1130,7 @@ class Router:
             credits.enqueue_free(
                 tk, "qa", q[:200], "qa_cached", cache_hit=1, chat_id=chat_id,
                 payload=json.dumps({"cached_answer": cached_qa}, ensure_ascii=False))
-            sender.send_text(chat_id, "收到（缓存命中，秒回）～")
+            sender.send_text(chat_id, "收到，这个问题之前答过，直接给你上次的回答～")
             return
         if db.get_balance(tk) < config.COST_QA:
             sender.send_text(
@@ -1092,6 +1148,42 @@ class Router:
                              f"这个问题正在回答中，回答完直接发你～（积分余额 {bal}）")
             return
         sender.send_text(chat_id, f"收到，我想一下～（积分余额 {bal}）")
+
+    # ---------- 口播脚本（批B-B1，复用 QA 链 + script_mode 强制绑定上文商品） ----------
+
+    def _route_script(self, tenant, chat_id, text, sender) -> None:
+        """达人在要口播/带货脚本。
+
+        2026-11-09 批B-B1（周报 P1 实锤）：mumu 要保温杯脚本，QA 拿「包」的
+        占位模板顶替、还反复索要商品ID，6 条消息才解决。
+        ⇒ 脚本意图复用 QA 链，但 payload 带 `script_mode`：
+          execute_qa 会**强制注入上文已确认的商品块**（不看指代词），并锁死
+          「脚本必须基于该商品真实属性生成，禁止套用其他品类模板」。
+        没有上文商品上下文时才回要链接/ID（沿用 NEED_PRODUCT_REF_REPLY）。
+        """
+        tk = tenant["tenant_key"]
+        if not db.has_recent_product_context(tk):
+            sender.send_text(chat_id, product_intent.NEED_PRODUCT_REF_REPLY)
+            return
+        q = text.strip()[:200]
+        if db.get_balance(tk) < config.COST_QA:
+            sender.send_text(
+                chat_id,
+                f"这个动作需要 {config.COST_QA} 积分，你的余额不够啦。"
+                "联系运营老师补充额度（内测期免费发放）")
+            return
+        status, _task_id, bal = credits.charge_and_enqueue(
+            tk, "qa", q, "qa", chat_id=chat_id,
+            payload=json.dumps({"script_mode": True}, ensure_ascii=False))
+        if status == "insufficient":
+            sender.send_text(chat_id, credits.insufficient_text("qa", bal))
+            return
+        if status == "duplicate":
+            sender.send_text(chat_id,
+                             f"脚本正在写，写完直接发你～（积分余额 {bal}）")
+            return
+        sender.send_text(chat_id,
+                         f"收到，基于刚才那个商品给你写口播脚本～（积分余额 {bal}）")
 
     # ---------- ③ 商品链接 / 商品ID（spec 4.3） ----------
 
@@ -1148,7 +1240,7 @@ class Router:
         bal = db.get_balance(tk)
         sender.send_text(
             chat_id,
-            f"收到{label}（结论缓存命中，秒出结果）～（积分余额 {bal}）")
+            f"收到{label}，这个之前分析过，直接给你结论～（积分余额 {bal}）")
 
     def _route_product(self, tenant, chat_id, product_key, sender, label="链接") -> None:
         tk = tenant["tenant_key"]
@@ -1182,7 +1274,7 @@ class Router:
                 return
             sender.send_text(
                 chat_id,
-                f"收到{label}（缓存命中，秒出结果）～（积分余额 {bal}）")
+                f"收到{label}，这个商品之前查过数据，正在出结论～（积分余额 {bal}）")
             return
 
         # ★ 2026-10-25 前置预检：达人端**确实**掉登录时，直接回人话 ——

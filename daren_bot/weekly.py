@@ -263,6 +263,28 @@ class WeeklyScheduler(threading.Thread):
                 (tk, dyid, week_ts)).fetchone()
             return r is not None
 
+    @staticmethod
+    def _last_fail_kind(tk, dyid, week_ts) -> str:
+        """最近一次自动采集失败的 error → failure_text 分类 key（拿不到 → ''）。
+
+        2026-11-09 批B-B6：登录态失效 / 409 认领竞态**重试无效**——
+        排了也是两小时后原样再败、还再推一次失败话术。这两类不再排重试/补偿。
+        """
+        from . import failure_text
+        with db.db_ctx() as conn:
+            r = conn.execute(
+                "SELECT error FROM bot_collect_tasks "
+                "WHERE tenant_key=? AND target=? AND type='douyin' "
+                "AND status='failed' AND created_at>=? "
+                "ORDER BY created_at DESC LIMIT 1",
+                (tk, dyid, week_ts)).fetchone()
+        if not r or not (r["error"] or "").strip():
+            return ""
+        try:
+            return failure_text.classify(RuntimeError(r["error"].strip()))
+        except Exception:
+            return ""
+
     def _maybe_enqueue_collect(self, tenant, dyid, week_ts, now, w_start):
         tk = tenant["tenant_key"]
         fails = db.count_auto_fails_this_week(tk, dyid, week_ts)
@@ -279,6 +301,11 @@ class WeeklyScheduler(threading.Thread):
         elif fails == 1:
             # 重试 1 次：距上次失败 2h 后，且必须赶得上推送时点（迟到快照不拖垮周报）
             if now >= retry_cutoff:
+                return
+            # ★ 2026-11-09 批B-B6：上次失败是登录态/409 ⇒ 重试无效，不再排
+            if self._last_fail_kind(tk, dyid, week_ts) in ("need_login", "conflict"):
+                log.info("weekly auto retry skipped (login/conflict): "
+                         "tenant=%s dyid=%s", tk, dyid)
                 return
             with db.db_ctx() as conn:
                 r = conn.execute(
@@ -320,6 +347,11 @@ class WeeklyScheduler(threading.Thread):
             return  # 没试过的不打扰（新租户等下个窗）
         if fails >= MAX_AUTO_FAILS:
             return  # 两次都败：防无限补，等下周一（数据缺失版周报已覆盖达人侧）
+        # ★ 2026-11-09 批B-B6：上次失败是登录态/409 ⇒ 补偿重采也无效，不再排
+        if self._last_fail_kind(tk, dyid, week_ts) in ("need_login", "conflict"):
+            log.info("weekly compensate skipped (login/conflict): "
+                     "tenant=%s dyid=%s", tk, dyid)
+            return
         if self._collected(tk, dyid, week_ts):
             return  # 有在跑/已成功的任务（_collected 含 done）
         chat_id = db.get_latest_chat_id(tk)

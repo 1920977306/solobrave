@@ -126,3 +126,66 @@ def refusal_needs_product_ref(text: str) -> bool:
     if has_product_ref(t):
         return False
     return wants_product_judgement(t)
+
+
+# ---- 口播脚本意图（2026-11-09 批B-B1，周报 P1）------------------------------
+# 达人要的是「这个商品的口播脚本」，不是泛泛问答 —— 上周报实锤：
+# mumu 要保温杯脚本，QA 拿「包」的占位模板顶替，6 条消息才解决。
+# 判据刻意保守：必须是明确的脚本诉求，且没点名新商品（点名新商品的
+# 「给这个品写脚本」走 missing_product_ref 承接，由 script_mode 链路带上下文）。
+
+_SCRIPT_RE = re.compile(
+    r"口播脚本|带货脚本|直播脚本|短视频脚本|脚本|话术|口播稿|"
+    r"前三秒|3秒钩子|开场白|促单话术|讲品话术|卖点话术")
+
+# 脚本请求里带「另一个/别的商品」指向词时，不该白嫖上文商品 ——
+# 保守起见不在这里排，由 handler 侧 has_recent_product_context 把关即可。
+
+
+def wants_script(text: str) -> bool:
+    """达人是不是在要「口播/带货脚本」。"""
+    t = (text or "").strip()
+    if not t:
+        return False
+    if len(t) > 60:
+        return False
+    return bool(_SCRIPT_RE.search(t))
+
+
+# ---- 纠错/投诉意图（2026-11-09 批B-B8，周报 P2）------------------------------
+# 「分析错了」「为啥呢 什么原因」这类纠错消息掉进 QA 被扣 1 积分 ——
+# 达人是在帮我们改错，不是买服务。命中走零成本兜底，不扣费。
+#
+# ★ 与 persona._CORRECTION_RE 故意**分开**：那个是训练素材判据，宁宽勿漏
+#   （含「建议/记住/下次」教学句）；这个是**免费路由**判据，宁漏勿抢 ——
+#   「有什么建议」是正常提问，被免费兜底吞掉就答非所问了。
+
+_CORRECTION_STRONG_RE = re.compile(
+    r"分析错了|答错了|说错了|搞错了|认错了|算错了|弄错了|"
+    r"不对啊|不对吧|不对嘛|不是这样的|你错|错了[吧啊呀嘛呢]?$|不准|有误")
+
+_CORRECTION_ASK_RE = re.compile(r"为啥|为什么|什么原因|怎么会|怎么回事")
+
+
+def is_correction(text: str) -> bool:
+    """L1 判据：这条短消息是不是在**纠错/质疑已有回答**（而非提出新问题）。
+
+    保守双档：
+      - 强纠错词（分析错了/搞错了/不对啊…）⇒ 直接命中；
+      - 原因追问词（为啥/为什么…）⇒ 必须同时指向 AI 已有的输出
+        （含 你/说/答/报告/分析/上面/刚才/截图），否则是正常提问不拦。
+    带商品链接/ID 的正常诉求不受影响的（has_product_ref 直接放行）。
+    """
+    t = (text or "").strip()
+    if not t:
+        return False
+    if len(t) > 30:
+        return False
+    if has_product_ref(t):
+        return False
+    if _CORRECTION_STRONG_RE.search(t):
+        return True
+    if _CORRECTION_ASK_RE.search(t) \
+            and re.search(r"你|说|答|报告|分析|上面|刚才|那张|这张", t):
+        return True
+    return False

@@ -5,6 +5,7 @@
 「任务失败 → 自动返还积分 → 卡片告知」路径（spec 4.1 失败分支）。
 """
 from __future__ import annotations
+import datetime
 import json
 import logging
 import re
@@ -282,6 +283,31 @@ class Worker(threading.Thread):
                     exc, context=f"任务 {task['id']}（{task.get('type')}）失败"),
                 kind="login_lost",
                 dedup_key="daren_collector_need_login")
+
+        # ★ 2026-11-09 批B-B6（周报 P2 实锤）：auto 任务（周报自动采集/生成，
+        #   payload.auto=1）失败——达人没发任何消息，凌晨收到「我再试一次就好」，
+        #   且 409/登录态这类**重试无效**的错误也原样重试、原样推送。
+        #   分流：登录态/409 ⇒ 不推达人、只告警运营（重试无意义，weekly.py 也不再排重试）；
+        #   夜间 23:00-08:00 ⇒ 任何 auto 失败都不推达人（静默告警运营），白天才给「延迟」话术。
+        try:
+            _pl = json.loads(task.get("payload") or "{}")
+        except Exception:
+            _pl = {}
+        _is_auto = bool(_pl.get("auto")) or \
+            str(task.get("type") or "").startswith("weekly")
+        if _is_auto:
+            _kind = failure_text.classify(exc) if exc is not None else "other"
+            if _kind in ("need_login", "conflict"):
+                log.info("[auto-fail-silent] id=%s kind=%s tenant=%s（不推达人，"
+                         "重试无效）", task["id"], _kind, task.get("tenant_key"))
+                return
+            _hour = datetime.datetime.now().hour
+            if _hour >= 23 or _hour < 8:
+                log.info("[auto-fail-night] id=%s tenant=%s hour=%d（夜间静默，"
+                         "不推达人）", task["id"], task.get("tenant_key"), _hour)
+                return
+            user_text = (failure_text.AUTO_DELAY_PRODUCT if product_scene
+                         else failure_text.AUTO_DELAY_GENERIC)
 
         suffix = f"（已返还 {cost} 积分）" if cost > 0 else ""
         self._notify(task["tenant_key"], f"{user_text}{suffix}",

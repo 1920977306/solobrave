@@ -1886,7 +1886,7 @@ def _recent_product_ref_re():
         r"这个宝贝|这个货|那个品|本品|它|刚才那个|上面那个|之前那个")
 
 
-def _recent_product_block(tk: str, q: str) -> str:
+def _recent_product_block(tk: str, q: str, force: bool = False) -> str:
     """上文商品语境块：达人发过商品链接/ID/截图分析过后，追问「这个品/这款/它」
     时注入 QA prompt —— 让 AI 承接上文，而不是再要一遍商品ID
     （2026-10-28 老大实锤：「上面已经给到了商品链接，下面问道其它问题又要给商品ID」）。
@@ -1898,8 +1898,11 @@ def _recent_product_block(tk: str, q: str) -> str:
         达人发罗盘/截图问答后追问碎片词，前两条都可能没有 —— 截图分析
         不落 pending 也不写结论档案，但达人说的「这个品」就是截图那个）
     返回空串 = 没有可承接的上下文。
+
+    ★ force=True（2026-11-09 批B-B1 脚本链路）：跳过指代词判定 ——
+      「给我写个口播脚本」里没有「这个品」，但脚本必须绑上文已确认商品。
     """
-    if not _recent_product_ref_re().search(q or ""):
+    if not force and not _recent_product_ref_re().search(q or ""):
         return ""
     from . import db
     try:
@@ -1947,6 +1950,68 @@ def _recent_product_block(tk: str, q: str) -> str:
                      "不要再索要商品链接或商品ID")
         return "｜".join(parts)[:300]
     return ""
+
+
+def _challenge_fallback(tenant_key: str, q: str, ctx: str) -> str:
+    """质疑/纠错类问题的**确定性**兜底（不调 LLM）：
+    承认 + 核对已有档案数据 + 给下一步动作。绝不让达人吃闭门羹。
+
+    2026-11-09 批B-B8：纠错消息免费路由（qa_correction）直接复用本话术；
+    原 challenge-被拒兜底也从内联改为调用本函数（单一真源，两处同口径）。
+    """
+    if _find_mentioned_peers(tenant_key, q):
+        # 问题里点名了第三方账号，不属于"质疑本人报告"，不能发道歉话术
+        return ("这个问题涉及到你提到的另一位达人。我目前只有TA的已采集数据，"
+                "需要我深挖 TA 的账号，把 TA 的抖音号发我即可～")
+    cat = ""
+    m = (_re.search(r"主营类目[\s：:]*([\u4e00-\u9fff/]+)", ctx)
+         or _re.search(r"专注([\u4e00-\u9fff/]{2,10})领域", ctx))
+    if m:
+        cat = m.group(1).strip()
+    back = "收到你的质疑。我核对了你的账号数据"
+    if cat:
+        back += f"，你的主营类目是{cat}"
+    back += ("。如果报告里的推荐和你的实际主营不匹配，以你的实际主营为准——"
+             "那是我分析失误，抱歉。你可以把想带的具体商品发我，我重新给你针对性分析。")
+    return back
+
+
+# 「我最近带的品」问法（与 handler.RECENT_PRODUCTS_RE 同口径：达人问本人近期带货明细）
+_RECENT_PRODUCTS_ASK_RE = _re.compile(
+    r"(近期|最近|近来|这段时间|这段日子|这几天|近期内).{0,10}(带|卖|推).{0,8}"
+    r"(品|货|商品|什么|哪些|啥|的货)"
+    r"|(带|卖)过.{0,6}(哪些|什么|啥).{0,4}(品|货|商品)")
+
+
+def _recent_products_answer_block(tk: str, own_dyid: str, q: str) -> str:
+    """达人问「我最近带的品」→ 从本人档案抽近期带货明细，注入 QA prompt。
+
+    2026-11-09 批B-B4（周报 P1-5 实锤）：mumu 问「我最近带的品是啥呢」，
+    LLM 答「没有可核实的具体商品记录」——但 11-02 刚出过完整报告（335 品/257 店）。
+    档案在库里，只是没注入。返回空串 = 问法不命中 / 没档案 / 没明细。
+    """
+    if not own_dyid or not _RECENT_PRODUCTS_ASK_RE.search(q or ""):
+        return ""
+    try:
+        t = _read_talent("", own_dyid)
+    except Exception:
+        t = None
+    if not t:
+        return ""
+    items = recent_product_items(t) or []
+    if not items:
+        return ""
+    updated_at = int(t.get("updated_at") or 0)
+    day = time.strftime("%m-%d", time.localtime(updated_at / 1000)) \
+        if updated_at else "近期"
+    lines = [f"【该达人近期带货明细】（档案更新于 {day}，共 {len(items)} 个品）"]
+    for i, it in enumerate(items[:15], 1):
+        extra = ("｜" + "｜".join(it.get("extra") or [])) \
+            if it.get("extra") else ""
+        lines.append(f"  {i}. {it.get('name', '')}{extra}")
+    lines.append("达人问的是「TA 最近带的品」——回答必须基于以上真实明细逐项说明；"
+                 "明细里没有的品不要编。")
+    return "\n".join(lines)[:900]
 
 
 # ─── 多对象会话记忆（2026-11-02 豆鲨包实锤驱动）──────────────────────────────
@@ -2532,6 +2597,29 @@ def execute_qa(task: dict) -> str:
                         "报告出来直接发你～")
             except Exception:
                 log.exception("enqueue recollect failed")
+    # ★ 2026-11-09 批B-B8（周报 P2）：纠错/质疑消息（handler 侧已走零成本入队）——
+    #   不调 LLM，直接给质疑承接话术（与下方 challenge 兜底同一套口径，确定性回复）。
+    if _pl.get("qa_correction"):
+        return _challenge_fallback(task.get("tenant_key", ""), q, ctx)
+    # ★ 2026-11-09 批B-B4（周报 P1-5 实锤）：15:08 刚回「本周已分析过…加急联系运营」，
+    #   15:09 又问「现在不能分析嘛」LLM 却答「能分析」——周限话术自相矛盾。
+    #   达人在周额度已用尽时求「再分析」⇒ 给**确定性**的同一口径，不让 LLM 即兴发挥。
+    if _own_dyid and len(q) <= 20 \
+            and _re.search(r"(现在|还能|还能不能|能不能|可以|能).{0,4}(再)?分析"
+                           r"|重新分析|再分析一次", q):
+        try:
+            _wc = _db.get_week_count(task.get("tenant_key", ""), _own_dyid)
+        except Exception:
+            _wc = 0
+        if _wc >= 1:
+            return ("本周已分析过你的账号，下周更新；加急联系运营～\n"
+                    "想深挖的话，把想带的具体商品链接或截图发我，"
+                    "商品分析不受周额度限制")
+    # ★ 2026-11-09 批B-B4（周报 P1-5 实锤）：达人问「我最近带的品是啥呢」，
+    #   LLM 答「没有可核实的商品记录」——11-02 明明有完整报告（335 品/257 店）。
+    #   把本人档案里的近期带货明细注入 prompt，让回答引用真实数据而非否认。
+    recent_products_block = _recent_products_answer_block(
+        task.get("tenant_key", ""), _own_dyid, q)
     # ★ fix/compare-qa (2026-10-18 实锤): "我的账号和XX、YY对比发一下" 被弱模型判无关拒答.
     #   对比/比较是核心业务问题: 强制回答 + 注入库里的真实对比数据, 杜绝编造.
     compare_block = ""
@@ -2544,12 +2632,27 @@ def execute_qa(task: dict) -> str:
     # ★ 2026-10-28 上文承接：达人前面发过商品链接/ID/截图并分析过，
     #   这句「这个品/这款/它…」指的就是那个商品 —— 把商品块注入语境，
     #   绝对禁止再要商品ID（老大实锤：再给一遍ID = 没记住上文，体验崩）。
-    recent_product = _recent_product_block(task.get("tenant_key", ""), q)
+    # ★ 2026-11-09 批B-B1：脚本链路（script_mode）强制绑定上文商品 ——
+    #   「给我写个口播脚本」没有指代词，但脚本必须基于刚分析完的那个商品。
+    _script_mode = bool(_pl.get("script_mode"))
+    recent_product = _recent_product_block(
+        task.get("tenant_key", ""), q, force=_script_mode)
+    if _script_mode and not recent_product:
+        # 路由把关后上下文刚好过期（竞态）—— 诚实要标识，绝不拿别的品写脚本
+        return product_intent.NEED_PRODUCT_REF_REPLY
     recent_line = (
         '【上文语境】达人刚发过这个商品的分析，TA 这句问的「这个品/这款/它」'
         '就是指下面这个商品。基于它回答，**绝对禁止再要商品ID或链接**；'
         '商品块里没有的维度，明说「这个维度我这边没有数据」，严禁编造。\n'
         + recent_product + '\n' if recent_product else '')
+    # ★ 2026-11-09 批B-B1：脚本系统指令 —— 锁死「基于给定商品真实属性生成」，
+    #   禁止套用其他品类模板（周报实锤：保温杯脚本被「包」话术顶替）。
+    script_line = (
+        '【系统指令】达人要的是上面这个商品的口播带货脚本。必须基于商品块里的'
+        '真实属性（名称/到手价/佣金/卖点）生成，结构：前三秒钩子 → 卖点+痛点 → '
+        '促单行动号召，口语化、可直接照着念。绝对禁止再索要商品链接或商品ID，'
+        '绝对禁止套用其他品类的模板话术；商品块里没有的卖点不要编。\n'
+        if _script_mode else '')
     # ★ 2026-11-02 多对象会话记忆：同会话分析过多个达人/商品/视频时，
     #   「上面那两个/怎么没有对比」才能接住（豆鲨包实锤：各分析各的、忘了上一个）。
     session_block = _session_objects_block(task.get("tenant_key", ""), q)
@@ -2595,6 +2698,8 @@ def execute_qa(task: dict) -> str:
         persona.qa_persona(_role) + '\n'
         + force_line
         + recent_line
+        + script_line
+        + (recent_products_block + '\n' if recent_products_block else '')
         + (session_block or '')
         + (excluded_block or '')
         + (_self_facts_block(task.get("tenant_key", ""), q, _role) or '')
@@ -2667,21 +2772,7 @@ def execute_qa(task: dict) -> str:
         if challenge:
             # 质疑类问题被误拒：先确认问的是本人账号（第三方诉求上面已拦截），
             # 再用账号数据给兜底回应，绝不让达人吃闭门羹
-            if _find_mentioned_peers(task.get("tenant_key", ""), q):
-                # 问题里点名了第三方账号，不属于"质疑本人报告"，不能发道歉话术
-                return ("这个问题涉及到你提到的另一位达人。我目前只有TA的已采集数据，"
-                        "需要我深挖 TA 的账号，把 TA 的抖音号发我即可～")
-            cat = ""
-            m = (_re.search(r"主营类目[\s：:]*([\u4e00-\u9fff/]+)", ctx)
-                 or _re.search(r"专注([\u4e00-\u9fff/]{2,10})领域", ctx))
-            if m:
-                cat = m.group(1).strip()
-            back = "收到你的质疑。我核对了你的账号数据"
-            if cat:
-                back += f"，你的主营类目是{cat}"
-            back += ("。如果报告里的推荐和你的实际主营不匹配，以你的实际主营为准——"
-                     "那是我分析失误，抱歉。你可以把想带的具体商品发我，我重新给你针对性分析。")
-            return back
+            return _challenge_fallback(task.get("tenant_key", ""), q, ctx)
         # ★ 2026-10-22（老大截图实锤）：模型拒答时，先分辨是「答不了」还是「缺一个输入」。
         #   「这款商品能不能带」而达人没给链接/ID ⇒ 不是无关问题，是**缺商品标识**，
         #   要的是「请提供链接或商品ID」，不能甩「其他问题帮不上忙」的通用兜底。
@@ -2690,17 +2781,29 @@ def execute_qa(task: dict) -> str:
         return ("我是你的带货选品助手，账号分析、选品建议、商品判断都可以找我，"
                 "其他问题帮不上忙哦～")
     # 问题提到了具体商品/视频但这条消息没带链接或截图（带了会走别的路由），
-    # 说明 AI 没看到实物，提醒一句避免达人误以为 AI 已经分析过那个商品
-    if any(k in q for k in ("视频", "商品", "产品", "链接", "这条", "这个品", "这款", "那个品")):
-        ans += ("\n\n⚠️ 这条消息里没有附商品链接、商品ID 或商品截图，"
-                "以上是按你的账号画像给的通用建议；把链接、商品ID 或截图发我，"
-                "我可以针对具体商品分析～")
+    # 说明 AI 没看到实物，提醒一句避免达人误以为 AI 已经分析过那个商品。
+    # ★ 2026-11-09 批B-B5（周报 P1-6 复发）：纯关键词启发式不校验本轮上下文——
+    #   链接 13 秒前已分析完、达人刚纠正完路由，回复尾巴还在复读「没有附商品链接」。
+    #   上文已有商品上下文且达人不是在问**另一个**商品时，不追加；
+    #   本轮已注入上文商品块（recent_product）时更不该追加。
+    if any(k in q for k in ("视频", "商品", "产品", "链接", "这条", "这个品", "这款", "那个品")) \
+            and not recent_product:
+        _wants_other = _re.search(r"另一个|别的|其他|还有一|新的|新品|下个|另外", q)
+        try:
+            _has_ctx = _db.has_recent_product_context(task.get("tenant_key", ""))
+        except Exception:
+            _has_ctx = False
+        if not (_has_ctx and not _wants_other):
+            ans += ("\n\n⚠️ 这条消息里没有附商品链接、商品ID 或商品截图，"
+                    "以上是按你的账号画像给的通用建议；把链接、商品ID 或截图发我，"
+                    "我可以针对具体商品分析～")
     ans = ans[:900]
     # ★ 写回复缓存（1 天内同一问题直接复用，不重复调 LLM）
     #   不缓存拒答/兜底话术 —— 那是失败态，不是答案
     try:
         if ans and not ans.startswith(("拒", "我是你的带货选品助手", "AI 刚才没反应过来",
-                                       "这个动作需要", "积分余额不足")):
+                                       "这个动作需要", "积分余额不足",
+                                       "收到你的质疑", "请提供一下商品")):
             _db.qa_cache_put(task.get("tenant_key", ""), q, ans)
     except Exception:
         log.warning("qa cache put failed", exc_info=True)
