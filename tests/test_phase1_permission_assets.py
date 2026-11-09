@@ -27,6 +27,28 @@ def _load(name, rel):
 label_mod = _load('label_is_admin_sites', 'scripts/label_is_admin_sites.py')
 seed_mod = _load('migrate_subjects_seed', 'scripts/migrate_subjects_seed.py')
 
+# 独立服务端模块实例（AuthResult/_subject_kind 测试用），路径全指 tmp
+_srv = _load('solobrave_server', 'solobrave-server.py')
+
+
+@pytest.fixture()
+def mod(tmp_path, monkeypatch):
+    monkeypatch.setattr(_srv, 'DATA_DIR', str(tmp_path))
+    monkeypatch.setattr(_srv, 'DB_PATH', str(tmp_path / 'solobrave.db'))
+    monkeypatch.setattr(_srv, 'AGENTS_FILE', str(tmp_path / 'agents.json'))
+    monkeypatch.setattr(_srv, 'USERS_FILE', str(tmp_path / 'users.json'))
+    monkeypatch.setattr(_srv, 'PERMISSIONS_FILE', str(tmp_path / 'permissions.json'))
+    monkeypatch.setattr(_srv, 'GROUPS_FILE', str(tmp_path / 'groups.json'))
+    monkeypatch.setattr(_srv, 'TEAMS_FILE', str(tmp_path / 'teams.json'))
+    monkeypatch.setattr(_srv, 'SECRET_FILE', str(tmp_path / '.secret'))
+    monkeypatch.setattr(_srv, 'SETTINGS_FILE', str(tmp_path / 'settings.json'))
+    monkeypatch.setattr(_srv, 'CHATS_DIR', str(tmp_path / 'chats'))
+    monkeypatch.setattr(_srv, 'MEMORY_DIR', str(tmp_path / 'memory'))
+    monkeypatch.setattr(_srv, 'INFLUENCER_DIR', str(tmp_path / 'influencers'))
+    _srv._ensure_data_dir()
+    _srv.init_db()
+    return _srv
+
 
 # ─── 1. 打标清单生成器 ──────────────────────────────────────────────────────
 
@@ -34,19 +56,18 @@ def test_label_generator_counts_consistent(capsys):
     label_mod.main()
     out = capsys.readouterr().out
     assert '[platform]' in out and '[tenant]' in out
-    assert '| :2626 |' in out                       # 主开关定义行标为 definition
     assert '**[framework]**' in out
-    # 每行都是五列表格行，计数自洽（表头+分隔行除外）
+    # 每行都是五列表格行；批 1 切换后裸消费减少，阈值留余量
     rows = [l for l in out.splitlines() if l.startswith('| :')]
-    assert len(rows) >= 130, f'站点数异常：{len(rows)}'
+    assert len(rows) >= 100, f'站点数异常：{len(rows)}'
 
 
 def test_label_generator_known_sites(capsys):
     label_mod.main()
     out = capsys.readouterr().out
-    # 权限管理 = platform；知识库 = tenant；人格守卫 helper 区域不被误标
-    assert '_handle_get_permissions' in out and '**[platform]**' in out
+    # 未切换的业务面仍标 tenant；已切换的批 1 函数不再出现（生成器只扫裸 is_admin）
     assert '_handle_get_knowledge`' in out and '**[tenant]**' in out
+    assert '_handle_get_permissions' not in out
 
 
 # ─── 2. build_seeds 判据 ────────────────────────────────────────────────────
@@ -109,3 +130,79 @@ def test_seed_apply_idempotent(tmp_path, capsys):
     finally:
         conn.close()
     assert n == 2          # u_admin + bot:tk1，重跑不产生重复行
+
+
+# ─── 4. 批 1 切换守卫（2026-11-09） ─────────────────────────────────────────
+
+BATCH1_FNS = {
+    '_handle_get_permissions', '_handle_update_role_permissions',
+    '_handle_update_user_permissions',
+    '_can_access_team', '_handle_get_user_subordinates', '_check_group_access',
+    '_handle_get_groups', '_handle_update_group', '_handle_batch_save_groups',
+    '_handle_delete_group', '_handle_add_group_member',
+    '_handle_remove_group_member', '_handle_get_team', '_handle_update_team',
+    '_handle_delete_team', '_handle_add_team_member',
+    '_handle_remove_team_member',
+    '_handle_get_proposals', '_handle_get_proposal',
+    '_handle_post_proposal_resolve', '_handle_delete_proposal',
+    '_handle_get_agent_calls',
+}
+
+
+def _fn_spans():
+    """fn → (start,end) 行号（顶层 def 和 indent-4 方法都算）。"""
+    import re
+    lines = open(os.path.join(ROOT, 'solobrave-server.py')).read().splitlines()
+    spans = {}
+    for i, l in enumerate(lines, 1):
+        m = re.match(r'^(?: {4})?def ([\w]+)\(', l)
+        if m:
+            spans.setdefault(m.group(1), [i, None])
+            for name, prev in spans.items():
+                if prev[1] is None and prev[0] != i:
+                    prev[1] = i - 1
+    for prev in spans.values():
+        if prev[1] is None:
+            prev[1] = len(lines)
+    return spans, lines
+
+
+def test_batch1_sites_switched_to_platform_admin():
+    spans, lines = _fn_spans()
+    for fn in BATCH1_FNS:
+        s, e = spans[fn]
+        body = '\n'.join(lines[s - 1:e])
+        assert 'auth.is_platform_admin' in body, f'{fn} 未切换到 is_platform_admin'
+        bare = body.replace('auth.is_platform_admin', '')
+        assert 'auth.is_admin' not in bare, f'{fn} 仍残留裸 auth.is_admin'
+
+
+def test_require_admin_uses_platform_admin():
+    spans, lines = _fn_spans()
+    s, e = spans['_require_admin']
+    body = '\n'.join(lines[s - 1:e])
+    assert 'auth.is_platform_admin' in body
+
+
+def test_is_platform_admin_reads_subjects_kind(mod, monkeypatch):
+    """有 kind 行按 kind；无行回退 role=='admin'。"""
+    mod._SUBJECT_KIND_CACHE.clear()
+    conn = sqlite3.connect(mod.DB_PATH)
+    conn.execute(seed_mod.DDL)          # subjects 表由 migration 脚本建，非 init_db
+    conn.execute("INSERT INTO subjects (subject_id, kind, tenant_id, agent_of,"
+                 " packs, source, created_at) VALUES ('u_biz', 'biz_staff',"
+                 " 't_default', '', '[]', 'test', 0)")
+    conn.commit()
+    conn.close()
+
+    def _ar(uid, role):
+        return mod.AuthResult(user_info={'userId': uid, 'role': role})
+
+    assert _ar('u_biz', 'admin').is_platform_admin is False
+    mod._SUBJECT_KIND_CACHE.clear()
+    assert _ar('u_biz', 'employee').is_platform_admin is False
+    # 无 kind 行 → 回退 role
+    mod._SUBJECT_KIND_CACHE.clear()
+    assert _ar('u_stranger', 'admin').is_platform_admin
+    mod._SUBJECT_KIND_CACHE.clear()
+    assert _ar('u_stranger', 'employee').is_platform_admin is False

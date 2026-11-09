@@ -2603,6 +2603,41 @@ def _default_models():
 
 # ─── 认证中间件 ────────────────────────────────────────
 
+# ★ 阶段 1（2026-11-09）：subjects.kind 读取，30s TTL 进程内缓存。
+# is_platform_admin 换读 kind 的承载点；key=(库路径, uid) 防跨库串味。
+_SUBJECT_KIND_CACHE = {}
+_SUBJECT_KIND_TTL = 30.0
+
+
+def _subject_kind(user_id):
+    """读 subjects.kind；无行返回 None（调用方决定兜底）。失败返回 None 不阻断请求。"""
+    if not user_id:
+        return None
+    try:
+        path = _tenant_db_path(_current_tenant_id())
+    except Exception:
+        path = ''
+    key = (path, user_id)
+    now = time.time()
+    hit = _SUBJECT_KIND_CACHE.get(key)
+    if hit and now - hit[0] < _SUBJECT_KIND_TTL:
+        return hit[1]
+    kind = None
+    try:
+        conn = _db_conn()
+        try:
+            row = conn.execute(
+                'SELECT kind FROM subjects WHERE subject_id = ?', (user_id,)
+            ).fetchone()
+            kind = row['kind'] if row else None
+        finally:
+            conn.close()
+    except Exception as e:
+        logger.error(f'  [Subjects] kind 读取失败（回退默认）: {e}')
+    _SUBJECT_KIND_CACHE[key] = (now, kind)
+    return kind
+
+
 class AuthResult:
     """认证结果"""
     def __init__(self, user_info=None, error=None, status=401):
@@ -2628,7 +2663,17 @@ class AuthResult:
 
     @property
     def is_platform_admin(self):
-        """平台超管：跨租户运营角色（现 role='admin' 原义，M1 语义显式命名）。"""
+        """平台超管：跨租户运营角色（M1 语义显式命名）。
+
+        阶段 1（2026-11-09 批 1）：实现换读 subjects.kind。
+        - kind 行存在 → 以 kind 为准（super_admin 才算平台超管）
+        - 无 kind 行（迁移期兜底）→ 回退 role=='admin'
+        全部主体落表后移除回退分支（TODO: 阶段 2 收口）。
+        """
+        uid = (self.user_info or {}).get('userId', '')
+        kind = _subject_kind(uid) if uid else None
+        if kind:
+            return kind == 'super_admin'
         return self.user_info and self.user_info.get('role') == 'admin'
 
     @property
@@ -3111,7 +3156,7 @@ def _authenticate(headers, client_ip=None, request_handler=None):
 
 def _can_access_team(auth, team_id):
     """判断用户是否有权访问某个小组"""
-    if auth.is_admin:
+    if auth.is_platform_admin:
         return True
     if team_id in auth.managed_team_ids:
         return True
@@ -3206,10 +3251,16 @@ def _get_team_and_children_agent_ids(team_id, teams):
 
 
 def _require_admin(auth):
-    """检查是否是管理员"""
+    """检查是否是管理员
+
+    阶段 1 批 1（2026-11-09）：本体切 is_platform_admin。审计过全部 11 个
+    调用方（注册/密钥轮换/模型配置/用户管理/团队创建）均为平台运营面，无一业务面。
+    语义对照：切换前 is_platform_admin ≡ is_admin（同读 role=='admin'），
+    落 subjects 表后按 kind 判定——现有用户行为零变化。
+    """
     if not auth.is_authenticated:
         return auth.error, auth.status
-    if not auth.is_admin:
+    if not auth.is_platform_admin:
         return '权限不足', 403
     return None, None
 
@@ -10959,7 +11010,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
     def _handle_get_permissions(self):
         """GET /api/permissions — 获取完整权限配置（仅 admin）"""
         auth = _authenticate(self.headers, self.client_address[0], self)
-        if not auth.is_authenticated or not auth.is_admin:
+        if not auth.is_authenticated or not auth.is_platform_admin:
             self._send_auth_error('Permission denied', 403)
             return
         perms = _load_permissions()
@@ -11033,7 +11084,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
     def _handle_update_role_permissions(self, role_id):
         """PUT /api/permissions/roles/{roleId}"""
         auth = _authenticate(self.headers, self.client_address[0], self)
-        if not auth.is_authenticated or not auth.is_admin:
+        if not auth.is_authenticated or not auth.is_platform_admin:
             self._send_auth_error('Permission denied', 403)
             return
         body = self._read_body()
@@ -11063,7 +11114,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
     def _handle_update_user_permissions(self, user_id):
         """PUT /api/permissions/users/{userId} — 更新用户权限覆盖；body 为空对象则删除覆盖"""
         auth = _authenticate(self.headers, self.client_address[0], self)
-        if not auth.is_authenticated or not auth.is_admin:
+        if not auth.is_authenticated or not auth.is_platform_admin:
             self._send_auth_error('Permission denied', 403)
             return
         body = self._read_body()
@@ -11906,7 +11957,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         # 权限检查：本人/admin 可以看，leader 可以看自己下属
-        if not auth.is_admin:
+        if not auth.is_platform_admin:
             if auth.user_info.get('userId') != user_id:
                 # 检查是否是上级
                 is_leader = any(s.get('leaderId') == auth.user_info.get('userId') for s in users if s.get('id') == user_id)
@@ -12015,7 +12066,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not group:
             return None, '群组不存在', 404
         # 管理员和创建者直接放行
-        if auth.is_admin or group.get('createdBy') == auth.user_info.get('userId'):
+        if auth.is_platform_admin or group.get('createdBy') == auth.user_info.get('userId'):
             return group, None, None
         # 其他人：检查其 AI 员工是否在群组成员中
         # 兼容 members 的两种格式：字符串数组 和 字典数组
@@ -12046,7 +12097,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             agent_map = {a.get('id'): a for a in agents}
 
             # 管理员看全部，普通用户看：自己创建的 + 包含自己AI员工的
-            if not auth.is_admin:
+            if not auth.is_platform_admin:
                 uid = auth.user_info['userId']
                 my_agent_ids = {a.get('id') for a in agents if a.get('createdBy') == uid}
                 result = []
@@ -12224,7 +12275,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         # 权限校验：创建者或管理员
-        if not auth.is_admin and group.get('createdBy') != auth.user_info['userId']:
+        if not auth.is_platform_admin and group.get('createdBy') != auth.user_info['userId']:
             self._send_auth_error('权限不足', 403)
             return
 
@@ -12285,7 +12336,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 g['members'] = valid_members
 
         # 只允许管理员批量覆盖；普通用户只更新自己的群组
-        if auth.is_admin:
+        if auth.is_platform_admin:
             _save_groups(body)
             self._send_json(200, body)
         else:
@@ -12312,7 +12363,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         # 权限校验：创建者或管理员
-        if not auth.is_admin and group.get('createdBy') != auth.user_info['userId']:
+        if not auth.is_platform_admin and group.get('createdBy') != auth.user_info['userId']:
             self._send_auth_error('权限不足', 403)
             return
 
@@ -12452,7 +12503,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json(404, {'error': '群组不存在'})
             return
 
-        if not auth.is_admin and group.get('createdBy') != auth.user_info['userId']:
+        if not auth.is_platform_admin and group.get('createdBy') != auth.user_info['userId']:
             self._send_auth_error('权限不足', 403)
             return
 
@@ -12506,7 +12557,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json(404, {'error': '群组不存在'})
             return
 
-        if not auth.is_admin and group.get('createdBy') != auth.user_info['userId']:
+        if not auth.is_platform_admin and group.get('createdBy') != auth.user_info['userId']:
             self._send_auth_error('权限不足', 403)
             return
 
@@ -12596,7 +12647,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         # 权限检查
-        if not auth.is_admin:
+        if not auth.is_platform_admin:
             if auth.is_leader:
                 if team.get('leaderId') != auth.user_info.get('userId') and team_id not in auth.managed_team_ids:
                     self._send_json(403, {'error': '权限不足'})
@@ -12742,7 +12793,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         # 权限检查：admin 可改全部，leader 只能改自己管理的组
-        if not auth.is_admin:
+        if not auth.is_platform_admin:
             if not auth.is_leader or team.get('leaderId') != auth.user_info.get('userId'):
                 self._send_json(403, {'error': '权限不足'})
                 return
@@ -12800,7 +12851,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         # 权限检查：admin 可删全部，leader 只能删自己负责的小组
-        if not auth.is_admin:
+        if not auth.is_platform_admin:
             if not auth.is_leader or team.get('leaderId') != auth.user_info.get('userId'):
                 self._send_auth_error('权限不足', 403)
                 return
@@ -12847,7 +12898,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         # 权限检查
-        if not auth.is_admin:
+        if not auth.is_platform_admin:
             if not auth.is_leader or team.get('leaderId') != auth.user_info.get('userId'):
                 self._send_json(403, {'error': '权限不足'})
                 return
@@ -12892,7 +12943,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         # 权限检查
-        if not auth.is_admin:
+        if not auth.is_platform_admin:
             if not auth.is_leader or team.get('leaderId') != auth.user_info.get('userId'):
                 self._send_json(403, {'error': '权限不足'})
                 return
@@ -22636,7 +22687,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status); return
-        if not auth.is_admin or getattr(auth, 'localhost_agent_id', None):
+        if not auth.is_platform_admin or getattr(auth, 'localhost_agent_id', None):
             self._send_json_error(403, '仅人类管理员可查 AI 调用审计')
             return
         query = parse_qs(urlparse(self.path).query)
@@ -22680,7 +22731,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_auth_error(auth.error, auth.status); return
         # ★ GET admin-only 收窄 (跟 resolve 硬闸 is_admin 一致, 老大 19:05 拍板)
         #   跟 line 11082/11209 等 is_scope_filtered 模式同源
-        if not auth.is_admin or getattr(auth, 'localhost_agent_id', None):
+        if not auth.is_platform_admin or getattr(auth, 'localhost_agent_id', None):
             self._send_json_error(403, '仅人类管理员可看审批中心')
             return
         # 惰性过期
@@ -22718,7 +22769,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status); return
         # ★ M3 行级校验: 跟 _handle_get_proposals 列表同款 admin-only
-        if not auth.is_admin or getattr(auth, 'localhost_agent_id', None):
+        if not auth.is_platform_admin or getattr(auth, 'localhost_agent_id', None):
             self._send_json_error(403, '仅人类管理员可看审批中心')
             return
         conn = _db_conn()
@@ -22747,7 +22798,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         # ★ P1a 修正 1: 禁用 hasattr, 改用全仓惯例 getattr(auth, 'localhost_agent_id', None)
         # hasattr 只查属性存不存在不查值, 任何路径以后显式置 None 真人管理员会被 403 永远挡在门外.
         # 跟 line 14831/16760/18074/18315/18587 等 9+ 处同模式, 不许发明新写法.
-        if not auth.is_admin or getattr(auth, 'localhost_agent_id', None):
+        if not auth.is_platform_admin or getattr(auth, 'localhost_agent_id', None):
             self._send_json_error(403, '仅人类管理员可拍板')
             return
         body = self._read_body()
@@ -22882,7 +22933,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 self._send_json_error(409, f'仅 pending 状态可撤销 (当前: {row["status"]})'); return
             agent_id = getattr(auth, 'localhost_agent_id', None)
             is_creator = agent_id and agent_id == row['agent_id']
-            is_admin = auth.is_admin and not getattr(auth, 'localhost_agent_id', None)
+            is_admin = auth.is_platform_admin and not getattr(auth, 'localhost_agent_id', None)
             if not (is_creator or is_admin):
                 self._send_json_error(403, '仅提议人或管理员可撤销'); return
             conn.execute('DELETE FROM proposals WHERE id = ?', (proposal_id,))

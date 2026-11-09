@@ -135,18 +135,21 @@ def _make_handler(method_name, path='/'):
 
 def _admin_auth():
     return types.SimpleNamespace(is_authenticated=True, is_admin=True,
+                                 is_platform_admin=True,
                                  localhost_agent_id=None,
                                  user_info={'userId': 'user_boss'})
 
 
 def _agent_auth():
     return types.SimpleNamespace(is_authenticated=True, is_admin=True,
+                                 is_platform_admin=True,      # AI 本地通道按 kind 回退为 True
                                  localhost_agent_id='emp_A',
                                  user_info={'userId': 'user_creator'})
 
 
 def _anon_auth():
     return types.SimpleNamespace(is_authenticated=False, is_admin=False,
+                                 is_platform_admin=False,
                                  localhost_agent_id=None, error='未登录',
                                  status=401)
 
