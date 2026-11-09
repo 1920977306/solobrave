@@ -219,6 +219,24 @@ def test_require_admin_uses_platform_admin():
     assert 'auth.is_platform_admin' in body
 
 
+# 批 3（2026-11-09）：数据管道 4 处 + 用量观测 2 处切 is_platform_admin，[platform] 收口
+BATCH3_FNS = {
+    '_handle_post_pipe_start', '_handle_get_pipe_progress',
+    '_handle_post_pipe_cancel', '_handle_get_pipe_list',
+    '_handle_get_llm_usage', '_handle_get_token_usage',
+}
+
+
+def test_batch3_sites_switched():
+    spans, lines = _fn_spans()
+    for fn in BATCH3_FNS:
+        s, e = spans[fn]
+        body = '\n'.join(lines[s - 1:e])
+        assert 'auth.is_platform_admin' in body, f'{fn} 未切换到 is_platform_admin'
+        bare = body.replace('auth.is_platform_admin', '')
+        assert 'auth.is_admin' not in bare, f'{fn} 仍残留裸 auth.is_admin'
+
+
 def test_is_platform_admin_reads_subjects_kind(mod, monkeypatch):
     """有 kind 行按 kind；无行回退 role=='admin'。"""
     mod._SUBJECT_KIND_CACHE.clear()

@@ -17074,7 +17074,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_auth_error(auth.error, auth.status)
             return
         if not self._require_module_permission(auth, 'knowledge'): return
-        if not auth.is_admin:
+        if not auth.is_platform_admin:
             self._send_auth_error('Admin only', 403)
             return
         body = self._read_body() or {}
@@ -17107,7 +17107,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_auth_error(auth.error, auth.status)
             return
         if not self._require_module_permission(auth, 'knowledge'): return
-        if not auth.is_admin:
+        if not auth.is_platform_admin:
             self._send_auth_error('Admin only', 403)
             return
         mgr = ks.get_pipe_manager()
@@ -17126,7 +17126,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_auth_error(auth.error, auth.status)
             return
         if not self._require_module_permission(auth, 'knowledge'): return
-        if not auth.is_admin:
+        if not auth.is_platform_admin:
             self._send_auth_error('Admin only', 403)
             return
         mgr = ks.get_pipe_manager()
@@ -17145,7 +17145,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_auth_error(auth.error, auth.status)
             return
         if not self._require_module_permission(auth, 'knowledge'): return
-        if not auth.is_admin:
+        if not auth.is_platform_admin:
             self._send_auth_error('Admin only', 403)
             return
         parsed = urlparse(self.path)
@@ -17684,7 +17684,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             return
         # 双通道：admin 用户的 JWT，或带 admin scope 的 scoped API token
         # （scoped token 已先过 _required_api_scope 闸门；其 role 恒为 user，不认 is_admin）
-        if not auth.is_admin and 'admin' not in (getattr(auth, 'api_scopes', None) or ()):
+        if not auth.is_platform_admin and 'admin' not in (getattr(auth, 'api_scopes', None) or ()):
             self._send_json_error(403, 'Admin only')
             return
         parsed = urlparse(self.path)
@@ -19529,7 +19529,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
         # 非管理员只能查看自己创建的 agent 数据
         user_emp_ids = _get_user_emp_ids(auth.user_id)
-        if not auth.is_admin:
+        if not auth.is_platform_admin:
             placeholders = ', '.join('?' for _ in user_emp_ids) if user_emp_ids else None
             if placeholders:
                 where.append(f'agent_id IN ({placeholders})')

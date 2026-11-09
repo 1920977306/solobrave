@@ -2,7 +2,7 @@
 
 > 生成：`python3 scripts/label_is_admin_sites.py > docs/IS-ADMIN-LABELS.md`
 > 口径：docs/SUBJECTS-PACKS-RECONCILE.md §2#1 / §5。改代码后行号会漂，重跑本脚本。
-> 本次扫描：**100 处消费** = [platform] 9 + [tenant] 91；另有 framework 2、definition 1、comment 5。
+> 本次扫描：**94 处消费** = [platform] 3 + [tenant] 91；另有 framework 2、definition 1、comment 5。
 
 **拆主开关顺序（§2#1 红线）：先按本清单把 [platform] 消费切到 super_admin，[tenant] 消费保留 is_admin 语义（后续归 tenant_owner），每切一批跑全量回归。**
 
@@ -49,10 +49,6 @@
 | :16947 | `_handle_get_kb_entry_detail` | **[tenant]** | `if not ks.can_read_knowledge(doc, auth.user_id, is_admin=auth.is_admin, user_team_ids=auth.team_ids,` |  |
 | :16987 | `_handle_post_kb_entry` | **[tenant]** | `if not ks.can_create_knowledge(scope, auth.user_id, is_admin=auth.is_admin,` |  |
 | :17034 | `_handle_post_kb_reindex` | **[tenant]** | `if not auth.is_admin:` |  |
-| :17077 | `_handle_post_pipe_start` | **[platform]** | `if not auth.is_admin:` |  |
-| :17110 | `_handle_get_pipe_progress` | **[platform]** | `if not auth.is_admin:` |  |
-| :17129 | `_handle_post_pipe_cancel` | **[platform]** | `if not auth.is_admin:` |  |
-| :17148 | `_handle_get_pipe_list` | **[platform]** | `if not auth.is_admin:` |  |
 | :17176 | `_handle_post_kb_retry_embedding` | **[tenant]** | `is_admin=auth.is_admin,` |  |
 | :17205 | `_handle_post_kb_retry_all_failed` | **[tenant]** | `if not auth.is_admin:` |  |
 | :17210 | `_handle_post_kb_retry_all_failed` | **[tenant]** | `is_admin=True, operator_id=auth.user_id,` |  |
@@ -71,7 +67,6 @@
 | :17561 | `_handle_post_repair_kb_index` | **[tenant]** | `result = ks.kb_entry_repair_index(entry_id=entry_id, confirm=confirm, is_admin=True)` |  |
 | :17665 | `_handle_get_kb_stats` | **[tenant]** | `is_admin=auth.is_admin, user_team_ids=auth.team_ids,` |  |
 | :17686 | `_handle_get_llm_usage` | **[comment]** | `# （scoped token 已先过 _required_api_scope 闸门；其 role 恒为 user，不认 is_admin）` | 注释/docstring 字样，无权限语义 |
-| :17687 | `_handle_get_llm_usage` | **[platform]** | `if not auth.is_admin and 'admin' not in (getattr(auth, 'api_scopes', None) or ()):` |  |
 | :17733 | `_handle_get_analyzed_talents` | **[tenant]** | `if not auth.is_admin or getattr(auth, 'localhost_agent_id', None):` |  |
 | :18064 | `_handle_get_knowledge_patterns` | **[tenant]** | `if not auth.is_admin or getattr(auth, 'localhost_agent_id', None):` |  |
 | :18468 | `_handle_get_deals` | **[tenant]** | `if not auth.is_admin:` |  |
@@ -79,7 +74,6 @@
 | :18676 | `_handle_post_kb_search` | **[tenant]** | `user_id=auth.user_id, is_admin=auth.is_admin,` |  |
 | :18699 | `_handle_get_stats_compute` | **[tenant]** | `if not auth.is_admin:` |  |
 | :19140 | `_handle_get_feishu_role_content` | **[platform]** | `if not (auth.is_admin or auth.is_tenant_admin):` |  |
-| :19532 | `_handle_get_token_usage` | **[platform]** | `if not auth.is_admin:` |  |
 | :19717 | `_handle_post_rag_retrieve` | **[tenant]** | `requester_id=auth.user_id, is_admin=auth.is_admin, team_ids=auth.team_ids,` |  |
 | :20217 | `_handle_get_products` | **[tenant]** | `if not auth.is_admin or getattr(auth, 'localhost_agent_id', None):` |  |
 | :20408 | `_handle_get_tasks` | **[tenant]** | `if not auth.is_admin:` |  |
@@ -118,16 +112,10 @@
 
 ## 按域汇总
 
-### [platform] 9 处 / 8 个函数
+### [platform] 3 处 / 2 个函数
 
 - `_handle_delete_proposal` × 2
-- `_handle_post_pipe_start` × 1
-- `_handle_get_pipe_progress` × 1
-- `_handle_post_pipe_cancel` × 1
-- `_handle_get_pipe_list` × 1
-- `_handle_get_llm_usage` × 1
 - `_handle_get_feishu_role_content` × 1
-- `_handle_get_token_usage` × 1
 
 ### [tenant] 91 处 / 66 个函数
 
