@@ -208,7 +208,8 @@ def _has_is_admin_guard(rel_path: str, func_name: str) -> bool:
     for n in ast.walk(node):
         if isinstance(n, ast.If):
             for sub in ast.walk(n.test):
-                if isinstance(sub, ast.Attribute) and sub.attr == "is_admin":
+                # 阶段2批1：业务管理面身份闸从 is_admin 更名为 is_tenant_manager（语义等价+并联）
+                if isinstance(sub, ast.Attribute) and sub.attr in ("is_admin", "is_tenant_manager"):
                     return True
     return False
 

@@ -110,7 +110,11 @@ def main():
         if not re.search(r'(?<!platform)(?<!tenant)\bis_admin\b', bare):
             continue
         fn = enclosing(i)
-        label, note = classify(i, fn, line)
+        # 字面量 is_admin=True/False：调用 ks 层时声明「系统级操作」，非身份消费
+        if re.search(r'\bis_admin\s*=\s*(?:True|False)\b', line) and 'auth.is_admin' not in line:
+            label, note = 'literal', '字面量参数（ks 层系统级操作语义），非身份消费'
+        else:
+            label, note = classify(i, fn, line)
         sites.append((i, fn, line.strip()[:100], label, note))
 
     cnt = Counter(s[3] for s in sites)
@@ -120,8 +124,9 @@ def main():
     print()
     print('> 生成：`python3 scripts/label_is_admin_sites.py > docs/IS-ADMIN-LABELS.md`')
     print('> 口径：docs/SUBJECTS-PACKS-RECONCILE.md §2#1 / §5。改代码后行号会漂，重跑本脚本。')
-    print(f'> 本次扫描：**{consumers} 处消费** = [platform] {cnt["platform"]} + [tenant] '
-          f'{cnt["tenant"]}；另有 framework {cnt["framework"]}、definition 1、comment {cnt["comment"]}。')
+    print(f'> 本次扫描：**{consumers} 处消费** = [platform] {cnt.get("platform", 0)} + [tenant] '
+          f'{cnt.get("tenant", 0)}；另有 framework {cnt.get("framework", 0)}、definition 1、'
+          f'comment {cnt.get("comment", 0)}、literal {cnt.get("literal", 0)}。')
     print()
     print('**拆主开关顺序（§2#1 红线）：先按本清单把 [platform] 消费切到 super_admin，'
           '[tenant] 消费保留 is_admin 语义（后续归 tenant_owner），每切一批跑全量回归。**')
@@ -138,6 +143,10 @@ def main():
         if label in ('platform', 'tenant'):
             groups.setdefault(label, []).append((ln, fn))
     for label in ('platform', 'tenant'):
+        if label not in groups:
+            print(f'### [{label}] 0 处（已清零 ✅）')
+            print()
+            continue
         fns = Counter(fn for _, fn in groups[label])
         print(f'### [{label}] {len(groups[label])} 处 / {len(fns)} 个函数')
         print()

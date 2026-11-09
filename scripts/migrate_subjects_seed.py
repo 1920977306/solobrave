@@ -39,6 +39,7 @@ DDL = '''
 CREATE TABLE IF NOT EXISTS subjects (
     subject_id TEXT PRIMARY KEY,        -- user_id / agent_id / bot tenant_key
     kind TEXT NOT NULL,                 -- super_admin|tenant_owner|biz_staff|creator|agent_persona|platform_internal
+                                        -- tenant_owner=合伙人（阶段2批1）；platform_internal=平台内置（阶段1收口）
     tenant_id TEXT DEFAULT 't_default',
     agent_of TEXT DEFAULT '',           -- 业务归属上级（合伙人层级投影，人格≠身份守卫适用）
     packs TEXT DEFAULT '[]',            -- JSON：能力包 id 列表（阶段 2 推导模块白名单）

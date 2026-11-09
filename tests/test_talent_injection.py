@@ -78,6 +78,8 @@ class MockAuth:
     """模拟鉴权对象 — exec server 源码块用"""
     def __init__(self, is_admin=True, uid='admin'):
         self.is_admin = is_admin
+        # 阶段2批1：A 桶达人注入改判 is_tenant_manager，假身份同步补（与 is_admin 同值）
+        self.is_tenant_manager = is_admin
         self.user_info = {'userId': uid}
 
 

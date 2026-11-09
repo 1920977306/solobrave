@@ -57,9 +57,9 @@ def test_label_generator_counts_consistent(capsys):
     out = capsys.readouterr().out
     assert '[platform]' in out and '[tenant]' in out
     assert '**[framework]**' in out
-    # 每行都是五列表格行；阶段2批0后剩 94（[tenant] 91 + [platform] 3），随批次递减
+    # 每行都是五列表格行；阶段2批1后剩 39（[tenant] 39 = 批2的 B 桶传参层），随批2递减
     rows = [l for l in out.splitlines() if l.startswith('| :')]
-    assert len(rows) >= 85, f'站点数异常：{len(rows)}'
+    assert len(rows) >= 35, f'站点数异常：{len(rows)}'
 
 
 def test_label_generator_known_sites(capsys):
@@ -259,6 +259,61 @@ def test_batch0_platform_maintenance_switched():
     s, e = spans['_handle_cleanup_kb_dangling']
     body = '\n'.join(lines[s - 1:e])
     assert 'is_admin=True' in body
+
+
+# 阶段2批1（2026-11-09）：A 桶业务管理面 40 处并联——统一判 is_tenant_manager
+# （= is_platform_admin or is_tenant_owner；充值口子禁用，super_admin only 铁律不受影响）
+STAGE2_BATCH1_FNS = [
+    '_check_talent_write_permission', '_get_accessible_agent_ids',
+    '_handle_get_agents', '_handle_get_agent', '_handle_get_agent_stats',
+    '_handle_get_agent_activity', '_handle_create_agent_inner',
+    '_handle_update_agent', '_handle_delete_agent', '_check_agent_access',
+    '_handle_post_dreaming', '_handle_get_tasks', '_handle_get_task',
+    '_handle_post_task', '_handle_put_task', '_handle_delete_task',
+    '_handle_get_products', '_handle_post_product', '_handle_get_brands',
+    '_handle_get_deals', '_handle_get_deal_detail', '_handle_search_talents',
+    '_handle_get_talent', '_handle_promote_talent', '_handle_get_influencers',
+    '_handle_get_analyzed_talents', '_talent_id_by_name',
+    '_extract_talent_from_text', '_build_single_talent_injection',
+    '_build_talent_injection_text',
+]
+
+
+def test_stage2_batch1_uses_tenant_manager():
+    spans, lines = _fn_spans()
+    for fn in STAGE2_BATCH1_FNS:
+        s, e = spans[fn]
+        body = '\n'.join(lines[s - 1:e])
+        assert 'auth.is_tenant_manager' in body, f'{fn} 未切到 is_tenant_manager'
+        stripped = body.replace('auth.is_tenant_manager', '')
+        assert 'auth.is_admin' not in stripped, f'{fn} 仍残留裸 auth.is_admin'
+
+
+def test_tenant_owner_property(mod):
+    """is_tenant_owner：kind 行优先（tenant_owner 才算），无行回退 role=='tenant_admin'。"""
+    mod._SUBJECT_KIND_CACHE.clear()
+    conn = sqlite3.connect(mod.DB_PATH)
+    conn.execute(seed_mod.DDL)
+    conn.execute("INSERT INTO subjects (subject_id, kind, tenant_id, agent_of,"
+                 " packs, source, created_at) VALUES ('u_partner', 'tenant_owner',"
+                 " 't_default', '', '[]', 'test', 0)")
+    conn.commit()
+    conn.close()
+
+    def _ar(uid, role):
+        return mod.AuthResult(user_info={'userId': uid, 'role': role})
+
+    assert _ar('u_partner', 'employee').is_tenant_owner is True
+    mod._SUBJECT_KIND_CACHE.clear()
+    assert _ar('u_partner', 'employee').is_tenant_manager is True
+    # super_admin 是超集：tenant_manager 恒真
+    mod._SUBJECT_KIND_CACHE.clear()
+    assert _ar('user_7acb72ff', 'admin').is_tenant_manager is True
+    # 无 kind 行 → 回退 role
+    mod._SUBJECT_KIND_CACHE.clear()
+    assert _ar('u_stranger', 'tenant_admin').is_tenant_owner is True
+    mod._SUBJECT_KIND_CACHE.clear()
+    assert _ar('u_stranger', 'employee').is_tenant_owner is False
 
 
 def test_credit_bypass_reads_subjects_kind(mod):

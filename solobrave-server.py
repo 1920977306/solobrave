@@ -2608,6 +2608,20 @@ def _default_models():
 _SUBJECT_KIND_CACHE = {}
 _SUBJECT_KIND_TTL = 30.0
 
+# subjects 表 DDL（与 scripts/migrate_subjects_seed.py 保持一致；kind 枚举扩了
+# platform_internal（阶段1收口）与 tenant_owner（阶段2批1））
+_SUBJECTS_DDL = '''
+CREATE TABLE IF NOT EXISTS subjects (
+    subject_id TEXT PRIMARY KEY,
+    kind TEXT NOT NULL,
+    tenant_id TEXT DEFAULT 't_default',
+    agent_of TEXT DEFAULT '',
+    packs TEXT DEFAULT '[]',
+    source TEXT DEFAULT '',
+    created_at INTEGER
+)
+'''
+
 
 def _subject_kind(user_id):
     """读 subjects.kind；无行返回 None（调用方决定兜底）。失败返回 None 不阻断请求。"""
@@ -2680,6 +2694,24 @@ class AuthResult:
     def is_tenant_admin(self):
         """租户管理员：租户内管理角色（M1 引入，存量数据无此角色 → 恒 False）。"""
         return self.user_info and self.user_info.get('role') == 'tenant_admin'
+
+    @property
+    def is_tenant_owner(self):
+        """租户合伙人（阶段2批1，2026-11-09）：管本租户业务，**不碰积分**（批2铁律）。
+        读 subjects.kind；无 kind 行回退 role=='tenant_admin'（存量无此角色 → 恒 False）。
+        依据：docs/TENANT-OWNER-MAPPING.md §1/§4。"""
+        uid = (self.user_info or {}).get('userId', '')
+        kind = _subject_kind(uid) if uid else None
+        if kind:
+            return kind == 'tenant_owner'
+        return bool(self.user_info) and self.user_info.get('role') == 'tenant_admin'
+
+    @property
+    def is_tenant_manager(self):
+        """租户管理面总闸 = 平台超管（超集）or 本租户合伙人。
+        阶段2批1：A 桶 40 处业务管理面统一判它（员工/任务/商品/品牌/交易/达人管理）。
+        ⚠️ 充值/积分口子禁用本闸（super_admin only，批2铁律）。"""
+        return self.is_platform_admin or self.is_tenant_owner
 
     @property
     def tenant_id(self):
@@ -2870,7 +2902,7 @@ def _check_talent_write_permission(auth, talent_id=None):
     - 更新/删除：管理员不限；子账号及其 AI 员工只能操作自己子库
       （created_by ∈ {owner} ∪ owner 的 AI 员工 ID）；主库（created_by 为空）仅管理员可动。
     """
-    if auth.is_admin and not getattr(auth, 'localhost_agent_id', None):
+    if auth.is_tenant_manager and not getattr(auth, 'localhost_agent_id', None):
         return None
     if talent_id is None:
         return None
@@ -3183,7 +3215,7 @@ def _is_sub_team(team_id, parent_team_ids):
 
 def _get_accessible_agent_ids(auth):
     """获取用户有权访问的Agent ID列表"""
-    if auth.is_admin:
+    if auth.is_tenant_manager:
         return None  # 全部
     agents = _load_agents()
     teams = _load_teams()
@@ -10203,6 +10235,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._handle_post_pipe_start()
             return
 
+        # ★ 阶段2批1：super_admin 指定 tenant_owner（grant 口子本体 super_admin only）
+        if path == '/api/admin/subjects/grant':
+            self._handle_post_subject_grant()
+            return
+
         # ★ refactor/heavy-pipe-timeout: 查询/列出任务 (admin only)
         if path == '/api/knowledge/pipe/list':
             self._handle_get_pipe_list()
@@ -11006,6 +11043,53 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             'roleTemplateId': user.get('roleTemplateId'),
             'tenantId': auth.tenant_id
         })
+
+    def _handle_post_subject_grant(self):
+        """POST /api/admin/subjects/grant — super_admin 指定/变更主体的租户角色（阶段2批1，§4#5）。
+
+        body: { subject_id, kind }；kind 白名单 tenant_owner | biz_staff。
+        ★ super_admin / platform_internal 不可经本口子授予——平台身份只能由 migration 种子落。
+        ★ 口子本体 super_admin only + localhost AI 禁入（同充值口子铁律）。
+        变更后清 kind 缓存立即生效（不等 30s TTL），写库走幂等 UPSERT。
+        """
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        # ★ 阶段2批1 grant 口子铁律：platform only（tenant_owner 不能授 tenant_owner）
+        if not auth.is_platform_admin or getattr(auth, 'localhost_agent_id', None):
+            self._send_auth_error('Platform admin only', 403)
+            return
+        body = self._read_body() or {}
+        subject_id = (body.get('subject_id') or '').strip()
+        kind = (body.get('kind') or '').strip()
+        if not subject_id:
+            self._send_json_error(400, 'subject_id 必填')
+            return
+        if kind not in ('tenant_owner', 'biz_staff'):
+            self._send_json_error(400, "kind 仅支持 'tenant_owner' | 'biz_staff'"
+                                       "（super_admin/platform_internal 只能由种子落）")
+            return
+        try:
+            conn = _db_conn()
+            try:
+                conn.execute(_SUBJECTS_DDL)
+                conn.execute('''
+                    INSERT INTO subjects (subject_id, kind, tenant_id, agent_of, packs, source, created_at)
+                    VALUES (?, ?, 't_default', '', '[]', 'admin_grant', ?)
+                    ON CONFLICT(subject_id) DO UPDATE SET kind=excluded.kind,
+                                                          source=excluded.source
+                ''', (subject_id, kind, int(time.time() * 1000)))
+                conn.commit()
+            finally:
+                conn.close()
+            _SUBJECT_KIND_CACHE.clear()
+        except Exception as e:
+            logger.error(f'  [Subjects] grant failed: {e}')
+            self._send_json_error(500, 'Grant failed')
+            return
+        logger.info(f'  [Subjects] grant {subject_id} -> {kind} by {auth.user_id}')
+        self._send_json(200, {'ok': True, 'subject_id': subject_id, 'kind': kind})
 
     def _handle_get_permissions(self):
         """GET /api/permissions — 获取完整权限配置（仅 admin）"""
@@ -13489,7 +13573,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         agents = _load_agents()
         uid = auth.user_info['userId']
 
-        if auth.is_admin:
+        if auth.is_tenant_manager:
             result = agents
         elif auth.is_leader:
             accessible_ids = _get_accessible_agent_ids(auth)
@@ -13569,7 +13653,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         # 权限校验
-        if not auth.is_admin:
+        if not auth.is_tenant_manager:
             if agent.get('createdBy') != auth.user_info['userId'] and agent.get('visibility') != 'all':
                 self._send_auth_error('权限不足', 403)
                 return
@@ -13624,13 +13708,13 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not agent:
             self._send_json(404, {'error': '员工不存在'})
             return
-        if not auth.is_admin:
+        if not auth.is_tenant_manager:
             if agent.get('createdBy') != auth.user_info['userId'] and agent.get('visibility') != 'all':
                 self._send_auth_error('权限不足', 403)
                 return
 
         # 两层架构 owner_set(admin + 非 localhost 代理跳过 scope 过滤)
-        is_scope_filtered = not (auth.is_admin and not getattr(auth, 'localhost_agent_id', None))
+        is_scope_filtered = not (auth.is_tenant_manager and not getattr(auth, 'localhost_agent_id', None))
         uid = _resolve_talent_owner_id(auth)
         owner_set = {uid} | set(_get_user_emp_ids(uid))
 
@@ -13752,12 +13836,12 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not agent:
             self._send_json(404, {'error': '员工不存在'})
             return
-        if not auth.is_admin:
+        if not auth.is_tenant_manager:
             if agent.get('createdBy') != auth.user_info['userId'] and agent.get('visibility') != 'all':
                 self._send_auth_error('权限不足', 403)
                 return
 
-        is_scope_filtered = not (auth.is_admin and not getattr(auth, 'localhost_agent_id', None))
+        is_scope_filtered = not (auth.is_tenant_manager and not getattr(auth, 'localhost_agent_id', None))
         uid = _resolve_talent_owner_id(auth)
         owner_set = {uid} | set(_get_user_emp_ids(uid))
 
@@ -14026,7 +14110,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         # employee 配额检查（硬上限 3，与 agentQuota 取更严格者）
-        if not auth.is_admin:
+        if not auth.is_tenant_manager:
             auth.load_user_record()
             user = auth.user_record
             if user:
@@ -14167,7 +14251,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 return
 
             # 权限校验
-            if not auth.is_admin:
+            if not auth.is_tenant_manager:
                 if agent.get('createdBy') != auth.user_info['userId']:
                     if not (auth.is_leader and agent.get('createdBy') in _get_team_member_ids(auth)):
                         self._send_auth_error('权限不足', 403)
@@ -14369,7 +14453,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         is_archived = agent.get('status') == 'archived' or agent.get('archived')
 
         # 权限校验
-        if not auth.is_admin:
+        if not auth.is_tenant_manager:
             if agent.get('createdBy') != auth.user_info['userId']:
                 # leader可以删管理组内成员创建的agent
                 if not (auth.is_leader and agent.get('createdBy') in _get_team_member_ids(auth)):
@@ -14852,7 +14936,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             if not agent:
                 self._send_json(404, {'error': '员工不存在'})
                 return
-            if not auth.is_admin:
+            if not auth.is_tenant_manager:
                 if agent.get('createdBy') != auth.user_info['userId']:
                     self._send_auth_error('权限不足', 403)
                     return
@@ -15096,7 +15180,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 break
         if not agent:
             return None, '员工不存在', 404
-        if not auth.is_admin and agent.get('createdBy') != auth.user_info['userId'] and agent.get('visibility') != 'all':
+        if not auth.is_tenant_manager and agent.get('createdBy') != auth.user_info['userId'] and agent.get('visibility') != 'all':
             return None, '权限不足', 403
         return agent, None, None
 
@@ -17735,7 +17819,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             limit = 200
         # 非 admin（含 AI 员工本地调用）按子库可见性在 SQL 内过滤，
         # 跟 _handle_get_talents 的 visible_ids 逻辑同源
-        if not auth.is_admin or getattr(auth, 'localhost_agent_id', None):
+        if not auth.is_tenant_manager or getattr(auth, 'localhost_agent_id', None):
             uid = _resolve_talent_owner_id(auth)
             visible_ids = {uid} | set(_get_user_emp_ids(uid))
             visible_list = [x for x in visible_ids if x]
@@ -18470,7 +18554,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             count_sql = 'SELECT COUNT(*) FROM deals d JOIN talents t ON d.talent_id = t.id'
             conds, params = [], []
             # 子账号隔离：只能看到自己子库达人的合作单；管理员看全部
-            if not auth.is_admin:
+            if not auth.is_tenant_manager:
                 owner = _resolve_talent_owner_id(auth)
                 ids = sorted({owner} | set(_get_user_emp_ids(owner)))
                 conds.append(f"t.created_by IN ({','.join('?' * len(ids))})")
@@ -18514,7 +18598,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             if not row:
                 self._send_json_error(404, 'Deal not found')
                 return
-            if not auth.is_admin:
+            if not auth.is_tenant_manager:
                 uid = _resolve_talent_owner_id(auth)
                 ids = [uid] + list(_get_user_emp_ids(uid))
                 mark = ','.join('?' * len(ids))
@@ -19142,7 +19226,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
-        if not (auth.is_admin or auth.is_tenant_admin):
+        if not (auth.is_platform_admin or auth.is_tenant_admin):
             self._send_json_error(403, '仅管理员可查看角色模板')
             return
         qs = parse_qs(urlparse(self.path).query)
@@ -20219,7 +20303,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             products = [p for p in products if _match_product(p)]
         # ★ 数据隔离：AI 员工本地调用（localhost_agent_id）有 admin role 但仍需按 owner 过滤，
 # 与 _handle_get_talents / _handle_get_knowledge_patterns 一致。
-        if not auth.is_admin or getattr(auth, 'localhost_agent_id', None):
+        if not auth.is_tenant_manager or getattr(auth, 'localhost_agent_id', None):
             uid = _resolve_talent_owner_id(auth)
             visible_ids = {uid} | set(_get_user_emp_ids(uid))
             products = [p for p in products if (p.get('created_by') or p.get('createdBy') or '') in visible_ids]
@@ -20410,7 +20494,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             if talent_filter:  # ★ r75: 达人详情 tab 6 调用, 只取关联此达人的任务
                 sql += ' AND talent_id = ?'
                 params.append(talent_filter)
-            if not auth.is_admin:
+            if not auth.is_tenant_manager:
                 uid = auth.user_info.get('userId', '')
                 sql += ' AND (assignee = ? OR creator = ?)'
                 params.extend([uid, uid])
@@ -20436,7 +20520,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json_error(404, '任务不存在')
             return
         task = dict(row)
-        if not auth.is_admin:
+        if not auth.is_tenant_manager:
             uid = auth.user_info.get('userId', '')
             if task.get('assignee') != uid and task.get('creator') != uid:
                 self._send_json_error(403, '无权查看此任务')
@@ -20449,7 +20533,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
-        if not auth.is_admin:
+        if not auth.is_tenant_manager:
             self._send_json_error(403, '仅管理员可创建任务')
             return
         body = self._read_body()
@@ -20511,13 +20595,13 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 return
             task = dict(row)
             uid = auth.user_info.get('userId', '')
-            if not auth.is_admin:
+            if not auth.is_tenant_manager:
                 if task.get('assignee') != uid and task.get('creator') != uid:
                     self._send_json_error(403, '无权修改此任务')
                     return
             # 员工只能改 status 和 progress，管理员可改全部
             # ★ r75 派单: admin allowed_fields 加 talent_id (任务页改/解除关联)
-            allowed_fields = ['status', 'progress'] if not auth.is_admin else ['title', 'description', 'assignee', 'assignee_name', 'status', 'priority', 'deadline', 'project_id', 'progress', 'talent_id']
+            allowed_fields = ['status', 'progress'] if not auth.is_tenant_manager else ['title', 'description', 'assignee', 'assignee_name', 'status', 'priority', 'deadline', 'project_id', 'progress', 'talent_id']
             updates = []
             params = []
             for field in allowed_fields:
@@ -20542,7 +20626,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
-        if not auth.is_admin:
+        if not auth.is_tenant_manager:
             self._send_json_error(403, '仅管理员可删除任务')
             return
         conn = _db_conn()
@@ -21028,7 +21112,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_auth_error(auth.error, auth.status)
             return
         if not self._require_module_permission(auth, 'products'): return
-        if not auth.is_admin:
+        if not auth.is_tenant_manager:
             self._send_json_error(403, 'Only admin can create products')
             return
         # 角色硬拦截：AI 员工仅 role='运营'（或 admin）可录入商品，商务等其他角色 403
@@ -21417,7 +21501,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 sql += " AND (LOWER(name) LIKE ? OR LOWER(main_category) LIKE ?)"
                 params.extend([f'%{q}%', f'%{q}%'])
             # ★ 数据隔离：非管理员只看共享品牌（group_id 为空）+ 自己所在项目组的品牌
-            if not auth.is_admin:
+            if not auth.is_tenant_manager:
                 user_group_ids = set(getattr(auth, 'group_ids', []) or [])
                 if user_group_ids:
                     sql += " AND (group_id = '' OR group_id IS NULL OR group_id IN ({ph}))".format(
@@ -21731,8 +21815,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 #   非 admin → 仅 created_by ∈ visible_ids (自己的 uid + AI 员工 uid)
                 #   主库 (created_by='') 只有 admin 可见
                 uid = auth.user_info.get('userId', '') if auth.user_info else ''
-                is_admin = bool(auth.is_admin) and not getattr(auth, 'localhost_agent_id', None)
-                if not is_admin:
+                tenant_manager = bool(auth.is_tenant_manager) and not getattr(auth, 'localhost_agent_id', None)
+                if not tenant_manager:
                     visible_ids = {uid} | set(_get_user_emp_ids(uid))
                     visible_list = list(visible_ids)
                     placeholders = ','.join('?' * len(visible_list))
@@ -21801,7 +21885,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json_error(404, 'Talent not found')
             return
         t = _talent_row_to_dict(row)
-        if not auth.is_admin or getattr(auth, 'localhost_agent_id', None):
+        if not auth.is_tenant_manager or getattr(auth, 'localhost_agent_id', None):
             uid = _resolve_talent_owner_id(auth)
             visible_ids = {uid} | set(_get_user_emp_ids(uid))
             if (t.get('created_by') or '') not in visible_ids:
@@ -22199,7 +22283,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_auth_error(auth.error, auth.status)
             return
         if not self._require_module_permission(auth, 'influencers'): return
-        if not auth.is_admin or getattr(auth, 'localhost_agent_id', None):
+        if not auth.is_tenant_manager or getattr(auth, 'localhost_agent_id', None):
             self._send_json(403, {'error': '仅管理员可提升达人到主库'})
             return
         conn = _db_conn()
@@ -22944,8 +23028,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 self._send_json_error(409, f'仅 pending 状态可撤销 (当前: {row["status"]})'); return
             agent_id = getattr(auth, 'localhost_agent_id', None)
             is_creator = agent_id and agent_id == row['agent_id']
-            is_admin = auth.is_platform_admin and not getattr(auth, 'localhost_agent_id', None)
-            if not (is_creator or is_admin):
+            platform_admin = auth.is_platform_admin and not getattr(auth, 'localhost_agent_id', None)
+            if not (is_creator or platform_admin):
                 self._send_json_error(403, '仅提议人或管理员可撤销'); return
             conn.execute('DELETE FROM proposals WHERE id = ?', (proposal_id,))
             conn.commit()
@@ -22992,7 +23076,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             influencers = [i for i in influencers if i.get('status') == status]
         # 两层架构可见性：仅自己子库（自己 + 自己的 AI 员工录入的）；
         # 主库（createdBy 为空）只有管理员可见；AI 员工本地调用同样按创建者子库过滤
-        if not auth.is_admin or getattr(auth, 'localhost_agent_id', None):
+        if not auth.is_tenant_manager or getattr(auth, 'localhost_agent_id', None):
             uid = _resolve_talent_owner_id(auth)
             ids = {uid} | set(_get_user_emp_ids(uid))
             influencers = [i for i in influencers if (i.get('createdBy') or '') in ids]
@@ -30473,19 +30557,19 @@ def _talent_id_by_name(name, auth):
         conn = _db_conn()
         try:
             uid = auth.user_info.get('userId', '') if auth and auth.user_info else ''
-            is_admin = bool(auth.is_admin) if auth else False
+            tenant_manager = bool(auth.is_tenant_manager) if auth else False
             row = conn.execute(
                 "SELECT id, created_by FROM talents "
                 "WHERE name = ? OR douyin_id = ? OR real_name = ? LIMIT 1",
                 (name, name, name)).fetchone()
-            if row and (is_admin or (row['created_by'] or '') == uid):
+            if row and (tenant_manager or (row['created_by'] or '') == uid):
                 return row['id']
             if len(name) >= 3:
                 rows = conn.execute(
                     "SELECT id, created_by FROM talents WHERE name LIKE ? LIMIT 3",
                     (f'%{name}%',)).fetchall()
                 for r in rows:
-                    if is_admin or (r['created_by'] or '') == uid:
+                    if tenant_manager or (r['created_by'] or '') == uid:
                         return r['id']
         finally:
             conn.close()
@@ -30512,7 +30596,7 @@ def _extract_talent_from_text(text, auth):
         conn = _db_conn()
         try:
             uid = auth.user_info.get('userId', '') if auth and auth.user_info else ''
-            is_admin = bool(auth.is_admin) if auth else False
+            tenant_manager = bool(auth.is_tenant_manager) if auth else False
             # ★ fix/helen-vision-final-integration: 件套 4 (b) — 全局名称去重 (优先于现有精确/模糊匹配)
             #   命中直接返回真实 id (不检查权限, 因为 _extract_talent_from_text 只在 admin 流程被调)
             for name in candidates:
@@ -30525,7 +30609,7 @@ def _extract_talent_from_text(text, auth):
                     "WHERE name = ? OR douyin_id = ? OR real_name = ? LIMIT 1",
                     (name, name, name)).fetchone()
                 if row:
-                    if is_admin or (row['created_by'] or '') == uid:
+                    if tenant_manager or (row['created_by'] or '') == uid:
                         return row['id']
             # ★ fix/talent-like-guard: LIKE 模糊仅限≥3字候选——2字候选（"妈妈""周周"）
             #   做子串匹配会把璐妈妈/小周周这类泛名误配成目标达人。
@@ -30536,7 +30620,7 @@ def _extract_talent_from_text(text, auth):
                     "SELECT id, created_by, name FROM talents WHERE name LIKE ? LIMIT 3",
                     (f'%{name}%',)).fetchall()
                 for r in rows:
-                    if is_admin or (r['created_by'] or '') == uid:
+                    if tenant_manager or (r['created_by'] or '') == uid:
                         return r['id']
         finally:
             conn.close()
@@ -30559,8 +30643,8 @@ def _build_single_talent_injection(talent_id, auth):
         if not t:
             return ''
         uid = auth.user_info.get('userId', '') if auth and auth.user_info else ''
-        is_admin = bool(auth.is_admin) if auth else False
-        if not is_admin and (t.get('created_by') or '') != uid:
+        tenant_manager = bool(auth.is_tenant_manager) if auth else False
+        if not tenant_manager and (t.get('created_by') or '') != uid:
             return ''
         parts = [
             f"名称:{t.get('name') or '-'}",
@@ -30658,7 +30742,7 @@ def _build_talent_injection(user_text, auth, mentioned_names=None):
 
 def _build_talent_injection_text(auth, mentioned_names=None):
     """查询当前登录用户的达人数据并格式化为注入文本（供消息内联注入，含禁止编造约束）。
-    数据隔离规则：管理员（is_admin）看全部，非管理员只看自己（created_by=user_id）录入的。
+    数据隔离规则：租户管理者（tenant_manager）看全部，普通用户只看自己（created_by=user_id）录入的。
     ★ fix/talent-inject-lookalike: 单达人未命中而走本路径时，头部显式声明
     "用户问的人不在库里"，且名单里与用户提到的名字相近的达人加 ⚠️ 标注——
     防止 LLM 从 top50 名单里挑名字相近的达人冒充分析（璐妈妈假报告事故）。
@@ -30670,7 +30754,7 @@ def _build_talent_injection_text(auth, mentioned_names=None):
                 "SELECT * FROM talents WHERE status = 'active' ORDER BY followers DESC LIMIT ?",
                 (_TALENT_INJECT_LIMIT,)).fetchall()
             talents = [_talent_row_to_dict(r) for r in rows]
-            if auth.is_admin:
+            if auth.is_tenant_manager:
                 total = conn.execute(
                     "SELECT COUNT(*) FROM talents WHERE status = 'active'").fetchone()[0]
             else:
@@ -30680,7 +30764,7 @@ def _build_talent_injection_text(auth, mentioned_names=None):
                     (uid0,)).fetchone()[0]
         finally:
             conn.close()
-        if not auth.is_admin:
+        if not auth.is_tenant_manager:
             # 两层架构：仅自己子库（自己录入的）；主库（created_by 为空）只有管理员可见
             uid = auth.user_info.get('userId', '')
             talents = [t for t in talents if (t.get('created_by') or '') == uid]
@@ -34402,7 +34486,7 @@ def _record_credit_usage(conn, agent_id, input_tokens, output_tokens, cache_read
         _kind = _kind_row[0] if _kind_row else None
     except Exception:
         _kind = None          # 表缺失等异常 → 不 bypass（照扣）
-    is_admin_bypass = _kind in ('super_admin', 'platform_internal')
+    credit_bypass = _kind in ('super_admin', 'platform_internal')
     # ★ 修复: 始终 ensure credit_accounts (FK 约束需要), bypass 只是不扣减余额
     _ensure_credit_account(conn, agent_id)
     if created_at:
@@ -34418,7 +34502,7 @@ def _record_credit_usage(conn, agent_id, input_tokens, output_tokens, cache_read
             (agent_id, input_tokens, output_tokens, cache_read_tokens, total_tokens, credits_used, session_id)
         )
     # 扣减余额：允许透支到 0，但不能为负数 (admin / main 不扣减)
-    if not is_admin_bypass:
+    if not credit_bypass:
         conn.execute(
             "UPDATE credit_accounts SET balance = MAX(balance - ?, 0), total_consumed = total_consumed + ?, updated_at = datetime('now','localtime') WHERE agent_id = ?",
             (credits_used, credits_used, agent_id)
