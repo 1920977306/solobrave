@@ -18852,7 +18852,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
-        if not (auth.is_admin or auth.is_tenant_admin):  # ★ M5: 租户管理员可管内务
+        # ★ 阶段1批2 充值/平台口子铁律：super_admin only（收回 is_tenant_admin 并联，M5 错配；存量无 tenant_admin 角色，行为零变化）
+        if not auth.is_platform_admin:
             self._send_json_error(403, '仅管理员可分配积分')
             return
         body = self._read_body()
@@ -18968,7 +18969,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
-        if not (auth.is_admin or auth.is_tenant_admin):  # ★ M5: 租户管理员可管内务
+        # ★ 阶段1批2 充值/平台口子铁律：super_admin only（收回 is_tenant_admin 并联，M5 错配；存量无 tenant_admin 角色，行为零变化）
+        if not auth.is_platform_admin:
             self._send_json_error(403, '仅管理员可充值积分')
             return
         body = self._read_body()
@@ -19005,7 +19007,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
-        if not (auth.is_admin or auth.is_tenant_admin):  # ★ M5: 租户管理员可管内务
+        # ★ 阶段1批2 充值/平台口子铁律：super_admin only（收回 is_tenant_admin 并联，M5 错配；存量无 tenant_admin 角色，行为零变化）
+        if not auth.is_platform_admin:
             self._send_json_error(403, '仅管理员可充值积分')
             return
         body = self._read_body()
@@ -19040,7 +19043,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
-        if not (auth.is_admin or auth.is_tenant_admin):
+        if not (auth.is_platform_admin or auth.is_tenant_admin):
             self._send_json_error(403, '仅管理员可查看飞书 AI 积分')
             return
         status, obj = _daren_bot_admin_api('/admin/api/credits')
@@ -19057,7 +19060,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
-        if not (auth.is_admin or auth.is_tenant_admin):
+        # ★ 阶段1批2 充值/平台口子铁律：super_admin only（收回 is_tenant_admin 并联，M5 错配；存量无 tenant_admin 角色，行为零变化）
+        if not auth.is_platform_admin:
             self._send_json_error(403, '仅管理员可充值飞书 AI 积分')
             return
         body = self._read_body() or {}
@@ -19087,7 +19091,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
-        if not (auth.is_admin or auth.is_tenant_admin):
+        if not (auth.is_platform_admin or auth.is_tenant_admin):
             self._send_json_error(403, '仅管理员可查看飞书助理控制台')
             return
         s_status, state = _daren_bot_admin_api('/admin/api/state')
@@ -19116,7 +19120,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
-        if not (auth.is_admin or auth.is_tenant_admin):
+        # ★ 阶段1批2 充值/平台口子铁律：super_admin only（收回 is_tenant_admin 并联，M5 错配；存量无 tenant_admin 角色，行为零变化）
+        if not auth.is_platform_admin:
             self._send_json_error(403, '仅管理员可操作飞书助理层级')
             return
         body = self._read_body() or {}
@@ -19163,7 +19168,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
-        if not (auth.is_admin or auth.is_tenant_admin):
+        if not (auth.is_platform_admin or auth.is_tenant_admin):
             self._send_json_error(403, '仅管理员可审计飞书助理聊天')
             return
         qs = parse_qs(urlparse(self.path).query)
@@ -19186,7 +19191,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
-        if not (auth.is_admin or auth.is_tenant_admin):
+        if not (auth.is_platform_admin or auth.is_tenant_admin):
             self._send_json_error(403, '仅管理员可查看达人自述')
             return
         qs = parse_qs(urlparse(self.path).query)
@@ -19205,7 +19210,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
-        if not (auth.is_admin or auth.is_tenant_admin):
+        if not (auth.is_platform_admin or auth.is_tenant_admin):
             self._send_json_error(403, '仅管理员可删除达人自述')
             return
         body = self._read_body() or {}
@@ -19223,7 +19228,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
-        if not (auth.is_admin or auth.is_tenant_admin):
+        # ★ 阶段1批2 充值/平台口子铁律：super_admin only（收回 is_tenant_admin 并联，M5 错配；存量无 tenant_admin 角色，行为零变化）
+        if not auth.is_platform_admin:
             self._send_json_error(403, '仅管理员可创建飞书助理')
             return
         body = self._read_body() or {}

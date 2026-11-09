@@ -177,6 +177,41 @@ def test_batch1_sites_switched_to_platform_admin():
         assert 'auth.is_admin' not in bare, f'{fn} 仍残留裸 auth.is_admin'
 
 
+# 批 2（2026-11-09）：充值/平台口子铁律 super_admin only（收回并联）
+BATCH2_REVOKE_FNS = {
+    '_handle_credits_admin_grant', '_handle_credit_recharge',
+    '_handle_credit_recharge_generic', '_handle_post_feishu_credits_recharge',
+    '_handle_post_feishu_console_agent_op', '_handle_post_feishu_tenant_create',
+}
+# 读+本租户裁剪（二期）：保留 is_tenant_admin 并联，is_admin 半边已切 platform
+BATCH2_KEEP_FNS = {
+    '_handle_get_feishu_credits', '_handle_get_feishu_console',
+    '_handle_get_feishu_chat', '_handle_get_feishu_facts',
+    '_handle_post_feishu_fact_delete',
+}
+
+
+def test_batch2_revoke_fns_super_admin_only():
+    spans, lines = _fn_spans()
+    for fn in BATCH2_REVOKE_FNS:
+        s, e = spans[fn]
+        body = '\n'.join(lines[s - 1:e])
+        assert 'is_platform_admin' in body, f'{fn} 未切 platform_admin'
+        assert 'auth.is_tenant_admin' not in body, \
+            f'{fn} 充值口子仍保留 is_tenant_admin 并联（铁律：super_admin only）'
+        assert 'auth.is_admin' not in body.replace('auth.is_platform_admin', ''), \
+            f'{fn} 仍残留裸 auth.is_admin'
+
+
+def test_batch2_keep_fns_still_allow_tenant_admin():
+    spans, lines = _fn_spans()
+    for fn in BATCH2_KEEP_FNS:
+        s, e = spans[fn]
+        body = '\n'.join(lines[s - 1:e])
+        assert 'auth.is_platform_admin or auth.is_tenant_admin' in body, \
+            f'{fn} 读接口应保留 tenant_admin 并联（tenant_owner 裁剪二期）'
+
+
 def test_require_admin_uses_platform_admin():
     spans, lines = _fn_spans()
     s, e = spans['_require_admin']

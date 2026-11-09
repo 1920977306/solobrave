@@ -315,7 +315,9 @@ class TestAdminGate(unittest.TestCase):
             if isinstance(node, ast.FunctionDef) and node.name == '_handle_credits_admin_grant':
                 handler_src = ast.unparse(node)
                 break
-        self.assertIn('is_admin', handler_src, 'admin-grant handler 缺少 is_admin 检查')
+        # 阶段1批2：守卫已切 is_platform_admin（充值口子铁律 super_admin only），
+        # 'is_admin' 字样不再出现——用 platform_admin 做契约锚
+        self.assertIn('is_platform_admin', handler_src, 'admin-grant handler 缺少平台超管守卫')
         self.assertIn('403', handler_src, 'admin-grant handler 缺少 403 拒绝')
         self.assertIn('_admin_grant_credits', handler_src, 'admin-grant handler 未调 helper')
 

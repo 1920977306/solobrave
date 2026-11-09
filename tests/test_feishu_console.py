@@ -146,7 +146,7 @@ class TestRoleInfo:
 # ---------- 守卫 3：handler 行为 ----------
 
 def _admin_auth():
-    return type('A', (), {'is_authenticated': True, 'is_admin': True,
+    return type('A', (), {'is_authenticated': True, 'is_admin': True, 'is_platform_admin': True,
                           'is_tenant_admin': False, 'user_id': 'boss',
                           'error': None, 'status': 401})
 
@@ -193,7 +193,7 @@ class TestConsoleHandler:
         return sent, calls
 
     def test_non_admin_forbidden(self, srv, monkeypatch):
-        auth = type('A', (), {'is_authenticated': True, 'is_admin': False,
+        auth = type('A', (), {'is_authenticated': True, 'is_admin': False, 'is_platform_admin': False,
                               'is_tenant_admin': False, 'error': None,
                               'status': 401, 'user_id': 'u1'})
         sent, calls = self._call(srv, monkeypatch, auth=auth)
@@ -251,7 +251,7 @@ class TestChatHandler:
             '透传不许丢参数/改变编码'
 
     def test_non_admin_forbidden(self, srv, monkeypatch):
-        auth = type('A', (), {'is_authenticated': True, 'is_admin': False,
+        auth = type('A', (), {'is_authenticated': True, 'is_admin': False, 'is_platform_admin': False,
                               'is_tenant_admin': False, 'error': None,
                               'status': 401, 'user_id': 'u1'})
         sent, calls = self._call(srv, monkeypatch,
@@ -296,7 +296,7 @@ class TestRoleContentHandler:
         assert sent['code'] == 404
 
     def test_non_admin_forbidden(self, srv, monkeypatch):
-        auth = type('A', (), {'is_authenticated': True, 'is_admin': False,
+        auth = type('A', (), {'is_authenticated': True, 'is_admin': False, 'is_platform_admin': False,
                               'is_tenant_admin': False, 'error': None,
                               'status': 401, 'user_id': 'u1'})
         sent = self._call(srv, monkeypatch, '/api/feishu/console/role?role=daren',
@@ -304,7 +304,7 @@ class TestRoleContentHandler:
         assert sent['code'] == 403
 
     def test_tenant_admin_allowed(self, srv, monkeypatch):
-        auth = type('A', (), {'is_authenticated': True, 'is_admin': False,
+        auth = type('A', (), {'is_authenticated': True, 'is_admin': False, 'is_platform_admin': False,
                               'is_tenant_admin': True, 'error': None,
                               'status': 401, 'user_id': 'boss'})
         sent = self._call(srv, monkeypatch, '/api/feishu/console/role?role=daren',
@@ -312,7 +312,7 @@ class TestRoleContentHandler:
         assert sent['code'] == 200
 
     def test_unauthenticated_401(self, srv, monkeypatch):
-        auth = type('A', (), {'is_authenticated': False, 'is_admin': False,
+        auth = type('A', (), {'is_authenticated': False, 'is_admin': False, 'is_platform_admin': False,
                               'is_tenant_admin': False, 'error': 'unauthorized',
                               'status': 401, 'user_id': None})
         sent = self._call(srv, monkeypatch, '/api/feishu/console/role?role=daren',
@@ -461,7 +461,7 @@ class TestAgentOpProxy:
         return sent, calls
 
     def test_non_admin_forbidden(self, srv, monkeypatch):
-        auth = type('A', (), {'is_authenticated': True, 'is_admin': False,
+        auth = type('A', (), {'is_authenticated': True, 'is_admin': False, 'is_platform_admin': False,
                               'is_tenant_admin': False, 'error': None,
                               'status': 401, 'user_id': 'u1'})
         for p in self.PATHS:
@@ -500,7 +500,7 @@ class TestTenantCreateProxy:
         return sent, calls
 
     def test_non_admin_forbidden(self, srv, monkeypatch):
-        auth = type('A', (), {'is_authenticated': True, 'is_admin': False,
+        auth = type('A', (), {'is_authenticated': True, 'is_admin': False, 'is_platform_admin': False,
                               'is_tenant_admin': False, 'error': None,
                               'status': 401, 'user_id': 'u1'})
         sent, calls = self._call(srv, monkeypatch,

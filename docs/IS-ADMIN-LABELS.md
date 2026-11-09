@@ -2,7 +2,7 @@
 
 > 生成：`python3 scripts/label_is_admin_sites.py > docs/IS-ADMIN-LABELS.md`
 > 口径：docs/SUBJECTS-PACKS-RECONCILE.md §2#1 / §5。改代码后行号会漂，重跑本脚本。
-> 本次扫描：**111 处消费** = [platform] 20 + [tenant] 91；另有 framework 2、definition 1、comment 5。
+> 本次扫描：**100 处消费** = [platform] 9 + [tenant] 91；另有 framework 2、definition 1、comment 5。
 
 **拆主开关顺序（§2#1 红线）：先按本清单把 [platform] 消费切到 super_admin，[tenant] 消费保留 is_admin 语义（后续归 tenant_owner），每切一批跑全量回归。**
 
@@ -78,58 +78,47 @@
 | :18512 | `_handle_get_deal_detail` | **[tenant]** | `if not auth.is_admin:` |  |
 | :18676 | `_handle_post_kb_search` | **[tenant]** | `user_id=auth.user_id, is_admin=auth.is_admin,` |  |
 | :18699 | `_handle_get_stats_compute` | **[tenant]** | `if not auth.is_admin:` |  |
-| :18855 | `_handle_credits_admin_grant` | **[platform]** | `if not (auth.is_admin or auth.is_tenant_admin):  # ★ M5: 租户管理员可管内务` |  |
-| :18971 | `_handle_credit_recharge` | **[platform]** | `if not (auth.is_admin or auth.is_tenant_admin):  # ★ M5: 租户管理员可管内务` |  |
-| :19008 | `_handle_credit_recharge_generic` | **[platform]** | `if not (auth.is_admin or auth.is_tenant_admin):  # ★ M5: 租户管理员可管内务` |  |
-| :19043 | `_handle_get_feishu_credits` | **[platform]** | `if not (auth.is_admin or auth.is_tenant_admin):` |  |
-| :19060 | `_handle_post_feishu_credits_recharge` | **[platform]** | `if not (auth.is_admin or auth.is_tenant_admin):` |  |
-| :19090 | `_handle_get_feishu_console` | **[platform]** | `if not (auth.is_admin or auth.is_tenant_admin):` |  |
-| :19119 | `_handle_post_feishu_console_agent_op` | **[platform]** | `if not (auth.is_admin or auth.is_tenant_admin):` |  |
-| :19135 | `_handle_get_feishu_role_content` | **[platform]** | `if not (auth.is_admin or auth.is_tenant_admin):` |  |
-| :19166 | `_handle_get_feishu_chat` | **[platform]** | `if not (auth.is_admin or auth.is_tenant_admin):` |  |
-| :19189 | `_handle_get_feishu_facts` | **[platform]** | `if not (auth.is_admin or auth.is_tenant_admin):` |  |
-| :19208 | `_handle_post_feishu_fact_delete` | **[platform]** | `if not (auth.is_admin or auth.is_tenant_admin):` |  |
-| :19226 | `_handle_post_feishu_tenant_create` | **[platform]** | `if not (auth.is_admin or auth.is_tenant_admin):` |  |
-| :19526 | `_handle_get_token_usage` | **[platform]** | `if not auth.is_admin:` |  |
-| :19711 | `_handle_post_rag_retrieve` | **[tenant]** | `requester_id=auth.user_id, is_admin=auth.is_admin, team_ids=auth.team_ids,` |  |
-| :20211 | `_handle_get_products` | **[tenant]** | `if not auth.is_admin or getattr(auth, 'localhost_agent_id', None):` |  |
-| :20402 | `_handle_get_tasks` | **[tenant]** | `if not auth.is_admin:` |  |
-| :20428 | `_handle_get_task` | **[tenant]** | `if not auth.is_admin:` |  |
-| :20441 | `_handle_post_task` | **[tenant]** | `if not auth.is_admin:` |  |
-| :20503 | `_handle_put_task` | **[tenant]** | `if not auth.is_admin:` |  |
-| :20509 | `_handle_put_task` | **[tenant]** | `allowed_fields = ['status', 'progress'] if not auth.is_admin else ['title', 'description', 'assignee` |  |
-| :20534 | `_handle_delete_task` | **[tenant]** | `if not auth.is_admin:` |  |
-| :21020 | `_handle_post_product` | **[tenant]** | `if not auth.is_admin:` |  |
-| :21409 | `_handle_get_brands` | **[tenant]** | `if not auth.is_admin:` |  |
-| :21723 | `_handle_search_talents` | **[tenant]** | `is_admin = bool(auth.is_admin) and not getattr(auth, 'localhost_agent_id', None)` |  |
-| :21724 | `_handle_search_talents` | **[tenant]** | `if not is_admin:` |  |
-| :21793 | `_handle_get_talent` | **[tenant]** | `if not auth.is_admin or getattr(auth, 'localhost_agent_id', None):` |  |
-| :22191 | `_handle_promote_talent` | **[tenant]** | `if not auth.is_admin or getattr(auth, 'localhost_agent_id', None):` |  |
-| :22732 | `_handle_get_proposals` | **[comment]** | `# ★ GET admin-only 收窄 (跟 resolve 硬闸 is_admin 一致, 老大 19:05 拍板)` | 注释/docstring 字样，无权限语义 |
-| :22936 | `_handle_delete_proposal` | **[platform]** | `is_admin = auth.is_platform_admin and not getattr(auth, 'localhost_agent_id', None)` |  |
-| :22937 | `_handle_delete_proposal` | **[platform]** | `if not (is_creator or is_admin):` |  |
-| :22984 | `_handle_get_influencers` | **[tenant]** | `if not auth.is_admin or getattr(auth, 'localhost_agent_id', None):` |  |
-| :24713 | `_handle_post_chat_impl` | **[tenant]** | `requester_id=auth.user_id, is_admin=auth.is_admin, team_ids=auth.team_ids,` |  |
-| :24751 | `_handle_post_chat_impl` | **[tenant]** | `requester_id=auth.user_id, is_admin=auth.is_admin,` |  |
-| :24805 | `_handle_post_chat_impl` | **[tenant]** | `requester_id=auth.user_id, is_admin=auth.is_admin, team_ids=auth.team_ids,` |  |
-| :30465 | `_talent_id_by_name` | **[tenant]** | `is_admin = bool(auth.is_admin) if auth else False` |  |
-| :30470 | `_talent_id_by_name` | **[tenant]** | `if row and (is_admin or (row['created_by'] or '') == uid):` |  |
-| :30477 | `_talent_id_by_name` | **[tenant]** | `if is_admin or (r['created_by'] or '') == uid:` |  |
-| :30504 | `_extract_talent_from_text` | **[tenant]** | `is_admin = bool(auth.is_admin) if auth else False` |  |
-| :30517 | `_extract_talent_from_text` | **[tenant]** | `if is_admin or (row['created_by'] or '') == uid:` |  |
-| :30528 | `_extract_talent_from_text` | **[tenant]** | `if is_admin or (r['created_by'] or '') == uid:` |  |
-| :30551 | `_build_single_talent_injection` | **[tenant]** | `is_admin = bool(auth.is_admin) if auth else False` |  |
-| :30552 | `_build_single_talent_injection` | **[tenant]** | `if not is_admin and (t.get('created_by') or '') != uid:` |  |
-| :30650 | `_build_talent_injection_text` | **[comment]** | `数据隔离规则：管理员（is_admin）看全部，非管理员只看自己（created_by=user_id）录入的。` | 注释/docstring 字样，无权限语义 |
-| :30662 | `_build_talent_injection_text` | **[tenant]** | `if auth.is_admin:` |  |
-| :30672 | `_build_talent_injection_text` | **[tenant]** | `if not auth.is_admin:` |  |
-| :32691 | `_call_ai_api` | **[tenant]** | `allowed_knowledge_categories=None, requester_id=None, is_admin=False, team_ids=None,` |  |
-| :32830 | `_wrap_reply` | **[comment]** | `#   入参与返回结构与 rag_retrieve 完全一致；四层 scope 隔离由 requester_id/is_admin/team_ids/group_ids 承载。` | 注释/docstring 字样，无权限语义 |
-| :32835 | `_wrap_reply` | **[tenant]** | `requester_id=requester_id, is_admin=is_admin, team_ids=team_ids,` |  |
+| :19140 | `_handle_get_feishu_role_content` | **[platform]** | `if not (auth.is_admin or auth.is_tenant_admin):` |  |
+| :19532 | `_handle_get_token_usage` | **[platform]** | `if not auth.is_admin:` |  |
+| :19717 | `_handle_post_rag_retrieve` | **[tenant]** | `requester_id=auth.user_id, is_admin=auth.is_admin, team_ids=auth.team_ids,` |  |
+| :20217 | `_handle_get_products` | **[tenant]** | `if not auth.is_admin or getattr(auth, 'localhost_agent_id', None):` |  |
+| :20408 | `_handle_get_tasks` | **[tenant]** | `if not auth.is_admin:` |  |
+| :20434 | `_handle_get_task` | **[tenant]** | `if not auth.is_admin:` |  |
+| :20447 | `_handle_post_task` | **[tenant]** | `if not auth.is_admin:` |  |
+| :20509 | `_handle_put_task` | **[tenant]** | `if not auth.is_admin:` |  |
+| :20515 | `_handle_put_task` | **[tenant]** | `allowed_fields = ['status', 'progress'] if not auth.is_admin else ['title', 'description', 'assignee` |  |
+| :20540 | `_handle_delete_task` | **[tenant]** | `if not auth.is_admin:` |  |
+| :21026 | `_handle_post_product` | **[tenant]** | `if not auth.is_admin:` |  |
+| :21415 | `_handle_get_brands` | **[tenant]** | `if not auth.is_admin:` |  |
+| :21729 | `_handle_search_talents` | **[tenant]** | `is_admin = bool(auth.is_admin) and not getattr(auth, 'localhost_agent_id', None)` |  |
+| :21730 | `_handle_search_talents` | **[tenant]** | `if not is_admin:` |  |
+| :21799 | `_handle_get_talent` | **[tenant]** | `if not auth.is_admin or getattr(auth, 'localhost_agent_id', None):` |  |
+| :22197 | `_handle_promote_talent` | **[tenant]** | `if not auth.is_admin or getattr(auth, 'localhost_agent_id', None):` |  |
+| :22738 | `_handle_get_proposals` | **[comment]** | `# ★ GET admin-only 收窄 (跟 resolve 硬闸 is_admin 一致, 老大 19:05 拍板)` | 注释/docstring 字样，无权限语义 |
+| :22942 | `_handle_delete_proposal` | **[platform]** | `is_admin = auth.is_platform_admin and not getattr(auth, 'localhost_agent_id', None)` |  |
+| :22943 | `_handle_delete_proposal` | **[platform]** | `if not (is_creator or is_admin):` |  |
+| :22990 | `_handle_get_influencers` | **[tenant]** | `if not auth.is_admin or getattr(auth, 'localhost_agent_id', None):` |  |
+| :24719 | `_handle_post_chat_impl` | **[tenant]** | `requester_id=auth.user_id, is_admin=auth.is_admin, team_ids=auth.team_ids,` |  |
+| :24757 | `_handle_post_chat_impl` | **[tenant]** | `requester_id=auth.user_id, is_admin=auth.is_admin,` |  |
+| :24811 | `_handle_post_chat_impl` | **[tenant]** | `requester_id=auth.user_id, is_admin=auth.is_admin, team_ids=auth.team_ids,` |  |
+| :30471 | `_talent_id_by_name` | **[tenant]** | `is_admin = bool(auth.is_admin) if auth else False` |  |
+| :30476 | `_talent_id_by_name` | **[tenant]** | `if row and (is_admin or (row['created_by'] or '') == uid):` |  |
+| :30483 | `_talent_id_by_name` | **[tenant]** | `if is_admin or (r['created_by'] or '') == uid:` |  |
+| :30510 | `_extract_talent_from_text` | **[tenant]** | `is_admin = bool(auth.is_admin) if auth else False` |  |
+| :30523 | `_extract_talent_from_text` | **[tenant]** | `if is_admin or (row['created_by'] or '') == uid:` |  |
+| :30534 | `_extract_talent_from_text` | **[tenant]** | `if is_admin or (r['created_by'] or '') == uid:` |  |
+| :30557 | `_build_single_talent_injection` | **[tenant]** | `is_admin = bool(auth.is_admin) if auth else False` |  |
+| :30558 | `_build_single_talent_injection` | **[tenant]** | `if not is_admin and (t.get('created_by') or '') != uid:` |  |
+| :30656 | `_build_talent_injection_text` | **[comment]** | `数据隔离规则：管理员（is_admin）看全部，非管理员只看自己（created_by=user_id）录入的。` | 注释/docstring 字样，无权限语义 |
+| :30668 | `_build_talent_injection_text` | **[tenant]** | `if auth.is_admin:` |  |
+| :30678 | `_build_talent_injection_text` | **[tenant]** | `if not auth.is_admin:` |  |
+| :32697 | `_call_ai_api` | **[tenant]** | `allowed_knowledge_categories=None, requester_id=None, is_admin=False, team_ids=None,` |  |
+| :32836 | `_wrap_reply` | **[comment]** | `#   入参与返回结构与 rag_retrieve 完全一致；四层 scope 隔离由 requester_id/is_admin/team_ids/group_ids 承载。` | 注释/docstring 字样，无权限语义 |
+| :32841 | `_wrap_reply` | **[tenant]** | `requester_id=requester_id, is_admin=is_admin, team_ids=team_ids,` |  |
 
 ## 按域汇总
 
-### [platform] 20 处 / 19 个函数
+### [platform] 9 处 / 8 个函数
 
 - `_handle_delete_proposal` × 2
 - `_handle_post_pipe_start` × 1
@@ -137,18 +126,7 @@
 - `_handle_post_pipe_cancel` × 1
 - `_handle_get_pipe_list` × 1
 - `_handle_get_llm_usage` × 1
-- `_handle_credits_admin_grant` × 1
-- `_handle_credit_recharge` × 1
-- `_handle_credit_recharge_generic` × 1
-- `_handle_get_feishu_credits` × 1
-- `_handle_post_feishu_credits_recharge` × 1
-- `_handle_get_feishu_console` × 1
-- `_handle_post_feishu_console_agent_op` × 1
 - `_handle_get_feishu_role_content` × 1
-- `_handle_get_feishu_chat` × 1
-- `_handle_get_feishu_facts` × 1
-- `_handle_post_feishu_fact_delete` × 1
-- `_handle_post_feishu_tenant_create` × 1
 - `_handle_get_token_usage` × 1
 
 ### [tenant] 91 处 / 66 个函数

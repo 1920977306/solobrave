@@ -221,7 +221,7 @@ class TestRechargeValidation:
     def _call(self, srv, monkeypatch, body, auth_ok=True):
         h, sent = _make_recharge_handler(srv, body)
 
-        auth = type('A', (), {'is_authenticated': True, 'is_admin': True,
+        auth = type('A', (), {'is_authenticated': True, 'is_admin': True, 'is_platform_admin': True,
                               'is_tenant_admin': False, 'user_id': 'boss',
                               'error': None, 'status': 401})
         monkeypatch.setattr(srv, '_authenticate', lambda *a, **k: auth)
