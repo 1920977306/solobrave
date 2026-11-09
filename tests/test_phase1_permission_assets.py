@@ -88,6 +88,7 @@ def test_build_seeds_kinds():
     assert rows['emp_x']['kind'] == 'agent_persona'
     assert rows['emp_x']['agent_of'] == 'u_staff'      # 挂真实所有人
     assert rows['bot:daren_boss']['kind'] == 'creator'
+    assert rows['main']['kind'] == 'platform_internal'  # 系统内置，不扣积分
 
 
 # ─── 3. dry-run / apply / 幂等 ──────────────────────────────────────────────
@@ -129,7 +130,7 @@ def test_seed_apply_idempotent(tmp_path, capsys):
         n = conn.execute('SELECT COUNT(*) FROM subjects').fetchone()[0]
     finally:
         conn.close()
-    assert n == 2          # u_admin + bot:tk1，重跑不产生重复行
+    assert n == 3          # u_admin + bot:tk1 + main(system_default)，重跑不产生重复行
 
 
 # ─── 4. 批 1 切换守卫（2026-11-09） ─────────────────────────────────────────
@@ -235,6 +236,43 @@ def test_batch3_sites_switched():
         assert 'auth.is_platform_admin' in body, f'{fn} 未切换到 is_platform_admin'
         bare = body.replace('auth.is_platform_admin', '')
         assert 'auth.is_admin' not in bare, f'{fn} 仍残留裸 auth.is_admin'
+
+
+def test_credit_bypass_reads_subjects_kind(mod):
+    """_record_credit_usage 不扣减名单改读 subjects.kind：super_admin/platform_internal
+    不扣，无 kind 行照扣（fail-closed）。替换原硬编码 ('main','user_7acb72ff')。"""
+    import sqlite3 as _sq
+    conn = _sq.connect(mod.DB_PATH)
+    try:
+        conn.execute(seed_mod.DDL)
+        conn.execute("INSERT INTO subjects (subject_id, kind, tenant_id, agent_of,"
+                     " packs, source, created_at) VALUES ('main', 'platform_internal',"
+                     " 't_default', '', '[]', 'test', 0)")
+        conn.execute("INSERT INTO subjects (subject_id, kind, tenant_id, agent_of,"
+                     " packs, source, created_at) VALUES ('u_boss', 'super_admin',"
+                     " 't_default', '', '[]', 'test', 0)")
+        conn.commit()
+        for a in ('main', 'u_boss', 'agent_x'):
+            mod._ensure_credit_account(conn, a)
+
+        def _consumed(a):
+            return conn.execute('SELECT total_consumed FROM credit_accounts'
+                                ' WHERE agent_id = ?', (a,)).fetchone()[0]
+
+        mod._record_credit_usage(conn, 'main', 3000, 0, 0)
+        mod._record_credit_usage(conn, 'u_boss', 3000, 0, 0)
+        charged = mod._record_credit_usage(conn, 'agent_x', 3000, 0, 0)
+        assert _consumed('main') == 0 and _consumed('u_boss') == 0, \
+            'platform_internal / super_admin 不应扣减'
+        assert charged > 0 and _consumed('agent_x') == charged, \
+            '无 kind 行的业务 agent 必须照扣'
+        # 无 subjects 表（异常路径）→ fail-closed 照扣
+        conn.execute('DROP TABLE subjects')
+        before = _consumed('agent_x')
+        mod._record_credit_usage(conn, 'agent_x', 3000, 0, 0)
+        assert _consumed('agent_x') > before, '表缺失时也必须照扣（不多送积分）'
+    finally:
+        conn.close()
 
 
 def test_is_platform_admin_reads_subjects_kind(mod, monkeypatch):

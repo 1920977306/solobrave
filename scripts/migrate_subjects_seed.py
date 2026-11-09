@@ -14,6 +14,7 @@
   users 其余               → kind=biz_staff
   agents（AI 员工）         → kind=agent_persona，agent_of=createdBy（挂真实所有人）
   bot_tenants（达人主体）   → kind=creator，agent_of=库内现值（合伙人层级投影）
+  'main'（系统内置默认 agent）→ kind=platform_internal，不扣积分（2026-11-09 收口硬编码名单）
 """
 import argparse
 import json
@@ -37,7 +38,7 @@ EXPECT_AGENT_OWNER = {
 DDL = '''
 CREATE TABLE IF NOT EXISTS subjects (
     subject_id TEXT PRIMARY KEY,        -- user_id / agent_id / bot tenant_key
-    kind TEXT NOT NULL,                 -- super_admin|tenant_owner|biz_staff|creator|agent_persona
+    kind TEXT NOT NULL,                 -- super_admin|tenant_owner|biz_staff|creator|agent_persona|platform_internal
     tenant_id TEXT DEFAULT 't_default',
     agent_of TEXT DEFAULT '',           -- 业务归属上级（合伙人层级投影，人格≠身份守卫适用）
     packs TEXT DEFAULT '[]',            -- JSON：能力包 id 列表（阶段 2 推导模块白名单）
@@ -75,6 +76,10 @@ def build_seeds(users, agents, bot_tenants):
                      'tenant_id': 't_default',
                      'agent_of': t.get('agent_of') or '',
                      'source': 'bot_tenants'})
+    # 系统内置主体：默认 agent 'main'（无 users/agents 记录，历史靠硬编码 id 名单白嫖积分）
+    rows.append({'subject_id': 'main', 'kind': 'platform_internal',
+                 'tenant_id': 't_default', 'agent_of': '',
+                 'source': 'system_default'})
     return rows
 
 

@@ -34373,12 +34373,21 @@ def _record_credit_usage(conn, agent_id, input_tokens, output_tokens, cache_read
     """记录一条算力消耗：写入 credit_usage_log 并扣减 credit_accounts.balance。
     积分 = ceil(total_tokens / 1000)；余额可以扣到 0，但不为负数（调用方负责幂等与 commit）。
     ★ fix/optimize-connection: admin / main 不扣减余额, 只记 usage_log (admin 走 zhipu 公池)
-    ★ fix/creditsync-fk: admin/main 也要 ensure credit_accounts 行 (满足 FK), 只是不扣减余额"""
+    ★ fix/creditsync-fk: admin/main 也要 ensure credit_accounts 行 (满足 FK), 只是不扣减余额
+    ★ 阶段1收口（2026-11-09）：bypass 改读 subjects.kind（super_admin=平台超管本人、
+      platform_internal=平台内置身份如 'main'），删除硬编码 id 名单。
+      无 kind 行 / subjects 表不存在 → 不 bypass 照扣（fail-closed，不多送积分）。"""
     total_tokens = int(input_tokens or 0) + int(output_tokens or 0) + int(cache_read_tokens or 0)
     credits_used = int(math.ceil(total_tokens / float(CREDITS_PER_TOKENS))) if total_tokens > 0 else 0
     if total_tokens <= 0:
         return 0
-    is_admin_bypass = agent_id in ('main', 'user_7acb72ff')
+    try:
+        _kind_row = conn.execute(
+            'SELECT kind FROM subjects WHERE subject_id = ?', (agent_id,)).fetchone()
+        _kind = _kind_row[0] if _kind_row else None
+    except Exception:
+        _kind = None          # 表缺失等异常 → 不 bypass（照扣）
+    is_admin_bypass = _kind in ('super_admin', 'platform_internal')
     # ★ 修复: 始终 ensure credit_accounts (FK 约束需要), bypass 只是不扣减余额
     _ensure_credit_account(conn, agent_id)
     if created_at:
