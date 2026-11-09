@@ -34199,9 +34199,19 @@ def _ensure_credit_account(conn, agent_id):
 
 def _check_credit_balance(agent_id):
     """检查员工是否有足够积分发送消息。返回 (balance, has_credits)"""
-    # ★ fix/optimize-connection: admin / main 虚拟充足, 不受 credit 管控
-    #   admin 是系统运营者, 用 zhipu 公池 key, 不应该被自己的 credit 表卡住
-    if agent_id in ('main', 'user_7acb72ff'):
+    # ★ 阶段1收口（2026-11-09）：虚拟余额白名单改读 subjects.kind（与 _record_credit_usage
+    #   同一口径：super_admin=平台超管本人、platform_internal=平台内置身份如 'main'），
+    #   删除硬编码 ('main','user_7acb72ff')。无 kind 行/表异常 → 不豁免（fail-closed）。
+    try:
+        _kc = _db_conn()
+        try:
+            _kr = _kc.execute('SELECT kind FROM subjects WHERE subject_id = ?', (agent_id,)).fetchone()
+            _kind = _kr[0] if _kr else None
+        finally:
+            _kc.close()
+    except Exception:
+        _kind = None
+    if _kind in ('super_admin', 'platform_internal'):
         return (999999, True)
     conn = _db_conn()
     try:

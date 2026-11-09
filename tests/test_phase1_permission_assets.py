@@ -266,6 +266,12 @@ def test_credit_bypass_reads_subjects_kind(mod):
             'platform_internal / super_admin 不应扣减'
         assert charged > 0 and _consumed('agent_x') == charged, \
             '无 kind 行的业务 agent 必须照扣'
+        # 同一口径的余额闸门：豁免名单同样读 subjects.kind
+        conn.commit()
+        assert mod._check_credit_balance('main') == (999999, True)
+        assert mod._check_credit_balance('u_boss') == (999999, True)
+        _b, _ok = mod._check_credit_balance('agent_x')
+        assert not _ok, '无 kind 行的业务 agent 不应拿虚拟余额'
         # 无 subjects 表（异常路径）→ fail-closed 照扣
         conn.execute('DROP TABLE subjects')
         before = _consumed('agent_x')
