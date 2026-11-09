@@ -203,7 +203,7 @@ class TestRetryEmbedding(unittest.TestCase):
         self.addCleanup(setattr, ks, '_vectorize_kb_chunks', self._orig_vec)
 
     def test_retry_recovers_from_embedding_failed(self):
-        result = ks.kb_entry_retry_embedding('e1', is_admin=True, operator_id='u1', user_id='u1')
+        result = ks.kb_entry_retry_embedding('e1', tenant_manager=True, operator_id='u1', user_id='u1')
         self.assertIsNotNone(result)
         self.assertEqual(result['status'], 'ok', '重试成功后 status 应是 ok')
         self.assertEqual(result['prev_status'], 'embedding_failed')
@@ -221,7 +221,7 @@ class TestRetryEmbedding(unittest.TestCase):
         # 显式设为 'embedding_failed' (setUp 默认也是这个, 显式设是自文档)
         self._db.execute("UPDATE kb_entries SET status='embedding_failed' WHERE id='e1'")
         self._db.commit()
-        result = ks.kb_entry_retry_embedding('e1', is_admin=True, operator_id='u1', user_id='u1')
+        result = ks.kb_entry_retry_embedding('e1', tenant_manager=True, operator_id='u1', user_id='u1')
         # retry 成功后: UPDATE kb_entries SET status='ok' (L3060, 因 cur_status='embedding_failed', 不触发 pending 审核闸 L3056-3057)
         self.assertEqual(result['status'], 'ok', 'embedding_failed retry 成功后 status 应是 ok')
         self.assertEqual(result['prev_status'], 'embedding_failed')
@@ -233,31 +233,31 @@ class TestRetryEmbedding(unittest.TestCase):
         self._db.execute("UPDATE kb_entries SET status='ok' WHERE id='e1'")
         self._db.commit()
         with self.assertRaises(ValueError) as cm:
-            ks.kb_entry_retry_embedding('e1', is_admin=True, operator_id='u1', user_id='u1')
+            ks.kb_entry_retry_embedding('e1', tenant_manager=True, operator_id='u1', user_id='u1')
         self.assertIn('only embedding_failed/error', str(cm.exception))
 
     def test_retry_returns_none_for_missing(self):
-        result = ks.kb_entry_retry_embedding('nonexistent', is_admin=True, operator_id='u1', user_id='u1')
+        result = ks.kb_entry_retry_embedding('nonexistent', tenant_manager=True, operator_id='u1', user_id='u1')
         self.assertIsNone(result)
 
     def test_retry_returns_none_for_deleted(self):
         self._db.execute("UPDATE kb_entries SET status='deleted' WHERE id='e1'")
         self._db.commit()
-        result = ks.kb_entry_retry_embedding('e1', is_admin=True, operator_id='u1', user_id='u1')
+        result = ks.kb_entry_retry_embedding('e1', tenant_manager=True, operator_id='u1', user_id='u1')
         self.assertIsNone(result, '软删 entry 应返回 None')
 
     def test_retry_failure_stays_embedding_failed(self):
         """retry 仍失败: status 保持 'embedding_failed' (helper 已设)"""
         self.vec_should_fail = True
         with self.assertRaises(RuntimeError):
-            ks.kb_entry_retry_embedding('e1', is_admin=True, operator_id='u1', user_id='u1')
+            ks.kb_entry_retry_embedding('e1', tenant_manager=True, operator_id='u1', user_id='u1')
         row = self._db.execute("SELECT status FROM kb_entries WHERE id='e1'").fetchone()
         self.assertEqual(row['status'], 'embedding_failed')
 
     def test_retry_permission_denied_for_global_non_admin(self):
         """非 admin 改 global entry 应被 can_edit_knowledge 拒绝"""
         with self.assertRaises(PermissionError):
-            ks.kb_entry_retry_embedding('e1', is_admin=False, operator_id='u2', user_id='u2')
+            ks.kb_entry_retry_embedding('e1', tenant_manager=False, operator_id='u2', user_id='u2')
 
 
 class TestRetryAllFailed(unittest.TestCase):
@@ -298,7 +298,7 @@ class TestRetryAllFailed(unittest.TestCase):
         self.addCleanup(setattr, ks, '_vectorize_kb_chunks', self._orig_vec)
 
     def test_batch_retries_only_failed_entries(self):
-        result = ks.kb_entries_retry_all_failed_embedding(is_admin=True, operator_id='admin')
+        result = ks.kb_entries_retry_all_failed_embedding(tenant_manager=True, operator_id='admin')
         # e3 (ok) 不应被 retried
         self.assertEqual(result['scanned'], 2, '应只扫到 2 条 failed entry')
         self.assertEqual(result['retried'], 2)
@@ -315,14 +315,14 @@ class TestRetryAllFailed(unittest.TestCase):
 
     def test_batch_requires_admin(self):
         with self.assertRaises(PermissionError):
-            ks.kb_entries_retry_all_failed_embedding(is_admin=False, operator_id='u1')
+            ks.kb_entries_retry_all_failed_embedding(tenant_manager=False, operator_id='u1')
 
     def test_batch_collects_per_entry_errors(self):
         """某条 retry 抛错, 不影响其他, 错误收集到 errors 列表"""
         # 简化: 让 e1 的 status 变 'pending' (不在 IN 范围), e2 retry 成功
         self._db.execute("UPDATE kb_entries SET status='pending' WHERE id='e1'")
         self._db.commit()
-        result = ks.kb_entries_retry_all_failed_embedding(is_admin=True, operator_id='admin')
+        result = ks.kb_entries_retry_all_failed_embedding(tenant_manager=True, operator_id='admin')
         self.assertEqual(result['scanned'], 1, 'e1 已变 pending, 不在 IN (embedding_failed, error) 范围')
         self.assertEqual(result['succeeded'], 1)
 

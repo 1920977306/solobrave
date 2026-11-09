@@ -156,7 +156,7 @@ class TestRagRetrieveKbDomain(unittest.TestCase):
     def _call(self, query='测试查询', top_k=10):
         return ks.rag_retrieve_kb(
             query, '', top_k_docs=top_k,
-            requester_id='u_alice', is_admin=False,
+            requester_id='u_alice', tenant_manager=False,
             team_ids=None, group_ids=None, emp_ids=['u_alice']
         )
 
@@ -192,7 +192,7 @@ class TestRagRetrieveKbDomain(unittest.TestCase):
 
         result = ks.rag_retrieve_kb(
             '测试查询', '', top_k_docs=10,
-            requester_id='admin', is_admin=True,
+            requester_id='admin', tenant_manager=True,
             team_ids=None, group_ids=None, emp_ids=None
         )
         ids = set(self._ids(result))

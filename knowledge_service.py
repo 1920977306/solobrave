@@ -946,7 +946,7 @@ def _save_knowledge_version(kid, created_by=None):
 def knowledge_update(kid, title=None, content=None, category=None, emp_id=None,
                      api_key=None, provider='openai', agent_config=None, created_by=None,
                      model=None, base_url=None, scope=None, team_id=None, group_ids=None,
-                     is_admin=False):
+                     tenant_manager=False):
     """更新知识条目，内容变更时先保存历史版本，再重新分段+向量化；使用全局 embedding 配置。
     非 admin 禁止修改 scope=global 或 scope=team 的文档。"""
     conn = _db_conn()
@@ -956,7 +956,7 @@ def knowledge_update(kid, title=None, content=None, category=None, emp_id=None,
             return None
 
         doc_scope = (row['scope'] or 'global')
-        if not is_admin and doc_scope in ('global', 'team'):
+        if not tenant_manager and doc_scope in ('global', 'team'):
             raise PermissionError('Permission denied: non-admin cannot update global/team knowledge')
 
         # 内容或标题变更时保留历史版本
@@ -1037,7 +1037,7 @@ def knowledge_update(kid, title=None, content=None, category=None, emp_id=None,
     return knowledge_get_by_id(kid)
 
 
-def knowledge_delete(kid, is_admin=False):
+def knowledge_delete(kid, tenant_manager=False):
     """删除知识条目，级联删除 chunks 和历史版本。
     非 admin 禁止删除 scope=global 或 scope=team 的文档。"""
     conn = _db_conn()
@@ -1046,7 +1046,7 @@ def knowledge_delete(kid, is_admin=False):
         if not row:
             return False
         doc_scope = (row['scope'] or 'global')
-        if not is_admin and doc_scope in ('global', 'team'):
+        if not tenant_manager and doc_scope in ('global', 'team'):
             raise PermissionError('Permission denied: non-admin cannot delete global/team knowledge')
         conn.execute('DELETE FROM knowledge_chunks WHERE knowledge_id = ?', (kid,))
         conn.execute('DELETE FROM knowledge_versions WHERE knowledge_id = ?', (kid,))
@@ -1114,7 +1114,7 @@ def knowledge_get_version(kid, version):
 
 
 def knowledge_rollback(kid, version, api_key=None, provider='openai', agent_config=None, created_by=None,
-                       model=None, base_url=None, is_admin=False):
+                       model=None, base_url=None, tenant_manager=False):
     """回滚知识文档到指定历史版本；embedding 配置由 knowledge_update 内部获取"""
     target = knowledge_get_version(kid, version)
     if not target:
@@ -1137,7 +1137,7 @@ def knowledge_rollback(kid, version, api_key=None, provider='openai', agent_conf
         created_by=created_by,
         model=model,
         base_url=base_url,
-        is_admin=is_admin
+        tenant_manager=tenant_manager
     )
 
 
@@ -1160,7 +1160,7 @@ def _group_ids_where_clause(user_group_ids):
 
 
 def knowledge_list(offset=0, limit=50, category=None, keyword=None, allowed_categories=None,
-                   scope=None, team_id=None, user_id=None, is_admin=False, user_team_ids=None,
+                   scope=None, team_id=None, user_id=None, tenant_manager=False, user_team_ids=None,
                    emp_id=None, user_group_ids=None, emp_ids=None):
     """
     知识列表（支持分页、分类筛选、关键词搜索、四层隔离：global/team/personal/group）。
@@ -1207,12 +1207,12 @@ def knowledge_list(offset=0, limit=50, category=None, keyword=None, allowed_cate
                 placeholders = ', '.join('?' for _ in user_team_ids)
                 where.append(f'team_id IN ({placeholders})')
                 params.extend(user_team_ids)
-            elif not is_admin:
+            elif not tenant_manager:
                 where.append('1 = 0')
         elif scope == 'group':
             # FIXME: 项目组维度改造：scope='group' 时过滤 group_ids 与用户所属项目组有交集的知识
             where.append("scope = 'group'")
-            if not is_admin:
+            if not tenant_manager:
                 group_clause, group_params = _group_ids_where_clause(user_group_ids)
                 if group_clause:
                     where.append(group_clause)
@@ -1221,7 +1221,7 @@ def knowledge_list(offset=0, limit=50, category=None, keyword=None, allowed_cate
                     where.append('1 = 0')
         else:
             # 默认：按可读权限返回（admin 可读写 global；普通用户可读 global + 自己的 personal + 所在 group）
-            if not is_admin:
+            if not tenant_manager:
                 readable = ["(scope IS NULL OR scope = 'global')"]
                 if emp_ids:
                     placeholders = ', '.join('?' for _ in emp_ids)
@@ -1531,7 +1531,7 @@ def _rag_search_patterns(conn, query, query_emb, embedding_model, api_key, provi
 
 
 def rag_retrieve_kb(query, emp_id, api_key=None, provider='openai', agent_config=None, top_k_docs=3, allowed_categories=None,
-                    model=None, base_url=None, requester_id=None, is_admin=False, team_ids=None, group_ids=None, emp_ids=None):
+                    model=None, base_url=None, requester_id=None, tenant_manager=False, team_ids=None, group_ids=None, emp_ids=None):
     """
     新版 RAG 检索：在 kb_entry_chunks + kb_entries 中搜索（替代读旧表的 rag_retrieve）。
 
@@ -1582,7 +1582,7 @@ def rag_retrieve_kb(query, emp_id, api_key=None, provider='openai', agent_config
         cats_hash = ''
         if allowed_categories is not None:
             cats_hash = hashlib.md5(json.dumps(allowed_categories, sort_keys=True).encode()).hexdigest()[:8]
-        scope_hash = hashlib.md5(f'{requester_id}:{is_admin}:{sorted(team_ids or [])}:{sorted(group_ids or [])}'.encode()).hexdigest()[:8]
+        scope_hash = hashlib.md5(f'{requester_id}:{tenant_manager}:{sorted(team_ids or [])}:{sorted(group_ids or [])}'.encode()).hexdigest()[:8]
         cache_key = _rag_cache_key(emp_id, query_hash, top_k_docs, 'kb:' + embedding_model + ':' + cats_hash + ':' + scope_hash)
         cached = _rag_cache_get(cache_key, ttl=300)
         if cached is not None:
@@ -1596,7 +1596,7 @@ def rag_retrieve_kb(query, emp_id, api_key=None, provider='openai', agent_config
         sql_params = [embedding_model]
 
         # 4. 四层隔离（未提供 requester_id 时不限制，保持与 rag_retrieve 相同兼容行为）
-        if requester_id is not None and not is_admin:
+        if requester_id is not None and not tenant_manager:
             readable = ["(e.scope IS NULL OR e.scope = 'global')"]
             if emp_ids:
                 placeholders = ', '.join('?' for _ in emp_ids)
@@ -1725,7 +1725,7 @@ def format_rag_context(docs):
 # Fallback：关键词搜索（kb_entries 新表版）
 # ═══════════════════════════════════════════════════
 
-def _kb_search_fallback(query, emp_id=None, limit=3, requester_id=None, is_admin=False, team_ids=None, group_ids=None, emp_ids=None):
+def _kb_search_fallback(query, emp_id=None, limit=3, requester_id=None, tenant_manager=False, team_ids=None, group_ids=None, emp_ids=None):
     """语义检索失败时的关键词搜索 fallback（LIKE），读 kb_entries；带四层隔离。
     feat/kb-ms3-patterns-switch: 从旧 knowledge_search_fallback 平移, 数据源换 kb_entries,
     返回结构与被替换的旧 fallback 一致（经 _kb_entry_row_to_dict, 前端字段兼容）。"""
@@ -1748,7 +1748,7 @@ def _kb_search_fallback(query, emp_id=None, limit=3, requester_id=None, is_admin
         where = ["status = 'ok'", "(title LIKE ? OR content LIKE ?)"]
         params = [keyword, keyword]
         # employee 可读 global 文档
-        if requester_id is not None and not is_admin:
+        if requester_id is not None and not tenant_manager:
             readable = ["(scope IS NULL OR scope = 'global')"]
             if emp_ids:
                 placeholders = ', '.join('?' for _ in emp_ids)
@@ -1784,7 +1784,7 @@ def _kb_search_fallback(query, emp_id=None, limit=3, requester_id=None, is_admin
 
 def knowledge_search_semantic(query, emp_id, api_key=None, provider='openai', agent_config=None, limit=3, allowed_categories=None,
                               model=None, base_url=None,
-                              requester_id=None, is_admin=False, team_ids=None, group_ids=None, emp_ids=None):
+                              requester_id=None, tenant_manager=False, team_ids=None, group_ids=None, emp_ids=None):
     """
     语义检索，带 fallback；使用全局 embedding 配置，不再依赖传入的 api_key/provider。
     供 MS3 inject_memories 和 API 搜索使用。
@@ -1804,11 +1804,11 @@ def knowledge_search_semantic(query, emp_id, api_key=None, provider='openai', ag
         result = rag_retrieve_kb(query, emp_id, emb_cfg['apiKey'], emb_cfg['provider'], agent_config,
                                  top_k_docs=limit, allowed_categories=allowed_categories,
                                  model=emb_cfg['model'], base_url=emb_cfg['baseUrl'],
-                                 requester_id=requester_id, is_admin=is_admin, team_ids=team_ids, group_ids=group_ids, emp_ids=emp_ids)
+                                 requester_id=requester_id, tenant_manager=tenant_manager, team_ids=team_ids, group_ids=group_ids, emp_ids=emp_ids)
         return result.get('docs', [])
     except Exception as e:
         print(f'  [KnowledgeSearch] semantic failed, fallback to keyword: {e}', flush=True)
-        return _kb_search_fallback(query, emp_id, limit, requester_id=requester_id, is_admin=is_admin, team_ids=team_ids, group_ids=group_ids, emp_ids=emp_ids)
+        return _kb_search_fallback(query, emp_id, limit, requester_id=requester_id, tenant_manager=tenant_manager, team_ids=team_ids, group_ids=group_ids, emp_ids=emp_ids)
 
 
 # ═══════════════════════════════════════════════════
@@ -1836,7 +1836,7 @@ def _has_any(items_a, items_b):
     return bool(set(items_a) & set(items_b))
 
 
-def can_read_knowledge(doc, user_id=None, is_admin=False, user_team_ids=None, user_group_ids=None, emp_ids=None):
+def can_read_knowledge(doc, user_id=None, tenant_manager=False, user_team_ids=None, user_group_ids=None, emp_ids=None):
     """判断用户是否可读某条知识
     global / team scope 对 employee 只读开放；personal 仅自己；group 需所属项目组有交集。
     emp_ids 允许传入多个 emp_id（包含用户自身 id 及其创建的 agent ids）。
@@ -1849,17 +1849,17 @@ def can_read_knowledge(doc, user_id=None, is_admin=False, user_team_ids=None, us
     if scope == 'global':
         return True
     if scope == 'personal':
-        return is_admin or doc.get('empId') in emp_ids
+        return tenant_manager or doc.get('empId') in emp_ids
     if scope == 'team':
         team_id = doc.get('teamId')
-        return is_admin or (user_team_ids and team_id in user_team_ids)
+        return tenant_manager or (user_team_ids and team_id in user_team_ids)
     if scope == 'group':
         # 项目组维度：group 知识与用户所属项目组有交集即可读
-        return is_admin or _has_any(doc.get('groupIds') or [], user_group_ids)
+        return tenant_manager or _has_any(doc.get('groupIds') or [], user_group_ids)
     return False
 
 
-def can_edit_knowledge(doc, user_id=None, is_admin=False, managed_team_ids=None, managed_group_ids=None, emp_ids=None):
+def can_edit_knowledge(doc, user_id=None, tenant_manager=False, managed_team_ids=None, managed_group_ids=None, emp_ids=None):
     """判断用户是否可编辑/移动某条知识（group 维度仅群主/管理员可编辑）"""
     if emp_ids is None:
         emp_ids = []
@@ -1867,19 +1867,19 @@ def can_edit_knowledge(doc, user_id=None, is_admin=False, managed_team_ids=None,
         emp_ids = list(emp_ids) + [user_id]
     scope = _doc_scope(doc)
     if scope == 'global':
-        return is_admin
+        return tenant_manager
     if scope == 'personal':
-        return is_admin or doc.get('empId') in emp_ids
+        return tenant_manager or doc.get('empId') in emp_ids
     if scope == 'team':
         team_id = doc.get('teamId')
-        return is_admin or (managed_team_ids and team_id in managed_team_ids)
+        return tenant_manager or (managed_team_ids and team_id in managed_team_ids)
     if scope == 'group':
         # FIXME: 项目组维度改造：管理员或管理的项目组有交集即可编辑
-        return is_admin or _has_any(doc.get('groupIds') or [], managed_group_ids)
+        return tenant_manager or _has_any(doc.get('groupIds') or [], managed_group_ids)
     return False
 
 
-def can_delete_knowledge(doc, user_id=None, is_admin=False, managed_team_ids=None, managed_group_ids=None, user_group_ids=None, emp_ids=None):
+def can_delete_knowledge(doc, user_id=None, tenant_manager=False, managed_team_ids=None, managed_group_ids=None, user_group_ids=None, emp_ids=None):
     """判断用户是否可删除某条知识（group 维度项目组成员或管理员可删除）"""
     if emp_ids is None:
         emp_ids = []
@@ -1887,19 +1887,19 @@ def can_delete_knowledge(doc, user_id=None, is_admin=False, managed_team_ids=Non
         emp_ids = list(emp_ids) + [user_id]
     scope = _doc_scope(doc)
     if scope == 'global':
-        return is_admin
+        return tenant_manager
     if scope == 'personal':
-        return is_admin or doc.get('empId') in emp_ids
+        return tenant_manager or doc.get('empId') in emp_ids
     if scope == 'team':
         team_id = doc.get('teamId')
-        return is_admin or (managed_team_ids and team_id in managed_team_ids)
+        return tenant_manager or (managed_team_ids and team_id in managed_team_ids)
     if scope == 'group':
         # FIXME: 项目组维度改造：管理员、群主或项目组成员均可删除
-        return is_admin or _has_any(doc.get('groupIds') or [], managed_group_ids) or _has_any(doc.get('groupIds') or [], user_group_ids)
+        return tenant_manager or _has_any(doc.get('groupIds') or [], managed_group_ids) or _has_any(doc.get('groupIds') or [], user_group_ids)
     return False
 
 
-def can_create_knowledge(scope, user_id=None, is_admin=False, team_id=None, user_team_ids=None, managed_team_ids=None,
+def can_create_knowledge(scope, user_id=None, tenant_manager=False, team_id=None, user_team_ids=None, managed_team_ids=None,
                          group_ids=None, user_group_ids=None, managed_group_ids=None, emp_id=None, emp_ids=None):
     """判断用户是否可在指定 scope 下新建知识
     personal scope 下 emp_id 必须在 emp_ids 中（用户自身或其创建的 agent）。
@@ -1909,11 +1909,11 @@ def can_create_knowledge(scope, user_id=None, is_admin=False, team_id=None, user
     if user_id and user_id not in emp_ids:
         emp_ids = list(emp_ids) + [user_id]
     if scope == 'global':
-        return is_admin
+        return tenant_manager
     if scope == 'personal':
-        return is_admin or (emp_id in emp_ids)
+        return tenant_manager or (emp_id in emp_ids)
     if scope == 'team':
-        if is_admin:
+        if tenant_manager:
             return True
         # 团队成员即可在所在团队创建；严格编辑权限可由 managed_team_ids 控制
         if managed_team_ids and team_id in managed_team_ids:
@@ -1923,7 +1923,7 @@ def can_create_knowledge(scope, user_id=None, is_admin=False, team_id=None, user
         return False
     if scope == 'group':
         # FIXME: 项目组维度改造：管理员或目标 group_ids 与用户管理的项目组有交集即可创建
-        if is_admin:
+        if tenant_manager:
             return True
         if managed_group_ids and _has_any(group_ids or [], managed_group_ids):
             return True
@@ -2794,7 +2794,7 @@ def kb_entry_ensure_vectorized(entry_id):
     return True
 
 
-def kb_entry_update(entry_id, title=None, content=None, category=None, category_id=None, project_id=None, scope=None, team_id=None, group_ids=None, emp_id=None, status=None, created_by=None, agent_config=None, is_admin=False):
+def kb_entry_update(entry_id, title=None, content=None, category=None, category_id=None, project_id=None, scope=None, team_id=None, group_ids=None, emp_id=None, status=None, created_by=None, agent_config=None, tenant_manager=False):
     """更新新版知识条目；内容变更时重新分段向量化。
     status 仅允许 'ok'/'pending'（审核闸：确认通过/打回）；pending 条目重新向量化后保持 pending，
     不因向量化成功自动过审。
@@ -2809,7 +2809,7 @@ def kb_entry_update(entry_id, title=None, content=None, category=None, category_
         return None
 
     doc_scope = (row['scope'] or 'global')
-    if not is_admin and doc_scope in ('global', 'team'):
+    if not tenant_manager and doc_scope in ('global', 'team'):
         raise PermissionError('Permission denied: non-admin cannot update global/team knowledge')
 
     kb_entry_log_operation(entry_id, 'update', created_by or '', {
@@ -2986,7 +2986,7 @@ def kb_entries_reindex_pending(progress_cb=None, cancel_event=None):
 # ★ refactor/kb-vectorization-error-handling: embedding 失败重试
 # ═══════════════════════════════════════════════════
 
-def kb_entry_retry_embedding(entry_id, is_admin=False, operator_id='', user_id='',
+def kb_entry_retry_embedding(entry_id, tenant_manager=False, operator_id='', user_id='',
                               managed_team_ids=None, managed_group_ids=None, emp_ids=None):
     """★ refactor/kb-vectorization-error-handling: 手动重试单条 entry 的 embedding。
     适用状态: 'embedding_failed' 或 'error' (其他状态抛 ValueError, 'deleted' 返回 None)。
@@ -3006,7 +3006,7 @@ def kb_entry_retry_embedding(entry_id, is_admin=False, operator_id='', user_id='
         raise ValueError(f'Cannot retry embedding: status={cur_status} (only embedding_failed/error allowed)')
 
     # 权限检查 (跟 can_edit_knowledge 一致)
-    if not can_edit_knowledge(doc, user_id, is_admin=is_admin,
+    if not can_edit_knowledge(doc, user_id, tenant_manager=tenant_manager,
                               managed_team_ids=managed_team_ids,
                               managed_group_ids=managed_group_ids,
                               emp_ids=emp_ids):
@@ -3066,13 +3066,13 @@ def kb_entry_retry_embedding(entry_id, is_admin=False, operator_id='', user_id='
     return {'entry_id': entry_id, 'status': new_status, 'prev_status': cur_status, 'retried': True}
 
 
-def kb_entries_retry_all_failed_embedding(is_admin=True, operator_id=''):
+def kb_entries_retry_all_failed_embedding(tenant_manager=True, operator_id=''):
     """★ refactor/kb-vectorization-error-handling: 批量重试所有 embedding_failed / error 状态的 entry (admin only)。
     逐条调用 kb_entry_retry_embedding, 收集 stats, 单条失败不影响其他。
     返回: {scanned, retried, succeeded, failed, errors: [{entry_id, error}]}
     """
-    if not is_admin:
-        raise PermissionError('kb_entries_retry_all_failed_embedding requires is_admin=True')
+    if not tenant_manager:
+        raise PermissionError('kb_entries_retry_all_failed_embedding requires tenant_manager=True')
 
     conn = _db_conn()
     try:
@@ -3089,7 +3089,7 @@ def kb_entries_retry_all_failed_embedding(is_admin=True, operator_id=''):
         entry_id = row['id']
         try:
             result = kb_entry_retry_embedding(
-                entry_id, is_admin=is_admin, operator_id=operator_id, user_id='__admin__',
+                entry_id, tenant_manager=tenant_manager, operator_id=operator_id, user_id='__admin__',
             )
             if result:
                 stats['retried'] += 1
@@ -3109,7 +3109,7 @@ def kb_entries_retry_all_failed_embedding(is_admin=True, operator_id=''):
     return stats
 
 
-def kb_entry_delete(entry_id, is_admin=False, operator_id=''):
+def kb_entry_delete(entry_id, tenant_manager=False, operator_id=''):
     """★ refactor/kb-soft-delete-cascade: 软删新版知识条目。
     行为变更：从「物理删」改为「软删」(status='deleted') + 级联清理 chunks (防 RAG 命中)。
     - 同事务 3 步: UPDATE status='deleted' + DELETE chunks + 写 audit log，任一失败回滚
@@ -3126,7 +3126,7 @@ def kb_entry_delete(entry_id, is_admin=False, operator_id=''):
     if not row:
         return False
     doc_scope = (row['scope'] or 'global')
-    if not is_admin and doc_scope in ('global', 'team'):
+    if not tenant_manager and doc_scope in ('global', 'team'):
         raise PermissionError('Permission denied: non-admin cannot delete global/team knowledge')
 
     now_ms = int(time.time() * 1000)
@@ -3168,7 +3168,7 @@ def kb_entry_delete(entry_id, is_admin=False, operator_id=''):
     return deleted
 
 
-def kb_entry_hard_delete(entry_id, is_admin=False, operator_id=''):
+def kb_entry_hard_delete(entry_id, tenant_manager=False, operator_id=''):
     """★ refactor/kb-soft-delete-cascade: 物理删 KB 条目(供清理 API 和 admin 工具用)。
     区别于 kb_entry_delete (软删),这里直接 DELETE,不留恢复余地。
     同样级联清 chunks + 写 audit log(物理删审计)。"""
@@ -3180,7 +3180,7 @@ def kb_entry_hard_delete(entry_id, is_admin=False, operator_id=''):
     if not row:
         return False
     doc_scope = (row['scope'] or 'global')
-    if not is_admin and doc_scope in ('global', 'team'):
+    if not tenant_manager and doc_scope in ('global', 'team'):
         raise PermissionError('Permission denied: non-admin cannot delete global/team knowledge')
 
     now_ms = int(time.time() * 1000)
@@ -3213,15 +3213,15 @@ def kb_entry_hard_delete(entry_id, is_admin=False, operator_id=''):
     return deleted
 
 
-def kb_entry_cleanup_dangling(days_old=7, is_admin=True):
+def kb_entry_cleanup_dangling(days_old=7, tenant_manager=True):
     """★ refactor/kb-soft-delete-cascade: 兜底物理删 status='deleted' 超过 N 天的记录。
     返回: {scanned, hard_deleted, chunk_cleared, error_count, deleted_entry_ids}
-    - is_admin 强制 True(兜底清理是高危操作,普通用户不该触发)
+    - tenant_manager 强制 True(兜底清理是高危操作,普通用户不该触发)
     - 单事务批处理,失败回滚,记录错误但继续跑下一批
     - POST /api/knowledge/cleanup-dangling 调用此函数
     """
-    if not is_admin:
-        raise PermissionError('kb_entry_cleanup_dangling requires is_admin=True')
+    if not tenant_manager:
+        raise PermissionError('kb_entry_cleanup_dangling requires tenant_manager=True')
     cutoff_ms = int(time.time() * 1000) - days_old * 24 * 60 * 60 * 1000
     stats = {'scanned': 0, 'hard_deleted': 0, 'chunk_cleared': 0, 'error_count': 0, 'deleted_entry_ids': []}
     conn = _db_conn()
@@ -3276,7 +3276,7 @@ def kb_entry_cleanup_dangling(days_old=7, is_admin=True):
 # ★ refactor/rag-index-integrity: 索引完整性 verify + repair
 # ═══════════════════════════════════════════════════
 
-def kb_entry_verify_index(entry_id=None, limit_per_type=50, is_admin=True):
+def kb_entry_verify_index(entry_id=None, limit_per_type=50, tenant_manager=True):
     """★ refactor/rag-index-integrity: 扫描 RAG 索引,检测 4 类不一致。
     4 类问题:
       1. missing_chunks       — entries.status IN ('ok','pending') 但实际 chunks=0
@@ -3300,8 +3300,8 @@ def kb_entry_verify_index(entry_id=None, limit_per_type=50, is_admin=True):
           'scope': 'entry:<id>' or 'all',
         }
     """
-    if not is_admin:
-        raise PermissionError('kb_entry_verify_index requires is_admin=True')
+    if not tenant_manager:
+        raise PermissionError('kb_entry_verify_index requires tenant_manager=True')
 
     scanned_at = _now_ms()
     conn = _db_conn()
@@ -3416,7 +3416,7 @@ def kb_entry_verify_index(entry_id=None, limit_per_type=50, is_admin=True):
     }
 
 
-def kb_entry_repair_index(entry_id=None, confirm=False, is_admin=True):
+def kb_entry_repair_index(entry_id=None, confirm=False, tenant_manager=True):
     """★ refactor/rag-index-integrity: 修复 RAG 索引不一致 (Q1: 默认 dry-run)。
     修复 4 类 (同 verify):
       - orphan_chunks:           DELETE 孤儿 chunks (纯本地,无需 API)
@@ -3433,11 +3433,11 @@ def kb_entry_repair_index(entry_id=None, confirm=False, is_admin=True):
           {'type': 'delete_orphan_chunks', 'count': N, 'chunk_ids': [...]}
           {'type': 'rebuild_entry_chunks',  'entry_id': id, 'title': ..., 'reason': 'missing_chunks|chunk_count_mismatch|model_drift'}
     """
-    if not is_admin:
-        raise PermissionError('kb_entry_repair_index requires is_admin=True')
+    if not tenant_manager:
+        raise PermissionError('kb_entry_repair_index requires tenant_manager=True')
 
     # 1. 先跑 verify 拿到当前不一致列表
-    verify_result = kb_entry_verify_index(entry_id=entry_id, limit_per_type=1000, is_admin=is_admin)
+    verify_result = kb_entry_verify_index(entry_id=entry_id, limit_per_type=1000, tenant_manager=tenant_manager)
     issues = verify_result['issues']
 
     actions = []
@@ -3634,7 +3634,7 @@ def _kb_category_descendant_ids(category_id):
         conn.close()
 
 
-def _kb_entry_build_where(scope=None, team_id=None, user_id=None, is_admin=False, user_team_ids=None, user_group_ids=None, emp_ids=None, created_by=None, category=None, category_id=None, project_id=None, keyword=None, allowed_categories=None, created_after=None, status=None, prefix=''):
+def _kb_entry_build_where(scope=None, team_id=None, user_id=None, tenant_manager=False, user_team_ids=None, user_group_ids=None, emp_ids=None, created_by=None, category=None, category_id=None, project_id=None, keyword=None, allowed_categories=None, created_after=None, status=None, prefix=''):
     """构建 kb_entries 查询 WHERE 子句与参数
     created_after: 可选, 毫秒时间戳。None/0 不加条件;有值则 SQL 加 AND created_at >= ?
     status: 可选, 'ok'/'pending' 单状态过滤（KB 审核面板待审核视图用）。
@@ -3676,11 +3676,11 @@ def _kb_entry_build_where(scope=None, team_id=None, user_id=None, is_admin=False
             placeholders = ', '.join('?' for _ in user_team_ids)
             where.append(f'{p}team_id IN ({placeholders})')
             params.extend(user_team_ids)
-        elif not is_admin:
+        elif not tenant_manager:
             where.append('1 = 0')
     elif scope == 'group':
         where.append(f"{p}scope = 'group'")
-        if not is_admin:
+        if not tenant_manager:
             group_clause, group_params = _kb_entry_group_where_clause(user_group_ids)
             if group_clause:
                 where.append(group_clause)
@@ -3688,7 +3688,7 @@ def _kb_entry_build_where(scope=None, team_id=None, user_id=None, is_admin=False
             else:
                 where.append('1 = 0')
     else:
-        if not is_admin:
+        if not tenant_manager:
             readable = [f"({p}scope IS NULL OR {p}scope = 'global')"]
             if emp_ids:
                 placeholders = ', '.join('?' for _ in emp_ids)
@@ -3737,14 +3737,14 @@ def _kb_entry_build_where(scope=None, team_id=None, user_id=None, is_admin=False
 
 
 def kb_entry_list(offset=0, limit=50, category=None, category_id=None, project_id=None, keyword=None, allowed_categories=None,
-                  scope=None, team_id=None, user_id=None, is_admin=False, user_team_ids=None,
+                  scope=None, team_id=None, user_id=None, tenant_manager=False, user_team_ids=None,
                   user_group_ids=None, emp_ids=None, created_by=None, created_after=None, status=None):
     """新版知识库列表（分页、分类、关键词、四层隔离）
     created_after: 可选, 毫秒时间戳。None/0 = 不过滤 created_at;有值 SQL 加 AND created_at >= ?
     status: 可选, 'ok'/'pending' 单状态过滤（KB 审核面板待审核视图用）, 默认 None = ok+pending 闭集
     老大 23:30: 服务端把时间窗条件下推, 避免客户端在 limit 截断后做过滤漏数据"""
     where, params = _kb_entry_build_where(
-        scope=scope, team_id=team_id, user_id=user_id, is_admin=is_admin,
+        scope=scope, team_id=team_id, user_id=user_id, tenant_manager=tenant_manager,
         user_team_ids=user_team_ids, user_group_ids=user_group_ids, emp_ids=emp_ids,
         created_by=created_by, category=category, category_id=category_id, project_id=project_id,
         keyword=keyword, allowed_categories=allowed_categories, created_after=created_after,
@@ -3771,11 +3771,11 @@ def kb_entry_list(offset=0, limit=50, category=None, category_id=None, project_i
         conn.close()
 
 
-def kb_entry_categories(allowed_categories=None, scope=None, team_id=None, user_id=None, is_admin=False,
+def kb_entry_categories(allowed_categories=None, scope=None, team_id=None, user_id=None, tenant_manager=False,
                         user_team_ids=None, user_group_ids=None, emp_ids=None, created_by=None, project_id=None):
     """返回当前用户可见的分类计数"""
     where, params = _kb_entry_build_where(
-        scope=scope, team_id=team_id, user_id=user_id, is_admin=is_admin,
+        scope=scope, team_id=team_id, user_id=user_id, tenant_manager=tenant_manager,
         user_team_ids=user_team_ids, user_group_ids=user_group_ids, emp_ids=emp_ids,
         created_by=created_by, category=None, category_id=None, project_id=project_id,
         keyword=None, allowed_categories=allowed_categories
@@ -3796,11 +3796,11 @@ def kb_entry_categories(allowed_categories=None, scope=None, team_id=None, user_
         conn.close()
 
 
-def kb_entry_stats(allowed_categories=None, scope=None, team_id=None, user_id=None, is_admin=False,
+def kb_entry_stats(allowed_categories=None, scope=None, team_id=None, user_id=None, tenant_manager=False,
                    user_team_ids=None, user_group_ids=None, emp_ids=None, created_by=None, project_id=None):
     """新版知识库统计面板数据"""
     where, params = _kb_entry_build_where(
-        scope=scope, team_id=team_id, user_id=user_id, is_admin=is_admin,
+        scope=scope, team_id=team_id, user_id=user_id, tenant_manager=tenant_manager,
         user_team_ids=user_team_ids, user_group_ids=user_group_ids, emp_ids=emp_ids,
         created_by=created_by, category=None, category_id=None, project_id=project_id,
         keyword=None, allowed_categories=allowed_categories
@@ -3814,7 +3814,7 @@ def kb_entry_stats(allowed_categories=None, scope=None, team_id=None, user_id=No
         scope_counts = {}
         for sc in ('global', 'team', 'personal', 'group'):
             sc_where, sc_params = _kb_entry_build_where(
-                scope=sc, team_id=team_id, user_id=user_id, is_admin=is_admin,
+                scope=sc, team_id=team_id, user_id=user_id, tenant_manager=tenant_manager,
                 user_team_ids=user_team_ids, user_group_ids=user_group_ids, emp_ids=emp_ids,
                 created_by=created_by, category=None, category_id=None, project_id=project_id,
                 keyword=None, allowed_categories=allowed_categories
@@ -3858,7 +3858,7 @@ def kb_entry_stats(allowed_categories=None, scope=None, team_id=None, user_id=No
 
 
 def kb_entry_search_semantic(query, limit=10, allowed_categories=None, scope=None, team_id=None, category=None, category_id=None, project_id=None, user_id=None,
-                             is_admin=False, user_team_ids=None, user_group_ids=None, emp_ids=None, created_by=None, author_emp_id=None):
+                             tenant_manager=False, user_team_ids=None, user_group_ids=None, emp_ids=None, created_by=None, author_emp_id=None):
     """新版知识库语义搜索（复用全局 embedding 配置，支持硅基流动）"""
     if not query or not query.strip():
         return []
@@ -3876,7 +3876,7 @@ def kb_entry_search_semantic(query, limit=10, allowed_categories=None, scope=Non
         return []
 
     where, params = _kb_entry_build_where(
-        scope=scope, team_id=team_id, user_id=user_id, is_admin=is_admin,
+        scope=scope, team_id=team_id, user_id=user_id, tenant_manager=tenant_manager,
         user_team_ids=user_team_ids, user_group_ids=user_group_ids, emp_ids=emp_ids,
         created_by=created_by, category=category, category_id=category_id, project_id=project_id,
         keyword=None, allowed_categories=allowed_categories, prefix='e.'

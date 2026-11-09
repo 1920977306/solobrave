@@ -639,6 +639,7 @@ def test_talent_id_by_name_miss_returns_none():
     """★ fix/preocr-talent-name: 库里没有该名字 → None (只读查询, 不造数)。"""
     class _Auth:
         is_admin = True
+        is_tenant_manager = True   # 阶段2批1：达人命中改判 tenant_manager
         user_info = {'userId': 'u_x'}
     assert srv._talent_id_by_name('绝不存在的人名xyz987', _Auth()) is None
     assert srv._talent_id_by_name('', _Auth()) is None

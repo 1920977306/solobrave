@@ -148,7 +148,7 @@ class TestApproveTriggersVectorize(_Base):
 
     def test_approve_pending_without_chunks_vectorizes_and_ok(self):
         _insert(self._db, 'e1', status='pending')
-        doc = ks.kb_entry_update('e1', status='ok', is_admin=True)
+        doc = ks.kb_entry_update('e1', status='ok', tenant_manager=True)
         self.assertEqual(doc['status'], 'ok')
         self.assertEqual(self._status('e1'), 'ok')
         self.assertEqual(self.save_calls, ['e1'], '应重建 chunks')
@@ -162,7 +162,7 @@ class TestApproveTriggersVectorize(_Base):
             'INSERT INTO kb_entry_chunks (id, entry_id, content, embedding, embedding_model) '
             'VALUES (?, ?, ?, ?, ?)', ('c-e2', 'e2', 'x', struct.pack('2f', 0.1, 0.2), 'm'))
         self._db.commit()
-        doc = ks.kb_entry_update('e2', status='ok', is_admin=True)
+        doc = ks.kb_entry_update('e2', status='ok', tenant_manager=True)
         self.assertEqual(doc['status'], 'ok')
         self.assertEqual(self.save_calls, [], '已有向量不得重建 chunks')
         self.assertEqual(self.vec_calls, [], '已有向量不得重复向量化')
@@ -175,7 +175,7 @@ class TestApproveNoFakeGreen(_Base):
         _insert(self._db, 'e3', status='pending')
         ks.get_embedding_config = lambda emp_id=None: {}
         with self.assertRaises(RuntimeError):
-            ks.kb_entry_update('e3', status='ok', is_admin=True)
+            ks.kb_entry_update('e3', status='ok', tenant_manager=True)
         self.assertEqual(self._status('e3'), 'pending', '无 key 时 status 必须保持 pending')
         self.assertEqual(self._emb_count('e3'), 0)
 
@@ -186,7 +186,7 @@ class TestApproveNoFakeGreen(_Base):
             raise RuntimeError('mock embedding API down')
         ks._vectorize_kb_chunks = failing_vec
         with self.assertRaises(RuntimeError):
-            ks.kb_entry_update('e4', status='ok', is_admin=True)
+            ks.kb_entry_update('e4', status='ok', tenant_manager=True)
         self.assertEqual(self._status('e4'), 'embedding_failed',
                          '向量化失败必须标 embedding_failed（可 retry），不是 ok 假绿灯')
         logs = self._db.execute(
@@ -199,7 +199,7 @@ class TestRejectDoesNotVectorize(_Base):
 
     def test_reject_back_to_pending_no_vectorize(self):
         _insert(self._db, 'e5', status='pending')
-        doc = ks.kb_entry_update('e5', status='pending', is_admin=True)
+        doc = ks.kb_entry_update('e5', status='pending', tenant_manager=True)
         self.assertEqual(doc['status'], 'pending')
         self.assertEqual(self.save_calls, [])
         self.assertEqual(self.vec_calls, [])
@@ -208,7 +208,7 @@ class TestRejectDoesNotVectorize(_Base):
         """守卫 8：权限语义锁"""
         _insert(self._db, 'e8', status='pending', scope='global')
         with self.assertRaises(PermissionError):
-            ks.kb_entry_update('e8', status='ok', is_admin=False, created_by='u1')
+            ks.kb_entry_update('e8', status='ok', tenant_manager=False, created_by='u1')
         self.assertEqual(self._status('e8'), 'pending')
 
 
@@ -252,7 +252,7 @@ class TestRejectSoftDelete(_Base):
             'INSERT INTO kb_entry_chunks (id, entry_id, content, embedding, embedding_model) '
             'VALUES (?, ?, ?, ?, ?)', ('c-e7', 'e7', 'x', struct.pack('2f', 0.1, 0.2), 'm'))
         self._db.commit()
-        result = ks.kb_entry_delete('e7', is_admin=True, operator_id='admin')
+        result = ks.kb_entry_delete('e7', tenant_manager=True, operator_id='admin')
         self.assertTrue(result)
         row = self._db.execute('SELECT status FROM kb_entries WHERE id=?', ('e7',)).fetchone()
         self.assertEqual(row['status'], 'deleted')

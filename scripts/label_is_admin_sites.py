@@ -74,8 +74,8 @@ def _is_prose(ln, fn, txt):
 
 def classify(ln, fn, txt):
     s = txt.strip()
-    if ln == 2626:
-        return 'definition', 'is_admin property 本体（主开关定义，非消费）'
+    if s.startswith('def is_admin(self):'):
+        return 'definition', 'is_admin property 本体（#4 拍板保留：权限菜单计算零件），非业务消费'
     if _is_prose(ln, fn, txt):
         return 'comment', '注释/docstring 字样，无权限语义'
     if fn == '_get_effective_permissions':

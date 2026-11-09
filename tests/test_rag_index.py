@@ -135,43 +135,43 @@ class TestVerifyDetectsIssues(unittest.TestCase):
         self._db.commit()
 
     def test_verify_detects_missing_chunks(self):
-        result = ks.kb_entry_verify_index(is_admin=True)
+        result = ks.kb_entry_verify_index(tenant_manager=True)
         ids = [x['entry_id'] for x in result['issues']['missing_chunks']]
         self.assertIn('e1', ids, 'e1 (ok 但 0 chunks) 应在 missing_chunks')
         self.assertNotIn('e4', ids, 'e4 (健康) 不应在 missing_chunks')
 
     def test_verify_detects_chunk_count_mismatch(self):
-        result = ks.kb_entry_verify_index(is_admin=True)
+        result = ks.kb_entry_verify_index(tenant_manager=True)
         items = [x for x in result['issues']['chunk_count_mismatch'] if x['entry_id'] == 'e2']
         self.assertEqual(len(items), 1)
         self.assertEqual(items[0]['expected'], 3)
         self.assertEqual(items[0]['actual'], 2)
 
     def test_verify_detects_model_drift(self):
-        result = ks.kb_entry_verify_index(is_admin=True)
+        result = ks.kb_entry_verify_index(tenant_manager=True)
         items = [x for x in result['issues']['model_drift'] if x['entry_id'] == 'e3']
         self.assertEqual(len(items), 1)
         self.assertIn('text-embedding-3-small', items[0]['models'])
         self.assertIn('text-embedding-ada-002', items[0]['models'])
 
     def test_verify_detects_orphan_chunks(self):
-        result = ks.kb_entry_verify_index(is_admin=True)
+        result = ks.kb_entry_verify_index(tenant_manager=True)
         items = [x for x in result['issues']['orphan_chunks'] if x['chunk_id'] == 'c-orphan-1']
         self.assertEqual(len(items), 1)
         self.assertEqual(items[0]['entry_id'], 'e-nonexistent')
 
     def test_verify_healthy_entry_not_in_any_issues(self):
-        result = ks.kb_entry_verify_index(is_admin=True)
+        result = ks.kb_entry_verify_index(tenant_manager=True)
         for issue_type, items in result['issues'].items():
             ids = [x.get('entry_id') for x in items]
             self.assertNotIn('e4', ids, f'e4 不应出现在 {issue_type}')
 
     def test_verify_requires_admin(self):
         with self.assertRaises(PermissionError):
-            ks.kb_entry_verify_index(is_admin=False)
+            ks.kb_entry_verify_index(tenant_manager=False)
 
     def test_verify_respects_limit_per_type(self):
-        result = ks.kb_entry_verify_index(limit_per_type=0, is_admin=True)
+        result = ks.kb_entry_verify_index(limit_per_type=0, tenant_manager=True)
         # limit=0 极端测试, 看 truncated 标记; 各 issues 应为 0 条
         # 注: limit_per_type=0 时 SQL LIMIT 0 会拿空结果
         for issue_type, items in result['issues'].items():
@@ -199,7 +199,7 @@ class TestRepairDryRun(unittest.TestCase):
         self._db.commit()
 
     def test_dry_run_returns_plan_no_changes(self):
-        result = ks.kb_entry_repair_index(confirm=False, is_admin=True)
+        result = ks.kb_entry_repair_index(confirm=False, tenant_manager=True)
         self.assertTrue(result['dry_run'])
         self.assertIn('actions_planned', result)
         self.assertNotIn('actions_executed', result)
@@ -209,7 +209,7 @@ class TestRepairDryRun(unittest.TestCase):
         self.assertEqual(chunk_count, 3, 'dry-run 不应删任何 chunk')
 
     def test_dry_run_plans_orphan_delete(self):
-        result = ks.kb_entry_repair_index(confirm=False, is_admin=True)
+        result = ks.kb_entry_repair_index(confirm=False, tenant_manager=True)
         plan_types = [a['type'] for a in result['actions_planned']]
         self.assertIn('delete_orphan_chunks', plan_types)
 
@@ -218,7 +218,7 @@ class TestRepairDryRun(unittest.TestCase):
         self.assertEqual(orphan_action['chunk_ids'], ['c-orphan'])
 
     def test_dry_run_plans_rebuild_for_missing(self):
-        result = ks.kb_entry_repair_index(confirm=False, is_admin=True)
+        result = ks.kb_entry_repair_index(confirm=False, tenant_manager=True)
         rebuild_actions = [a for a in result['actions_planned'] if a['type'] == 'rebuild_entry_chunks']
         rebuild_ids = [a['entry_id'] for a in rebuild_actions]
         self.assertIn('e1', rebuild_ids, 'e1 (missing_chunks) 应被 plan 重建')
@@ -226,7 +226,7 @@ class TestRepairDryRun(unittest.TestCase):
 
     def test_repair_requires_admin(self):
         with self.assertRaises(PermissionError):
-            ks.kb_entry_repair_index(is_admin=False)
+            ks.kb_entry_repair_index(tenant_manager=False)
 
 
 class TestRepairConfirm(unittest.TestCase):
@@ -284,7 +284,7 @@ class TestRepairConfirm(unittest.TestCase):
         self._db.commit()
 
     def test_confirm_deletes_orphans(self):
-        result = ks.kb_entry_repair_index(confirm=True, is_admin=True)
+        result = ks.kb_entry_repair_index(confirm=True, tenant_manager=True)
         self.assertFalse(result['dry_run'])
         self.assertIn('actions_executed', result)
         self.assertGreaterEqual(result['stats']['orphan_deleted'], 1)
@@ -294,7 +294,7 @@ class TestRepairConfirm(unittest.TestCase):
         self.assertEqual(count, 0, '孤儿 chunk 应被删')
 
     def test_confirm_rebuilds_missing_chunks(self):
-        result = ks.kb_entry_repair_index(confirm=True, is_admin=True)
+        result = ks.kb_entry_repair_index(confirm=True, tenant_manager=True)
         self.assertGreaterEqual(result['stats']['rebuild_succeeded'], 1)
 
         # 验证 e1 现在有 chunks (mock 写了 2 个)
@@ -306,7 +306,7 @@ class TestRepairConfirm(unittest.TestCase):
         self.assertEqual(row['status'], 'ok', '重建后 status 恢复 ok')
 
     def test_confirm_rebuilds_model_drift(self):
-        result = ks.kb_entry_repair_index(confirm=True, is_admin=True)
+        result = ks.kb_entry_repair_index(confirm=True, tenant_manager=True)
 
         # 验证 e3 重建后只用 current-model
         models = self._db.execute(
@@ -319,7 +319,7 @@ class TestRepairConfirm(unittest.TestCase):
         """pending 条目重建后保持 pending (审核闸: 不自动过审)"""
         self._db.execute("UPDATE kb_entries SET status='pending' WHERE id='e1'")
         self._db.commit()
-        ks.kb_entry_repair_index(confirm=True, is_admin=True)
+        ks.kb_entry_repair_index(confirm=True, tenant_manager=True)
         row = self._db.execute("SELECT status FROM kb_entries WHERE id='e1'").fetchone()
         self.assertEqual(row['status'], 'pending', 'pending 条目重建后应保持 pending')
 
@@ -380,7 +380,7 @@ class TestRepairFailureIsolation(unittest.TestCase):
         self._db.commit()
 
     def test_one_failure_does_not_block_others(self):
-        result = ks.kb_entry_repair_index(confirm=True, is_admin=True)
+        result = ks.kb_entry_repair_index(confirm=True, tenant_manager=True)
         # e1 应成功, e2 应失败
         executed = result['stats']
         self.assertGreaterEqual(executed['rebuild_succeeded'], 1, 'e1 应被成功重建')

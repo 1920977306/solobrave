@@ -57,16 +57,18 @@ def test_label_generator_counts_consistent(capsys):
     out = capsys.readouterr().out
     assert '[platform]' in out and '[tenant]' in out
     assert '**[framework]**' in out
-    # 每行都是五列表格行；阶段2批1后剩 39（[tenant] 39 = 批2的 B 桶传参层），随批2递减
+    # 阶段2批2收口：业务消费清零；剩余行 = framework + definition + comment
     rows = [l for l in out.splitlines() if l.startswith('| :')]
-    assert len(rows) >= 35, f'站点数异常：{len(rows)}'
+    assert 3 <= len(rows) <= 12, f'站点数异常：{len(rows)}'
+    assert '**0 处消费**' in out
 
 
 def test_label_generator_known_sites(capsys):
     label_mod.main()
     out = capsys.readouterr().out
-    # 未切换的业务面仍标 tenant；已切换的批 1 函数不再出现（生成器只扫裸 is_admin）
-    assert '_handle_get_knowledge`' in out and '**[tenant]**' in out
+    # 阶段2批2后业务消费全部切换：tenant/platform 均清零，批1/批2函数不再出现
+    assert '### [tenant] 0 处（已清零 ✅）' in out
+    assert '### [platform] 0 处（已清零 ✅）' in out
     assert '_handle_get_permissions' not in out
 
 
@@ -258,7 +260,7 @@ def test_batch0_platform_maintenance_switched():
     # ks 层字面量 is_admin=True（系统级操作语义）保留，不算消费
     s, e = spans['_handle_cleanup_kb_dangling']
     body = '\n'.join(lines[s - 1:e])
-    assert 'is_admin=True' in body
+    assert 'tenant_manager=True' in body
 
 
 # 阶段2批1（2026-11-09）：A 桶业务管理面 40 处并联——统一判 is_tenant_manager

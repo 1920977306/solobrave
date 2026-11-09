@@ -165,11 +165,11 @@ class TestRagRetrieveKbScope(unittest.TestCase):
         )
         self.real_conn.commit()
 
-    def _call(self, requester_id='u_alice', is_admin=False, team_ids=None, group_ids=None,
+    def _call(self, requester_id='u_alice', tenant_manager=False, team_ids=None, group_ids=None,
               emp_ids=None, query='测试查询', top_k=10):
         return ks.rag_retrieve_kb(
             query, '', top_k_docs=top_k,
-            requester_id=requester_id, is_admin=is_admin,
+            requester_id=requester_id, tenant_manager=tenant_manager,
             team_ids=team_ids, group_ids=group_ids, emp_ids=emp_ids
         )
 
@@ -190,7 +190,7 @@ class TestRagRetrieveKbScope(unittest.TestCase):
         self._add_entry('e_other_group', '别的项目组知识', scope='group', emp_id='u_eve', group_ids=['grp_beta'], sim=0.97)
 
         result = self._call(
-            requester_id='u_alice', is_admin=False,
+            requester_id='u_alice', tenant_manager=False,
             team_ids=['team_red'], group_ids=['grp_alpha'],
             emp_ids=['emp_agent_of_alice']
         )
@@ -209,7 +209,7 @@ class TestRagRetrieveKbScope(unittest.TestCase):
         self._add_entry('e_blue_team', '蓝团队', scope='team', emp_id='u_dave', team_id='team_blue', sim=0.88)
         self._add_entry('e_beta_group', 'beta组', scope='group', emp_id='u_eve', group_ids=['grp_beta'], sim=0.87)
 
-        result = self._call(requester_id='admin_1', is_admin=True)
+        result = self._call(requester_id='admin_1', tenant_manager=True)
         ids = set(self._ids(result))
         for expected in ('e_global', 'e_carol_personal', 'e_blue_team', 'e_beta_group'):
             self.assertIn(expected, ids, f'管理员应全量可见 {expected}')
@@ -224,14 +224,14 @@ class TestRagRetrieveKbScope(unittest.TestCase):
         # 向量缺失
         self._add_entry('e_no_emb', '无向量', scope='global', sim=0.92, with_embedding=False)
 
-        result = self._call(requester_id='u_alice', is_admin=True)
+        result = self._call(requester_id='u_alice', tenant_manager=True)
         ids = set(self._ids(result))
         self.assertEqual(ids, {'e_ok'}, f'应只剩 ok+模型匹配+有向量 的条目，实际 {ids}')
 
     def test_return_contract(self):
         """返回结构与字段契约。"""
         self._add_entry('e_one', '唯一知识', scope='global', emp_id='', sim=0.80)
-        result = self._call(requester_id='u_alice', is_admin=False, top_k=3)
+        result = self._call(requester_id='u_alice', tenant_manager=False, top_k=3)
         self.assertIsInstance(result, dict)
         self.assertIn('docs', result)
         self.assertIn('context', result)

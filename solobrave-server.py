@@ -12550,7 +12550,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                     offset=0, limit=limit, keyword=q,
                     allowed_categories=allowed_cats,
                     user_id=auth.user_id,
-                    is_admin=auth.is_admin,
+                    tenant_manager=auth.is_tenant_manager,
                     user_team_ids=auth.team_ids,
                     user_group_ids=auth.group_ids
                 )
@@ -15359,7 +15359,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 kb_result = ks.knowledge_list(
                     offset=offset, limit=limit, category=None,
                     keyword=keyword if keyword else None,
-                    user_id=auth.user_id, is_admin=auth.is_admin,
+                    user_id=auth.user_id, tenant_manager=auth.is_tenant_manager,
                     user_team_ids=auth.team_ids,
                     user_group_ids=auth.group_ids
                 )
@@ -16042,7 +16042,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
-        if not auth.is_admin and auth.user_id != emp_id:
+        if not auth.is_tenant_manager and auth.user_id != emp_id:
             self._send_auth_error('Permission denied', 403)
             return
         agent = _get_agent_by_id(emp_id)
@@ -16068,7 +16068,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
-        if not auth.is_admin and auth.user_id != emp_id:
+        if not auth.is_tenant_manager and auth.user_id != emp_id:
             self._send_auth_error('Permission denied', 403)
             return
         if not _check_agent_exists(emp_id):
@@ -16302,7 +16302,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
-        if not auth.is_admin and auth.user_id != emp_id:
+        if not auth.is_tenant_manager and auth.user_id != emp_id:
             self._send_json_error('Permission denied', 403)
             return
         if not _check_agent_exists(emp_id):
@@ -16382,7 +16382,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             if not row:
                 self._send_json(404, {'error': 'Summary not found'})
                 return
-            if not auth.is_admin and auth.user_id != row['emp_id']:
+            if not auth.is_tenant_manager and auth.user_id != row['emp_id']:
                 self._send_json_error(403, 'Permission denied')
                 return
             now = int(time.time() * 1000)
@@ -16430,7 +16430,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
-        if not auth.is_admin and auth.user_id != emp_id:
+        if not auth.is_tenant_manager and auth.user_id != emp_id:
             self._send_json_error('Permission denied', 403)
             return
         body = self._read_body() or {}
@@ -16528,7 +16528,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             requested_group_ids.append(group_id)
         if group_ids_param:
             requested_group_ids.extend([g.strip() for g in group_ids_param.split(',') if g.strip()])
-        if auth.is_admin:
+        if auth.is_tenant_manager:
             effective_group_ids = requested_group_ids or auth.group_ids
         else:
             allowed = set(auth.group_ids)
@@ -16538,7 +16538,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             offset=offset, limit=limit, category=category, keyword=keyword,
             allowed_categories=allowed_cats,
             scope=scope, team_id=team_id, user_id=auth.user_id,
-            is_admin=auth.is_admin, user_team_ids=auth.team_ids,
+            tenant_manager=auth.is_tenant_manager, user_team_ids=auth.team_ids,
             user_group_ids=effective_group_ids,
             emp_id=target_emp_id,
             emp_ids=_get_user_emp_ids(auth.user_id)
@@ -16557,7 +16557,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json_error(404, 'Knowledge not found')
             return
         # 权限检查
-        if not ks.can_read_knowledge(doc, auth.user_id, is_admin=auth.is_admin, user_team_ids=auth.team_ids, user_group_ids=auth.group_ids, emp_ids=_get_user_emp_ids(auth.user_id)):
+        if not ks.can_read_knowledge(doc, auth.user_id, tenant_manager=auth.is_tenant_manager, user_team_ids=auth.team_ids, user_group_ids=auth.group_ids, emp_ids=_get_user_emp_ids(auth.user_id)):
             self._send_auth_error('Permission denied', 403)
             return
         if not _can_access_knowledge_category(auth, doc.get('category', '')):
@@ -16600,7 +16600,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 query, target_emp_id, api_key, provider, agent_config,
                 limit, allowed_categories=allowed_cats,
                 model=emb_cfg.get('model'), base_url=emb_cfg.get('baseUrl'),
-                requester_id=auth.user_id, is_admin=auth.is_admin, team_ids=auth.team_ids,
+                requester_id=auth.user_id, tenant_manager=auth.is_tenant_manager, team_ids=auth.team_ids,
                 group_ids=auth.group_ids
             )
             self._send_json(200, {'query': query, 'docs': docs, 'count': len(docs)})
@@ -16642,7 +16642,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             agent_id_header = self.headers.get('X-Agent-Id', '').strip()
             if agent_id_header:
                 emp_id = agent_id_header
-        if not ks.can_create_knowledge(scope, auth.user_id, is_admin=auth.is_admin,
+        if not ks.can_create_knowledge(scope, auth.user_id, tenant_manager=auth.is_tenant_manager,
                                        team_id=team_id, user_team_ids=auth.team_ids,
                                        managed_team_ids=auth.managed_team_ids,
                                        group_ids=group_ids, user_group_ids=auth.group_ids,
@@ -16700,7 +16700,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not doc:
             self._send_json_error(404, 'Knowledge not found')
             return
-        if not ks.can_edit_knowledge(doc, auth.user_id, is_admin=auth.is_admin,
+        if not ks.can_edit_knowledge(doc, auth.user_id, tenant_manager=auth.is_tenant_manager,
                                      managed_team_ids=auth.managed_team_ids,
                                      managed_group_ids=auth.managed_group_ids):
             self._send_auth_error('Permission denied', 403)
@@ -16743,7 +16743,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         target_team_id = new_team_id if new_team_id is not None else doc.get('teamId') or ''
         target_group_ids = new_group_ids if (new_group_ids or new_scope == 'group') else (doc.get('groupIds') or [])
         if new_scope is not None or new_team_id is not None or new_group_ids:
-            if not ks.can_create_knowledge(target_scope, auth.user_id, is_admin=auth.is_admin,
+            if not ks.can_create_knowledge(target_scope, auth.user_id, tenant_manager=auth.is_tenant_manager,
                                            team_id=target_team_id, user_team_ids=auth.team_ids,
                                            managed_team_ids=auth.managed_team_ids,
                                            group_ids=target_group_ids, user_group_ids=auth.group_ids,
@@ -16784,13 +16784,13 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not doc:
             self._send_json_error(404, 'Knowledge not found')
             return
-        if not ks.can_delete_knowledge(doc, auth.user_id, is_admin=auth.is_admin,
+        if not ks.can_delete_knowledge(doc, auth.user_id, tenant_manager=auth.is_tenant_manager,
                                        managed_team_ids=auth.managed_team_ids,
                                        managed_group_ids=auth.managed_group_ids,
                                        user_group_ids=auth.group_ids):
             self._send_auth_error('Permission denied', 403)
             return
-        deleted = ks.knowledge_delete(doc_id, is_admin=auth.is_admin)
+        deleted = ks.knowledge_delete(doc_id, tenant_manager=auth.is_tenant_manager)
         self._send_json(200, {'deleted': deleted, 'id': doc_id})
 
     def _handle_get_knowledge_versions(self, doc_id):
@@ -16850,7 +16850,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not doc:
             self._send_json_error(404, 'Knowledge not found')
             return
-        if not ks.can_edit_knowledge(doc, auth.user_id, is_admin=auth.is_admin,
+        if not ks.can_edit_knowledge(doc, auth.user_id, tenant_manager=auth.is_tenant_manager,
                                      managed_team_ids=auth.managed_team_ids,
                                      managed_group_ids=auth.managed_group_ids):
             self._send_auth_error('Permission denied', 403)
@@ -16907,7 +16907,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json_error(404, 'Knowledge not found')
             return
         # 原知识编辑权限
-        if not ks.can_edit_knowledge(doc, auth.user_id, is_admin=auth.is_admin,
+        if not ks.can_edit_knowledge(doc, auth.user_id, tenant_manager=auth.is_tenant_manager,
                                      managed_team_ids=auth.managed_team_ids,
                                      managed_group_ids=auth.managed_group_ids):
             self._send_auth_error('Permission denied', 403)
@@ -16925,7 +16925,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json_error(400, 'Invalid scope')
             return
         # 目标 scope 创建权限
-        if not ks.can_create_knowledge(new_scope, auth.user_id, is_admin=auth.is_admin,
+        if not ks.can_create_knowledge(new_scope, auth.user_id, tenant_manager=auth.is_tenant_manager,
                                        team_id=new_team_id, user_team_ids=auth.team_ids,
                                        managed_team_ids=auth.managed_team_ids,
                                        group_ids=new_group_ids, user_group_ids=auth.group_ids,
@@ -16993,7 +16993,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             requested_group_ids.append(group_id)
         if group_ids_param:
             requested_group_ids.extend([g.strip() for g in group_ids_param.split(',') if g.strip()])
-        if auth.is_admin:
+        if auth.is_tenant_manager:
             effective_group_ids = requested_group_ids or auth.group_ids
         else:
             allowed = set(auth.group_ids)
@@ -17005,7 +17005,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 project_id=project_id, keyword=keyword,
                 allowed_categories=allowed_cats,
                 scope=scope, team_id=team_id, user_id=auth.user_id,
-                is_admin=auth.is_admin, user_team_ids=auth.team_ids,
+                tenant_manager=auth.is_tenant_manager, user_team_ids=auth.team_ids,
                 user_group_ids=effective_group_ids,
                 created_by=created_by,
                 created_after=created_after,
@@ -17028,7 +17028,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not doc:
             self._send_json_error(404, 'Knowledge not found')
             return
-        if not ks.can_read_knowledge(doc, auth.user_id, is_admin=auth.is_admin, user_team_ids=auth.team_ids, user_group_ids=auth.group_ids, emp_ids=_get_user_emp_ids(auth.user_id)):
+        if not ks.can_read_knowledge(doc, auth.user_id, tenant_manager=auth.is_tenant_manager, user_team_ids=auth.team_ids, user_group_ids=auth.group_ids, emp_ids=_get_user_emp_ids(auth.user_id)):
             self._send_auth_error('Permission denied', 403)
             return
         if not _can_access_knowledge_category(auth, doc.get('category', '')):
@@ -17068,7 +17068,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             agent_id_header = self.headers.get('X-Agent-Id', '').strip()
             if agent_id_header:
                 emp_id = agent_id_header
-        if not ks.can_create_knowledge(scope, auth.user_id, is_admin=auth.is_admin,
+        if not ks.can_create_knowledge(scope, auth.user_id, tenant_manager=auth.is_tenant_manager,
                                        team_id=team_id, user_team_ids=auth.team_ids,
                                        managed_team_ids=auth.managed_team_ids,
                                        group_ids=group_ids, user_group_ids=auth.group_ids,
@@ -17258,7 +17258,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         try:
             result = ks.kb_entry_retry_embedding(
                 entry_id,
-                is_admin=auth.is_platform_admin,
+                tenant_manager=auth.is_platform_admin,
                 operator_id=auth.user_id,
                 user_id=auth.user_id,
                 managed_team_ids=auth.managed_team_ids,
@@ -17293,7 +17293,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             return
         try:
             stats = ks.kb_entries_retry_all_failed_embedding(
-                is_admin=True, operator_id=auth.user_id,
+                tenant_manager=True, operator_id=auth.user_id,
             )
             logger.info(f'  [KBEntry] retry-all-failed stats={stats}')
             self._send_json(200, stats)
@@ -17319,7 +17319,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not doc:
             self._send_json_error(404, 'Knowledge not found')
             return
-        if not ks.can_edit_knowledge(doc, auth.user_id, is_admin=auth.is_admin,
+        if not ks.can_edit_knowledge(doc, auth.user_id, tenant_manager=auth.is_tenant_manager,
                                      managed_team_ids=auth.managed_team_ids,
                                      managed_group_ids=auth.managed_group_ids,
                                      emp_ids=_get_user_emp_ids(auth.user_id)):
@@ -17345,7 +17345,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         target_team_id = new_team_id if new_team_id is not None else doc.get('teamId') or ''
         target_group_ids = group_ids if group_ids is not None else (doc.get('groupIds') or [])
         if new_scope is not None or new_team_id is not None or group_ids is not None:
-            if not ks.can_create_knowledge(target_scope, auth.user_id, is_admin=auth.is_admin,
+            if not ks.can_create_knowledge(target_scope, auth.user_id, tenant_manager=auth.is_tenant_manager,
                                            team_id=target_team_id, user_team_ids=auth.team_ids,
                                            managed_team_ids=auth.managed_team_ids,
                                            group_ids=target_group_ids, user_group_ids=auth.group_ids,
@@ -17380,7 +17380,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 status=new_status,
                 created_by=auth.user_id,
                 agent_config=agent_config,
-                is_admin=auth.is_admin,
+                tenant_manager=auth.is_tenant_manager,
             )
             if review and new_status == 'ok' and (doc.get('status') or 'ok') != 'ok':
                 ks.log_kb_decision(
@@ -17488,14 +17488,14 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                         self._send_json_error(400, 'merge 需要有效 target_id')
                         return
                     if not ks.can_delete_knowledge(
-                            doc, auth.user_id, is_admin=auth.is_admin,
+                            doc, auth.user_id, tenant_manager=auth.is_tenant_manager,
                             managed_team_ids=auth.managed_team_ids,
                             managed_group_ids=auth.managed_group_ids,
                             user_group_ids=auth.group_ids,
                             emp_ids=_get_user_emp_ids(auth.user_id)):
                         self._send_auth_error('Permission denied', 403)
                         return
-                    ks.kb_entry_delete(eid, is_admin=auth.is_admin,
+                    ks.kb_entry_delete(eid, tenant_manager=auth.is_tenant_manager,
                                        operator_id=auth.user_id)
                     ks.log_kb_decision(
                         eid, 'merged', reason_code=reason,
@@ -17530,7 +17530,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not doc:
             self._send_json_error(404, 'Knowledge not found')
             return
-        if not ks.can_delete_knowledge(doc, auth.user_id, is_admin=auth.is_admin,
+        if not ks.can_delete_knowledge(doc, auth.user_id, tenant_manager=auth.is_tenant_manager,
                                        managed_team_ids=auth.managed_team_ids,
                                        managed_group_ids=auth.managed_group_ids,
                                        user_group_ids=auth.group_ids,
@@ -17538,7 +17538,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_auth_error('Permission denied', 403)
             return
         try:
-            deleted = ks.kb_entry_delete(entry_id, is_admin=auth.is_admin, operator_id=auth.user_id)
+            deleted = ks.kb_entry_delete(entry_id, tenant_manager=auth.is_tenant_manager, operator_id=auth.user_id)
             # ★ 审核决策留痕（2026-11-07）：审核面板「拒绝」走 DELETE 并带
             #   body.review = {reason_code, confidence, reason_note}（方案 B 强制
             #   选理由）。rejected 存删前全文——不可逆数据的唯一保底。
@@ -17586,7 +17586,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json_error(400, 'days_old must be int')
             return
         try:
-            stats = ks.kb_entry_cleanup_dangling(days_old=days_old, is_admin=True)
+            stats = ks.kb_entry_cleanup_dangling(days_old=days_old, tenant_manager=True)
             logger.info(f'  [KBEntry] cleanup-dangling days_old={days_old} stats={stats}')
             self._send_json(200, stats)
         except Exception as e:
@@ -17619,7 +17619,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             return
         entry_id = (body.get('entryId') or body.get('entry_id') or '').strip() or None
         try:
-            result = ks.kb_entry_verify_index(entry_id=entry_id, limit_per_type=limit, is_admin=True)
+            result = ks.kb_entry_verify_index(entry_id=entry_id, limit_per_type=limit, tenant_manager=True)
             logger.info(f'  [KBIndex] verify-index scope={result["scope"]} '
                         f'issues={ {k: len(v) for k, v in result["issues"].items()} }')
             self._send_json(200, result)
@@ -17647,7 +17647,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         entry_id = (body.get('entryId') or body.get('entry_id') or '').strip() or None
         confirm = bool(body.get('confirm', False))
         try:
-            result = ks.kb_entry_repair_index(entry_id=entry_id, confirm=confirm, is_admin=True)
+            result = ks.kb_entry_repair_index(entry_id=entry_id, confirm=confirm, tenant_manager=True)
             logger.info(f'  [KBIndex] repair-index entry_id={entry_id} confirm={confirm} '
                         f'stats={result["stats"]}')
             self._send_json(200, result)
@@ -17751,7 +17751,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             stats = ks.kb_entry_stats(
                 allowed_categories=allowed_cats,
                 scope=scope, project_id=project_id, user_id=auth.user_id,
-                is_admin=auth.is_admin, user_team_ids=auth.team_ids,
+                tenant_manager=auth.is_tenant_manager, user_team_ids=auth.team_ids,
                 user_group_ids=auth.group_ids,
                 emp_ids=_get_user_emp_ids(auth.user_id)
             )
@@ -18762,7 +18762,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 allowed_categories=allowed_cats,
                 scope=scope, category=category,
                 category_id=category_id, project_id=project_id,
-                user_id=auth.user_id, is_admin=auth.is_admin,
+                user_id=auth.user_id, tenant_manager=auth.is_tenant_manager,
                 user_team_ids=auth.team_ids, user_group_ids=auth.group_ids,
                 emp_ids=_get_user_emp_ids(auth.user_id),
                 author_emp_id=search_emp_id
@@ -19803,7 +19803,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 query, emp_id, api_key, provider, agent_config,
                 top_k_docs=top_k, allowed_categories=allowed_cats,
                 model=emb_cfg.get('model'), base_url=emb_cfg.get('baseUrl'),
-                requester_id=auth.user_id, is_admin=auth.is_admin, team_ids=auth.team_ids,
+                requester_id=auth.user_id, tenant_manager=auth.is_tenant_manager, team_ids=auth.team_ids,
                 group_ids=auth.group_ids
             )
             # ★ 召回留痕（kb_recall_log + kb_recall_hits 双表，2026-11-07）：
@@ -24805,7 +24805,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             _api_result = _call_ai_api(
                 agent, user_payload, auth.user_info, include_history=not is_extract,
                 allowed_knowledge_categories=allowed_cats,
-                requester_id=auth.user_id, is_admin=auth.is_admin, team_ids=auth.team_ids,
+                requester_id=auth.user_id, tenant_manager=auth.is_tenant_manager, team_ids=auth.team_ids,
                 group_ids=auth.group_ids,
                 return_stats=True
             )
@@ -24843,7 +24843,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                             _su_retry = _call_ai_api(
                                 agent, _retry_content, auth.user_info, include_history=not is_extract,
                                 allowed_knowledge_categories=allowed_cats,
-                                requester_id=auth.user_id, is_admin=auth.is_admin,
+                                requester_id=auth.user_id, tenant_manager=auth.is_tenant_manager,
                                 team_ids=auth.team_ids, group_ids=auth.group_ids
                             )
                             if _su_retry:
@@ -24897,7 +24897,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                         _retry_reply = _call_ai_api(
                             agent, _retry_content, auth.user_info, include_history=not is_extract,
                             allowed_knowledge_categories=allowed_cats,
-                            requester_id=auth.user_id, is_admin=auth.is_admin, team_ids=auth.team_ids,
+                            requester_id=auth.user_id, tenant_manager=auth.is_tenant_manager, team_ids=auth.team_ids,
                             group_ids=auth.group_ids
                         )
                         if _retry_reply:
@@ -32783,7 +32783,7 @@ def _call_ai_for_json(prompt, agent, system_prompt=None, capture_reason=False):
 
 
 def _call_ai_api(agent, user_message, user_info=None, include_history=True, group_id=None,
-                 allowed_knowledge_categories=None, requester_id=None, is_admin=False, team_ids=None,
+                 allowed_knowledge_categories=None, requester_id=None, tenant_manager=False, team_ids=None,
                  group_ids=None, return_stats=False):
     """通过代理调用 AI API（带记忆和上下文注入）
     return_stats=True 时返回 (reply, injection_stats)，stats = {
@@ -32922,12 +32922,12 @@ def _call_ai_api(agent, user_message, user_info=None, include_history=True, grou
                 if rag_agent_config and emb_cfg.get('model'):
                     rag_agent_config['embeddingModel'] = emb_cfg['model']
                 # ★ RAG 切换：召回数据源由旧表 knowledge/knowledge_chunks 改为新表 kb_entries/kb_entry_chunks
-                #   入参与返回结构与 rag_retrieve 完全一致；四层 scope 隔离由 requester_id/is_admin/team_ids/group_ids 承载。
+                #   入参与返回结构与 rag_retrieve 完全一致；四层 scope 隔离由 requester_id/tenant_manager/team_ids/group_ids 承载。
                 rag_result = ks.rag_retrieve_kb(
                     user_text, agent_id, rag_api_key, rag_provider, rag_agent_config,
                     top_k_docs=2, allowed_categories=allowed_knowledge_categories,
                     model=emb_cfg.get('model'), base_url=emb_cfg.get('baseUrl'),
-                    requester_id=requester_id, is_admin=is_admin, team_ids=team_ids,
+                    requester_id=requester_id, tenant_manager=tenant_manager, team_ids=team_ids,
                     group_ids=group_ids
                 )
                 if rag_result.get('context'):
