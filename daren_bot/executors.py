@@ -2407,6 +2407,45 @@ def _commerce_talent_block(q: str) -> str:
     return "\n".join(out)[:900]
 
 
+def _qa_mentioned_dyids(q: str, own_dyid: str):
+    """QA 点名号提取（批A-A2）：返回 [(dyid, annotated)]。
+
+    - 显式标注「抖音号/抖音账号：X」→ annotated=True，即使库里没有也必须明说未采集；
+    - 未标注的 5-24 位 alnum 串 → 只有库里真实命中档案才算点名号（防英文单词误伤）；
+    - 命中上限 3 个、查库上限 5 次（对齐商务侧 _commerce_talent_block 的防爆约束）。
+    """
+    out = []
+    seen = set()
+    for m in _DYID_ANNOTATED_RE.finditer(q or ""):
+        d = m.group(1)
+        if d not in seen:
+            seen.add(d)
+            out.append((d, True))
+    if len(out) < 3:
+        lookups = 0
+        for m in _DYID_TOKEN_RE.finditer(q or ""):
+            d = m.group(0)
+            if d in seen:
+                continue
+            lookups += 1
+            if lookups > _COMMERCE_LOOKUP_MAX:
+                break
+            try:
+                t = _read_talent("", d)
+            except Exception:
+                t = None
+            if t:
+                seen.add(d)
+                out.append((d, False))
+            if len(out) >= 3:
+                break
+    return out
+
+
+_DYID_ANNOTATED_RE = _re.compile(
+    r"抖音(?:(?:账)?号|ID|id)\s*[:：]?\s*([A-Za-z0-9_]{4,24})")
+
+
 def execute_qa(task: dict) -> str:
     """业务问答：结合该达人绑定的账号画像回答；超出带货范围由模型拒答。
     对报告/分析的质疑类问题强制走回答路径（弱模型爱把质疑当无关问题拒答）。"""
@@ -2424,6 +2463,44 @@ def execute_qa(task: dict) -> str:
     if _pl.get("cached_answer"):
         return _pl["cached_answer"]
     ctx = _talent_context(task.get("tenant_key", ""))
+    # ★ 2026-11-09 批A-A2（周报 P1-3 实锤：test2/t_20359bf4 拿绑定账号档案回答点名号
+    #   的问题，用户当场说「分析错了」）：QA 取数按消息里**点名的抖音号**优先——
+    #   点名号有档案 → 注入真实摘要并锁口径；显式标注但库里没有 → 明说未采集。
+    #   两种情况下都禁止拿绑定账号（本账号）的数据顶替或推测。
+    try:
+        _own_dyid = ((_db.get_tenant(task.get("tenant_key", "")) or {})
+                     .get("bind_douyin_id") or "")
+    except Exception:
+        _own_dyid = ""
+    _named = _qa_mentioned_dyids(q, _own_dyid)
+    if _named:
+        _blocks, _misses = [], []
+        for _dyid, _annotated in _named:
+            if _dyid == _own_dyid:
+                continue
+            try:
+                _t = _read_talent("", _dyid)
+            except Exception:
+                _t = None
+            if _t:
+                _blocks.append(
+                    f"【达人 {_dyid}（问题点名的账号）】" + _fmt_compare_brief(_t))
+            elif _annotated:
+                _misses.append(_dyid)
+        if _blocks or _misses:
+            _rule = ("【系统指令】这条问题点名了抖音号 "
+                     + "、".join([d for d, _ in _named if d != _own_dyid])
+                     + "。回答点名账号的问题只能引用对应点名账号的档案数据，"
+                       "该档案没有的维度就明说没有；")
+            if _misses:
+                _rule += ("其中 " + "、".join(_misses)
+                          + " 还没有采集数据，必须明说「TA 的数据我还没采集，"
+                            "把 TA 的抖音号单独发我，我采完再答」，"
+                            "禁止用本账号（" + (_own_dyid or "未绑定") + "）的数据顶替或推测。")
+            else:
+                _rule += ("禁止用本账号（" + (_own_dyid or "未绑定")
+                          + "）的数据回答点名账号的问题。")
+            ctx = (ctx + "\n" if ctx else "") + "\n".join(_blocks + [_rule])
     # ★ fix/third-party-recollect (2026-10-18): "小晴姑姑的...都没有"/"她的账号没有数据,发给我"
     #   → 不绕模型, 直接免费重采并推送. 判定: 抱怨词 + 点名的对标号是空采集行.
     if _re.search(r"没有|暂无|缺|重新采|再采|采集|发给我|补充|都没有", q):

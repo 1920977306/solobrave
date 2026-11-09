@@ -30,6 +30,16 @@ VIDEO_LINK_RE = re.compile(
     r"(https?://v\.douyin\.com/[^\s，。]+"
     r"|https?://(?:www\.)?douyin\.com/video/\d+"
     r"|https?://(?:www\.)?iesdouyin\.com/share/video/\d+[^\s，。]*)")
+# ★ 2026-11-09 批A-A1（周报 P1-1）：抖音商品分享口令文本特征——
+#   「【商品名…】复制此条消息打开抖音…【︽︽口令】 https://v.douyin.com/…」。
+#   口令短链的 302 Location 不是商品参数形态，extract_product_id 解不出 →
+#   11-03 一天 4 次被 VIDEO_LINK_RE 抢先路由进视频拆解，扣 30 分还 failed。
+#   口令文本是强商品意图信号：命中后仍按商品解，解不出给明确话术（零扣费），不进视频拆解。
+PRODUCT_SHARE_RE = re.compile(
+    r"复制此条消息.{0,20}打开抖音|【︽︽口令】|长按复制|￥[^\s￥，。]{4,40}￥")
+PRODUCT_SHARE_CANNOT_PARSE = (
+    "这个是抖音的商品分享口令，我这边解析不出商品ID，"
+    "麻烦把商品链接或商品ID直接发我，我马上给你分析～")
 TRACKING_PREFIXES = ("utm_", "spm", "fbclid", "gclid", "tt_")
 
 UNRELATED_REPLY = ("我是你的带货选品助手，账号分析、选品建议、商品判断都可以找我，"
@@ -428,6 +438,15 @@ class Router:
             self._route_douyin(tenant, chat_id, dy_only.group(1), sender,
                                name_hint=_extract_name_hint(text, dy_only.group(1)),
                                question=text)
+        elif VIDEO_LINK_RE.search(text) and PRODUCT_SHARE_RE.search(text):
+            # ★ 2026-11-09 批A-A1（周报 P1-1）：商品分享口令 + 视频形态短链共存时，
+            #   按商品优先：解得出商品ID → 商品链路；解不出 → 明确话术零扣费，
+            #   绝不进视频拆解（11-03 实锤：扣 30 分还 failed，达人三次纠正仍错路由）。
+            _share_url = URL_RE.search(text)
+            if _share_url and product_link.extract_product_id(_share_url.group(0)):
+                self._route_link(tenant, chat_id, text, sender)
+            else:
+                sender.send_text(chat_id, PRODUCT_SHARE_CANNOT_PARSE)
         elif VIDEO_LINK_RE.search(text):
             # ★ 2026-11-03 修：v.douyin.com 短链本体无数字，**商品和视频共用这个形态**。
             #   生产实锤：3 条商品短链（3HXXhXyDS8s/aovVC37WH7k/kwOf3lZyeqk）被
