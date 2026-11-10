@@ -2662,7 +2662,8 @@ def _subprocess_node_env():
     return env
 
 
-def _find_group(group_id):
+def _find_group_by_id(group_id):
+    """③@通道用：按 id 找群（不复用 _find_group(groups,key,value)——签名不同，避免遮蔽）。"""
     for g in _load_groups():
         if g.get('id') == group_id:
             return g
@@ -2718,7 +2719,7 @@ def _trigger_group_agent_turn(group_id, agent_id, source_msg, depth):
 
 
 def _group_agent_turn_worker(group_id, agent_id, source_msg, depth):
-    group = _find_group(group_id)
+    group = _find_group_by_id(group_id)
     if not group:
         logger.warning(f'[GroupMention] 群 {group_id} 不存在，{agent_id} turn 取消')
         return
@@ -2760,7 +2761,7 @@ def _group_agent_turn_worker(group_id, agent_id, source_msg, depth):
 def _group_append_agent_reply(group_id, agent_id, text, depth):
     """服务端落盘 AI 回复（不经 HTTP，身份天然可信）：
     解析 mentions → 写消息（带 mentionDepth）→ 出口义务（通知群创建者）→ 深度闸内链式触发。"""
-    group = _find_group(group_id)
+    group = _find_group_by_id(group_id)
     members = _group_members_map(group or {})
     mentions = sorted({m for m in _MENTION_RE.findall(text or '')
                        if m in members and m != agent_id})

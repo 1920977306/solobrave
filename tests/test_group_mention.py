@@ -213,6 +213,26 @@ def test_exit_summary_notifies_group_owner(mod, monkeypatch):
 
 # ── 6. 身份闸 AST 守卫 ──────────────────────────────────
 
+def test_no_duplicate_module_level_defs():
+    """同名函数定义 = 静默遮蔽（§8.6 教训）：本事故实录——我新写的
+    _find_group(group_id) 遮蔽了既有 _find_group(groups,key,value)，
+    全组群聊 500。守卫：solobrave-server.py 模块级不得有同名 def 两次。
+    历史负债（本轮之前已存在）登记在 allowlist，新增同名必须过审。"""
+    _LEGACY_DUPLICATES = {'_strip_fake_tool_calls'}  # 2548 vs 32734，历史遮蔽，另案处理
+    src = open(os.path.join(ROOT, 'solobrave-server.py'),
+               encoding='utf-8').read()
+    tree = ast.parse(src)
+    seen = {}
+    for node in tree.body:  # 模块级作用域
+        if isinstance(node, (ast.FunctionDef, ast.ClassDef)):
+            if node.name in _LEGACY_DUPLICATES and node.name in seen:
+                continue  # 已登记的历史负债：不重复报
+            assert node.name not in seen, (
+                f'模块级同名定义遮蔽：{node.name} 第 {node.lineno} 行 '
+                f'覆盖了第 {seen[node.name]} 行')
+            seen[node.name] = node.lineno
+
+
 def test_identity_gate_ast_guard():
     """_handle_post_group_history 里 senderType==agent 分支必须调
     _verify_group_reply_token —— 防 refactor 把身份闸拆没（恒真闸门防线）。"""
