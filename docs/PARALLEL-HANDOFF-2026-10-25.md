@@ -10634,3 +10634,16 @@ H5 区块首行正确渲染。**小修**：product_name 里的 markdown `**` 在
 - **背景**：老大 11-10 12:35 拍板「要不你直接执行吧」——A（小拓职责链）+ B（square_scan 工具）
   两份简报都由本会话代为执行，不再分发两个对话。
 - **铁律**：prod `/Users/qichen/solobrave-prod` 一字节不改；完成后合并 dev+main，prod 只 git pull。
+
+## §137 A 简报（小拓职责链+名片+每日调度）占用登记（2026-11-10 14:1x，A 边本会话代执行）
+
+- **已落并推送**（main=dev=53283e8）：
+  - `solobrave-server.py` emp_duties 职责链（`_ensure_emp_duties`/`build_duty_system_prompt`/
+    `_apply_duty_to_agent`/`_write_agent_docs` + GET/PUT `/api/agents/<id>/duties`）+ 守卫 `tests/test_emp_duties.py` 7 条（commit 07772c8）
+  - `setup_xiaotuo.py` 一键上岗（74a88c8）；`index.html`+`js/inline-03.js` 职责名片（53283e8，验收②截图已过）
+  - `xiaotuo_daily.py` + launchd `com.solobrave.xiaotuo-daily.plist`（每日 9:30，kickstart 真机首跑 14:14 进行中）
+- **运行时改动（非 git）**：openclaw.json 新增 `models.providers.kimi_proxy_xiaotuo` +
+  `agents.entries.emp_xiaotuo`（备份 openclaw.json.bak-xiaotuo-*）；secret store 新增
+  `MODEL_APIKEY_KIMI_PROXY_XIAOTUO=proxy_emp_xiaotuo`；`data/agents.json` 新增小拓记录
+  （备份 agents.json.bak-xiaotuo-*）；emp_duties 已落小拓职责行（PUT 真实链路+quota 往返验证过）；
+  server 与 openclaw daemon 均已重启生效。
