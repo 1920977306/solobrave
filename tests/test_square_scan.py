@@ -224,3 +224,66 @@ def test_pick_by_category_fallback():
     assert len(picked) == 1 and picked[0] is a_shoe
     # 类目不匹配 → 空（不编造数据）
     assert bw._square_pick_by_category([REAL_AUTHOR], '鞋靴箱包', 5) == []
+
+
+# ── 必修①（2026-11-10 验收返工）：_square_collect_new_candidates 跨页收集 ──
+# 合成的 author dict 形状照真机样本（REAL_AUTHOR）：author_base.author_tag.author_contact
+
+def _mk_author(aweme_id, nickname, cate=('鞋靴箱包',)):
+    return {
+        'author_base': {'uid': 'u_' + (aweme_id or 'noid'), 'author_id': 0,
+                        'nickname': nickname, 'avatar': '', 'fans_num': 1000,
+                        'aweme_id': aweme_id},
+        'author_tag': {'main_cate': list(cate)},
+        'author_contact': {},
+    }
+
+
+def test_collect_all_old_page_then_new_page():
+    """第一页全在库 → 翻页后从第二页取到新候选（必修①核心场景：不再永远重复 5）。"""
+    page1 = [_mk_author('OLD1', '老人1'), _mk_author('OLD2', '老人2')]
+    page2 = [_mk_author('NEW1', '新人1'), _mk_author('NEW2', '新人2')]
+    exists = lambda did: did.startswith('OLD')
+    coll = bw._square_collect_new_candidates([page1], exists, '', 5)
+    assert coll['picked'] == [] and coll['dup_skipped'] == 2   # 只看第一页时一无所获
+    coll = bw._square_collect_new_candidates([page1, page2], exists, '', 5)
+    assert [ (a['author_base']['aweme_id']) for a in coll['picked'] ] == ['NEW1', 'NEW2']
+    assert coll['dup_skipped'] == 2 and coll['pages_used'] == 2
+
+
+def test_collect_quota_truncation():
+    """quota 硬顶：7 个新候选只取 5 个。"""
+    pages = [[_mk_author(f'N{i}', f'新人{i}') for i in range(7)]]
+    coll = bw._square_collect_new_candidates(pages, lambda did: False, '', 5)
+    assert len(coll['picked']) == 5
+
+
+def test_collect_max_pages_cap():
+    """翻满 5 页上限即停：6 页全旧 → pages_used=5、 picked 空（不无限翻）。"""
+    pages = [[_mk_author(f'O{p}_{i}', f'旧{p}-{i}') for i in range(2)] for p in range(6)]
+    coll = bw._square_collect_new_candidates(pages, lambda did: True, '', 5)
+    assert coll['pages_used'] == bw.SQUARE_MAX_PAGES == 5
+    assert coll['picked'] == [] and coll['dup_skipped'] == 10
+
+
+def test_collect_skips_no_douyin_id():
+    """平台未给抖音号的候选 skip 且不计入 picked（缺一不入库铁律）。"""
+    page = [_mk_author('', '无号达人'), _mk_author('OK1', '正常人')]
+    coll = bw._square_collect_new_candidates([page], lambda did: False, '', 5)
+    assert coll['noid_skipped'] == 1
+    assert [a['author_base']['aweme_id'] for a in coll['picked']] == ['OK1']
+
+
+def test_collect_cross_page_dedup():
+    """同一抖音号跨页出现只取一次（翻页窗口内 SPA 可能重发行）。"""
+    a = _mk_author('SAME', '重复人')
+    pages = [[a, _mk_author('X1', '别人')], [json.loads(json.dumps(a))]]
+    coll = bw._square_collect_new_candidates(pages, lambda did: False, '', 5)
+    assert [x['author_base']['aweme_id'] for x in coll['picked']] == ['SAME', 'X1']
+
+
+def test_collect_category_filter():
+    """client_side_filter 口径：类目不匹配的候选被滤掉。"""
+    page = [_mk_author('S1', '鞋靴人', ('鞋靴箱包',)), _mk_author('D1', '数码人', ('3C数码家电',))]
+    coll = bw._square_collect_new_candidates([page], lambda did: False, '鞋靴箱包', 5)
+    assert [a['author_base']['aweme_id'] for a in coll['picked']] == ['S1']
