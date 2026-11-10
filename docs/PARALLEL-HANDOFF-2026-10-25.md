@@ -10647,3 +10647,55 @@ H5 区块首行正确渲染。**小修**：product_name 里的 markdown `**` 在
   `MODEL_APIKEY_KIMI_PROXY_XIAOTUO=proxy_emp_xiaotuo`；`data/agents.json` 新增小拓记录
   （备份 agents.json.bak-xiaotuo-*）；emp_duties 已落小拓职责行（PUT 真实链路+quota 往返验证过）；
   server 与 openclaw daemon 均已重启生效。
+
+## 92. 验收返工必修①②落地 + 判定通道真跑修三处（A 边 2026-11-10 15:5x–16:3x）
+
+老大对小拓每日调度的验收打回两条必修，本会话（执行对话）直接修完并真跑复核。
+提交：`3e8ba60`（必修①）/ `dc5c8f1`（必修②）/ `89c0cea`（判定通道真跑修复），
+推 main+dev 零分叉，全量回归 **1766 passed**（基线 1740 + 26 新）。
+
+### 92.1 必修①：square_scan 翻页找新面孔（buyin_worker.py）
+
+- 病根：`picked = authors[:quota]` 每天从相关度排序第一页开头取，已入库达人永远排最前
+  ⇒ 日复一日「重复 5」、0 新增（14:14 真跑实锤：`深看5 / 新入库0 / 重复5`）。
+- 修法：新纯函数 `_square_collect_new_candidates` 跨页按「抖音号已在库」过滤收集；
+  `_square_next_page` 滚动触发下一页 `search_feed_author`（页指纹防 SPA 重发同页死循环，
+  `SQUARE_MAX_PAGES=5` 上限）；不满 quota 且 `has_more` 且未翻满 ⇒ 翻页重算。
+- **真跑证据（15:52）**：`候选收集：2 页 / 新候选 5 / 已在库滤掉 5 / has_more=True`
+  → `完成：翻2页 / 深看 5 / 新入库 5`（同日 14:14 还是 重复5/新增0）。
+- 守卫：`tests/test_square_scan.py` +6 条。
+
+### 92.2 必修②：日报循环里装上小拓的脑子（xiaotuo_daily.py）
+
+- 病根：日报循环零 LLM 调用，新候选人未经判定三关直接入库，
+  「建议人工过目」永远「无」——前两周恰恰最该有货。
+- 修法：每个新入库达人过 openclaw 判定（`--agent emp_xiaotuo`，走它自己的
+  SOUL.md / kimi_proxy_xiaotuo，积分走它自己通道）；prompt 只用 item 真机字段，
+  只输出两行（三态词 + 一句话理由）；GMV 按区间下沿判（≥1000 值得联系 / <100 排除）；
+  结论回写 `talents.remark.square_judgment`（合并不覆盖）；通道任何异常落
+  「存疑：判定通道异常」绝不阻断日报。
+- **真跑证据（16:0x–16:3x 补判 5/5）**：值得联系 2（优奢箱包集、红谷箱包贵阳总店，
+  下沿均 2500 元）/ 存疑 3（下沿 100~250，理由具体）。判定质量正常。
+- 守卫：`tests/test_xiaotuo_daily.py` 20 条。
+
+### 92.3 判定通道真跑修三处（`89c0cea`，教训登记）
+
+15:52 首跑 5 个候选全落「判定通道异常」，根因链值得记住：
+
+1. **launchd 环境没有 node** ⇒ `#!/usr/bin/env node` 启动的 openclaw CLI 退出码 127。
+   修法：judge_item 显式传 env，PATH 前置 node 所在目录（探测存在才加）。
+   ⇒ 教训：launchd 起的脚本里调任何解释型 CLI，都要想「它的解释器在 launchd PATH 里吗」。
+2. **CLI 等满 --timeout 时返回运行快照而非 result 信封**（`finalAssistantVisibleText` /
+   `terminalReply.text`），提取器不认 ⇒ 误判「通道异常」。已兼容。
+3. **一轮完整 turn 实测 115-154s**（kimi_proxy 429 → minimax 兜底链路），
+   150s 超时余量不足 ⇒ JUDGE_TIMEOUT 300（subprocess +60）。
+
+### 92.4 备案结论（验收🟡项）
+
+小拓 `permission='dev'` **不用改**：agents.json 全部 7 个员工 permission 全是 'dev'，
+是系统默认值不是特殊授权。已在本会话向老大汇报。
+
+### 92.5 占用登记（§0.4）
+
+本轮改动文件：`buyin_worker.py` / `xiaotuo_daily.py` / `tests/test_square_scan.py` /
+`tests/test_xiaotuo_daily.py` / 本交接单 §92。均 A 边持有，已提交推送，现无占用。
