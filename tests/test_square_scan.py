@@ -350,9 +350,10 @@ def test_write_report_notifications_and_duty(tmp_path, monkeypatch):
     conn.execute('''CREATE TABLE notifications (id TEXT, user_id TEXT, agent_id TEXT,
                     type TEXT, title TEXT, content TEXT, read INTEGER, created_at INTEGER)''')
     conn.execute('''CREATE TABLE emp_duties (agent_id TEXT PRIMARY KEY,
+                    supervisor_agent_id TEXT DEFAULT '', zero_streak INTEGER DEFAULT 0,
                     last_run_at INTEGER DEFAULT 0, last_run_summary TEXT DEFAULT '',
                     updated_at INTEGER)''')
-    conn.execute("INSERT INTO emp_duties VALUES ('emp_xiaotuo', 0, '', 0)")
+    conn.execute("INSERT INTO emp_duties VALUES ('emp_xiaotuo', '', 0, 0, '', 0)")
     conn.commit()
     conn.close()
     monkeypatch.setattr(bw, 'DB_PATH', db)
@@ -362,3 +363,109 @@ def test_write_report_notifications_and_duty(tmp_path, monkeypatch):
     row = conn.execute("SELECT last_run_summary FROM emp_duties WHERE agent_id = 'emp_xiaotuo'").fetchone()
     conn.close()
     assert n == 1 and row[0] == '今日新入库 3 位'
+
+
+# ── ②主管协同位（2026-11-10）：日报双投递 + 升级触发器 ──
+
+def _tmp_duty_db(tmp_path, monkeypatch, supervisor_agent_id='', zero_streak=0,
+                 name='test.db'):
+    """emp_duties + notifications 两表的 tmp 库；openclaw 投递打 spy。"""
+    db = tmp_path / name
+    conn = sqlite3.connect(str(db))
+    conn.execute('''CREATE TABLE talents (
+        id TEXT PRIMARY KEY, name TEXT, avatar TEXT, douyin_id TEXT,
+        douyin_uid TEXT, city TEXT, level TEXT, followers INTEGER,
+        tags TEXT, category TEXT, contact_wechat TEXT, contact_phone TEXT,
+        remark TEXT, created_by TEXT, platform TEXT, status TEXT,
+        cooperation_status TEXT, created_at INTEGER, updated_at INTEGER)''')
+    conn.execute('''CREATE TABLE emp_duties (
+        agent_id TEXT PRIMARY KEY, duty_name TEXT DEFAULT '', scope TEXT DEFAULT '',
+        category TEXT DEFAULT '', quota INTEGER DEFAULT 5, goods TEXT DEFAULT '',
+        duty_desc TEXT DEFAULT '[]', supervisor TEXT DEFAULT '',
+        supervisor_agent_id TEXT DEFAULT '', boundary TEXT DEFAULT '',
+        zero_streak INTEGER DEFAULT 0,
+        last_run_at INTEGER DEFAULT 0, last_run_summary TEXT DEFAULT '',
+        created_at INTEGER, updated_at INTEGER)''')
+    conn.execute('''CREATE TABLE notifications (
+        id TEXT, user_id TEXT, agent_id TEXT, type TEXT, title TEXT,
+        content TEXT, read INTEGER, created_at INTEGER)''')
+    conn.execute("INSERT INTO emp_duties (agent_id, supervisor_agent_id, zero_streak) "
+                 "VALUES ('emp_xiaotuo', ?, ?)", (supervisor_agent_id, zero_streak))
+    conn.commit()
+    conn.close()
+    monkeypatch.setattr(bw, 'DB_PATH', db)
+    delivered = []
+    monkeypatch.setattr(bw, '_square_deliver_to_agent',
+                        lambda aid, msg: delivered.append((aid, msg)))
+    return db, delivered
+
+
+def _notifs(db):
+    conn = sqlite3.connect(str(db))
+    rows = conn.execute('SELECT agent_id, type, title FROM notifications '
+                        'ORDER BY created_at, rowid').fetchall()
+    conn.close()
+    return rows
+
+
+def test_report_dual_delivery_to_supervisor(tmp_path, monkeypatch):
+    """有 supervisor_agent_id ⇒ 管理员通知 + 抄送通知 + 主管会话投递，三件事都发生。"""
+    db, delivered = _tmp_duty_db(tmp_path, monkeypatch, supervisor_agent_id='emp_helen')
+    bw._square_write_report('鞋靴箱包深看5：值得联系3、存疑2', '今日深看5 | 新增5', 'emp_xiaotuo')
+    rows = _notifs(db)
+    assert ('emp_xiaotuo', 'task_reminder') in [(r[0], r[1]) for r in rows]
+    cc = [r for r in rows if r[0] == 'emp_helen' and r[1] == 'task_reminder']
+    assert len(cc) == 1 and '抄送' in cc[0][2]
+    assert delivered and delivered[0][0] == 'emp_helen'
+    # last_run_* 回写
+    conn = sqlite3.connect(str(db))
+    summary = conn.execute("SELECT last_run_summary FROM emp_duties "
+                           "WHERE agent_id='emp_xiaotuo'").fetchone()[0]
+    conn.close()
+    assert '值得联系3' in summary
+
+
+def test_report_no_supervisor_no_cc(tmp_path, monkeypatch):
+    """无 supervisor_agent_id ⇒ 只有管理员通知，不投递主管。"""
+    db, delivered = _tmp_duty_db(tmp_path, monkeypatch)
+    bw._square_write_report('鞋靴箱包深看5：值得联系2、存疑3', '今日深看5 | 新增5', 'emp_xiaotuo')
+    rows = _notifs(db)
+    assert len(rows) == 1 and rows[0][0] == 'emp_xiaotuo'
+    assert delivered == []
+
+
+def test_report_escalation_on_second_zero_day(tmp_path, monkeypatch):
+    """streak=1 + 本次值得联系=0 ⇒ 升级通知（主管+管理员各一条），streak 闩锁清零。"""
+    db, _ = _tmp_duty_db(tmp_path, monkeypatch, supervisor_agent_id='emp_helen',
+                         zero_streak=1)
+    bw._square_write_report('鞋靴箱包深看5：值得联系0、存疑5', '今日深看5 | 新增0', 'emp_xiaotuo')
+    rows = _notifs(db)
+    esc = [r for r in rows if r[1] == 'escalation']
+    assert len(esc) == 2, f'应给管理员+主管各一条升级通知，实际 {esc}'
+    assert {r[0] for r in esc} == {'emp_xiaotuo', 'emp_helen'}
+    conn = sqlite3.connect(str(db))
+    streak = conn.execute("SELECT zero_streak FROM emp_duties "
+                          "WHERE agent_id='emp_xiaotuo'").fetchone()[0]
+    conn.close()
+    assert streak == 0   # 闩锁：通知一次后重新累计
+
+
+def test_report_no_escalation_when_worthy_or_first_zero(tmp_path, monkeypatch):
+    """值得联系>0 ⇒ streak 清零无升级；首次 0 ⇒ streak=1 无升级。"""
+    db, _ = _tmp_duty_db(tmp_path, monkeypatch, supervisor_agent_id='emp_helen',
+                         zero_streak=1)
+    bw._square_write_report('鞋靴箱包深看5：值得联系2、存疑3', 'x', 'emp_xiaotuo')
+    conn = sqlite3.connect(str(db))
+    assert conn.execute("SELECT zero_streak FROM emp_duties "
+                        "WHERE agent_id='emp_xiaotuo'").fetchone()[0] == 0
+    conn.close()
+    assert not [r for r in _notifs(db) if r[1] == 'escalation']
+
+    db2, delivered2 = _tmp_duty_db(tmp_path, monkeypatch, supervisor_agent_id='emp_helen',
+                                   name='test2.db')
+    bw._square_write_report('鞋靴箱包深看5：值得联系0、存疑5', 'x', 'emp_xiaotuo')
+    conn = sqlite3.connect(str(db2))
+    assert conn.execute("SELECT zero_streak FROM emp_duties "
+                        "WHERE agent_id='emp_xiaotuo'").fetchone()[0] == 1
+    conn.close()
+    assert not [r for r in _notifs(db2) if r[1] == 'escalation']

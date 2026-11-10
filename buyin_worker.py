@@ -3564,21 +3564,82 @@ def _square_decide(payload):
 
 
 def _square_write_report(summary, detail, agent_id=SQUARE_DUTY_AGENT):
-    """日报交付：notifications（管理员）+ emp_duties.last_run_*（名片「近期动态」）。"""
+    """日报交付（②主管协同位 2026-11-10）：
+    - notifications → 管理员（原有）
+    - 抄送主管（emp_duties.supervisor_agent_id）：notifications 留痕 + openclaw 会话投递
+      （旁路：任何一步失败只记日志，不阻断日报主交付）
+    - 升级触发器：「值得联系=0」连续 ≥2 天 → 主管+管理员升级通知，zero_streak 闩锁清零
+    - emp_duties.last_run_* / zero_streak 同事务回写
+    """
     now_ms = int(time.time() * 1000)
+    today = datetime.now().strftime('%m月%d日')
+    supervisor_id = ''
+    escalation = False
     conn = sqlite3.connect(str(DB_PATH), timeout=15)
     try:
+        row = conn.execute(
+            'SELECT supervisor_agent_id, zero_streak FROM emp_duties WHERE agent_id = ?',
+            (agent_id,)).fetchone()
+        supervisor_id = (row[0] or '') if row else ''
+        streak = int(row[1] or 0) if row else 0
+        m = re.search(r'值得联系\s*(\d+)', summary or '')
+        worthy = int(m.group(1)) if m else None
+        new_streak = streak + 1 if worthy == 0 else 0
+        escalation = worthy == 0 and new_streak >= 2   # 连续第二天无果 ⇒ 升级
+        if escalation:
+            new_streak = 0                               # 闩锁：通知一次，等下次有果才重新累计
         conn.execute(
             'INSERT INTO notifications (id, user_id, agent_id, type, title, content, '
             'read, created_at) VALUES (?,?,?,?,?,?,0,?)',
             ('notif_' + uuid.uuid4().hex[:12], SQUARE_ADMIN_USER, agent_id,
-             'task_reminder', f'小拓日报 · {datetime.now():%m月%d日}', detail, now_ms))
+             'task_reminder', f'小拓日报 · {today}', detail, now_ms))
+        if supervisor_id:
+            conn.execute(
+                'INSERT INTO notifications (id, user_id, agent_id, type, title, content, '
+                'read, created_at) VALUES (?,?,?,?,?,?,0,?)',
+                ('notif_' + uuid.uuid4().hex[:12], SQUARE_ADMIN_USER, supervisor_id,
+                 'task_reminder', f'【抄送】小拓日报 · {today}', detail, now_ms))
+        if escalation:
+            esc = (f'小拓连续 2 天日报「值得联系=0」'
+                   f'（{today} 摘要：{summary[:200]}）。建议主管在群里 @小拓 追问原因或调整类目/配额。')
+            for uid, aid in ((SQUARE_ADMIN_USER, agent_id), (SQUARE_ADMIN_USER, supervisor_id)):
+                conn.execute(
+                    'INSERT INTO notifications (id, user_id, agent_id, type, title, content, '
+                    'read, created_at) VALUES (?,?,?,?,?,?,0,?)',
+                    ('notif_' + uuid.uuid4().hex[:12], uid, aid,
+                     'escalation', f'⚠️ 小拓拓展升级 · {today}', esc, now_ms))
         conn.execute(
-            'UPDATE emp_duties SET last_run_at = ?, last_run_summary = ?, updated_at = ? '
-            'WHERE agent_id = ?', (now_ms, summary, now_ms, agent_id))
+            'UPDATE emp_duties SET last_run_at = ?, last_run_summary = ?, zero_streak = ?, '
+            'updated_at = ? WHERE agent_id = ?',
+            (now_ms, summary, new_streak, now_ms, agent_id))
         conn.commit()
     finally:
         conn.close()
+    # 抄送主管的 openclaw 会话投递（旁路）：让她拿到上下文，能在群里 @小拓 追问
+    if supervisor_id:
+        _square_deliver_to_agent(supervisor_id,
+                                 f'【抄送】小拓日报（{today}）：{summary}。'
+                                 f'你是他的主管，详情见系统通知；如需追问可在群聊里 @小拓。')
+
+
+def _square_deliver_to_agent(agent_id, message):
+    """往 agent 的 openclaw 会话投递一条消息（fire-and-forget，失败只记日志）。
+
+    与 xiaotuo_daily 同款 node PATH 修复：launchd 环境没有 node，必须前置探测到的
+    node 目录，否则 CLI 退出码 127（§92.3 教训）。
+    """
+    node_dirs = [p for p in ('/opt/homebrew/bin', '/usr/local/bin')
+                 if (Path(p) / 'node').exists()]
+    env = os.environ.copy()
+    env['PATH'] = ':'.join(node_dirs + [env.get('PATH', '')]).rstrip(':')
+    try:
+        subprocess.Popen(
+            ['openclaw', 'agent', '--agent', agent_id, '--message', message,
+             '--json', '--timeout', '300'],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env)
+        log(f'[SquareReport] 已投递主管会话 {agent_id}')
+    except Exception as e:
+        log(f'[SquareReport] 主管会话投递失败（不阻断）: {e}')
 
 
 def _square_wait_initial_list(page):

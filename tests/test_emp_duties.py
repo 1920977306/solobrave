@@ -248,3 +248,78 @@ def test_ensure_emp_duties_migrates_existing_table(mod):
     mod._ensure_emp_duties()   # 迁移发生在这里
     d = mod._save_duty('emp_mig', {'boundary': '不越界'})
     assert d['boundary'] == '不越界'
+
+
+# ── ②主管协同位（2026-11-10）：supervisor_agent_id ──
+
+def test_supervisor_agent_id_in_prompt(mod):
+    """supervisor_agent_id 落 prompt：汇报对象段必须含 agent id + 抄送/被@语义。"""
+    duty = dict(XIAOTUO_DUTY, supervisor='Helen', supervisor_agent_id='emp_1780199176680')
+    p = mod.build_duty_system_prompt(duty)
+    assert 'emp_1780199176680' in p
+    assert '日报同时抄送给她' in p
+    assert '被 @ 必须用自己的职能回应' in p
+
+
+def test_supervisor_agent_id_absent_prompt_unchanged(mod):
+    """无 supervisor_agent_id ⇒ 汇报对象段保持原文（向后兼容，无空括号）。"""
+    p = mod.build_duty_system_prompt(dict(XIAOTUO_DUTY))
+    assert 'agent:' not in p
+    assert '【汇报对象】商务主管' in p
+
+
+def test_supervisor_agent_id_roundtrip_and_apply(mod, tmp_path):
+    """supervisor_agent_id 走 _save_duty 白名单 ⇒ SOUL.md 跟着变（职能驱动同款验证）。"""
+    mod._ensure_emp_duties()
+    _mk_agent(mod)
+    ws = tmp_path / 'ws-test-apply'
+    mod._save_duty('emp_test_apply', dict(XIAOTUO_DUTY, supervisor='Helen',
+                                          supervisor_agent_id='emp_1780199176680'))
+    applied = mod._apply_duty_to_agent('emp_test_apply')
+    assert 'emp_1780199176680' in applied['prompt']
+    assert 'emp_1780199176680' in (ws / 'SOUL.md').read_text(encoding='utf-8')
+    # 往返：清空 ⇒ 汇报对象段回退纯文本
+    mod._save_duty('emp_test_apply', {'supervisor_agent_id': ''})
+    applied2 = mod._apply_duty_to_agent('emp_test_apply')
+    assert 'agent:' not in applied2['prompt']
+
+
+def test_reports_query(mod):
+    """名片双向数据源：supervisor_agent_id 反查直接下属。"""
+    mod._ensure_emp_duties()
+    mod._save_duty('emp_sub1', dict(XIAOTUO_DUTY, supervisor_agent_id='emp_boss'))
+    mod._save_duty('emp_sub2', dict(XIAOTUO_DUTY, supervisor_agent_id='emp_boss'))
+    mod._save_duty('emp_other', dict(XIAOTUO_DUTY, supervisor_agent_id='emp_someone_else'))
+    conn = mod._db_conn()
+    rows = conn.execute(
+        'SELECT agent_id FROM emp_duties WHERE supervisor_agent_id = ?',
+        ('emp_boss',)).fetchall()
+    conn.close()
+    assert sorted(r[0] for r in rows) == ['emp_sub1', 'emp_sub2']
+
+
+def test_ensure_emp_duties_migrates_supervisor_cols(mod):
+    """存量表迁移：supervisor_agent_id / zero_streak 列幂等补加。"""
+    mod._ensure_emp_duties()
+    conn = mod._db_conn()
+    conn.execute("INSERT INTO emp_duties (agent_id) VALUES ('emp_mig2')")
+    conn.commit()
+    conn.execute("ALTER TABLE emp_duties RENAME TO emp_duties_old")
+    # 模拟 11-10 早期的库：有 boundary、没有主管列
+    conn.execute('''CREATE TABLE emp_duties (
+        agent_id TEXT PRIMARY KEY, duty_name TEXT DEFAULT '', scope TEXT DEFAULT '',
+        category TEXT DEFAULT '', quota INTEGER DEFAULT 5, goods TEXT DEFAULT '',
+        duty_desc TEXT DEFAULT '[]', supervisor TEXT DEFAULT '', boundary TEXT DEFAULT '',
+        last_run_at INTEGER DEFAULT 0, last_run_summary TEXT DEFAULT '',
+        created_at INTEGER, updated_at INTEGER)''')
+    conn.execute("INSERT INTO emp_duties (agent_id, duty_name, scope, category, quota,"
+                 " goods, duty_desc, supervisor, boundary, last_run_at, last_run_summary,"
+                 " created_at, updated_at) SELECT agent_id, duty_name, scope, category,"
+                 " quota, goods, duty_desc, supervisor, boundary, last_run_at,"
+                 " last_run_summary, created_at, updated_at FROM emp_duties_old")
+    conn.execute("DROP TABLE emp_duties_old")
+    conn.commit()
+    conn.close()
+    mod._ensure_emp_duties()
+    d = mod._load_duty('emp_mig2')
+    assert 'supervisor_agent_id' in d and 'zero_streak' in d

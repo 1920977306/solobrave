@@ -10242,37 +10242,62 @@ function loadEmpDutyCard(empId) {
   fetch('/api/agents/' + encodeURIComponent(empId) + '/duties', { headers: headers, credentials: 'same-origin' })
     .then(function (r) { return r.json().then(function (b) { return { status: r.status, body: b }; }); })
     .then(function (resp) {
-      if (resp.status !== 200 || !resp.body || !resp.body.duty) return;  // 无职责行 → 保持隐藏
+      if (resp.status !== 200 || !resp.body) return;
       var d = resp.body.duty;
-      if (!d.duty_name && !d.scope) return;
+      var reports = resp.body.reports || [];
+      // 主管可以没有职责行（如 Helen 有自己的人格，不走职责链拼装）——
+      // 只要有直接下属就渲染下属块，别把主管方向的双向卡掉
+      if ((!d || (!d.duty_name && !d.scope)) && !reports.length) return;  // 无职责行且无下属 → 保持隐藏
       // ★ 先 String() 再交给 escapeHtml：quota 是数字，直接传会 TypeError(s.replace is not a function)
       var rawEsc = (typeof escapeHtml === 'function') ? escapeHtml : function (s) { return String(s == null ? '' : s); };
       var esc = function (v) { return rawEsc(String(v == null ? '' : v)); };
       var html = '';
-      html += '<div class="emp-duty-head"><span class="emp-duty-name">' + esc(d.duty_name) + '</span>';
-      if (d.scope) html += '<span class="emp-duty-scope">' + esc(d.scope) + '</span>';
-      html += '</div>';
-      var meta = [];
-      if (d.category) meta.push('扫描类目: ' + esc(d.category));
-      if (d.quota) meta.push('每日深看 ' + esc(d.quota) + ' 个');
-      if (d.supervisor) meta.push('汇报对象: ' + esc(d.supervisor));
-      if (meta.length) html += '<div class="emp-duty-meta">' + meta.join(' · ') + '</div>';
-      var desc = [];
-      try { desc = JSON.parse(d.duty_desc || '[]'); } catch (e) { desc = []; }
-      if (desc.length) {
-        html += '<ol class="emp-duty-list">';
-        for (var i = 0; i < desc.length; i++) html += '<li>' + esc(desc[i]) + '</li>';
-        html += '</ol>';
+      if (d && (d.duty_name || d.scope)) {
+        html += '<div class="emp-duty-head"><span class="emp-duty-name">' + esc(d.duty_name) + '</span>';
+        if (d.scope) html += '<span class="emp-duty-scope">' + esc(d.scope) + '</span>';
+        html += '</div>';
+        var meta = [];
+        if (d.category) meta.push('扫描类目: ' + esc(d.category));
+        if (d.quota) meta.push('每日深看 ' + esc(d.quota) + ' 个');
+        // ②主管协同位 2026-11-10：汇报对象带 agent id → 可点击跳主管名片
+        if (d.supervisor_agent_id) {
+          meta.push('汇报对象: <a href="javascript:void(0)" class="emp-duty-link" '
+            + 'onclick="openEmpDetail(\'' + esc(d.supervisor_agent_id) + '\')">'
+            + esc(d.supervisor) + '</a>');
+        } else if (d.supervisor) {
+          meta.push('汇报对象: ' + esc(d.supervisor));
+        }
+        if (meta.length) html += '<div class="emp-duty-meta">' + meta.join(' · ') + '</div>';
+        var desc = [];
+        try { desc = JSON.parse(d.duty_desc || '[]'); } catch (e) { desc = []; }
+        if (desc.length) {
+          html += '<ol class="emp-duty-list">';
+          for (var i = 0; i < desc.length; i++) html += '<li>' + esc(desc[i]) + '</li>';
+          html += '</ol>';
+        }
+        html += '<div class="emp-duty-recent">';
+        if (d.last_run_at) {
+          var t = new Date(Number(d.last_run_at));
+          var tstr = isNaN(t.getTime()) ? '' : t.toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+          html += '<span class="emp-duty-recent-time">' + esc(tstr) + '</span>' + esc(d.last_run_summary || '已运行');
+        } else {
+          html += '<span class="emp-duty-recent-time">近期动态</span>还没有运行记录——等每日调度首跑';
+        }
+        html += '</div>';
       }
-      html += '<div class="emp-duty-recent">';
-      if (d.last_run_at) {
-        var t = new Date(Number(d.last_run_at));
-        var tstr = isNaN(t.getTime()) ? '' : t.toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-        html += '<span class="emp-duty-recent-time">' + esc(tstr) + '</span>' + esc(d.last_run_summary || '已运行');
-      } else {
-        html += '<span class="emp-duty-recent-time">近期动态</span>还没有运行记录——等每日调度首跑';
+      // ②主管协同位 2026-11-10：直接下属（reports 反查），点击跳下属名片；主管无职责行也渲染
+      if (reports.length) {
+        html += '<div class="emp-duty-reports"><span class="emp-duty-reports-label">直接下属 '
+          + reports.length + ' 人:</span> ';
+        var parts = [];
+        for (var ri = 0; ri < reports.length; ri++) {
+          var rn = reports[ri].duty_name || reports[ri].agent_id;
+          parts.push('<a href="javascript:void(0)" class="emp-duty-link" '
+            + 'onclick="openEmpDetail(\'' + esc(reports[ri].agent_id) + '\')">'
+            + esc(rn) + '</a>');
+        }
+        html += parts.join('、') + '</div>';
       }
-      html += '</div>';
       card.innerHTML = html;
       card.style.display = '';
     })

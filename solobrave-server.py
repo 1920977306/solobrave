@@ -2124,17 +2124,23 @@ def _ensure_emp_duties():
             quota INTEGER DEFAULT 5,          -- 每日深看配额（硬顶 5）
             goods TEXT DEFAULT '',            -- 商品盘描述
             duty_desc TEXT DEFAULT '[]',      -- 职责清单 JSON 数组
-            supervisor TEXT DEFAULT '',       -- 汇报对象（名片展示）
+            supervisor TEXT DEFAULT '',       -- 汇报对象（名片展示，人读名）
+            supervisor_agent_id TEXT DEFAULT '',  -- 汇报对象 agent id（②主管协同位 2026-11-10：日报双投递/升级通知的寻址）
             boundary TEXT DEFAULT '',         -- 不做什么（边界，防越界；修订1 2026-11-10）
+            zero_streak INTEGER DEFAULT 0,    -- 「值得联系=0」连续天数（≥2 触发升级通知主管）
             last_run_at INTEGER DEFAULT 0,    -- 最近一次日跑时间（名片「近期动态」）
             last_run_summary TEXT DEFAULT '', -- 最近一次日跑摘要
             created_at INTEGER,
             updated_at INTEGER
         )''')
-        # 存量迁移：boundary 列幂等补加（CREATE TABLE IF NOT EXISTS 不会给已存在的表加列）
+        # 存量迁移：新列幂等补加（CREATE TABLE IF NOT EXISTS 不会给已存在的表加列）
         cols = [r[1] for r in conn.execute('PRAGMA table_info(emp_duties)')]
         if 'boundary' not in cols:
             conn.execute("ALTER TABLE emp_duties ADD COLUMN boundary TEXT DEFAULT ''")
+        if 'supervisor_agent_id' not in cols:
+            conn.execute("ALTER TABLE emp_duties ADD COLUMN supervisor_agent_id TEXT DEFAULT ''")
+        if 'zero_streak' not in cols:
+            conn.execute("ALTER TABLE emp_duties ADD COLUMN zero_streak INTEGER DEFAULT 0")
         conn.commit()
     finally:
         conn.close()
@@ -2153,8 +2159,8 @@ def _load_duty(agent_id):
 def _save_duty(agent_id, fields):
     """upsert 职责字段（白名单），quota 硬顶 5。返回完整职责行。"""
     allowed = ['duty_name', 'scope', 'category', 'quota', 'goods',
-               'duty_desc', 'supervisor', 'boundary',
-               'last_run_at', 'last_run_summary']
+               'duty_desc', 'supervisor', 'supervisor_agent_id', 'boundary',
+               'zero_streak', 'last_run_at', 'last_run_summary']
     now = int(time.time() * 1000)
     sets, vals = [], []
     for k in allowed:
@@ -2222,8 +2228,12 @@ def build_duty_system_prompt(duty):
         "按抖音号去重，缺一不入库）；不给：删改权限、其他类目工具。\n"
         + (f"【边界】你不负责：{duty.get('boundary')}——这些有别人做，不要越界代劳。\n"
            if (duty.get('boundary') or '').strip() else '')
-        + f"【汇报对象】{duty.get('supervisor') or '商务主管'}\n"
-        f"【职责清单】\n{desc_txt}"
+        + (f"【汇报对象】{duty.get('supervisor') or '商务主管'}"
+           f"（agent: {duty.get('supervisor_agent_id')}）。"
+           "日报同时抄送给她；她可以在群里 @ 你派活或追问，被 @ 必须用自己的职能回应。\n"
+           if (duty.get('supervisor_agent_id') or '').strip()
+           else f"【汇报对象】{duty.get('supervisor') or '商务主管'}\n")
+        + f"【职责清单】\n{desc_txt}"
     )
 
 
@@ -4869,7 +4879,9 @@ def init_db():
             goods TEXT DEFAULT '',
             duty_desc TEXT DEFAULT '[]',
             supervisor TEXT DEFAULT '',
+            supervisor_agent_id TEXT DEFAULT '',
             boundary TEXT DEFAULT '',
+            zero_streak INTEGER DEFAULT 0,
             last_run_at INTEGER DEFAULT 0,
             last_run_summary TEXT DEFAULT '',
             created_at INTEGER,
@@ -14416,9 +14428,23 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 return
             _ensure_emp_duties()
             duty = _load_duty(agent_id)
+            # ②名片双向：直接下属 = 以本 agent 为 supervisor_agent_id 的职责行
+            reports = []
+            try:
+                conn = _db_conn()
+                try:
+                    rows = conn.execute(
+                        'SELECT agent_id, duty_name, scope FROM emp_duties '
+                        'WHERE supervisor_agent_id = ?', (agent_id,)).fetchall()
+                    reports = [dict(r) for r in rows]
+                finally:
+                    conn.close()
+            except Exception:
+                reports = []
             self._send_json(200, {
                 'duty': duty,
                 'prompt': build_duty_system_prompt(duty) if duty else '',
+                'reports': reports,
             })
         except Exception as e:
             logger.error(f'  [GET duties] ERROR: {e}')
