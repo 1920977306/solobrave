@@ -11,7 +11,7 @@ buyin_worker.py — 巨量百应自动采集 worker（系统 AI 的"手"）
 HTTP API，复用去重/归属逻辑）→ 回写队列 done/failed。
 
 运行：/Users/qichen/Library/Application\ Support/kimi-desktop/daimon-share/daimon/runtime/python/bin/python3 buyin_worker.py
-控制口：http://127.0.0.1:8095  (/health /open /collect /jobs/<id> /shots/)
+控制口：http://127.0.0.1:8095  (/health /open /collect /jobs/<id> /shots/ /square-scan)
 """
 
 import json
@@ -26,7 +26,9 @@ import time
 import traceback
 import urllib.request
 import urllib.error
+import uuid
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -3239,6 +3241,8 @@ def _browser_loop():
                 _run_daren_product_impl(row)
             elif row.get('_daren_api'):
                 _run_daren_api_impl(row)
+            elif row.get('_square_scan'):
+                _run_square_scan_impl(row)
             else:
                 _run_collect_impl(row)
         except BrowserLoopPoisoned:
@@ -3329,6 +3333,325 @@ def _run_product_url_impl(row):
     except Exception as e:
         err = f'{type(e).__name__}: {e}'
         log(f'[ProductURL] {cid} 失败: {err}\n{traceback.format_exc()[:1200]}')
+        try:
+            if BROWSER.page:
+                _dump_page(BROWSER.page, 'fatal', cid)
+        except Exception:
+            pass
+        _job_set(cid, status='failed', error=err)
+
+
+# ───────────────── 达人广场扫描 square_scan（AI 员工「抓达人」的手） ─────────────────
+# 接口地图 + 风控实测：/Users/qichen/sb-dev/talent-square-probe/FINDINGS.md
+# 2026-11-10 有头实测：search_feed_author code=0（headless 克隆 profile 才回 10001010A）。
+# ★ 铁律（硬编码在工具层，不靠 prompt）：
+#   1. 只丢不造：平台没给的字段留空/0，绝不编造粉丝画像
+#   2. 遇 10001010A / 验证码 / 滑块 → 立即停手 + 记录 + 通知管理员，绝不重试
+#   3. quota 硬顶 5（传 50 也只执行 5）；条间动作间隔 30-120s 随机；工作时段 9:00-21:00
+#   4. a_bogus 为签名参数，无法手工构造请求 → 必须走页面真实交互（goto/点类目）截响应
+SQUARE_QUOTA_HARD_CAP = 5
+SQUARE_RISK_CODE = '10001010A'
+SQUARE_WORK_HOUR_START, SQUARE_WORK_HOUR_END = 9, 21
+SQUARE_ADMIN_USER = 'user_7acb72ff'   # 管理员（风控告警通知对象）
+
+
+class SquareRiskBlocked(Exception):
+    """达人广场风控拦截信号（10001010A / 验证码 / 滑块）——铁律：立即停手，绝不重试。"""
+
+
+def _square_quota(value):
+    """quota 硬顶 5：任何入参（含 50/负数/非数字）都被压到 [1, 5]。"""
+    try:
+        q = int(value)
+    except (TypeError, ValueError):
+        q = SQUARE_QUOTA_HARD_CAP
+    return max(1, min(q, SQUARE_QUOTA_HARD_CAP))
+
+
+def _square_work_hours_ok(now=None):
+    """工作时段闸（真人化节奏铁律）：默认本地时间 9:00-21:00。"""
+    h = (now or datetime.now()).hour
+    return SQUARE_WORK_HOUR_START <= h < SQUARE_WORK_HOUR_END
+
+
+def _square_assert_not_risk(payload):
+    """响应体风控断言：code=10001010A 或 msg 含「风险」→ 抛 SquareRiskBlocked。"""
+    code = str((payload or {}).get('code') or '')
+    msg = str((payload or {}).get('msg') or '')
+    if code == SQUARE_RISK_CODE or '风险' in msg:
+        raise SquareRiskBlocked(f'code={code} msg={msg}')
+
+
+def _square_risk_dom(page):
+    """页面 DOM 风控检查：验证码容器 / 滑块 / 风险文案可见 → True。"""
+    for sel in ('#captcha_container', '[id*="secsdk"]', '[class*="captcha"]',
+                'text=当前环境存在风险', 'text=请完成安全验证', 'text=拖动滑块'):
+        try:
+            if page.locator(sel).first.is_visible(timeout=1500):
+                return True
+        except Exception:
+            continue
+    return False
+
+
+def _square_scan_author_to_fields(a):
+    """search_feed_author 列表元素 → 达人库字段映射。
+
+    ★ 断言样本来自 2026-11-10 真机响应（square-api-dump-headed.json，详见 tests）。
+    金额口径：平台原始值为「分」（sale_d30_low=2500000 对应 1.1万粉直播达人
+    月结算 ¥1万-2.5万，量级自洽；若为元则 250万-500万/月明显荒谬）。
+    只丢不造：平台没给的字段留空/0。
+    """
+    base = a.get('author_base') or {}
+    tag = a.get('author_tag') or {}
+    sale = a.get('author_sale') or {}
+    contact = a.get('author_contact') or {}
+    live = a.get('author_live') or {}
+    video = a.get('author_video') or {}
+    main_cate = [str(c) for c in (tag.get('main_cate') or [])]
+    has_contact = any(contact.get(k) for k in ('phone', 'wechat', 'lark', 'douyin'))
+    yuan = lambda v: (int(v or 0)) / 100.0
+    remark = {
+        'main_sale_type': sale.get('main_sale_type') or '',
+        'sale_d30': [yuan(sale.get('sale_d30_low')), yuan(sale.get('sale_d30_high'))],
+        'live_settle_30d': [yuan(live.get('sale_low_settle')),
+                            yuan(live.get('sale_high_settle'))],
+        'video_settle_30d': [yuan(video.get('video_sale_low_settle')),
+                             yuan(video.get('video_sale_high_settle'))],
+        'live_sessions_30d': live.get('all_live_num_30d') or 0,
+        'author_level': base.get('author_level') or 0,
+        'high_response_rate': tag.get('high_response_rate') or '',
+        'contact_icon': tag.get('contact_icon') or '',
+        'author_rec_reasons': tag.get('author_rec_reasons') or [],
+    }
+    return {
+        'name': base.get('nickname') or '',
+        'avatar': base.get('avatar') or '',
+        'douyin_id': base.get('aweme_id') or '',      # 抖音号（去重键）
+        'douyin_uid': base.get('uid') or '',
+        'city': base.get('city') or '',
+        'level': str(base.get('author_level') or ''),
+        'followers': int(base.get('fans_num') or 0),
+        'tags': json.dumps(main_cate, ensure_ascii=False),
+        'category': '/'.join(main_cate[:3]),
+        'contact_wechat': contact.get('wechat') or '',
+        'contact_phone': contact.get('phone') or '',
+        'remark': json.dumps(remark, ensure_ascii=False),
+        'settle_d30_low': yuan(sale.get('sale_d30_low_settle')),
+        'settle_d30_high': yuan(sale.get('sale_d30_high_settle')),
+        'contact_available': bool(has_contact),
+        'main_cate': main_cate,
+    }
+
+
+def _square_pick_by_category(authors, category, quota):
+    """客户端兜底筛选：UI 类目点选未生效时，从平台已给的 main_cate 里挑匹配的。
+    （数据是平台给的，不是编造；仅作为服务端筛选未生效时的降级，结果里如实标注。）"""
+    picked = [a for a in authors
+              if category in ((_square_scan_author_to_fields(a).get('main_cate')) or [])]
+    return picked[:quota]
+
+
+def _square_talent_exists(douyin_id):
+    conn = sqlite3.connect(str(DB_PATH), timeout=10)
+    try:
+        row = conn.execute('SELECT 1 FROM talents WHERE douyin_id = ? LIMIT 1',
+                           (douyin_id,)).fetchone()
+        return row is not None
+    finally:
+        conn.close()
+
+
+def _square_insert_talent(f, source):
+    """新达人入库（created_by = square_scan_<日期>，按抖音号去重由调用方先行）。"""
+    tid = 'tal_sq_' + uuid.uuid4().hex[:10]
+    now = int(time.time() * 1000)
+    conn = sqlite3.connect(str(DB_PATH), timeout=10)
+    try:
+        conn.execute(
+            'INSERT INTO talents (id, name, avatar, douyin_id, douyin_uid, city, level, '
+            'followers, tags, category, contact_wechat, contact_phone, remark, '
+            'created_by, platform, status, cooperation_status, created_at, updated_at) '
+            'VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+            (tid, f['name'], f['avatar'], f['douyin_id'], f['douyin_uid'], f['city'],
+             f['level'], f['followers'], f['tags'], f['category'],
+             f['contact_wechat'], f['contact_phone'], f['remark'],
+             source, '抖音', 'active', 'available', now, now))
+        conn.commit()
+    finally:
+        conn.close()
+    return tid
+
+
+def _square_notify_admin(title, content):
+    """风控告警 → notifications 表（管理员），失败只记日志不阻塞主流程。"""
+    try:
+        conn = sqlite3.connect(str(DB_PATH), timeout=10)
+        try:
+            conn.execute(
+                'INSERT INTO notifications (id, user_id, agent_id, type, title, content, '
+                'read, created_at) VALUES (?,?,?,?,?,?,0,?)',
+                ('notif_' + uuid.uuid4().hex[:12], SQUARE_ADMIN_USER, '',
+                 'task_reminder', title, content, int(time.time() * 1000)))
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception as e:
+        log(f'[SquareScan] 告警通知写入失败（不阻塞主流程）: {e}')
+
+
+def _square_wait_initial_list(page):
+    """进达人广场，等页面自己发出 search_feed_author 响应（带 a_bogus 签名）。
+    正常 goto 即触发；SPA 停在同路由 goto 不重发时，降级 reload 再触发一次。"""
+    try:
+        with page.expect_response(lambda r: 'search_feed_author' in r.url,
+                                  timeout=90000) as ri:
+            page.goto(BUYIN_SQUARE, timeout=90000)
+        return ri.value
+    except Exception:
+        with page.expect_response(lambda r: 'search_feed_author' in r.url,
+                                  timeout=90000) as ri:
+            page.reload()
+        return ri.value
+
+
+def _square_select_category(page, category):
+    """UI 点选主推类目，等新的 search_feed_author 响应。
+    点选失败/未触发新列表 → 返回 None（调用方降级为客户端 main_cate 筛选）。"""
+    try:
+        page.mouse.move(800, 400)
+        _human_sleep(1, 2)
+        page.locator('text=' + category).first.click(timeout=5000)
+        _human_sleep(1.5, 2.5)
+    except Exception as e:
+        log(f'[SquareScan] 类目「{category}」点选失败: {str(e)[:120]}')
+        return None
+    try:
+        with page.expect_response(lambda r: 'search_feed_author' in r.url,
+                                  timeout=30000) as ri:
+            pass
+        return ri.value
+    except Exception:
+        return None
+
+
+def _run_square_scan_impl(row):
+    """达人广场扫描（团长端有头浏览器串行队列，与其它任务互斥共用）。
+
+    契约：square_scan(category, quota=5) → 达人原始数据列表
+    row = {'id', 'category': 主推类目名（空=全部）, 'quota': int}
+    result = {category, quota, scanned, inserted, duplicates, skipped, source, items}
+    items[] = {达人ID, 抖音号, 昵称, 粉丝指数, 30天结算额, 联系方式可得性, 主推类目, 入库}
+    """
+    cid = row['id']
+    category = (row.get('category') or '').strip()
+    quota = _square_quota(row.get('quota'))
+    _job_set(cid, status='collecting', stage='检查工作时段', started=time.time())
+    if not _square_work_hours_ok():
+        err = (f'达人广场扫描仅在工作时段 {SQUARE_WORK_HOUR_START}:00-'
+               f'{SQUARE_WORK_HOUR_END}:00 执行（真人化节奏铁律）')
+        log(f'[SquareScan] {cid} 拒绝：{err}')
+        _job_set(cid, status='refused', error=err)
+        return
+    log(f'[SquareScan] {cid} 开始：category={category or "全部"} quota={quota}')
+    try:
+        page = _switch_to(BROWSER, DAREN_BROWSER)
+        _job_set(cid, stage='打开达人广场')
+        resp = _square_wait_initial_list(page)
+        page.wait_for_load_state('domcontentloaded')
+        _human_sleep(4, 7)
+        _check_login_state(page)
+        if _square_risk_dom(page):
+            raise SquareRiskBlocked('页面出现验证码/滑块')
+
+        _job_set(cid, stage='解析列表')
+        payload = resp.json()
+        _square_assert_not_risk(payload)
+        authors = ((payload.get('data') or {}).get('list')) or []
+        client_side_filter = False
+
+        if category:
+            _job_set(cid, stage=f'筛选类目「{category}」')
+            _human_sleep(2, 4)
+            resp2 = _square_select_category(page, category)
+            if resp2 is not None:
+                payload2 = resp2.json()
+                _square_assert_not_risk(payload2)
+                lst2 = ((payload2.get('data') or {}).get('list')) or []
+                if lst2:
+                    authors = lst2
+                    _job_set(cid, stage=f'已按「{category}」过滤，本页 {len(authors)} 条')
+                else:
+                    log(f'[SquareScan] {cid} 类目过滤后列表为空，尝试客户端 main_cate 筛选')
+                    picked0 = _square_pick_by_category(authors, category, quota)
+                    if picked0:
+                        authors, client_side_filter = picked0, True
+            else:
+                log(f'[SquareScan] {cid} 类目「{category}」未触发新列表，客户端 main_cate 筛选兜底')
+                picked0 = _square_pick_by_category(authors, category, quota)
+                if picked0:
+                    authors, client_side_filter = picked0, True
+
+        picked = authors[:quota]
+        source = 'square_scan_' + datetime.now().strftime('%Y%m%d')
+        items, inserted, dups, skipped = [], 0, 0, 0
+        _job_set(cid, stage='逐条查重入库')
+        for i, a in enumerate(picked):
+            f = _square_scan_author_to_fields(a)
+            item = {
+                '达人ID': f['douyin_uid'] or str(
+                    (a.get('author_base') or {}).get('author_id') or ''),
+                '抖音号': f['douyin_id'],
+                '昵称': f['name'],
+                '粉丝指数': f['followers'],
+                '30天结算额': [f['settle_d30_low'], f['settle_d30_high']],
+                '联系方式可得性': '有' if f['contact_available'] else '未披露',
+                '主推类目': f['main_cate'],
+            }
+            if not f['douyin_id']:
+                skipped += 1
+                item['入库'] = 'skipped（平台未给抖音号，缺一不入库）'
+            elif _square_talent_exists(f['douyin_id']):
+                dups += 1
+                item['入库'] = 'duplicate（达人库已存在）'
+            else:
+                tid = _square_insert_talent(f, source)
+                inserted += 1
+                item['入库'] = f'inserted（{tid}）'
+            items.append(item)
+            if i < len(picked) - 1:
+                _human_sleep(30, 120)   # ★ 真人化节奏：条间 30-120s 随机
+
+        result = {'category': category or '全部', 'quota': quota,
+                  'scanned': len(picked), 'inserted': inserted,
+                  'duplicates': dups, 'skipped': skipped, 'source': source,
+                  'client_side_filter': client_side_filter, 'items': items}
+        _job_set(cid, status='done', stage='完成',
+                 result=json.dumps(result, ensure_ascii=False))
+        log(f'[SquareScan] {cid} 完成：深看 {result["scanned"]} / 新入库 {inserted} '
+            f'/ 重复 {dups} / 跳过 {skipped}')
+    except SquareRiskBlocked as e:
+        err = f'达人广场风控拦截：{e}（铁律：立即停手，绝不重试）'
+        log(f'[SquareScan] {cid} ★ 风控停手：{err}')
+        try:
+            if BROWSER.page:
+                _dump_page(BROWSER.page, 'square_risk', cid)
+        except Exception:
+            pass
+        _square_notify_admin(
+            '达人广场风控告警',
+            f'square_scan {cid} 触发风控（{e}），已立即停手。请勿重试，'
+            f'等待环境冷却并人工检查。时间 {datetime.now():%Y-%m-%d %H:%M}')
+        _job_set(cid, status='blocked_risk', error=err)
+    except NeedLogin as e:
+        err = f'团长端登录态缺失: {e}'
+        log(f'[SquareScan] {cid} {err}')
+        _job_set(cid, status='need_login', error=err)
+    except BrowserLoopPoisoned:
+        raise
+    except Exception as e:
+        err = f'{type(e).__name__}: {e}'
+        log(f'[SquareScan] {cid} 失败: {err}\n{traceback.format_exc()[:1200]}')
         try:
             if BROWSER.page:
                 _dump_page(BROWSER.page, 'fatal', cid)
@@ -4449,6 +4772,21 @@ class ControlHandler(BaseHTTPRequestHandler):
                 conn.close()
             submit_collect({'id': cid, 'name': name, 'douyin_id': douyin_id})
             self._json(200, {'ok': True, 'collect_id': cid})
+            return
+        if self.path == '/square-scan':
+            # 达人广场扫描：{category?: 主推类目名, quota?: ≤5} → 团长端有头浏览器
+            # 真人化节奏执行（条间 30-120s、工作时段 9-21），结果 GET /jobs/<id>
+            category = str(body.get('category') or '').strip()
+            quota = _square_quota(body.get('quota'))
+            if not _square_work_hours_ok():
+                self._json(200, {'ok': False, 'status': 'refused',
+                                 'error': (f'工作时段外（铁律 {SQUARE_WORK_HOUR_START}:00-'
+                                           f'{SQUARE_WORK_HOUR_END}:00），本次未执行')})
+                return
+            cid = f"ssq_{int(time.time()*1000)}_{secrets.token_hex(3)}"
+            submit_collect({'_square_scan': True, 'id': cid,
+                            'category': category, 'quota': quota})
+            self._json(200, {'ok': True, 'collect_id': cid, 'quota': quota})
             return
         if self.path == '/teardown':
             # 视频拆解：{talent_id?|name?, douyin_id?, top_n?} → 建 job 入队，worker 逐条抓+分析

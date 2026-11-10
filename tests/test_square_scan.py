@@ -1,0 +1,226 @@
+# -*- coding: utf-8 -*-
+"""square_scan 工具守卫（2026-11-10，B 简报）。
+
+铁律测试矩阵：
+1. quota 硬顶 5（传 50 也只执行 5）
+2. 工作时段闸 9:00-21:00
+3. 字段映射——断言样本逐字来自 2026-11-10 真机响应
+   （团长端有头浏览器实测 search_feed_author code=0，
+     dump 于 /Users/qichen/Documents/kimi/tasks/2026-09-30/15-47-22-6b6fc1a8/square-api-dump-headed.json）
+4. 风控断言：10001010A → SquareRiskBlocked（负向对照：code=0 放行）
+5. 抖音号查重 + 入库 created_by=square_scan_<日期>（tmp sqlite，不碰真库）
+6. 客户端类目兜底筛选
+"""
+import json
+import sqlite3
+from datetime import datetime
+from pathlib import Path
+
+import pytest
+
+import buyin_worker as bw
+
+# ── 真机样本（2026-11-10 有头实测第 1 位达人；长 URL 已截断，结构/数值逐字保留） ──
+REAL_AUTHOR = {
+    "author_base": {
+        "uid": "v2_0a2c0c691a204aa14b7acf3785ea2bed3c815",
+        "author_id": 0,
+        "nickname": "幸运佳",
+        "avatar": "https://p26-sign.douyinpic.com/aweme/200x200/aweme-avatar/to",
+        "fans_num": 11101,
+        "gender": 1,
+        "city": "河南·洛阳",
+        "author_level": 4,
+        "avatar_big": "",
+        "aweme_id": "LOVE.yifeifei",
+    },
+    "author_tag": {
+        "main_cate": ["3C数码家电", "智能家居", "个护家清"],
+        "dark_horse": "",
+        "contact_icon": "达人自主披露联系方式，你可点击小眼睛进行查看",
+        "high_reply": "",
+        "invitation_status": 0,
+        "invite_status": 0,
+        "satisfy_requirement": 2,
+        "already_cooperated": False,
+        "is_star": False,
+        "high_response_rate": "回复率高",
+        "is_open_invoice": False,
+        "author_rec_reasons": [
+            {"tag_type": 1016, "reason": "潜力合作", "extra": "",
+             "extra_map": {"category": "green", "tips": "稳定"}},
+            {"tag_type": 1014, "reason": "结算率高", "extra": "",
+             "extra_map": {"category": "strong", "tips": "高于平均"}},
+            {"tag_type": 1006, "reason": "有联系方式", "extra": "",
+             "extra_map": {"category": "strong", "tips": "自主披露"}},
+        ],
+        "high_settlement_rate": "结算率高",
+        "cooperation_level": "潜力合作",
+    },
+    "author_contact": {"phone": "", "wechat": "", "lark": "", "douyin": ""},
+    "author_live": {
+        "watching_number": 13415, "sale_status": 0, "sale_low": 50000,
+        "sale_high": 100000, "GPM_status": 0, "GPM_low": 1000, "GPM_high": 0,
+        "watching_times": 587627, "all_live_num_30d": 33,
+        "sale_status_settle": 0, "sale_low_settle": 50000,
+        "sale_high_settle": 100000, "gpm_status_settle": 0,
+        "gpm_low_settle": 1000, "gpm_high_settle": 0,
+    },
+    "author_video": {
+        "play_median": 0, "GPM_status": 2, "GPM_low": 0, "GPM_high": 0,
+        "video_sale_status": 0, "video_sale_low": 0, "video_sale_high": 250,
+        "watching_times": 0, "all_video_num_30d": 0, "gpm_status_settle": 2,
+        "gpm_low_settle": 0, "gpm_high_settle": 0,
+        "video_sale_status_settle": 0, "video_sale_low_settle": 0,
+        "video_sale_high_settle": 250,
+    },
+    "author_conf": {"sale_requirement": {"type": 1, "value": "15%", "price_type": 1}},
+    "author_score": {
+        "expr_score": {"score": 0, "level": "", "percentage": 0},
+        "product_score": {"score": 0, "level": "", "percentage": 0},
+        "logistics_score": {"score": 0, "level": "", "percentage": 0},
+        "service_score": {"score": 0, "level": "", "percentage": 0},
+    },
+    "author_sale": {
+        "sale_status": 0, "sale_d30_low": 2500000, "sale_d30_high": 5000000,
+        "main_sale_type": "直播为主", "promotion_num": 0,
+        "cooperate_content_num": 0, "cooperate_product_num": 0,
+        "sale_status_settle": 0, "sale_d30_low_settle": 1000000,
+        "sale_d30_high_settle": 2500000,
+    },
+    "sale_info": {
+        "total_sales": {"sale_status": 0, "sale_value": 0,
+                        "sale_low": 2500000, "sale_high": 5000000},
+        "live_total_sales": {"sale_status": 0, "sale_value": 0,
+                             "sale_low": 2500000, "sale_high": 5000000},
+        "video_total_sales": {"sale_status": 0, "sale_value": 0,
+                              "sale_low": 250, "sale_high": 500},
+        "image_text_total_sales": {"sale_status": 0, "sale_value": 0,
+                                   "sale_low": 0, "sale_high": 250},
+        "window_total_sales": {"sale_status": 0, "sale_value": 0,
+                               "sale_low": 25000, "sale_high": 50000},
+        "total_sales_settle": {"sale_status": 0, "sale_value": 0,
+                               "sale_low": 1000000, "sale_high": 2500000},
+        "live_total_sales_settle": {"sale_status": 0, "sale_value": 0,
+                                    "sale_low": 1000000, "sale_high": 2500000},
+        "video_total_sales_settle": {"sale_status": 0, "sale_value": 0,
+                                     "sale_low": 0, "sale_high": 250},
+        "image_text_total_sales_settle": {"sale_status": 0, "sale_value": 0,
+                                          "sale_low": 0, "sale_high": 250},
+        "window_total_sales_settle": {"sale_status": 0, "sale_value": 0,
+                                      "sale_low": 25000, "sale_high": 50000},
+    },
+    "author_image_text": {
+        "image_text_num": 0, "watching_times": 0, "GPM_status": 2,
+        "GPM_low": 0, "GPM_high": 0, "sale_low": 0, "sale_high": 250,
+        "all_image_text_num_30d": 0, "sale_status": 0,
+        "gpm_status_settle": 2, "gpm_low_settle": 0, "gpm_high_settle": 0,
+        "sale_status_settle": 0, "sale_low_settle": 0, "sale_high_settle": 250,
+    },
+    "author_window": {"product_num": 181, "order_low": 500,
+                      "order_high": 1000, "status": 0},
+    "author_crm": {"is_join": False},
+}
+
+# 风控响应样本：FINDINGS.md 实锤（headless 克隆 profile 场景），逐字引用
+RISK_PAYLOAD = {"code": "10001010A", "msg": "当前环境存在风险，请稍后重试"}
+
+
+def test_quota_hard_cap():
+    assert bw._square_quota(50) == 5, '传 50 也必须只执行 5（铁律）'
+    assert bw._square_quota(5) == 5
+    assert bw._square_quota(3) == 3
+    assert bw._square_quota(0) == 1, '0 压到 1'
+    assert bw._square_quota(-3) == 1, '负数压到 1'
+    assert bw._square_quota('abc') == 5, '非数字回退默认 5'
+    assert bw._square_quota(None) == 5
+
+
+def test_work_hours_gate():
+    assert not bw._square_work_hours_ok(datetime(2026, 11, 10, 8, 59))
+    assert bw._square_work_hours_ok(datetime(2026, 11, 10, 9, 0))
+    assert bw._square_work_hours_ok(datetime(2026, 11, 10, 12, 0))
+    assert bw._square_work_hours_ok(datetime(2026, 11, 10, 20, 59))
+    assert not bw._square_work_hours_ok(datetime(2026, 11, 10, 21, 0))
+
+
+def test_author_fields_mapping_real_sample():
+    f = bw._square_scan_author_to_fields(REAL_AUTHOR)
+    assert f['douyin_id'] == 'LOVE.yifeifei', '抖音号 = aweme_id（去重键）'
+    assert f['douyin_uid'].startswith('v2_'), '达人ID = uid'
+    assert f['name'] == '幸运佳'
+    assert f['followers'] == 11101
+    # 分 → 元：结算 1_000_000 分 = ¥10,000 / 2_500_000 分 = ¥25,000
+    assert f['settle_d30_low'] == 10000.0
+    assert f['settle_d30_high'] == 25000.0
+    assert f['contact_available'] is False, '联系方式全空 → 未披露'
+    assert f['main_cate'] == ['3C数码家电', '智能家居', '个护家清']
+    assert f['category'] == '3C数码家电/智能家居/个护家清'
+    assert f['city'] == '河南·洛阳'
+    assert f['level'] == '4'
+    remark = json.loads(f['remark'])
+    assert remark['main_sale_type'] == '直播为主'
+    assert remark['live_sessions_30d'] == 33
+    # 只丢不造：平台没给的字段不编造
+    assert f['contact_wechat'] == ''
+
+
+def test_author_fields_contact_present():
+    a = json.loads(json.dumps(REAL_AUTHOR))
+    a['author_contact'] = {'phone': '', 'wechat': 'wx123', 'lark': '', 'douyin': ''}
+    f = bw._square_scan_author_to_fields(a)
+    assert f['contact_available'] is True
+    assert f['contact_wechat'] == 'wx123'
+
+
+def test_risk_assert_blocks_10001010A():
+    with pytest.raises(bw.SquareRiskBlocked):
+        bw._square_assert_not_risk(RISK_PAYLOAD)
+    # 负向对照：正常响应必须放行（探针能红的另一半）
+    bw._square_assert_not_risk({'code': 0, 'msg': '', 'data': {'list': []}})
+
+
+def test_risk_assert_blocks_risk_msg_variants():
+    with pytest.raises(bw.SquareRiskBlocked):
+        bw._square_assert_not_risk({'code': 0, 'msg': '操作存在风险，请稍后再试'})
+
+
+def _tmp_talents_db(tmp_path, monkeypatch):
+    db = tmp_path / 'test.db'
+    conn = sqlite3.connect(str(db))
+    conn.execute('''CREATE TABLE talents (
+        id TEXT PRIMARY KEY, name TEXT, avatar TEXT, douyin_id TEXT,
+        douyin_uid TEXT, city TEXT, level TEXT, followers INTEGER,
+        tags TEXT, category TEXT, contact_wechat TEXT, contact_phone TEXT,
+        remark TEXT, created_by TEXT, platform TEXT, status TEXT,
+        cooperation_status TEXT, created_at INTEGER, updated_at INTEGER)''')
+    conn.commit()
+    conn.close()
+    monkeypatch.setattr(bw, 'DB_PATH', db)
+    return db
+
+
+def test_insert_and_dedupe_by_douyin_id(tmp_path, monkeypatch):
+    _tmp_talents_db(tmp_path, monkeypatch)
+    f = bw._square_scan_author_to_fields(REAL_AUTHOR)
+    assert bw._square_talent_exists('LOVE.yifeifei') is False
+    tid = bw._square_insert_talent(f, 'square_scan_20261110')
+    assert tid.startswith('tal_sq_')
+    assert bw._square_talent_exists('LOVE.yifeifei') is True, '入库后查重必须命中'
+    # 负向对照：不同抖音号不能误命中
+    assert bw._square_talent_exists('OTHER.id') is False
+    conn = sqlite3.connect(str(bw.DB_PATH))
+    row = conn.execute('SELECT created_by, platform, status FROM talents '
+                       'WHERE id = ?', (tid,)).fetchone()
+    conn.close()
+    assert row[0] == 'square_scan_20261110', 'source 标记 = square_scan_<日期>'
+    assert row[1] == '抖音' and row[2] == 'active'
+
+
+def test_pick_by_category_fallback():
+    a_shoe = json.loads(json.dumps(REAL_AUTHOR))
+    a_shoe['author_tag']['main_cate'] = ['鞋靴箱包', '服饰内衣']
+    picked = bw._square_pick_by_category([REAL_AUTHOR, a_shoe], '鞋靴箱包', 5)
+    assert len(picked) == 1 and picked[0] is a_shoe
+    # 类目不匹配 → 空（不编造数据）
+    assert bw._square_pick_by_category([REAL_AUTHOR], '鞋靴箱包', 5) == []

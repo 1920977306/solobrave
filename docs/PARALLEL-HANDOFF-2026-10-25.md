@@ -10625,3 +10625,12 @@ H5 区块首行正确渲染。**小修**：product_name 里的 markdown `**` 在
   ⇒ 打捞学习价值低，与老大直觉一致；待办正式关闭，无需落库。
 - **唯一新增建议**：测试数据（JavisTest 类）入库前加一道闸——`source_meta` 带
   test 标记的行直接拒收；不急，记入下次知识库迭代。
+
+## §136 square_scan 工具开发占用登记（2026-11-10 12:5x，B 边单人会话代执行）
+
+- **占用文件**：`buyin_worker.py`（新增 `_square_scan` 任务类型 + `/square-scan` 控制口）
+  与 `tests/test_square_scan.py`（新增）。
+- **worktree**：`/Users/qichen/sb-dev/square-scan`（分支 `feat/square-scan`，基点 `origin/dev`=b796505）。
+- **背景**：老大 11-10 12:35 拍板「要不你直接执行吧」——A（小拓职责链）+ B（square_scan 工具）
+  两份简报都由本会话代为执行，不再分发两个对话。
+- **铁律**：prod `/Users/qichen/solobrave-prod` 一字节不改；完成后合并 dev+main，prod 只 git pull。
