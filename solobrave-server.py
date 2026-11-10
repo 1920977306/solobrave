@@ -2125,11 +2125,16 @@ def _ensure_emp_duties():
             goods TEXT DEFAULT '',            -- 商品盘描述
             duty_desc TEXT DEFAULT '[]',      -- 职责清单 JSON 数组
             supervisor TEXT DEFAULT '',       -- 汇报对象（名片展示）
+            boundary TEXT DEFAULT '',         -- 不做什么（边界，防越界；修订1 2026-11-10）
             last_run_at INTEGER DEFAULT 0,    -- 最近一次日跑时间（名片「近期动态」）
             last_run_summary TEXT DEFAULT '', -- 最近一次日跑摘要
             created_at INTEGER,
             updated_at INTEGER
         )''')
+        # 存量迁移：boundary 列幂等补加（CREATE TABLE IF NOT EXISTS 不会给已存在的表加列）
+        cols = [r[1] for r in conn.execute('PRAGMA table_info(emp_duties)')]
+        if 'boundary' not in cols:
+            conn.execute("ALTER TABLE emp_duties ADD COLUMN boundary TEXT DEFAULT ''")
         conn.commit()
     finally:
         conn.close()
@@ -2148,7 +2153,8 @@ def _load_duty(agent_id):
 def _save_duty(agent_id, fields):
     """upsert 职责字段（白名单），quota 硬顶 5。返回完整职责行。"""
     allowed = ['duty_name', 'scope', 'category', 'quota', 'goods',
-               'duty_desc', 'supervisor', 'last_run_at', 'last_run_summary']
+               'duty_desc', 'supervisor', 'boundary',
+               'last_run_at', 'last_run_summary']
     now = int(time.time() * 1000)
     sets, vals = [], []
     for k in allowed:
@@ -2214,7 +2220,9 @@ def build_duty_system_prompt(duty):
         "遇风控 10001010A/验证码/滑块立即停手绝不重试）。\n"
         "【权限】读：达人库(talents)+商品库(products)；写：达人库（source=square_scan_<日期>，"
         "按抖音号去重，缺一不入库）；不给：删改权限、其他类目工具。\n"
-        f"【汇报对象】{duty.get('supervisor') or '商务主管'}\n"
+        + (f"【边界】你不负责：{duty.get('boundary')}——这些有别人做，不要越界代劳。\n"
+           if (duty.get('boundary') or '').strip() else '')
+        + f"【汇报对象】{duty.get('supervisor') or '商务主管'}\n"
         f"【职责清单】\n{desc_txt}"
     )
 
@@ -4861,6 +4869,7 @@ def init_db():
             goods TEXT DEFAULT '',
             duty_desc TEXT DEFAULT '[]',
             supervisor TEXT DEFAULT '',
+            boundary TEXT DEFAULT '',
             last_run_at INTEGER DEFAULT 0,
             last_run_summary TEXT DEFAULT '',
             created_at INTEGER,

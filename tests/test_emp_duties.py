@@ -194,3 +194,57 @@ def test_apply_duty_conflict_blocks_write(mod, tmp_path, monkeypatch):
     assert applied['soul_synced'] is False
     assert applied['conflict'] == 'emp_other'
     assert not (ws / 'SOUL.md').exists(), '冲突时绝不允许落盘覆盖别人的 SOUL.md'
+
+
+def test_prompt_follows_boundary_change(mod):
+    """修订1（2026-11-10 增量派单）：boundary 是五要素之一，进出 prompt 必须跟着变。"""
+    no_b = {k: v for k, v in XIAOTUO_DUTY.items() if k != 'boundary'}
+    p1 = mod.build_duty_system_prompt(no_b)
+    assert '【边界】' not in p1, '空 boundary 不输出边界段（向后兼容）'
+    p2 = mod.build_duty_system_prompt(dict(no_b, boundary='联系达人、谈佣金、寄样、结算'))
+    assert '【边界】你不负责：联系达人、谈佣金、寄样、结算——这些有别人做，不要越界代劳。' in p2
+    assert p1 != p2
+
+
+def test_boundary_full_chain_roundtrip(mod, tmp_path):
+    """修订1 落点：改 boundary ⇒ _save_duty 白名单 ⇒ systemPrompt ⇒ SOUL.md（与 quota 往返同款）。"""
+    mod._ensure_emp_duties()
+    _mk_agent(mod)
+    ws = tmp_path / 'ws-test-apply'
+
+    mod._save_duty('emp_test_apply', dict(XIAOTUO_DUTY,
+                                          boundary='联系达人、谈佣金、寄样、结算'))
+    applied = mod._apply_duty_to_agent('emp_test_apply')
+    assert '【边界】你不负责：联系达人、谈佣金、寄样、结算' in applied['prompt']
+    assert (ws / 'SOUL.md').read_text(encoding='utf-8') == applied['prompt']
+
+    # 往返：清空 boundary ⇒ SOUL.md 里的边界段消失
+    mod._save_duty('emp_test_apply', {'boundary': ''})
+    applied2 = mod._apply_duty_to_agent('emp_test_apply')
+    assert '【边界】' not in applied2['prompt']
+    assert (ws / 'SOUL.md').read_text(encoding='utf-8') == applied2['prompt']
+
+
+def test_ensure_emp_duties_migrates_existing_table(mod):
+    """存量表迁移：boundary 列幂等补加（CREATE IF NOT EXISTS 不会给已存在的表加列）。"""
+    mod._ensure_emp_duties()
+    conn = mod._db_conn()
+    conn.execute("INSERT INTO emp_duties (agent_id, duty_name) VALUES ('emp_mig', 'x')")
+    conn.commit()
+    conn.execute("ALTER TABLE emp_duties RENAME TO emp_duties_old")
+    # 模拟旧库：没有 boundary 列的新建表 + 旧数据
+    conn.execute('''CREATE TABLE emp_duties (
+        agent_id TEXT PRIMARY KEY, duty_name TEXT DEFAULT '', scope TEXT DEFAULT '',
+        category TEXT DEFAULT '', quota INTEGER DEFAULT 5, goods TEXT DEFAULT '',
+        duty_desc TEXT DEFAULT '[]', supervisor TEXT DEFAULT '',
+        last_run_at INTEGER DEFAULT 0, last_run_summary TEXT DEFAULT '',
+        created_at INTEGER, updated_at INTEGER)''')
+    conn.execute("INSERT INTO emp_duties SELECT agent_id, duty_name, scope, category, quota,"
+                 " goods, duty_desc, supervisor, last_run_at, last_run_summary,"
+                 " created_at, updated_at FROM emp_duties_old")
+    conn.execute("DROP TABLE emp_duties_old")
+    conn.commit()
+    conn.close()
+    mod._ensure_emp_duties()   # 迁移发生在这里
+    d = mod._save_duty('emp_mig', {'boundary': '不越界'})
+    assert d['boundary'] == '不越界'
