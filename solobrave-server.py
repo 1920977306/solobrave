@@ -2601,7 +2601,232 @@ def _save_chat(agent_id, messages):
     _write_json(filepath, messages)
 
 
-# ─── OpenClaw CLI 辅助函数 ──────────────────────────────
+# ─────────── ③AI 互 @ 通道（2026-11-10 派单）：被 @ 的 AI 自己起一轮 ───────────
+# 群聊/@输入/群主统筹是既有地基；本块补上最后一块：AI 发言 @ 另一个 AI 时，
+# 被 @ 方注入自己的 SOUL.md 起一轮，回复由服务端落盘（不经 HTTP，身份天然可信）。
+GROUP_REPLY_TOKEN_TTL = 1800          # 群主统筹回复的落盘令牌有效期（秒）
+_MENTION_MAX_DEPTH = 3                # @ 链深度闸：第 3 跳后的 @ 只渲染不触发
+_MENTION_RE = re.compile(r'@((?:emp|agent)_[A-Za-z0-9_]+)')
+
+
+def _issue_group_reply_token(group_id, agent_id):
+    """群主统筹回复的服务端签发令牌：HMAC(group|agent|exp)。浏览器落盘 AI 回复时回传。
+
+    身份闸的地基：/history 对 senderType=agent 的消息只认本令牌（或服务端直写），
+    人（哪怕 admin）伪造 AI 发言没有令牌 ⇒ 401（派单验收 b）。
+    """
+    exp = int(time.time()) + GROUP_REPLY_TOKEN_TTL
+    payload = f'{group_id}|{agent_id}|{exp}'
+    sig = hmac.new(_get_internal_secret(), payload.encode(),
+                   hashlib.sha256).hexdigest()[:32]
+    return f'{payload}|{sig}'
+
+
+def _verify_group_reply_token(token, group_id, agent_id):
+    try:
+        g, a, exp, sig = (token or '').split('|')
+    except ValueError:
+        return False
+    if g != str(group_id) or a != str(agent_id):
+        return False
+    try:
+        if int(exp) < time.time():
+            return False
+    except (TypeError, ValueError):
+        return False
+    payload = f'{g}|{a}|{exp}'
+    expect = hmac.new(_get_internal_secret(), payload.encode(),
+                      hashlib.sha256).hexdigest()[:32]
+    return hmac.compare_digest(expect, sig)
+
+
+def _msg_ownership(msg):
+    """消息三归属（纯函数，③UI 判定唯一真源）：
+    system → 系统事件；agent 发言且带 mentions → agent-to-agent（AI 对 AI）；
+    其余 → direct（对我说）。GET 群历史时逐条 enrichment，前端直接读字段。"""
+    if not isinstance(msg, dict):
+        return 'direct'
+    if msg.get('type') == 'system':
+        return 'system'
+    if msg.get('senderType') == 'agent' and msg.get('mentions'):
+        return 'agent-to-agent'
+    return 'direct'
+
+
+def _subprocess_node_env():
+    """launchd/服务进程环境没有 node 时前置探测到的 node 目录（§92.3 教训同款）。"""
+    dirs = [p for p in ('/opt/homebrew/bin', '/usr/local/bin')
+            if os.path.exists(os.path.join(p, 'node'))]
+    env = os.environ.copy()
+    env['PATH'] = ':'.join(dirs + [env.get('PATH', '')]).rstrip(':')
+    return env
+
+
+def _find_group(group_id):
+    for g in _load_groups():
+        if g.get('id') == group_id:
+            return g
+    return None
+
+
+def _group_members_map(group):
+    """成员 id → 显示名（群主不在 members 里时补进来）。"""
+    out = {}
+    for m in group.get('members', []) or []:
+        mid = m.get('id') if isinstance(m, dict) else m
+        if mid:
+            out[mid] = (m.get('name') if isinstance(m, dict) else None) or mid
+    lead = group.get('leadAgentId')
+    if lead and lead not in out:
+        out[lead] = lead
+    return out
+
+
+def _extract_turn_text(stdout):
+    """openclaw CLI 返回的 result 信封 → 回复文本（兼容运行快照形态，§92.3 同款）。"""
+    try:
+        output = json.loads(stdout or '')
+    except Exception:
+        return ''
+    result = output.get('result') if isinstance(output, dict) else None
+    if isinstance(result, dict):
+        for key in ('result', 'finalAssistantVisibleText', 'finalReply', 'text'):
+            v = result.get(key)
+            if isinstance(v, str) and v.strip():
+                return v.strip()
+        tr = result.get('terminalReply')
+        if isinstance(tr, dict) and isinstance(tr.get('text'), str):
+            return tr['text'].strip()
+    for key in ('finalAssistantVisibleText', 'text'):
+        v = output.get(key)
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+    return ''
+
+
+def _trigger_group_agent_turn(group_id, agent_id, source_msg, depth):
+    """被 @ 的 AI 自己起一轮（后台线程；回复由 _group_append_agent_reply 服务端落盘）。"""
+    try:
+        _safe_cli_arg(agent_id, allow_spaces=False)
+    except ValueError as e:
+        logger.warning(f'[GroupMention] 非法 agent_id 拒绝触发: {e}')
+        return
+    threading.Thread(
+        target=_group_agent_turn_worker,
+        args=(group_id, agent_id, source_msg, int(depth or 0)),
+        daemon=True, name=f'group-mention-{agent_id}').start()
+
+
+def _group_agent_turn_worker(group_id, agent_id, source_msg, depth):
+    group = _find_group(group_id)
+    if not group:
+        logger.warning(f'[GroupMention] 群 {group_id} 不存在，{agent_id} turn 取消')
+        return
+    members = _group_members_map(group)
+    # 上下文截取：近期群消息逐条截断，总量封顶 3000 字（不全群灌入，派单要求）
+    lines = []
+    for m in (_load_chat(f'group_{group_id}') or [])[-20:]:
+        sname = (m.get('senderName') or m.get('sender')
+                 or ('用户' if m.get('senderType') == 'user' else 'AI'))
+        lines.append(f"{sname}: {(m.get('content') or '')[:200]}")
+    transcript = '\n'.join(lines)[-3000:]
+    prompt = (
+        f"你在群「{group.get('name', '')}」里被 @ 了。\n"
+        f"对方原话：{(source_msg or '')[:500]}\n\n"
+        f"近期群消息（截取）：\n{transcript}\n\n"
+        "请用你自己的职能直接回应，不要越权替别人作答。"
+        "如需让群里某位同事接力，在回复里写 @对方的agent_id（例如 @emp_xiaotuo）。"
+    )
+    try:
+        result = subprocess.run(
+            ['openclaw', 'agent', '--agent', agent_id, '--message', prompt,
+             '--json', '--timeout', '600'],
+            capture_output=True, text=True, timeout=780,
+            env=_subprocess_node_env())
+        reply = _extract_turn_text(result.stdout)
+        if result.returncode != 0 and not reply:
+            logger.warning(f'[GroupMention] {agent_id} turn 退出码 {result.returncode}: '
+                           f'{(result.stderr or "")[:200]}')
+            return
+    except Exception as e:
+        logger.warning(f'[GroupMention] {agent_id} turn 异常: {e}')
+        return
+    if not reply:
+        logger.info(f'[GroupMention] {agent_id} turn 无回复文本，不落盘')
+        return
+    _group_append_agent_reply(group_id, agent_id, reply, depth)
+
+
+def _group_append_agent_reply(group_id, agent_id, text, depth):
+    """服务端落盘 AI 回复（不经 HTTP，身份天然可信）：
+    解析 mentions → 写消息（带 mentionDepth）→ 出口义务（通知群创建者）→ 深度闸内链式触发。"""
+    group = _find_group(group_id)
+    members = _group_members_map(group or {})
+    mentions = sorted({m for m in _MENTION_RE.findall(text or '')
+                       if m in members and m != agent_id})
+    msg = {
+        'id': 'msg_' + uuid.uuid4().hex[:8],
+        'role': 'assistant',
+        'content': text,
+        'senderId': agent_id,
+        'senderName': members.get(agent_id, agent_id),
+        'senderType': 'agent',
+        'groupId': group_id,
+        'mentions': mentions,
+        'mentionDepth': int(depth or 0) + 1,
+        'provenance': 'server',   # 服务端直写标记（浏览器直写的消息永远没有此字段）
+        'time': int(time.time() * 1000),
+    }
+    chat_key = f'group_{group_id}'
+    lock = _get_chat_lock(chat_key)
+    if not lock.acquire(timeout=30):
+        logger.error(f'[GroupMention] {chat_key} 聊天锁超时，{agent_id} 回复落盘失败')
+        return
+    try:
+        messages = _load_chat(chat_key)
+        messages.append(msg)
+        _save_chat(chat_key, messages)
+    finally:
+        lock.release()
+    # 出口义务：每跳把「谁在 @ 谁、结论是什么」同步给人（群创建者）
+    _group_exit_summary(group, msg)
+    # 链式触发（深度闸）：第 _MENTION_MAX_DEPTH 跳后的 @ 只渲染不触发
+    if mentions and msg['mentionDepth'] < _MENTION_MAX_DEPTH:
+        for mid in mentions:
+            _trigger_group_agent_turn(
+                group_id, mid,
+                f"@{members.get(agent_id, agent_id)} 在群里说：{(text or '')[:300]}",
+                msg['mentionDepth'])
+    elif mentions:
+        logger.info(f'[GroupMention] 深度闸：第 {msg["mentionDepth"]} 跳 '
+                    f'（{agent_id}）的 @ {mentions} 只渲染不触发')
+
+
+def _group_exit_summary(group, msg):
+    """出口义务：AI 互 @ 的每一跳，给人（群创建者）一条摘要通知。"""
+    owner = (group or {}).get('createdBy')
+    if not owner:
+        return
+    try:
+        conn = _db_conn()
+        try:
+            conn.execute(
+                'INSERT INTO notifications (id, user_id, agent_id, type, title, '
+                'content, read, created_at) VALUES (?,?,?,?,?,?,0,?)',
+                ('notif_' + uuid.uuid4().hex[:12], owner, msg.get('senderId'),
+                 'group_mention',
+                 f"群「{(group or {}).get('name', '')}」AI 协同",
+                 f"{msg.get('senderName')} 应 {'、'.join('@' + m for m in msg.get('mentions', []))} "
+                 f"回复：{(msg.get('content') or '')[:200]}",
+                 int(time.time() * 1000)))
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception as e:
+        logger.warning(f'[GroupMention] 出口摘要写入失败（不阻断）: {e}')
+
+
+
 
 def _safe_cli_arg(value, allow_spaces=True):
     """防止用户控制字段作为 subprocess 参数时被当成 CLI 选项解析或分词。
@@ -10011,6 +10236,12 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             return
         if path.startswith('/api/groups/'):
             sub = path[len('/api/groups/'):]
+            # /api/groups/:id/reply-token（③@通道：群主统筹回复落盘的服务端签发令牌）
+            if sub.endswith('/reply-token'):
+                group_id = sub[:-len('/reply-token')]
+                if group_id:
+                    self._handle_get_group_reply_token(group_id)
+                    return
             # /api/groups/:id/history
             if sub.endswith('/history'):
                 group_id = sub[:-len('/history')]
@@ -13320,11 +13551,46 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         lead_agent = group.get('leadAgentId', '')
         session_key = f'group:{group_id}:main'
 
+        # ③@通道路由分流（与前端 inline-03.js 分工，勿双触发）：
+        # - user @ 具体 AI 的定向触发、AI 回复的链式触发：前端既有 triggerUserMentions /
+        #   parseAndTriggerMentions 负责（走各 agent 自己的 WS 会话，有打字指示器等 live UX）；
+        # - 服务端只补两件前端做不到的事：身份闸（replyToken）+ 三归属 ownership 标注。
+        # 服务端自己落盘的回复（_group_append_agent_reply, provenance=server）
+        # 由其内部直接链式触发，不经 HTTP。
+
         self._send_json(200, {
             'message': user_message,
             'leadAgentId': lead_agent,
             'sessionKey': session_key,
+            'replyToken': _issue_group_reply_token(group_id, lead_agent),
             'status': 'sent'
+        })
+
+    def _handle_get_group_reply_token(self, group_id):
+        """GET /api/groups/:id/reply-token — 群主统筹回复落盘令牌（③@通道身份闸）"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        group, err, status = self._check_group_access(auth, group_id)
+        if err:
+            self._send_json(status, {'error': err})
+            return
+        lead_agent = group.get('leadAgentId', '')
+        if not lead_agent:
+            self._send_json(400, {'error': '群组没有群主 agent'})
+            return
+        # ?for=<agentId> 可为群内任一 AI 成员签发（前端保存被 @ AI 的回复时用）；
+        # 缺省 = 群主。验证仍按 (group, senderId) 逐一核对，跨群/跨人都不通过。
+        query = urllib.parse.urlparse(self.path).query
+        for_id = urllib.parse.parse_qs(query).get('for', [lead_agent])[0]
+        if for_id != lead_agent and for_id not in _group_members_map(group):
+            self._send_json(403, {'error': '只能为群内成员签发 replyToken'})
+            return
+        self._send_json(200, {
+            'replyToken': _issue_group_reply_token(group_id, for_id),
+            'leadAgentId': lead_agent,
+            'forAgentId': for_id,
         })
 
     def _handle_get_group_history(self, group_id):
@@ -13341,7 +13607,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
         chat_key = f'group_{group_id}'
         messages = _load_chat(chat_key)
-        self._send_json(200, {'messages': messages})
+        self._send_json(200, {'messages': [dict(m, ownership=_msg_ownership(m)) for m in messages]})
 
     def _handle_post_group_history(self, group_id):
         """POST /api/groups/:id/history — 保存群组聊天消息"""
@@ -13366,6 +13632,16 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not isinstance(messages, list):
             messages = []
 
+        # ③@通道身份闸：senderType=agent 的消息只认服务端签发的 replyToken
+        # （群主统筹回复由前端回传令牌落盘）；不认 X-Agent-Id、不认 admin ——
+        # 否则老大 curl 自己的 JWT + 伪造头就能冒充 AI（派单验收 b）。
+        # 服务端直写（provenance=server）不经 HTTP，天然可信。
+        if body.get('senderType') == 'agent' and body.get('provenance') != 'server':
+            token = body.get('replyToken', '')
+            if not _verify_group_reply_token(token, group_id, body.get('senderId', '')):
+                self._send_json_error(401, 'AI 发言需要有效 replyToken（服务端直写除外）')
+                return
+
         msg = {
             'id': body.get('id', 'msg_' + str(uuid.uuid4())[:8]),
             'role': body.get('role', 'user'),
@@ -13374,6 +13650,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             'senderName': body.get('senderName', ''),
             'senderType': body.get('senderType', 'user'),
             'groupId': group_id,
+            'mentions': body.get('mentions') if isinstance(body.get('mentions'), list) else [],
+            'mentionDepth': int(body.get('mentionDepth') or 1),
             'time': body.get('time', int(time.time() * 1000))
         }
         messages.append(msg)
@@ -13483,6 +13761,28 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                     logger.info(f'  [GroupMemory] {mid} 群聊上下文已保存到 daily 记忆')
                 except Exception as e:
                     logger.error(f'  [GroupMemory] {mid} 保存群聊上下文失败: {e}')
+
+        # ③@通道链式触发（仅限服务端直写消息）：浏览器保存的 AI 回复由前端
+        # parseAndTriggerMentions 负责链式触发（勿双触发）；只有 provenance=server
+        # 的消息（服务端 _group_append_agent_reply 落盘）才在这里兜底触发——
+        # 正常情况下该函数已内部直接触发，此处只是 HTTP 直写路径的安全网。
+        if (msg.get('senderType') == 'agent' and msg.get('provenance') == 'server'
+                and msg.get('mentions')):
+            depth = int(msg.get('mentionDepth') or 1)
+            members_map = _group_members_map(group)
+            if depth < _MENTION_MAX_DEPTH:
+                for mid in msg['mentions']:
+                    if mid and mid in members_map and mid != msg.get('senderId'):
+                        _trigger_group_agent_turn(
+                            group_id, mid,
+                            f"@{msg.get('senderName') or msg.get('senderId')} 在群里说："
+                            f"{(msg.get('content') or '')[:300]}",
+                            depth)
+                        logger.info(f'[GroupMention] 群 {group_id} 链式触发(第{depth}跳): '
+                                    f'{msg.get("senderId")} → {mid}')
+            else:
+                logger.info(f'[GroupMention] 深度闸：群 {group_id} 第 {depth} 跳 '
+                            f'（{msg.get("senderId")}）的 @ {msg["mentions"]} 只渲染不触发')
 
         self._send_json(200, {'saved': True, 'id': msg['id'], 'archived': archived_count})
 
