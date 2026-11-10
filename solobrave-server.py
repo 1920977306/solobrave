@@ -2109,6 +2109,163 @@ def _workspace_write_conflict(agent_id, workspace_path):
     return ''
 
 
+# ─────────── emp_duties：职责表 → 自动拼 systemPrompt → 注入 SOUL.md（职能驱动行为链） ───────────
+# 2026-11-10 落地（A 简报，老大拍板代执行）。第一个实战用户 = 小拓（达人拓展专员）。
+# 验收铁律：改职责 ⇒ systemPrompt 真的跟着变（职能不是纯展示标签）⇒ SOUL.md 同步落地。
+def _ensure_emp_duties():
+    """职责表（每 agent 一行，agent_id 主键）。幂等建表，server 启动与脚本共用。"""
+    conn = _db_conn()
+    try:
+        conn.execute('''CREATE TABLE IF NOT EXISTS emp_duties (
+            agent_id TEXT PRIMARY KEY,
+            duty_name TEXT DEFAULT '',        -- 主职能
+            scope TEXT DEFAULT '',            -- 负责范围（名片展示）
+            category TEXT DEFAULT '',         -- 广场扫描类目（调 square_scan 用）
+            quota INTEGER DEFAULT 5,          -- 每日深看配额（硬顶 5）
+            goods TEXT DEFAULT '',            -- 商品盘描述
+            duty_desc TEXT DEFAULT '[]',      -- 职责清单 JSON 数组
+            supervisor TEXT DEFAULT '',       -- 汇报对象（名片展示）
+            last_run_at INTEGER DEFAULT 0,    -- 最近一次日跑时间（名片「近期动态」）
+            last_run_summary TEXT DEFAULT '', -- 最近一次日跑摘要
+            created_at INTEGER,
+            updated_at INTEGER
+        )''')
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _load_duty(agent_id):
+    conn = _db_conn()
+    try:
+        row = conn.execute('SELECT * FROM emp_duties WHERE agent_id = ?',
+                           (agent_id,)).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def _save_duty(agent_id, fields):
+    """upsert 职责字段（白名单），quota 硬顶 5。返回完整职责行。"""
+    allowed = ['duty_name', 'scope', 'category', 'quota', 'goods',
+               'duty_desc', 'supervisor', 'last_run_at', 'last_run_summary']
+    now = int(time.time() * 1000)
+    sets, vals = [], []
+    for k in allowed:
+        if k in fields:
+            v = fields[k]
+            if k == 'duty_desc' and not isinstance(v, str):
+                v = json.dumps(v, ensure_ascii=False)
+            if k == 'quota':
+                try:
+                    v = max(1, min(int(v), 5))
+                except (TypeError, ValueError):
+                    v = 5
+            sets.append(k)
+            vals.append(v)
+    conn = _db_conn()
+    try:
+        exists = conn.execute('SELECT 1 FROM emp_duties WHERE agent_id = ?',
+                              (agent_id,)).fetchone()
+        if exists:
+            assign = ', '.join(f'{c} = ?' for c in sets)
+            conn.execute(f'UPDATE emp_duties SET {assign}, updated_at = ? '
+                         'WHERE agent_id = ?', vals + [now, agent_id])
+        else:
+            cols = ['agent_id'] + sets + ['created_at', 'updated_at']
+            conn.execute(
+                f"INSERT INTO emp_duties ({', '.join(cols)}) "
+                f"VALUES ({', '.join('?' * len(cols))})",
+                [agent_id] + vals + [now, now])
+        conn.commit()
+    finally:
+        conn.close()
+    return _load_duty(agent_id)
+
+
+def build_duty_system_prompt(duty):
+    """职责行 → systemPrompt（拼装器唯一实现：改职责 = 从这里重组装）。
+
+    结构按老大 2026-11-09 简报 A 的「达人拓展专员」模板定型。
+    """
+    duty = duty or {}
+    desc = duty.get('duty_desc') or []
+    if isinstance(desc, str):
+        try:
+            desc = json.loads(desc)
+        except Exception:
+            desc = [desc]
+    desc_txt = '\n'.join(f'{i + 1}. {d}' for i, d in enumerate(desc))
+    cat = (duty.get('category') or duty.get('duty_name') or '本').strip()
+    return (
+        f"你是{duty.get('duty_name') or '达人拓展专员'}。"
+        f"商品盘 = {duty.get('goods') or 'Coolchap 女鞋（客单 50-200 元带）+ 生活家居'}。\n"
+        f"每天 {int(duty.get('quota') or 5)} 个深看名额，宁缺毋滥。\n"
+        "判定三关：\n"
+        f"1.带得动（近30天有带货结算额，带过{cat}或同类目，客单带与 50-200 有交集）\n"
+        "2.靠得住（优先结算率高/回复率高标签，有联系方式可得性）\n"
+        "3.不重复（先查达人库，命中即跳过记为已存在）\n"
+        "「值得联系」必须附一句话理由：带过N次鞋靴类，客单XX-XX，"
+        "30天结算XX万，[加/减分项]\n"
+        "只丢不造：平台没给的字段留空，绝不编造粉丝画像。\n"
+        "日报格式：今日深看N | 新增N | 排除N（主因）| 建议人工过目：XXX（一句话）\n"
+        "【工具】square_scan(category, quota≤5)：达人广场扫描（团长端有头浏览器串行队列，"
+        "工作时段 9:00-21:00，条间 30-120 秒真人化节奏，"
+        "遇风控 10001010A/验证码/滑块立即停手绝不重试）。\n"
+        "【权限】读：达人库(talents)+商品库(products)；写：达人库（source=square_scan_<日期>，"
+        "按抖音号去重，缺一不入库）；不给：删改权限、其他类目工具。\n"
+        f"【汇报对象】{duty.get('supervisor') or '商务主管'}\n"
+        f"【职责清单】\n{desc_txt}"
+    )
+
+
+def _write_agent_docs(agent_id, soul_doc='', identity_doc='', user_doc='',
+                      agents_doc='', tools_doc=''):
+    """把人格文档写进 agent 的 OpenClaw workspace（唯一实现，HTTP 处理器与职责链共用）。
+
+    安全闸门与 /api/openclaw/write-agent-docs 一致：默认路径解析 + 归属冲突校验，
+    不信任请求体路径。返回 (written, workspace, conflict_owner)。
+    """
+    agents = _load_agents()
+    agent = next((a for a in agents if a.get('id') == agent_id), {})
+    workspace_path = _resolve_agent_workspace(agent_id, agent)
+    conflict = _workspace_write_conflict(agent_id, workspace_path)
+    if conflict:
+        return [], workspace_path, conflict
+    os.makedirs(workspace_path, exist_ok=True)
+    written = []
+    for fname, content in (('SOUL.md', soul_doc), ('IDENTITY.md', identity_doc),
+                           ('USER.md', user_doc), ('AGENTS.md', agents_doc),
+                           ('TOOLS.md', tools_doc)):
+        if content:
+            with open(os.path.join(workspace_path, fname), 'w',
+                      encoding='utf-8') as f:
+                f.write(content)
+            written.append(fname)
+    return written, workspace_path, ''
+
+
+def _apply_duty_to_agent(agent_id):
+    """职责行 → 重组装 systemPrompt → agents.json → SOUL.md 注入（验收①的落点）。
+
+    返回 {duty, prompt, soul_synced, workspace, conflict}；无职责行或员工 → None。
+    """
+    duty = _load_duty(agent_id)
+    if not duty:
+        return None
+    agents = _load_agents(include_archived=True)
+    agent = next((a for a in agents if a.get('id') == agent_id), None)
+    if not agent:
+        return None
+    prompt = build_duty_system_prompt(duty)
+    agent['systemPrompt'] = prompt
+    _save_agents(agents)
+    written, workspace, conflict = _write_agent_docs(agent_id, soul_doc=prompt)
+    return {'duty': duty, 'prompt': prompt,
+            'soul_synced': 'SOUL.md' in written, 'workspace': workspace,
+            'conflict': conflict}
+
+
 # r39-7 智能派单 round-robin 游标 (模块级, 进程内轮询挑 AI 员工代建合作方案)
 _collab_agent_idx = 0
 
@@ -4693,6 +4850,22 @@ def init_db():
         conn.execute('CREATE INDEX IF NOT EXISTS idx_agent_call_log_created_at ON agent_call_log(created_at DESC)')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_agent_call_log_caller ON agent_call_log(caller_agent_id)')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_agent_call_log_callee ON agent_call_log(callee_agent_id)')
+
+        # emp_duties 职责表（职能驱动行为链，2026-11-10；DDL 与 _ensure_emp_duties 同一份）
+        conn.execute('''CREATE TABLE IF NOT EXISTS emp_duties (
+            agent_id TEXT PRIMARY KEY,
+            duty_name TEXT DEFAULT '',
+            scope TEXT DEFAULT '',
+            category TEXT DEFAULT '',
+            quota INTEGER DEFAULT 5,
+            goods TEXT DEFAULT '',
+            duty_desc TEXT DEFAULT '[]',
+            supervisor TEXT DEFAULT '',
+            last_run_at INTEGER DEFAULT 0,
+            last_run_summary TEXT DEFAULT '',
+            created_at INTEGER,
+            updated_at INTEGER
+        )''')
 
         conn.commit()
 
@@ -9317,6 +9490,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             if agent_id:
                 self._handle_get_agent_activity(agent_id)
                 return
+        if path.startswith('/api/agents/') and path.endswith('/duties'):
+            agent_id = path[len('/api/agents/'):-len('/duties')]
+            if agent_id:
+                self._handle_get_agent_duties(agent_id)
+                return
         if path.startswith('/api/agents/'):
             agent_id = path[len('/api/agents/'):]
             if agent_id:
@@ -10484,6 +10662,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 agent_id = sub[:-len('/self-update')]
                 if agent_id:
                     self._handle_agent_self_update(agent_id)
+                    return
+            if sub.endswith('/duties'):
+                agent_id = sub[:-len('/duties')]
+                if agent_id:
+                    self._handle_update_agent_duties(agent_id)
                     return
             if sub:
                 self._handle_update_agent(sub)
@@ -14215,6 +14398,60 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
         self._send_json(201, new_agent)
 
+    def _handle_get_agent_duties(self, agent_id):
+        """GET /api/agents/:id/duties — 职责行 + 拼装后的 systemPrompt 预览"""
+        try:
+            auth = _authenticate(self.headers, self.client_address[0], self)
+            if not auth.is_authenticated:
+                self._send_auth_error(auth.error, auth.status)
+                return
+            _ensure_emp_duties()
+            duty = _load_duty(agent_id)
+            self._send_json(200, {
+                'duty': duty,
+                'prompt': build_duty_system_prompt(duty) if duty else '',
+            })
+        except Exception as e:
+            logger.error(f'  [GET duties] ERROR: {e}')
+            self._send_json(500, {'error': '服务器内部错误'})
+
+    def _handle_update_agent_duties(self, agent_id):
+        """PUT /api/agents/:id/duties — 改职责 ⇒ 重组装 systemPrompt ⇒ agents.json ⇒ SOUL.md。
+
+        验收①的落点：本接口返回后，员工的 systemPrompt 与 workspace SOUL.md
+        都已按新职责重组装（职能不是纯展示标签）。
+        """
+        try:
+            auth = _authenticate(self.headers, self.client_address[0], self)
+            if not auth.is_authenticated:
+                self._send_auth_error(auth.error, auth.status)
+                return
+            agents = _load_agents(include_archived=True)
+            agent = next((a for a in agents if a.get('id') == agent_id), None)
+            if not agent:
+                self._send_json(404, {'error': '员工不存在'})
+                return
+            # 权限与 PUT /api/agents/:id 同口径：owner / 租户管理员 / Leader 带团队成员
+            if not auth.is_tenant_manager:
+                if agent.get('createdBy') != auth.user_info['userId']:
+                    if not (auth.is_leader
+                            and agent.get('createdBy') in _get_team_member_ids(auth)):
+                        self._send_auth_error('权限不足', 403)
+                        return
+            body = self._read_body()
+            if not body:
+                self._send_json(400, {'error': '无效的请求体'})
+                return
+            _ensure_emp_duties()
+            duty = _save_duty(agent_id, body)
+            applied = _apply_duty_to_agent(agent_id)
+            self._send_json(200, {'duty': duty, 'applied': applied})
+        except Exception as e:
+            logger.error(f'  [PUT duties] ERROR: {e}')
+            import traceback
+            traceback.print_exc()
+            self._send_json(500, {'error': '服务器内部错误'})
+
     def _handle_update_agent(self, agent_id):
         """PUT /api/agents/:id"""
         try:
@@ -14979,24 +15216,14 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         #    之前实现会直接 expanduser + makedirs 用户传入的路径，导致任意目录创建漏洞
         #    （如 body={'workspacePath':'/etc/cron.d'} 即可在 /etc/cron.d 创建目录并写文件）
         #    这里不信任请求体里的路径字段，强制用 agent_id / openclawName 拼默认路径
-        workspace_path = ''  # 留空让下面走默认逻辑
         if not agent_id:
             self._send_json(400, {'error': '缺少 agentId'})
             return
 
-        import os
-        if not workspace_path:
-            # 默认 workspace 路径：★ 以 **openclaw.json 的 entry.workspace** 为准
-            #   （使用端真值；按 agents.json 的 openclawName 拼会写错目录 ——
-            #    木木的声明是 'main'，实际跑在 workspace-emp_…）
-            agents = _load_agents()
-            agent = next((a for a in agents if a.get('id') == agent_id), {})
-            workspace_path = _resolve_agent_workspace(agent_id, agent)
-        workspace_path = os.path.expanduser(workspace_path)
-
-        # ★ 写前归属校验：目标目录若属于**别的** agent ⇒ 拒绝写。
-        #   （这正是「木木 → 贾维斯 workspace-main」差点覆盖别人 SOUL.md 的那道闸门）
-        conflict_owner = _workspace_write_conflict(agent_id, workspace_path)
+        # 核心写入逻辑收敛到 _write_agent_docs（与 emp_duties 职责链共用同一份实现）
+        written, workspace_path, conflict_owner = _write_agent_docs(
+            agent_id, soul_doc=soul_doc, identity_doc=identity_doc,
+            user_doc=user_doc, agents_doc=agents_doc, tools_doc=tools_doc)
         if conflict_owner:
             self._send_json(409, {
                 'error': f'workspace 归属冲突：该目录属于 {conflict_owner}，拒绝写入',
@@ -15004,34 +15231,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         try:
-            os.makedirs(workspace_path, exist_ok=True)
-            written = []
-
-            if soul_doc:
-                with open(os.path.join(workspace_path, 'SOUL.md'), 'w', encoding='utf-8') as f:
-                    f.write(soul_doc)
-                written.append('SOUL.md')
-
-            if identity_doc:
-                with open(os.path.join(workspace_path, 'IDENTITY.md'), 'w', encoding='utf-8') as f:
-                    f.write(identity_doc)
-                written.append('IDENTITY.md')
-
-            if user_doc:
-                with open(os.path.join(workspace_path, 'USER.md'), 'w', encoding='utf-8') as f:
-                    f.write(user_doc)
-                written.append('USER.md')
-
-            if agents_doc:
-                with open(os.path.join(workspace_path, 'AGENTS.md'), 'w', encoding='utf-8') as f:
-                    f.write(agents_doc)
-                written.append('AGENTS.md')
-
-            if tools_doc:
-                with open(os.path.join(workspace_path, 'TOOLS.md'), 'w', encoding='utf-8') as f:
-                    f.write(tools_doc)
-                written.append('TOOLS.md')
-            else:
+            if 'TOOLS.md' not in written:
                 # 注册时未提供 toolsDoc：自动写入默认工具配置（X-Agent-Id 硬编码），
                 # 已有定制化 TOOLS.md 不覆盖
                 tools_path = os.path.join(workspace_path, 'TOOLS.md')
