@@ -95,6 +95,23 @@ def test_judge_non_json_output(monkeypatch):
     assert xd.judge_item(ITEM, timeout=5) == ('存疑', '判定通道异常，转人工过目')
 
 
+def test_extract_cli_run_snapshot_shape():
+    """CLI 等到超时返回运行快照（非 result 信封）：finalAssistantVisibleText 也要能取出。"""
+    snap = {'ok': True, 'runId': 'x',
+            'finalAssistantVisibleText': '值得联系\n月结算过万',
+            'terminalReply': {'disposition': 'visible', 'text': '值得联系\n月结算过万'}}
+    assert xd._extract_text_from_openclaw_output(snap) == '值得联系\n月结算过万'
+    snap2 = {'ok': True, 'terminalReply': {'text': '排除\n基本无成交'}}
+    assert xd._extract_text_from_openclaw_output(snap2) == '排除\n基本无成交'
+
+
+def test_subprocess_env_includes_node_dir():
+    """launchd 环境缺 node 曾致 127（真跑实锤）：judge_item 必须显式补 PATH。"""
+    import os
+    env = xd._subprocess_env()
+    assert '/opt/homebrew/bin' in env['PATH'].split(':')
+
+
 def test_judge_happy_path(monkeypatch):
     class R:
         returncode = 0

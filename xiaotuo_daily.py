@@ -19,6 +19,7 @@
 手动跑：python3 xiaotuo_daily.py
 """
 import json
+import os
 import re
 import shutil
 import sqlite3
@@ -37,8 +38,19 @@ ADMIN_ID = 'user_7acb72ff'
 AGENT_ID = 'emp_xiaotuo'
 POLL_SEC = 30
 TIMEOUT_SEC = 30 * 60
-JUDGE_TIMEOUT = 150          # 单个候选人判定超时（openclaw --timeout 同值）
+JUDGE_TIMEOUT = 300          # 单个候选人判定超时（openclaw --timeout 同值；真跑实测一轮
+                           # kimi 429 → minimax 兜底的完整 turn 需 150-240s，留足余量）
 OPENCLAW_CLI = shutil.which('openclaw') or '/opt/homebrew/bin/openclaw'
+# launchd 环境没有 homebrew 的 node：openclaw 启动脚本是 #!/usr/bin/env node，
+# PATH 缺 node 会 127（2026-11-10 真跑实锤）⇒ 显式补齐 node 所在目录
+_NODE_DIRS = [p for p in ('/opt/homebrew/bin', '/usr/local/bin')
+              if (Path(p) / 'node').exists()]
+
+
+def _subprocess_env():
+    env = os.environ.copy()
+    env['PATH'] = ':'.join(_NODE_DIRS + [env.get('PATH', '')]).rstrip(':')
+    return env
 
 
 def log(msg):
@@ -138,6 +150,16 @@ def _extract_text_from_openclaw_output(obj):
             return _extract_text_from_openclaw_output(obj['choices'])
         if 'payloads' in obj and isinstance(obj['payloads'], list):
             return _extract_text_from_openclaw_output(obj['payloads'])
+        # ★ CLI 等到超时时返回运行快照而非 result 信封（2026-11-10 真跑实锤）：
+        #   finalAssistantVisibleText / terminalReply.text 是快照里的成品回复
+        fav = obj.get('finalAssistantVisibleText')
+        if isinstance(fav, str) and fav.strip():
+            return fav
+        tr = obj.get('terminalReply')
+        if isinstance(tr, dict):
+            text = _extract_text_from_openclaw_output(tr)
+            if text:
+                return text
     return None
 
 
@@ -206,7 +228,7 @@ def judge_item(item, timeout=JUDGE_TIMEOUT):
     try:
         result = subprocess.run(args, capture_output=True, text=True,
                                 encoding='utf-8', errors='replace',
-                                timeout=timeout + 30)
+                                timeout=timeout + 60, env=_subprocess_env())
         if result.returncode != 0:
             log(f'判定通道退出码 {result.returncode}：{(result.stderr or "")[:200]}')
             return ('存疑', '判定通道异常，转人工过目')
