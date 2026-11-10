@@ -10756,3 +10756,65 @@ GMV 与粉丝数）→ `17:14:31 last_run_* 回写` + notifications 日报
 本轮改动文件：`solobrave-server.py` / `buyin_worker.py` / `xiaotuo_daily.py` /
 `tests/test_emp_duties.py` / `tests/test_square_scan.py` / `tests/test_xiaotuo_daily.py` /
 本交接单 §93。均 A 边持有，已提交推送，现无占用。
+
+## 94. ②主管协同位 + ③AI 互 @ 通道落地（A 边 2026-11-10 17:3x–18:1x）
+
+commit：`d37957b`（②）→ `83d3429`+`6e421a9`（③）→ `62b932c`（③同名遮蔽修复）。
+main=dev 零分叉，全量回归 **1787 passed / 10 skipped**，server 已重启生效。
+
+### 94.1 ②主管协同位（d37957b）
+
+- `emp_duties` 加 `supervisor_agent_id` / `zero_streak`（两处幂等 DDL + `_save_duties` 白名单）；
+  `build_duty_system_prompt` 汇报对象段带主管 agent id 时输出「日报抄送给她；她可在群里 @ 你」。
+- `GET /api/agents/<id>/duties` 响应加 `reports`（supervisor 反查直接下属）。
+- 小拓日报双投递：管理员通知 + 主管【抄送】通知 + `_square_deliver_to_agent`
+  （Popen fire-and-forget，node PATH 修复）；升级触发器：日报 summary「值得联系 0」
+  连续 2 天 → 给管理员+主管各写 `escalation` 通知，streak 闩锁清零。
+- UI：名片汇报对象可点开主管详情；reports 块独立渲染（主管无职责行也显示——
+  **Helen 有 3028 字现有人格，有意不建职责行、不走职责链拼装**）。
+- 生产已设：`emp_xiaotuo.supervisor_agent_id = emp_1780199176680`（Helen），
+  SOUL.md 已重组装验证。**Helen 积分余额未查**——抄送投递失败只记日志，若她
+  余额 0 抄送 turn 会 429，下次顺手核。
+
+### 94.2 ③AI 互 @ 通道（83d3429 / 6e421a9 / 62b932c）
+
+**真机验收 b 已通过**（17:5x）：老大 scoped token 伪造 `senderType=agent` 无令牌
+→ **401**；合法 replyToken → 200；GET history 每条消息带 `ownership` 字段。
+临时 token 已吊销，验证消息已清出群历史。
+
+- **身份闸**：`/history` 对 `senderType=agent` 只认服务端签发的 replyToken
+  （HMAC(group|agent|exp)，30min TTL，复用 `_get_internal_secret`）或 `provenance=server`
+  直写；不认 X-Agent-Id、不认 admin。新端点 `GET /api/groups/<id>/reply-token?for=<agentId>`
+  （群成员鉴权；缺省=群主）。
+- **深度闸** `_MENTION_MAX_DEPTH=3`：服务端落盘回复 `mentionDepth=parent+1`，
+  =3 的 mentions 只渲染不触发（日志留证）。
+- **出口义务**：每跳给群创建者写 `group_mention` 通知（谁在 @ 谁 + 结论摘要）。
+- **三归属**：服务端纯函数 `_msg_ownership`（system / agent-to-agent / direct），
+  GET history 逐条 enrichment；前端读字段渲染（旧消息 JS 孪生 fallback），
+  `.msg-a2a`（缩进+虚线+AI 协同标签）/ `.msg-system`（居中不占气泡）CSS 已加。
+- **路由分工（重要决策，勿动）**：user @ AI 定向触发与 AI 回复链式触发**仍由前端
+  既有 `triggerUserMentions` / `parseAndTriggerMentions` 负责**（各 agent 自己的 WS
+  会话，有 live UX）；服务端不重复触发（会双跑烧积分）。服务端只补前端做不到的：
+  身份闸 + ownership 标注。服务端直写回复（`_group_append_agent_reply`）由其内部
+  自行链式触发（浏览器不在场时的兜底通道）。
+
+### 94.3 事故实录：同名函数静默遮蔽（62b932c）
+
+我新写的 `_find_group(group_id)` **遮蔽了既有 `_find_group(groups, key, value)`**，
+重启后全组群聊接口 500（`_check_group_access` 全挂）。改名 `_find_group_by_id`，
+并加守卫 `test_no_duplicate_module_level_defs`（模块级同名 def 即红；历史负债
+`_strip_fake_tool_calls` 2548 vs 32734 已登记 allowlist，另案处理）。
+**教训：solobrave-server.py 加新函数前先 `grep -n "def <名>"` 查重。**
+
+### 94.4 测试与留明天
+
+- 新增 `tests/test_group_mention.py` **15 条**（token 六态 / ownership 三态+边界 /
+  落盘 mentionDepth+mentions 过滤 / 深度闸两向 / 出口义务通知 / 身份闸 AST 守卫 /
+  同名遮蔽守卫）。
+- 真机验收 a（A@B@C 深度闸日志）/ c（Helen@小拓改类目次日生效）/ d（三归属截图）
+  留明天 UI 演示；明早 9:30 小拓首次员工驱动自然跑 + 终极验收（改 boundary 看次日日报）。
+
+### 94.5 占用登记（§0.4）
+
+本轮改动文件：`solobrave-server.py` / `js/inline-03.js` / `index.html` /
+`tests/test_group_mention.py` / 本交接单 §94。均 A 边持有，已提交推送，现无占用。
