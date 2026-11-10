@@ -10218,7 +10218,65 @@ function openEmpDetail(empId) {
   loadEmpDreaming(empId);
   /* 〔emp-abilities 2026-10-08〕职能跟员工走 (服务其加入的所有项目): 打开面板即渲染职能编辑区 */
   if (typeof renderEmpAbilityEdit === 'function') renderEmpAbilityEdit(emp);
+  /* 〔A简报 2026-11-10 验收②〕职责名片: 有 emp_duties 行的员工才渲染 */
+  loadEmpDutyCard(empId);
   switchEmpDetailTab('basic');
+}
+
+// ============================================================
+// 〔A简报 2026-11-10 验收②〕职责名片 —— GET /api/agents/:id/duties
+// 展示: 主职能 / 负责范围 / 职责清单 / 近期动态(last_run_*)
+// 无职责行的员工整块隐藏(普通员工不显示, 零打扰)
+// ============================================================
+function loadEmpDutyCard(empId) {
+  var card = document.getElementById('empDutyCard');
+  if (!card) return;
+  card.style.display = 'none';
+  card.innerHTML = '';
+  if (!empId) return;
+  var token = localStorage.getItem('sb_auth_token');
+  var headers = { 'Accept': 'application/json' };
+  if (token && token !== 'null' && token !== 'local_mode') {
+    headers['Authorization'] = 'Bearer ' + token;
+  }
+  fetch('/api/agents/' + encodeURIComponent(empId) + '/duties', { headers: headers, credentials: 'same-origin' })
+    .then(function (r) { return r.json().then(function (b) { return { status: r.status, body: b }; }); })
+    .then(function (resp) {
+      if (resp.status !== 200 || !resp.body || !resp.body.duty) return;  // 无职责行 → 保持隐藏
+      var d = resp.body.duty;
+      if (!d.duty_name && !d.scope) return;
+      // ★ 先 String() 再交给 escapeHtml：quota 是数字，直接传会 TypeError(s.replace is not a function)
+      var rawEsc = (typeof escapeHtml === 'function') ? escapeHtml : function (s) { return String(s == null ? '' : s); };
+      var esc = function (v) { return rawEsc(String(v == null ? '' : v)); };
+      var html = '';
+      html += '<div class="emp-duty-head"><span class="emp-duty-name">' + esc(d.duty_name) + '</span>';
+      if (d.scope) html += '<span class="emp-duty-scope">' + esc(d.scope) + '</span>';
+      html += '</div>';
+      var meta = [];
+      if (d.category) meta.push('扫描类目: ' + esc(d.category));
+      if (d.quota) meta.push('每日深看 ' + esc(d.quota) + ' 个');
+      if (d.supervisor) meta.push('汇报对象: ' + esc(d.supervisor));
+      if (meta.length) html += '<div class="emp-duty-meta">' + meta.join(' · ') + '</div>';
+      var desc = [];
+      try { desc = JSON.parse(d.duty_desc || '[]'); } catch (e) { desc = []; }
+      if (desc.length) {
+        html += '<ol class="emp-duty-list">';
+        for (var i = 0; i < desc.length; i++) html += '<li>' + esc(desc[i]) + '</li>';
+        html += '</ol>';
+      }
+      html += '<div class="emp-duty-recent">';
+      if (d.last_run_at) {
+        var t = new Date(Number(d.last_run_at));
+        var tstr = isNaN(t.getTime()) ? '' : t.toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+        html += '<span class="emp-duty-recent-time">' + esc(tstr) + '</span>' + esc(d.last_run_summary || '已运行');
+      } else {
+        html += '<span class="emp-duty-recent-time">近期动态</span>还没有运行记录——等每日调度首跑';
+      }
+      html += '</div>';
+      card.innerHTML = html;
+      card.style.display = '';
+    })
+    .catch(function (e) { console.warn('loadEmpDutyCard 网络错误:', e); });
 }
 
 // ============================================================

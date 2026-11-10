@@ -5933,6 +5933,15 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .emp-status-pill-sm{ padding:2px 8px; font-size:11px; }
 .emp-status-pill-sm .status-dot{ width:6px; height:6px; box-shadow:none; }
 .emp-creator-tag{ display:inline-flex; align-items:center; margin-left:6px; padding:1px 8px; border:1px solid var(--sb2-border); background:var(--sb2-s1); border-radius:999px; font-size:11px; color:var(--sb2-t3); vertical-align:middle; font-weight:500; white-space:nowrap; }
+/* 〔A简报 2026-11-10 验收②〕职责名片: 职能驱动员工(emp_duties 有行)才显示 */
+.emp-duty-card{ padding:12px 14px; margin-bottom:14px; background:var(--sb2-s2); border-radius:10px; }
+.emp-duty-head{ display:flex; align-items:baseline; gap:8px; flex-wrap:wrap; }
+.emp-duty-name{ font-size:13px; font-weight:600; color:var(--sb2-t1); }
+.emp-duty-scope{ font-size:12px; color:var(--sb2-t3); }
+.emp-duty-meta{ font-size:11px; color:var(--sb2-t3); margin-top:6px; }
+.emp-duty-list{ margin:8px 0 0; padding-left:18px; font-size:12px; color:var(--sb2-t2); line-height:1.7; }
+.emp-duty-recent{ margin-top:10px; padding-top:8px; border-top:1px dashed var(--sb2-border); font-size:12px; color:var(--sb2-t2); line-height:1.5; }
+.emp-duty-recent .emp-duty-recent-time{ color:var(--sb2-t3); font-size:11px; margin-right:6px; }
 /* — 员工详情 · stats 条: 卡片 → 透明分栏 — */
 .ai-emp-stats-bar{ background:transparent; gap:0; padding:10px 20px; }
 .ai-emp-stat{ background:transparent; border:none; padding:2px 16px; }
@@ -17701,6 +17710,9 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
 <span class="emp-status-pill" id="empStatusPill"><span class="status-dot" id="empStatusDot"></span><span id="empStatusPillText">-</span></span>
 </div>
 </div>
+<!-- 〔A简报 2026-11-10 验收②〕职责名片: 头像/主职能在上方身份卡; 这里展示主职能/负责范围/职责清单/近期动态。
+     只有 emp_duties 有行的职能驱动员工才显示(小拓等), 普通员工整块隐藏。数据: GET /api/agents/:id/duties -->
+<div class="emp-duty-card" id="empDutyCard" style="display:none;"></div>
 <div class="emp-info-list">
 <div class="emp-info-item">
 <span class="emp-info-label">ID</span>
