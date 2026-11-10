@@ -287,3 +287,78 @@ def test_collect_category_filter():
     page = [_mk_author('S1', '鞋靴人', ('鞋靴箱包',)), _mk_author('D1', '数码人', ('3C数码家电',))]
     coll = bw._square_collect_new_candidates([page], lambda did: False, '鞋靴箱包', 5)
     assert [a['author_base']['aweme_id'] for a in coll['picked']] == ['S1']
+
+
+# ── 修订2（2026-11-10 增量派单）：员工驱动——_square_decide / _square_write_report ──
+
+_CAND = {
+    '达人ID': 'v2_testuid', '抖音号': 'LOVE.yifeifei', '昵称': '幸运佳',
+    '粉丝指数': 11101, '30天结算额': [10000.0, 25000.0],
+    '联系方式可得性': '有', '主推类目': ['鞋靴箱包', '女鞋'], '达人等级': '4', '城市': '河南·洛阳',
+}
+
+
+def test_decide_accept_inserts_with_judgment(tmp_path, monkeypatch):
+    db = _tmp_talents_db(tmp_path, monkeypatch)
+    out, code = bw._square_decide({'candidate': _CAND, 'verdict': '值得联系',
+                                   'reason': '月结算过万，类目匹配'})
+    assert code == 200 and out['ok'] and out['inserted'] and out['talent_id'].startswith('tal_sq_')
+    conn = sqlite3.connect(str(db))
+    row = conn.execute('SELECT remark, created_by FROM talents WHERE douyin_id = ?',
+                       ('LOVE.yifeifei',)).fetchone()
+    conn.close()
+    rem = json.loads(row[0])
+    assert rem['square_judgment']['verdict'] == '值得联系'
+    assert rem['square_judgment']['reason'] == '月结算过万，类目匹配'
+    assert rem['square_judgment']['judged_by'] == 'emp_xiaotuo'
+    assert row[1].startswith('square_scan_'), 'created_by 口径不变'
+    # 再判一次 → duplicate，不入第二行
+    out2, code2 = bw._square_decide({'candidate': _CAND, 'verdict': '存疑', 'reason': '再看看'})
+    assert code2 == 200 and out2['duplicate'] is True and out2['inserted'] is False
+    conn = sqlite3.connect(str(db))
+    n = conn.execute('SELECT COUNT(*) FROM talents').fetchone()[0]
+    conn.close()
+    assert n == 1
+
+
+def test_decide_reject_writes_audit_not_talent(tmp_path, monkeypatch):
+    db = _tmp_talents_db(tmp_path, monkeypatch)
+    rejects = tmp_path / 'rejects.jsonl'
+    monkeypatch.setattr(bw, 'SQUARE_REJECTS_LOG', rejects)
+    out, code = bw._square_decide({'candidate': _CAND, 'verdict': '排除',
+                                   'reason': '近30天基本无成交'})
+    assert code == 200 and out['ok'] and out['inserted'] is False
+    conn = sqlite3.connect(str(db))
+    n = conn.execute('SELECT COUNT(*) FROM talents').fetchone()[0]
+    conn.close()
+    assert n == 0, '排除不入库'
+    lines = rejects.read_text(encoding='utf-8').strip().splitlines()
+    assert len(lines) == 1 and '基本无成交' in lines[0] and 'LOVE.yifeifei' in lines[0]
+
+
+def test_decide_validation(tmp_path, monkeypatch):
+    _tmp_talents_db(tmp_path, monkeypatch)
+    out, code = bw._square_decide({'candidate': _CAND, 'verdict': '随便', 'reason': 'x'})
+    assert code == 400 and out['ok'] is False
+    out, code = bw._square_decide({'candidate': {'昵称': '无号'}, 'verdict': '存疑', 'reason': 'x'})
+    assert code == 400, '缺抖音号拒绝（缺一不入库）'
+
+
+def test_write_report_notifications_and_duty(tmp_path, monkeypatch):
+    db = tmp_path / 'r.db'
+    conn = sqlite3.connect(str(db))
+    conn.execute('''CREATE TABLE notifications (id TEXT, user_id TEXT, agent_id TEXT,
+                    type TEXT, title TEXT, content TEXT, read INTEGER, created_at INTEGER)''')
+    conn.execute('''CREATE TABLE emp_duties (agent_id TEXT PRIMARY KEY,
+                    last_run_at INTEGER DEFAULT 0, last_run_summary TEXT DEFAULT '',
+                    updated_at INTEGER)''')
+    conn.execute("INSERT INTO emp_duties VALUES ('emp_xiaotuo', 0, '', 0)")
+    conn.commit()
+    conn.close()
+    monkeypatch.setattr(bw, 'DB_PATH', db)
+    bw._square_write_report('今日新入库 3 位', '今日深看5 | 新增3 | ……建议人工过目：甲（值得联系：理由）')
+    conn = sqlite3.connect(str(db))
+    n = conn.execute("SELECT COUNT(*) FROM notifications WHERE agent_id = 'emp_xiaotuo'").fetchone()[0]
+    row = conn.execute("SELECT last_run_summary FROM emp_duties WHERE agent_id = 'emp_xiaotuo'").fetchone()
+    conn.close()
+    assert n == 1 and row[0] == '今日新入库 3 位'

@@ -1,15 +1,12 @@
 # -*- coding: utf-8 -*-
-"""小拓每日调度守卫（2026-11-10 验收必修②：日报循环里要有小拓的脑子）。
+"""小拓闹钟守卫（修订2 2026-11-10 增量派单：日报循环改为员工驱动）。
 
 铁律测试矩阵：
-1. build_judgment_prompt 纯函数：关键字段（昵称/抖音号/粉丝/结算区间/类目/联系）都在，
-   结算额缺失时如实写「未知」不造数
-2. parse_judgment 各形态：守规矩两行 / 带前缀一行 / 空输出 / 无判定词 / 无理由兜底
-3. judge_item 失败语义：CLI 不存在 / 退出码非 0 / 输出非 JSON / 空回复 →
-   一律 ('存疑', '判定通道异常，转人工过目')，绝不抛出
-4. save_judgment：合并 remark JSON 不动原键；remark 非 JSON 不覆盖；达人不存在跳过
-5. 日报聚合（fake judgments 走通 main 的 done 分支）：
-   「建议人工过目」只列 值得联系+存疑，排除不列；判定计数进 summary
+1. build_task_message：带类目/配额/流程，且明确「建议人工过目不许默认写无」
+2. deliver_task：subprocess 带 node PATH 环境、CLI 参数正确；CLI 失败不抛出
+3. report_delivered：last_run_at 今天 = 交了；昨天/空 = 没交
+4. main 主流程：投了且交作业 → 0 退出、无告警；投了没交 → 管理员告警落库
+   （闹钟绝不代写日报——日报只能由 agent 经 /square-report 写入）
 """
 import importlib.util
 import json
@@ -23,230 +20,142 @@ _SPEC = importlib.util.spec_from_file_location(
 xd = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(xd)
 
-ITEM = {
-    '达人ID': 'u_x1', '抖音号': 'abc123', '昵称': '测试达人', '粉丝指数': 11101,
-    '30天结算额': [10000.0, 25000.0], '联系方式可得性': '有',
-    '主推类目': ['鞋靴箱包', '女鞋'], '入库': 'inserted（tal_test1）',
-}
+DUTY = {'agent_id': 'emp_xiaotuo', 'category': '鞋靴箱包', 'quota': 5,
+        'boundary': '联系达人、谈佣金、寄样、结算'}
 
 
-# ── 1. build_judgment_prompt ──
+# ── 1. 任务书 ──
 
-def test_prompt_contains_all_fields():
-    p = xd.build_judgment_prompt(ITEM)
-    for kw in ('测试达人', 'abc123', '11101', '10000-25000 元', '鞋靴箱包/女鞋', '有'):
-        assert kw in p, kw
-    assert '只输出两行' in p and '排除 / 存疑 / 值得联系' in p
-
-
-def test_prompt_missing_settle_says_unknown_not_fabricated():
-    item = dict(ITEM)
-    item.pop('30天结算额')
-    p = xd.build_judgment_prompt(item)
-    assert '未知' in p and '10000' not in p
+def test_task_message_carries_duty_and_discipline():
+    m = xd.build_task_message(DUTY)
+    assert '类目=鞋靴箱包' in m and '配额 5' in m
+    assert 'scan' in m and 'decide' in m and 'report' in m
+    assert '建议人工过目' in m and '不许默认写「无」' in m
 
 
-# ── 2. parse_judgment ──
-
-def test_parse_two_line_wellformed():
-    assert xd.parse_judgment('值得联系\n月结算过万，联系方式可得') == ('值得联系', '月结算过万，联系方式可得')
-
-
-def test_parse_single_line_with_prefix():
-    assert xd.parse_judgment('存疑：结算区间偏低，再观察') == ('存疑', '结算区间偏低，再观察')
+def test_task_message_default_category():
+    m = xd.build_task_message({'category': '', 'quota': 3})
+    assert '类目=全部' in m and '配额 3' in m
 
 
-@pytest.mark.parametrize('bad', ['', '   ', None])
-def test_parse_empty_falls_to_doubt(bad):
-    assert xd.parse_judgment(bad) == ('存疑', '判定输出为空，转人工过目')
+# ── 2. 投递 ──
+
+def _fake_run(stdout='{}', rc=0, stderr=''):
+    import types
+    return types.SimpleNamespace(returncode=rc, stdout=stdout, stderr=stderr)
 
 
-def test_parse_no_verdict_word():
-    assert xd.parse_judgment('这个达人我觉得还行吧') == ('存疑', '判定词缺失，转人工过目')
+def test_deliver_passes_node_env_and_args(monkeypatch):
+    captured = {}
+
+    def fake_run(args, **kw):
+        captured['args'] = args
+        captured['env'] = kw.get('env')
+        return _fake_run(json.dumps({'ok': True, 'runId': 'r1'}))
+    monkeypatch.setattr(xd.subprocess, 'run', fake_run)
+    note, run_id = xd.deliver_task('干活')
+    assert run_id == 'r1' and note == 'turn 已结束'
+    assert captured['args'][:4] == [xd.OPENCLAW_CLI, 'agent', '--agent', 'emp_xiaotuo']
+    assert '--message' in captured['args'] and '干活' in captured['args']
+    assert '/opt/homebrew/bin' in captured['env']['PATH'].split(':')
 
 
-def test_parse_verdict_without_reason():
-    v, r = xd.parse_judgment('排除')
-    assert v == '排除' and r
+def test_deliver_never_raises(monkeypatch):
+    def boom(*a, **k):
+        raise FileNotFoundError('no cli')
+    monkeypatch.setattr(xd.subprocess, 'run', boom)
+    note, run_id = xd.deliver_task('x')
+    assert run_id is None and '失败' in note
+
+    monkeypatch.setattr(xd.subprocess, 'run', lambda *a, **k: _fake_run(rc=127, stderr='node?'))
+    note, _ = xd.deliver_task('x')
+    assert '127' in note
 
 
-# ── 3. judge_item 失败语义（绝不抛出） ──
-
-def test_judge_cli_missing(monkeypatch):
-    monkeypatch.setattr(xd, 'OPENCLAW_CLI', '/nonexistent/openclaw')
-    assert xd.judge_item(ITEM, timeout=5) == ('存疑', '判定通道异常，转人工过目')
-
-
-def test_judge_nonzero_exit(monkeypatch):
-    class R:
-        returncode = 2
-        stdout = ''
-        stderr = 'boom'
-    monkeypatch.setattr(xd.subprocess, 'run', lambda *a, **k: R())
-    assert xd.judge_item(ITEM, timeout=5) == ('存疑', '判定通道异常，转人工过目')
+def test_deliver_gateway_accepted_keeps_runid(monkeypatch):
+    out = json.dumps({'ok': False, 'runId': 'abc',
+                      'error': {'message': 'gateway timeout'}})
+    monkeypatch.setattr(xd.subprocess, 'run', lambda *a, **k: _fake_run(stdout=out))
+    note, run_id = xd.deliver_task('x')
+    assert run_id == 'abc' and '已接受' in note
 
 
-def test_judge_non_json_output(monkeypatch):
-    class R:
-        returncode = 0
-        stdout = 'not json at all'
-        stderr = ''
-    monkeypatch.setattr(xd.subprocess, 'run', lambda *a, **k: R())
-    assert xd.judge_item(ITEM, timeout=5) == ('存疑', '判定通道异常，转人工过目')
-
-
-def test_extract_cli_run_snapshot_shape():
-    """CLI 等到超时返回运行快照（非 result 信封）：finalAssistantVisibleText 也要能取出。"""
-    snap = {'ok': True, 'runId': 'x',
-            'finalAssistantVisibleText': '值得联系\n月结算过万',
-            'terminalReply': {'disposition': 'visible', 'text': '值得联系\n月结算过万'}}
-    assert xd._extract_text_from_openclaw_output(snap) == '值得联系\n月结算过万'
-    snap2 = {'ok': True, 'terminalReply': {'text': '排除\n基本无成交'}}
-    assert xd._extract_text_from_openclaw_output(snap2) == '排除\n基本无成交'
-
-
-def test_subprocess_env_includes_node_dir():
-    """launchd 环境缺 node 曾致 127（真跑实锤）：judge_item 必须显式补 PATH。"""
-    import os
-    env = xd._subprocess_env()
-    assert '/opt/homebrew/bin' in env['PATH'].split(':')
-
-
-def test_judge_happy_path(monkeypatch):
-    class R:
-        returncode = 0
-        stdout = json.dumps({'runId': 'x', 'status': 'ok',
-                             'result': {'payloads': [{'text': '值得联系\n月结算过万'}]}})
-        stderr = ''
-    monkeypatch.setattr(xd.subprocess, 'run', lambda *a, **k: R())
-    assert xd.judge_item(ITEM, timeout=5) == ('值得联系', '月结算过万')
-
-
-# ── 4. save_judgment（tmp sqlite，不碰真库） ──
+# ── 3. 看门 ──
 
 @pytest.fixture()
-def tmp_db(tmp_path, monkeypatch):
-    db = tmp_path / 'test.db'
+def duty_db(tmp_path, monkeypatch):
+    db = tmp_path / 'a.db'
     conn = sqlite3.connect(str(db))
-    conn.execute('CREATE TABLE talents (id TEXT PRIMARY KEY, remark TEXT)')
-    conn.execute("INSERT INTO talents VALUES ('tal_test1', ?)",
-                 (json.dumps({'origin': 'square'}),))
-    conn.execute("INSERT INTO talents VALUES ('tal_bad', 'not-json{{')")
+    conn.execute('''CREATE TABLE emp_duties (agent_id TEXT PRIMARY KEY,
+                    last_run_at INTEGER DEFAULT 0, last_run_summary TEXT DEFAULT '',
+                    updated_at INTEGER)''')
+    conn.execute('''CREATE TABLE notifications (id TEXT, user_id TEXT, agent_id TEXT,
+                    type TEXT, title TEXT, content TEXT, read INTEGER, created_at INTEGER)''')
     conn.commit()
     conn.close()
     monkeypatch.setattr(xd, 'DB', db)
     return db
 
 
-def test_save_judgment_merges_json(tmp_db):
-    xd.save_judgment('tal_test1', '值得联系', '月结算过万')
-    conn = sqlite3.connect(str(tmp_db))
-    rem = json.loads(conn.execute("SELECT remark FROM talents WHERE id='tal_test1'").fetchone()[0])
-    conn.close()
-    assert rem['origin'] == 'square'                       # 原键不动
-    assert rem['square_judgment']['verdict'] == '值得联系'
-    assert rem['square_judgment']['reason'] == '月结算过万'
-    assert rem['square_judgment']['judged_by'] == 'emp_xiaotuo'
-
-
-def test_save_judgment_skips_non_json_remark(tmp_db):
-    xd.save_judgment('tal_bad', '存疑', 'x')
-    conn = sqlite3.connect(str(tmp_db))
-    raw = conn.execute("SELECT remark FROM talents WHERE id='tal_bad'").fetchone()[0]
-    conn.close()
-    assert raw == 'not-json{{'    # 非 JSON 不覆盖
-
-
-def test_save_judgment_missing_talent_no_raise(tmp_db):
-    xd.save_judgment('tal_ghost', '存疑', 'x')   # 不抛即过
-
-
-# ── 5. 日报聚合：fake judgments 走通 main 的 done 分支 ──
-
-def _fake_worker_result():
-    return {
-        'scanned': 3, 'inserted': 3, 'duplicates': 2, 'skipped': 1,
-        'pages_used': 2, 'has_more': True,
-        'items': [
-            dict(ITEM, 入库='inserted（tal_a）', 昵称='达人甲'),
-            dict(ITEM, 入库='inserted（tal_b）', 昵称='达人乙',
-                 **{'30天结算额': [50.0, 100.0]}),
-            dict(ITEM, 入库='inserted（tal_c）', 昵称='达人丙',
-                 **{'30天结算额': [500.0, 900.0]}),
-            dict(ITEM, 入库='duplicate（达人库已存在）', 昵称='旧人'),
-        ],
-    }
-
-
-def test_main_done_branch_aggregates_judgments(tmp_path, monkeypatch):
-    db = tmp_path / 't.db'
-    conn = sqlite3.connect(str(db))
-    conn.execute('CREATE TABLE talents (id TEXT PRIMARY KEY, remark TEXT)')
-    for tid in ('tal_a', 'tal_b', 'tal_c'):
-        conn.execute('INSERT INTO talents VALUES (?, ?)', (tid, '{}'))
+def test_report_delivered_today(duty_db):
+    today_ms = int(__import__('time').time() * 1000)
+    conn = sqlite3.connect(str(duty_db))
+    conn.execute("INSERT INTO emp_duties VALUES ('emp_xiaotuo', ?, '', 0)", (today_ms,))
     conn.commit()
     conn.close()
-    monkeypatch.setattr(xd, 'DB', db)
-
-    monkeypatch.setattr(xd, 'load_duty',
-                        lambda: {'agent_id': 'emp_xiaotuo', 'category': '鞋靴箱包', 'quota': 5})
-    calls = {'post': 0}
-
-    def fake_json_call(method, url, payload=None, timeout=30):
-        if method == 'POST':
-            return {'ok': True, 'collect_id': 'job_1'}
-        return {'status': 'done', 'result': json.dumps(_fake_worker_result(), ensure_ascii=False)}
-    monkeypatch.setattr(xd, '_json_call', fake_json_call)
-
-    fake_verdicts = iter([('值得联系', '月结算过万'), ('排除', '基本无成交'), ('存疑', '区间偏低')])
-
-    def fake_judge(item, timeout=xd.JUDGE_TIMEOUT):
-        return next(fake_verdicts)
-    monkeypatch.setattr(xd, 'judge_item', fake_judge)
-    monkeypatch.setattr(xd.time, 'sleep', lambda s: None)
-
-    captured = {}
-    monkeypatch.setattr(xd, 'write_report',
-                        lambda summary, detail: captured.update(summary=summary, detail=detail))
-
-    assert xd.main() == 0
-    d = captured['detail']
-    # 计数与排除主因
-    assert '今日深看3' in d and '新增3' in d
-    assert '判定：值得联系1 / 存疑1 / 排除1' in d
-    assert '排除3（重复 2 / 缺抖音号 1）' in d
-    # 建议人工过目只列 值得联系+存疑，排除（达人乙）不出现，duplicate（旧人）不参与判定
-    assert '达人甲（值得联系：月结算过万）' in d
-    assert '达人丙（存疑：区间偏低）' in d
-    assert '达人乙' not in d.split('建议人工过目：')[1]
-    # 判定结论已回写 remark
-    conn = sqlite3.connect(str(db))
-    rem = json.loads(conn.execute("SELECT remark FROM talents WHERE id='tal_a'").fetchone()[0])
-    conn.close()
-    assert rem['square_judgment']['verdict'] == '值得联系'
+    assert xd.report_delivered() is True
 
 
-def test_main_all_excluded_eyeball_is_none(tmp_path, monkeypatch):
-    """全部判定排除时「建议人工过目：无」——不硬凑。"""
-    db = tmp_path / 't2.db'
-    conn = sqlite3.connect(str(db))
-    conn.execute('CREATE TABLE talents (id TEXT PRIMARY KEY, remark TEXT)')
-    conn.execute("INSERT INTO talents VALUES ('tal_a', '{}')")
+def test_report_delivered_stale_or_missing(duty_db):
+    assert xd.report_delivered() is False       # 无行
+    conn = sqlite3.connect(str(duty_db))
+    conn.execute("INSERT INTO emp_duties VALUES ('emp_xiaotuo', 1600000000000, '', 0)")
     conn.commit()
     conn.close()
-    monkeypatch.setattr(xd, 'DB', db)
-    monkeypatch.setattr(xd, 'load_duty',
-                        lambda: {'agent_id': 'emp_xiaotuo', 'category': '', 'quota': 5})
-    monkeypatch.setattr(xd, '_json_call', lambda method, url, payload=None, timeout=30:
-                        {'ok': True, 'collect_id': 'job_1'} if method == 'POST'
-                        else {'status': 'done', 'result': json.dumps(
-                            {'scanned': 1, 'inserted': 1, 'duplicates': 0, 'skipped': 0,
-                             'items': [dict(ITEM, 入库='inserted（tal_a）')]}, ensure_ascii=False)})
-    monkeypatch.setattr(xd, 'judge_item', lambda item, timeout=150: ('排除', '基本无成交'))
+    assert xd.report_delivered() is False       # 旧日期
+
+
+# ── 4. main 主流程 ──
+
+def _patch_common(monkeypatch, duty_db, cli_result):
+    monkeypatch.setattr(xd, 'load_duty', lambda: dict(DUTY))
+    if cli_result == 'raise':
+        def boom(*a, **k):
+            raise RuntimeError('x')
+        monkeypatch.setattr(xd.subprocess, 'run', boom)
+    else:
+        monkeypatch.setattr(xd.subprocess, 'run',
+                            lambda *a, **k: _fake_run(stdout=cli_result or '{}'))
     monkeypatch.setattr(xd.time, 'sleep', lambda s: None)
-    captured = {}
-    monkeypatch.setattr(xd, 'write_report',
-                        lambda summary, detail: captured.update(summary=summary, detail=detail))
+
+
+def test_main_delivered_and_reported_no_alert(tmp_path, monkeypatch, duty_db):
+    _patch_common(monkeypatch, duty_db, json.dumps({'ok': True, 'runId': 'r'}))
+    today_ms = int(__import__('time').time() * 1000)
+    conn = sqlite3.connect(str(duty_db))
+    conn.execute("INSERT INTO emp_duties VALUES ('emp_xiaotuo', ?, '已交', 0)", (today_ms,))
+    conn.commit()
+    conn.close()
     assert xd.main() == 0
-    assert captured['detail'].endswith('建议人工过目：无')
-    assert '判定：值得联系0 / 存疑0 / 排除1' in captured['detail']
+    conn = sqlite3.connect(str(duty_db))
+    n = conn.execute("SELECT COUNT(*) FROM notifications WHERE agent_id = 'emp_xiaotuo'").fetchone()[0]
+    conn.close()
+    assert n == 0, '交作业就不许告警'
+
+
+def test_main_no_report_writes_admin_alert(tmp_path, monkeypatch, duty_db):
+    _patch_common(monkeypatch, duty_db, 'raise')   # CLI 挂了也要看门告警
+    monkeypatch.setattr(xd, 'WATCHDOG_SEC', 0)
+    assert xd.main() == 0
+    conn = sqlite3.connect(str(duty_db))
+    rows = conn.execute("SELECT title, content FROM notifications "
+                        "WHERE agent_id = 'emp_xiaotuo'").fetchall()
+    conn.close()
+    assert len(rows) == 1 and '未交日报' in rows[0][0] and '@小拓' in rows[0][1]
+
+
+def test_main_no_duty_row_skips_quietly(monkeypatch):
+    monkeypatch.setattr(xd, 'load_duty', lambda: None)
+    monkeypatch.setattr(xd.subprocess, 'run',
+                        lambda *a, **k: (_ for _ in ()).throw(AssertionError('不该投任务')))
+    assert xd.main() == 0

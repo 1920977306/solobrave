@@ -11,7 +11,7 @@ buyin_worker.py — 巨量百应自动采集 worker（系统 AI 的"手"）
 HTTP API，复用去重/归属逻辑）→ 回写队列 done/failed。
 
 运行：/Users/qichen/Library/Application\ Support/kimi-desktop/daimon-share/daimon/runtime/python/bin/python3 buyin_worker.py
-控制口：http://127.0.0.1:8095  (/health /open /collect /jobs/<id> /shots/ /square-scan)
+控制口：http://127.0.0.1:8095  (/health /open /collect /jobs/<id> /shots/ /square-scan /square-decide /square-report)
 """
 
 import json
@@ -3353,6 +3353,8 @@ SQUARE_QUOTA_HARD_CAP = 5
 SQUARE_RISK_CODE = '10001010A'
 SQUARE_WORK_HOUR_START, SQUARE_WORK_HOUR_END = 9, 21
 SQUARE_ADMIN_USER = 'user_7acb72ff'   # 管理员（风控告警通知对象）
+SQUARE_DUTY_AGENT = 'emp_xiaotuo'     # 职责行 agent_id（日报回写名片用）
+SQUARE_REJECTS_LOG = PROD_DIR / 'data' / 'square_rejects.jsonl'  # 排除判定审计（修订2）
 
 
 class SquareRiskBlocked(Exception):
@@ -3498,6 +3500,85 @@ def _square_notify_admin(title, content):
             conn.close()
     except Exception as e:
         log(f'[SquareScan] 告警通知写入失败（不阻塞主流程）: {e}')
+
+
+# ─────────── 修订2（2026-11-10 增量派单）：员工驱动——小拓 agent 自己判定/交付 ───────────
+# xiaotuo_daily.py 退化为闹钟；活儿由 agent 回路完成：/square-scan?decide=1 只收集候选
+# （不入库）→ agent 逐个判定 → /square-decide 入库或排除 → /square-report 自己交日报。
+def _square_decide(payload):
+    """单个候选的判定落库。返回 (dict, http_code)。纯 DB 操作，无浏览器。
+
+    verdict=排除 → 不入库，记 square_rejects.jsonl 审计；
+    verdict=值得联系|存疑 → 按抖音号去重入库，square_judgment（含一句话理由）写进 remark。
+    """
+    cand = payload.get('candidate') or {}
+    verdict = str(payload.get('verdict') or '').strip()
+    reason = str(payload.get('reason') or '').strip()[:200]
+    if verdict not in ('值得联系', '存疑', '排除'):
+        return ({'ok': False,
+                 'error': f'verdict 必须是 值得联系/存疑/排除，收到 {verdict!r}'}, 400)
+    did = str(cand.get('抖音号') or '').strip()
+    name = str(cand.get('昵称') or '').strip()
+    if not did or not name:
+        return ({'ok': False, 'error': 'candidate 缺抖音号或昵称（缺一不入库）'}, 400)
+    now_ms = int(time.time() * 1000)
+    if verdict == '排除':
+        try:
+            with open(SQUARE_REJECTS_LOG, 'a', encoding='utf-8') as fp:
+                fp.write(json.dumps({'at': now_ms, 'verdict': verdict, 'reason': reason,
+                                     'candidate': cand}, ensure_ascii=False) + '\n')
+        except Exception as e:
+            log(f'[SquareDecide] 排除审计日志失败（不阻断）: {e}')
+        return ({'ok': True, 'inserted': False, 'verdict': verdict}, 200)
+    if _square_talent_exists(did):
+        return ({'ok': True, 'inserted': False, 'duplicate': True,
+                 'verdict': verdict}, 200)
+    settle = cand.get('30天结算额')
+    settle_low = float(settle[0]) if isinstance(settle, list) and len(settle) == 2 else 0.0
+    settle_high = float(settle[1]) if isinstance(settle, list) and len(settle) == 2 else 0.0
+    cate = cand.get('主推类目')
+    main_cate = [str(c) for c in cate] if isinstance(cate, list) else [str(cate or '')]
+    try:
+        followers = int(cand.get('粉丝指数') or 0)
+    except (TypeError, ValueError):
+        followers = 0
+    # 只丢不造：候选 item 里只有摘要字段，remark 不带平台明细（scan 全量模式才有）
+    remark = {
+        'sale_d30': [settle_low, settle_high],
+        'square_judgment': {'verdict': verdict, 'reason': reason,
+                            'judged_at': now_ms, 'judged_by': SQUARE_DUTY_AGENT},
+    }
+    f = {
+        'name': name, 'avatar': '', 'douyin_id': did,
+        'douyin_uid': str(cand.get('达人ID') or ''),
+        'city': str(cand.get('城市') or ''), 'level': str(cand.get('达人等级') or ''),
+        'followers': followers,
+        'tags': json.dumps(main_cate, ensure_ascii=False),
+        'category': '/'.join([c for c in main_cate if c][:3]),
+        'contact_wechat': '', 'contact_phone': '',
+        'remark': json.dumps(remark, ensure_ascii=False),
+    }
+    tid = _square_insert_talent(f, 'square_scan_' + datetime.now().strftime('%Y%m%d'))
+    log(f'[SquareDecide] 入库 {name}（{did}）← {verdict}：{reason[:40]}')
+    return ({'ok': True, 'inserted': True, 'talent_id': tid, 'verdict': verdict}, 200)
+
+
+def _square_write_report(summary, detail, agent_id=SQUARE_DUTY_AGENT):
+    """日报交付：notifications（管理员）+ emp_duties.last_run_*（名片「近期动态」）。"""
+    now_ms = int(time.time() * 1000)
+    conn = sqlite3.connect(str(DB_PATH), timeout=15)
+    try:
+        conn.execute(
+            'INSERT INTO notifications (id, user_id, agent_id, type, title, content, '
+            'read, created_at) VALUES (?,?,?,?,?,?,0,?)',
+            ('notif_' + uuid.uuid4().hex[:12], SQUARE_ADMIN_USER, agent_id,
+             'task_reminder', f'小拓日报 · {datetime.now():%m月%d日}', detail, now_ms))
+        conn.execute(
+            'UPDATE emp_duties SET last_run_at = ?, last_run_summary = ?, updated_at = ? '
+            'WHERE agent_id = ?', (now_ms, summary, now_ms, agent_id))
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def _square_wait_initial_list(page):
@@ -3707,35 +3788,56 @@ def _run_square_scan_impl(row):
             f' / 已在库滤掉 {pre_dups} / 无抖音号 {pre_noid} / has_more={has_more}')
 
         source = 'square_scan_' + datetime.now().strftime('%Y%m%d')
+        decide = bool(row.get('decide'))
         items, inserted, dups, skipped = [], 0, 0, 0
-        _job_set(cid, stage='逐条查重入库')
-        for i, a in enumerate(picked):
-            f = _square_scan_author_to_fields(a)
-            item = {
-                '达人ID': f['douyin_uid'] or str(
-                    (a.get('author_base') or {}).get('author_id') or ''),
-                '抖音号': f['douyin_id'],
-                '昵称': f['name'],
-                '粉丝指数': f['followers'],
-                '30天结算额': [f['settle_d30_low'], f['settle_d30_high']],
-                '联系方式可得性': '有' if f['contact_available'] else '未披露',
-                '主推类目': f['main_cate'],
-            }
-            if not f['douyin_id']:
-                skipped += 1
-                item['入库'] = 'skipped（平台未给抖音号，缺一不入库）'
-            elif _square_talent_exists(f['douyin_id']):
-                dups += 1                   # 翻页窗口内被别并发入过库（竞态守卫，正常极少触发）
-                item['入库'] = 'duplicate（达人库已存在）'
-            else:
-                tid = _square_insert_talent(f, source)
-                inserted += 1
-                item['入库'] = f'inserted（{tid}）'
-            items.append(item)
-            if i < len(picked) - 1:
-                _human_sleep(30, 120)   # ★ 真人化节奏：条间 30-120s 随机
+        if decide:
+            # 修订2 员工驱动模式：只收集候选、不入库（无条间真人睡眠——没逐个点详情）。
+            # 入库/排除由小拓 agent 逐个判定后调 /square-decide（手是手、脑是脑）。
+            _job_set(cid, stage='候选待判定')
+            for a in picked:
+                f = _square_scan_author_to_fields(a)
+                items.append({
+                    '达人ID': f['douyin_uid'] or str(
+                        (a.get('author_base') or {}).get('author_id') or ''),
+                    '抖音号': f['douyin_id'],
+                    '昵称': f['name'],
+                    '粉丝指数': f['followers'],
+                    '30天结算额': [f['settle_d30_low'], f['settle_d30_high']],
+                    '联系方式可得性': '有' if f['contact_available'] else '未披露',
+                    '主推类目': f['main_cate'],
+                    '达人等级': f['level'],
+                    '城市': f['city'],
+                })
+        else:
+            _job_set(cid, stage='逐条查重入库')
+            for i, a in enumerate(picked):
+                f = _square_scan_author_to_fields(a)
+                item = {
+                    '达人ID': f['douyin_uid'] or str(
+                        (a.get('author_base') or {}).get('author_id') or ''),
+                    '抖音号': f['douyin_id'],
+                    '昵称': f['name'],
+                    '粉丝指数': f['followers'],
+                    '30天结算额': [f['settle_d30_low'], f['settle_d30_high']],
+                    '联系方式可得性': '有' if f['contact_available'] else '未披露',
+                    '主推类目': f['main_cate'],
+                }
+                if not f['douyin_id']:
+                    skipped += 1
+                    item['入库'] = 'skipped（平台未给抖音号，缺一不入库）'
+                elif _square_talent_exists(f['douyin_id']):
+                    dups += 1               # 翻页窗口内被别并发入过库（竞态守卫，正常极少触发）
+                    item['入库'] = 'duplicate（达人库已存在）'
+                else:
+                    tid = _square_insert_talent(f, source)
+                    inserted += 1
+                    item['入库'] = f'inserted（{tid}）'
+                items.append(item)
+                if i < len(picked) - 1:
+                    _human_sleep(30, 120)   # ★ 真人化节奏：条间 30-120s 随机
 
         result = {'category': category or '全部', 'quota': quota,
+                  'mode': 'decide' if decide else 'auto',
                   'scanned': len(picked), 'inserted': inserted,
                   'duplicates': pre_dups + dups, 'skipped': pre_noid + skipped,
                   'pages_used': pages_used, 'has_more': has_more,
@@ -4900,8 +5002,32 @@ class ControlHandler(BaseHTTPRequestHandler):
                 return
             cid = f"ssq_{int(time.time()*1000)}_{secrets.token_hex(3)}"
             submit_collect({'_square_scan': True, 'id': cid,
-                            'category': category, 'quota': quota})
+                            'category': category, 'quota': quota,
+                            'decide': bool(body.get('decide'))})
             self._json(200, {'ok': True, 'collect_id': cid, 'quota': quota})
+            return
+        if self.path == '/square-decide':
+            # 修订2 员工驱动：小拓 agent 对单个候选下判定
+            # {candidate: {...scan返回的候选item...}, verdict: 值得联系|存疑|排除, reason: 一句话}
+            out, code = _square_decide(body or {})
+            self._json(code, out)
+            return
+        if self.path == '/square-report':
+            # 修订2 员工驱动：日报交付（小拓自己写、自己交——不许脚本代写「建议人工过目」）
+            # {summary: 一句话, detail: 日报全文, agent_id?: 默认 emp_xiaotuo}
+            summary = str((body or {}).get('summary') or '').strip()
+            detail = str((body or {}).get('detail') or '').strip()
+            agent_id = str((body or {}).get('agent_id') or 'emp_xiaotuo').strip()
+            if not summary or not detail:
+                self._json(400, {'error': 'summary 和 detail 必填'})
+                return
+            try:
+                _square_write_report(summary[:500], detail[:2000], agent_id)
+            except Exception as e:
+                log(f'[SquareReport] 写日报失败: {e}')
+                self._json(500, {'ok': False, 'error': str(e)})
+                return
+            self._json(200, {'ok': True})
             return
         if self.path == '/teardown':
             # 视频拆解：{talent_id?|name?, douyin_id?, top_n?} → 建 job 入队，worker 逐条抓+分析
