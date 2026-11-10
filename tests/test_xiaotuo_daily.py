@@ -4,7 +4,7 @@
 铁律测试矩阵：
 1. build_task_message：带类目/配额/流程，且明确「建议人工过目不许默认写无」
 2. deliver_task：subprocess 带 node PATH 环境、CLI 参数正确；CLI 失败不抛出
-3. report_delivered：last_run_at 今天 = 交了；昨天/空 = 没交
+3. report_delivered：last_run_at ≥ 本次投递时刻 = 交了；更早/空 = 没交
 4. main 主流程：投了且交作业 → 0 退出、无告警；投了没交 → 管理员告警落库
    （闹钟绝不代写日报——日报只能由 agent 经 /square-report 写入）
 """
@@ -97,22 +97,26 @@ def duty_db(tmp_path, monkeypatch):
     return db
 
 
-def test_report_delivered_today(duty_db):
-    today_ms = int(__import__('time').time() * 1000)
+def test_report_delivered_after_dispatch(duty_db):
+    dispatch_ms = int(__import__('time').time() * 1000) - 1000
     conn = sqlite3.connect(str(duty_db))
-    conn.execute("INSERT INTO emp_duties VALUES ('emp_xiaotuo', ?, '', 0)", (today_ms,))
+    conn.execute("INSERT INTO emp_duties VALUES ('emp_xiaotuo', ?, '', 0)",
+                 (dispatch_ms + 1,))   # 投递之后才回写 ⇒ 交了
     conn.commit()
     conn.close()
-    assert xd.report_delivered() is True
+    assert xd.report_delivered(dispatch_ms) is True
 
 
 def test_report_delivered_stale_or_missing(duty_db):
-    assert xd.report_delivered() is False       # 无行
+    dispatch_ms = int(__import__('time').time() * 1000)
+    assert xd.report_delivered(dispatch_ms) is False       # 无行
     conn = sqlite3.connect(str(duty_db))
-    conn.execute("INSERT INTO emp_duties VALUES ('emp_xiaotuo', 1600000000000, '', 0)")
+    # 同一天但早于本次投递（当天跑过另一轮）⇒ 不算交
+    conn.execute("INSERT INTO emp_duties VALUES ('emp_xiaotuo', ?, '', 0)",
+                 (dispatch_ms - 1,))
     conn.commit()
     conn.close()
-    assert xd.report_delivered() is False       # 旧日期
+    assert xd.report_delivered(dispatch_ms) is False
 
 
 # ── 4. main 主流程 ──
@@ -131,9 +135,10 @@ def _patch_common(monkeypatch, duty_db, cli_result):
 
 def test_main_delivered_and_reported_no_alert(tmp_path, monkeypatch, duty_db):
     _patch_common(monkeypatch, duty_db, json.dumps({'ok': True, 'runId': 'r'}))
-    today_ms = int(__import__('time').time() * 1000)
+    # report 端点在投递之后才回写 last_run_at ⇒ 必须晚于 main() 里的 dispatch 时刻
+    future_ms = int(__import__('time').time() * 1000) + 3600_000
     conn = sqlite3.connect(str(duty_db))
-    conn.execute("INSERT INTO emp_duties VALUES ('emp_xiaotuo', ?, '已交', 0)", (today_ms,))
+    conn.execute("INSERT INTO emp_duties VALUES ('emp_xiaotuo', ?, '已交', 0)", (future_ms,))
     conn.commit()
     conn.close()
     assert xd.main() == 0

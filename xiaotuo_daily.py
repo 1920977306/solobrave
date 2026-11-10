@@ -102,16 +102,19 @@ def deliver_task(message):
     return ('turn 已结束' if output.get('ok') else '网关已接受（turn 可能仍在跑）', run_id)
 
 
-def report_delivered():
-    """看门：小拓今天交作业了吗？（last_run_at 是 report 端点回写的）"""
+def report_delivered(since_ms):
+    """看门：小拓在本次任务投递之后交作业了吗？（last_run_at 是 report 端点回写的）
+
+    ⚠️ 不能判「今天」—— 同一天跑两轮时，第一轮的 last_run_at 也是今天，
+    只看日期会让第二轮的看门狗立即误收工。必须拿投递时刻做下界。
+    """
     conn = sqlite3.connect(str(DB), timeout=10)
     try:
         row = conn.execute('SELECT last_run_at FROM emp_duties WHERE agent_id = ?',
                            (AGENT_ID,)).fetchone()
-        today = datetime.now().strftime('%Y-%m-%d')
         if not row or not row[0]:
             return False
-        return datetime.fromtimestamp(row[0] / 1000).strftime('%Y-%m-%d') == today
+        return row[0] >= since_ms
     finally:
         conn.close()
 
@@ -147,13 +150,14 @@ def main():
     log(f'投递今日任务：类目={message.split("类目=")[1].split("，")[0]} '
         f'quota={duty.get("quota")}')
 
+    dispatch_ms = int(time.time() * 1000)
     note, run_id = deliver_task(message)
     log(f'投递结果：{note}' + (f'（runId={run_id}）' if run_id else ''))
 
     # 看门：turn 结束后（或早退）等它交作业
     deadline = time.time() + WATCHDOG_SEC
     while time.time() < deadline:
-        if report_delivered():
+        if report_delivered(dispatch_ms):
             log('小拓已交日报（emp_duties.last_run_at 今日已更新），收工')
             return 0
         time.sleep(60)
