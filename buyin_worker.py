@@ -3532,6 +3532,81 @@ def _square_select_category(page, category):
         return None
 
 
+SQUARE_MAX_PAGES = 5   # ★ 必修①（2026-11-10 验收返工）：翻页找新面孔的上限
+
+
+def _square_page_signature(lst):
+    """一页列表的内容指纹（防翻页拿到重复页时死循环）。只看首条 uid + 条数。"""
+    if not lst:
+        return 'empty'
+    base0 = (lst[0].get('author_base') or {})
+    return f'{base0.get("uid") or base0.get("aweme_id") or "?"}:{len(lst)}'
+
+
+def _square_next_page(page, max_wait=45):
+    """滚动达人列表触发下一页 search_feed_author（带 a_bogus 签名的唯一真路：
+    签名参数无法手工构造，必须让页面自己发请求）。
+    返回 response；没有更多/触发失败 → None。"""
+    try:
+        page.mouse.move(page.viewport_size['width'] // 2,
+                        page.viewport_size['height'] // 2)
+        with page.expect_response(lambda r: 'search_feed_author' in r.url,
+                                  timeout=max_wait * 1000) as ri:
+            # 先滚列表容器（找不到就滚整页），再补一发鼠标滚轮促发
+            page.evaluate("""() => {
+                const boxes = Array.from(document.querySelectorAll('div')).filter(e =>
+                    e.scrollHeight > e.clientHeight + 300 && e.clientHeight > 300);
+                if (!boxes.length) { window.scrollTo(0, document.body.scrollHeight); return; }
+                boxes.sort((a, b) => a.clientHeight - b.clientHeight);
+                boxes[0].scrollTop = boxes[0].scrollHeight;
+            }""")
+            page.mouse.wheel(0, 1500)
+        return ri.value
+    except Exception as e:
+        log(f'[SquareScan] 翻页未触发新请求: {str(e)[:120]}')
+        return None
+
+
+def _square_collect_new_candidates(page_lists, exists_fn, category, quota,
+                                   max_pages=SQUARE_MAX_PAGES):
+    """纯函数：跨页收集「库里没有」的新候选（必修① 2026-11-10 验收返工）。
+
+    老大的原话逻辑：对列表先按「抖音号已在库」过滤，本页全是旧的 → 翻下一页，
+    直到凑满 quota 或翻满 max_pages 为止——真人商务第二天打开广场会往下翻。
+
+    page_lists: 已抓到的页（list of author list），调用方边翻边 append 后重算。
+    exists_fn:  (douyin_id) -> bool  查重函数（注入，便于测试）。
+    category:   主推类目过滤；仅当调用方已标 client_side_filter 时才应传入非空。
+    返回 {picked, dup_skipped, noid_skipped, pages_used}；
+    是否继续翻页由调用方看 len(picked) >= quota 和 has_more 决定（本函数不碰网络）。
+    """
+    picked, dup_skipped, noid_skipped = [], 0, 0
+    seen_ids = set()
+    pages_used = 0
+    for page_no, cur in enumerate(page_lists[:max_pages]):
+        pages_used = page_no + 1
+        for a in cur or []:
+            f0 = _square_scan_author_to_fields(a)
+            did = f0['douyin_id']
+            if not did:
+                noid_skipped += 1
+                continue
+            if category and category not in (f0['main_cate'] or []):
+                continue
+            if did in seen_ids:
+                continue                      # 页间去重
+            if exists_fn(did):
+                dup_skipped += 1
+                continue
+            seen_ids.add(did)
+            picked.append(a)
+            if len(picked) >= quota:
+                return {'picked': picked, 'dup_skipped': dup_skipped,
+                        'noid_skipped': noid_skipped, 'pages_used': pages_used}
+    return {'picked': picked, 'dup_skipped': dup_skipped,
+            'noid_skipped': noid_skipped, 'pages_used': pages_used}
+
+
 def _run_square_scan_impl(row):
     """达人广场扫描（团长端有头浏览器串行队列，与其它任务互斥共用）。
 
@@ -3564,7 +3639,9 @@ def _run_square_scan_impl(row):
         _job_set(cid, stage='解析列表')
         payload = resp.json()
         _square_assert_not_risk(payload)
-        authors = ((payload.get('data') or {}).get('list')) or []
+        data1 = payload.get('data') or {}
+        authors = data1.get('list') or []
+        has_more = bool(data1.get('has_more'))
         client_side_filter = False
 
         if category:
@@ -3574,11 +3651,13 @@ def _run_square_scan_impl(row):
             if resp2 is not None:
                 payload2 = resp2.json()
                 _square_assert_not_risk(payload2)
-                lst2 = ((payload2.get('data') or {}).get('list')) or []
+                data2 = payload2.get('data') or {}
+                lst2 = data2.get('list') or []
                 if lst2:
                     authors = lst2
+                    has_more = bool(data2.get('has_more'))
                     # 搜索是相关度排序（会命中昵称含类目的达人）⇒ 有 main_cate 命中的
-                    # 优先精选（数据平台给的，不是编造）；不足 quota 再用搜索排序补
+                    # 优先精选（数据平台给的，不是编造）；精选有命中则后续收集按 main_cate 过滤
                     picked_cat = _square_pick_by_category(authors, category, quota)
                     if picked_cat:
                         authors, client_side_filter = picked_cat, True
@@ -3595,7 +3674,38 @@ def _run_square_scan_impl(row):
                 if picked0:
                     authors, client_side_filter = picked0, True
 
-        picked = authors[:quota]
+        # ── 必修①（2026-11-10 验收返工）：先滤「已在库」，凑不满就翻页找新面孔 ──
+        # 老大验收原话：每天从相关度排序第一页开头取 ⇒ 永远「重复 5」；
+        # 修法 = 先按抖音号滤掉库里的，本页全旧 → 翻下一页（真人商务会往下翻）。
+        cat_filter = category if client_side_filter else ''
+        page_lists = [authors]
+        sigs = {_square_page_signature(authors)}
+        coll = _square_collect_new_candidates(page_lists, _square_talent_exists,
+                                              cat_filter, quota)
+        while (len(coll['picked']) < quota and has_more
+               and len(page_lists) < SQUARE_MAX_PAGES):
+            _job_set(cid, stage=f'翻第 {len(page_lists) + 1} 页找新面孔'
+                              f'（已滤已在库 {coll["dup_skipped"]} 个）')
+            _human_sleep(2, 4)
+            resp_n = _square_next_page(page)
+            if resp_n is None:
+                break
+            payload_n = resp_n.json()
+            _square_assert_not_risk(payload_n)
+            data_n = payload_n.get('data') or {}
+            nxt = data_n.get('list') or []
+            has_more = bool(data_n.get('has_more'))
+            if not nxt or _square_page_signature(nxt) in sigs:
+                break                       # 没有新内容（防 SPA 重发同页死循环）
+            sigs.add(_square_page_signature(nxt))
+            page_lists.append(nxt)
+            coll = _square_collect_new_candidates(page_lists, _square_talent_exists,
+                                                  cat_filter, quota)
+        picked = coll['picked']
+        pre_dups, pre_noid, pages_used = coll['dup_skipped'], coll['noid_skipped'], coll['pages_used']
+        log(f'[SquareScan] {cid} 候选收集：{pages_used} 页 / 新候选 {len(picked)}'
+            f' / 已在库滤掉 {pre_dups} / 无抖音号 {pre_noid} / has_more={has_more}')
+
         source = 'square_scan_' + datetime.now().strftime('%Y%m%d')
         items, inserted, dups, skipped = [], 0, 0, 0
         _job_set(cid, stage='逐条查重入库')
@@ -3615,7 +3725,7 @@ def _run_square_scan_impl(row):
                 skipped += 1
                 item['入库'] = 'skipped（平台未给抖音号，缺一不入库）'
             elif _square_talent_exists(f['douyin_id']):
-                dups += 1
+                dups += 1                   # 翻页窗口内被别并发入过库（竞态守卫，正常极少触发）
                 item['入库'] = 'duplicate（达人库已存在）'
             else:
                 tid = _square_insert_talent(f, source)
@@ -3627,12 +3737,14 @@ def _run_square_scan_impl(row):
 
         result = {'category': category or '全部', 'quota': quota,
                   'scanned': len(picked), 'inserted': inserted,
-                  'duplicates': dups, 'skipped': skipped, 'source': source,
+                  'duplicates': pre_dups + dups, 'skipped': pre_noid + skipped,
+                  'pages_used': pages_used, 'has_more': has_more,
+                  'source': source,
                   'client_side_filter': client_side_filter, 'items': items}
         _job_set(cid, status='done', stage='完成',
                  result=json.dumps(result, ensure_ascii=False))
-        log(f'[SquareScan] {cid} 完成：深看 {result["scanned"]} / 新入库 {inserted} '
-            f'/ 重复 {dups} / 跳过 {skipped}')
+        log(f'[SquareScan] {cid} 完成：翻{pages_used}页 / 深看 {result["scanned"]} '
+            f'/ 新入库 {inserted} / 已在库滤掉 {pre_dups + dups} / 无抖音号 {pre_noid + skipped}')
     except SquareRiskBlocked as e:
         err = f'达人广场风控拦截：{e}（铁律：立即停手，绝不重试）'
         log(f'[SquareScan] {cid} ★ 风控停手：{err}')
