@@ -158,7 +158,7 @@ def main():
     deadline = time.time() + WATCHDOG_SEC
     while time.time() < deadline:
         if report_delivered(dispatch_ms):
-            log('小拓已交日报（emp_duties.last_run_at 今日已更新），收工')
+            log('小拓已交日报（emp_duties.last_run_at 已在本次投递后回写），收工')
             return 0
         time.sleep(60)
     alert_admin(note, run_id)
