@@ -3516,22 +3516,19 @@ def _square_wait_initial_list(page):
 
 
 def _square_select_category(page, category):
-    """UI 点选主推类目，等新的 search_feed_author 响应。
-    点选失败/未触发新列表 → 返回 None（调用方降级为客户端 main_cate 筛选）。"""
+    """按主推类目搜索（搜索框 placeholder 明确支持「主推类目」检索，2026-11-10 探针14 实证：
+    搜「鞋靴箱包」total 1092→504 且结果强相关）。搜索走页面真实请求（自动带 a_bogus 签名）。
+    注意：搜索是相关度排序（会命中昵称含类目的达人），调用方再用 main_cate 客户端精选。
+    失败 → 返回 None（调用方降级为未过滤列表 + main_cate 筛选）。"""
     try:
-        page.mouse.move(800, 400)
-        _human_sleep(1, 2)
-        page.locator('text=' + category).first.click(timeout=5000)
-        _human_sleep(1.5, 2.5)
-    except Exception as e:
-        log(f'[SquareScan] 类目「{category}」点选失败: {str(e)[:120]}')
-        return None
-    try:
+        inp = page.locator('input[placeholder*="主推类目"]').first
+        inp.fill(category, timeout=5000)
         with page.expect_response(lambda r: 'search_feed_author' in r.url,
                                   timeout=30000) as ri:
-            pass
+            inp.press('Enter')
         return ri.value
-    except Exception:
+    except Exception as e:
+        log(f'[SquareScan] 类目「{category}」搜索失败: {str(e)[:120]}')
         return None
 
 
@@ -3571,7 +3568,7 @@ def _run_square_scan_impl(row):
         client_side_filter = False
 
         if category:
-            _job_set(cid, stage=f'筛选类目「{category}」')
+            _job_set(cid, stage=f'搜索类目「{category}」')
             _human_sleep(2, 4)
             resp2 = _square_select_category(page, category)
             if resp2 is not None:
@@ -3580,14 +3577,20 @@ def _run_square_scan_impl(row):
                 lst2 = ((payload2.get('data') or {}).get('list')) or []
                 if lst2:
                     authors = lst2
-                    _job_set(cid, stage=f'已按「{category}」过滤，本页 {len(authors)} 条')
+                    # 搜索是相关度排序（会命中昵称含类目的达人）⇒ 有 main_cate 命中的
+                    # 优先精选（数据平台给的，不是编造）；不足 quota 再用搜索排序补
+                    picked_cat = _square_pick_by_category(authors, category, quota)
+                    if picked_cat:
+                        authors, client_side_filter = picked_cat, True
+                    _job_set(cid, stage=f'已搜「{category}」，本页 {len(lst2)} 条，'
+                                        f'main_cate 命中 {len(picked_cat)} 条')
                 else:
-                    log(f'[SquareScan] {cid} 类目过滤后列表为空，尝试客户端 main_cate 筛选')
+                    log(f'[SquareScan] {cid} 类目搜索为空，客户端 main_cate 筛选')
                     picked0 = _square_pick_by_category(authors, category, quota)
                     if picked0:
                         authors, client_side_filter = picked0, True
             else:
-                log(f'[SquareScan] {cid} 类目「{category}」未触发新列表，客户端 main_cate 筛选兜底')
+                log(f'[SquareScan] {cid} 类目「{category}」搜索失败，客户端 main_cate 筛选兜底')
                 picked0 = _square_pick_by_category(authors, category, quota)
                 if picked0:
                     authors, client_side_filter = picked0, True
