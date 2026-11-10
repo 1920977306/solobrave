@@ -5157,6 +5157,46 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   color: #E8E8E8;
 }
 
+/* ③三归属：AI 对 AI（左侧缩进 + 灰底 + 虚线连接线 = 旁听感，规格 5.2） */
+.msg-a2a {
+  margin-left: 44px;
+  position: relative;
+}
+.msg-a2a::before {
+  content: '';
+  position: absolute;
+  left: -28px;
+  top: 0;
+  bottom: 0;
+  border-left: 2px dashed var(--border-color, #d0d0d0);
+}
+.msg-a2a .msg-bubble {
+  background: #eceef1;
+  border: 1px dashed #c8cdd4;
+}
+[data-theme="dark"] .msg-a2a .msg-bubble {
+  background: #232327;
+  border-color: #3a3a40;
+}
+.msg-a2a-tag {
+  display: inline-block;
+  font-size: 10px;
+  line-height: 1;
+  padding: 3px 6px;
+  border-radius: 4px;
+  background: rgba(100, 106, 115, 0.12);
+  color: var(--text-tertiary);
+  vertical-align: middle;
+}
+/* 系统事件：居中小字不占气泡 */
+.msg-system {
+  text-align: center;
+  font-size: 11px;
+  color: var(--text-tertiary);
+  padding: 4px 0;
+  margin: 4px 0;
+}
+
 /* 消息气泡内的 Markdown 元素 */
 .msg-bubble h2, .msg-bubble h3, .msg-bubble h4, .msg-bubble h5, .msg-bubble h6 { margin: 8px 0 4px; font-weight: 600; line-height: 1.4; }
 .msg-bubble h2 { font-size: 16px; }

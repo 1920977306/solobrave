@@ -6168,17 +6168,32 @@ function renderGroupMessages(groupId) {
         senderEmp = findEmpByIdAcrossGroups(m.senderId);
       }
 
+      // ③三归属：优先读服务端 ownership 字段；旧消息 fallback JS 孪生判定
+      //（与服务端 _msg_ownership 同口径：system → agent带mentions → direct）
+      var ownership = m.ownership;
+      if (!ownership) {
+        ownership = (m.type === 'system') ? 'system'
+          : ((m.senderType === 'agent' || m.role === 'assistant') && m.mentions && m.mentions.length) ? 'agent-to-agent'
+          : 'direct';
+      }
+
       // 处理 @提及高亮：AI/assistant 消息走 Markdown 渲染，用户消息保持纯文本 + @高亮
       var isAgent = m.role === 'assistant' || m.senderType === 'agent';
       var bubbleContent = isAgent ? highlightMentions(formatMessageContent(m.content)) : formatGroupMessage(m.content);
-      if (isOwn) {
+      if (ownership === 'system') {
+        // 系统事件：居中小字不占气泡
+        html += '<div class="msg-system">' + escapeHtml(m.content || '') + '</div>';
+      } else if (isOwn) {
         html += '<div class="msg own"><div class="msg-content">' + '<div class="msg-sender"><span class="msg-sender-name">你</span><span class="msg-sender-time">' + timeStr + '</span></div>' + '<div class="msg-bubble">' + bubbleContent + '</div>' + '</div></div>';
       } else {
         var avatarHtml = senderEmp ? renderAvatar(senderEmp, 32) : '🤖';
         var senderName = senderEmp ? senderEmp.name : m.senderName || 'AI';
         var senderRole = senderEmp ? getEmpRoleDisplay(senderEmp) : '';
         var senderBg = senderEmp ? 'background:' + senderEmp.bg + ';' : 'background:var(--bg-tertiary);';
-        html += '<div class="msg"><div class="msg-avatar"><div class="avatar small" style="' + senderBg + '">' + avatarHtml + '</div></div>' + '<div class="msg-content">' + '<div class="msg-sender"><span class="msg-sender-name">' + escapeHtml(senderName) + '</span><span class="msg-sender-role">' + escapeHtml(senderRole) + '</span><span class="msg-sender-time">' + timeStr + '</span></div>' + '<div class="msg-bubble">' + bubbleContent + '</div>' + '</div></div>';
+        var isA2A = ownership === 'agent-to-agent';
+        var msgClass = isA2A ? 'msg msg-a2a' : 'msg';
+        var a2aTag = isA2A ? '<span class="msg-a2a-tag">AI 协同</span>' : '';
+        html += '<div class="' + msgClass + '"><div class="msg-avatar"><div class="avatar small" style="' + senderBg + '">' + avatarHtml + '</div></div>' + '<div class="msg-content">' + '<div class="msg-sender"><span class="msg-sender-name">' + escapeHtml(senderName) + '</span><span class="msg-sender-role">' + escapeHtml(senderRole) + '</span>' + a2aTag + '<span class="msg-sender-time">' + timeStr + '</span></div>' + '<div class="msg-bubble">' + bubbleContent + '</div>' + '</div></div>';
       }
     });
     html += '<div class="typing-indicator" id="typingIndicator" style="display:none;"><div class="typing-dots"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div></div>';
@@ -7550,6 +7565,44 @@ function triggerMentionedAgent(emp, groupId, fromId, source, userMessage) {
 }
 
 // 在群聊中显示 AI 回复
+// ③@通道：AI 回复落盘走原生 fetch —— 不能用 apiFetch（它遇 401 会清会话跳登录页，
+// 而身份闸对无令牌/过期令牌的 AI 发言恰好返回 401，会把正常用户踢出去）。
+// replyToken = 服务端签发的 (group, senderId) HMAC 令牌；懒获取，401 时清缓存取新令牌重试一次。
+async function _saveGroupAIReply(groupId, payload) {
+  var tokenKey = groupId + '_' + (payload.senderId || '');
+  var auth = 'Bearer ' + (localStorage.getItem('sb_auth_token') || '');
+  window._groupReplyTokens = window._groupReplyTokens || {};
+  for (var tried = 0; tried < 2; tried++) {
+    var rt = window._groupReplyTokens[tokenKey];
+    if (!rt) {
+      try {
+        var tr = await fetch('/api/groups/' + encodeURIComponent(groupId) + '/reply-token?for=' + encodeURIComponent(payload.senderId || ''), { headers: { 'Authorization': auth } });
+        if (tr.ok) {
+          var td = await tr.json();
+          rt = td.replyToken || '';
+          window._groupReplyTokens[tokenKey] = rt;
+        }
+      } catch (e) { /* 取令牌失败不阻断，下面会以空令牌试一次（服务端会 401） */ }
+    }
+    try {
+      var resp = await fetch('/api/groups/' + encodeURIComponent(groupId) + '/history', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': auth },
+        body: JSON.stringify(Object.assign({}, payload, { replyToken: rt || '' }))
+      });
+      if (resp.ok) return;
+      if (resp.status === 401 && tried === 0) {
+        delete window._groupReplyTokens[tokenKey]; // 令牌过期/未签发：取新令牌重试一次
+        continue;
+      }
+      throw new Error('HTTP ' + resp.status);
+    } catch (e) {
+      console.debug('[displayGroupAIReply] 同步后端失败:', e);
+      return;
+    }
+  }
+}
+
 function displayGroupAIReply(groupId, senderId, replyText, chainDepth) {
   chainDepth = chainDepth || 0;
   console.debug('[displayGroupAIReply] 被调用 groupId=' + groupId + ' senderId=' + senderId + ' chainDepth=' + chainDepth + ' 文本长度=' + (replyText || '').length + ' 文本前100字:', (replyText || '').substring(0, 100));
@@ -7599,26 +7652,38 @@ function displayGroupAIReply(groupId, senderId, replyText, chainDepth) {
   }
 
   var html = '<div class="msg"><div class="msg-avatar"><div class="avatar small" style="' + senderBg + '">' + avatarHtml + '</div></div>' + '<div class="msg-content">' + '<div class="msg-sender"><span class="msg-sender-name">' + escapeHtml(senderName) + '</span><span class="msg-sender-role">' + escapeHtml(senderRole) + '</span><span class="msg-sender-time">' + timeStr + '</span></div>' + '<div class="msg-bubble">' + bubbleContent + '</div>' + '</div></div>';
+  // ③三归属（live 消息的 JS 孪生判定）：回复里 @ 了群里其他 AI → AI 对 AI 样式
+  var isA2A = false;
+  try {
+    var groupForA2A = groups.find(function (g) { return g.id === groupId; });
+    var memberIdsA2A = groupForA2A ? (groupForA2A.members || []).map(function (mm) {
+      return (typeof mm === 'object' && mm !== null) ? (mm.id || mm) : mm;
+    }).filter(function (id) { return id; }) : [];
+    var a2aMatches = (replyText || '').match(/@([^\s@,，.。！？;；:：、（）()\[\]【】{}<>"'&]{1,20})/g) || [];
+    isA2A = a2aMatches.some(function (x) {
+      var e = resolveMentionedName(x.slice(1));
+      return e && e.id !== senderId && memberIdsA2A.indexOf(e.id) !== -1;
+    });
+  } catch (e) { isA2A = false; }
+  if (isA2A) {
+    html = '<div class="msg msg-a2a"><div class="msg-avatar"><div class="avatar small" style="' + senderBg + '">' + avatarHtml + '</div></div>' + '<div class="msg-content">' + '<div class="msg-sender"><span class="msg-sender-name">' + escapeHtml(senderName) + '</span><span class="msg-sender-role">' + escapeHtml(senderRole) + '</span><span class="msg-a2a-tag">AI 协同</span><span class="msg-sender-time">' + timeStr + '</span></div>' + '<div class="msg-bubble">' + bubbleContent + '</div>' + '</div></div>';
+  }
   area.insertAdjacentHTML('beforeend', html);
   area.scrollTop = area.scrollHeight;
 
   var aiMsgId = 'msg_ai_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
 
-  // 同步到后端，所有人共享群聊记录
-  apiFetch('/api/groups/' + encodeURIComponent(groupId) + '/history', {
-    method: 'POST',
-    body: JSON.stringify({
-      id: aiMsgId,
-      role: 'assistant',
-      content: replyText,
-      senderId: senderId,
-      senderName: senderName,
-      senderType: 'agent',
-      groupId: groupId,
-      time: Date.now()
-    })
-  }).catch(function (err) {
-    console.debug('[displayGroupAIReply] 同步后端失败:', err);
+  // 同步到后端，所有人共享群聊记录（③@通道：原生 fetch + replyToken 身份闸）
+  _saveGroupAIReply(groupId, {
+    id: aiMsgId,
+    role: 'assistant',
+    content: replyText,
+    senderId: senderId,
+    senderName: senderName,
+    senderType: 'agent',
+    groupId: groupId,
+    time: Date.now(),
+    mentionDepth: (chainDepth || 0) + 1
   });
 
   // 群聊 AI 回复只触发个人记忆提取；项目组公共记忆只在用户发消息时提取一次，避免每个 AI 回复都重复提取群记忆造成 409 冲突和 OpenClaw 调用浪费
