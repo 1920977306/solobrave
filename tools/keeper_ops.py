@@ -11,7 +11,9 @@
 三判据（与 emp_duties.judge_basis 同口径）：
 达人库（emp_talent_keeper）：
   字段缺口：核心五字段（抖音号/粉丝数/主营类目/30天结算额/联系方式可得性）缺 ≥2 项上榜；
-  重复疑似对：同抖音号 = 确定重复（只报告）；同名且粉丝差 <5% = 疑似对（只报告，不合并）；
+  重复疑似对（双口径，假阴性比假阳性危险——单口径「0」会骗人）：
+  严格：完全同名且粉丝差 <5%；宽松：归一化名相似度 ≥0.60（剥括号后缀再比对，粉丝差不门槛、只陈列），需人工确认；
+  同抖音号 = 确定重复（只报告，不合并）；
   过期：updated_at 超 14 天未动 = 过期标记（只标记，不改库）。
 商品库（emp_goods_keeper）：
   佣金过期：daren_synced_at 超 7 天 = 佣金口径可能失效；
@@ -23,6 +25,7 @@
 import argparse
 import json
 import os
+import re
 import sqlite3
 import sys
 import time
@@ -33,6 +36,16 @@ DB = ROOT / 'data' / 'solobrave.db'
 
 DAY_MS = 24 * 3600 * 1000
 TALENT_STALE_DAYS = 14      # 达人档案过期线
+DUP_LOOSE_NAME_SIM = 0.60   # 宽松口径：归一名相似度阈值（difflib ratio，老大 11-11：
+                            # 假阴性比假阳性危险——真案例里 4 组重复三组粉丝差 >20%，
+                            # 粉丝差不作宽松档门槛，报出来让人看）
+DUP_LOOSE_MAX_REPORT = 20   # 宽松档最多报 20 组，防噪音淹没
+
+
+def _norm_name(name):
+    """归一化达人名：剥括号后缀（七月姐姐（赚钱买房）→ 七月姐姐）再比对。"""
+    n = str(name or '').strip()
+    return re.sub(r'[（(【\[].*$', '', n).strip()
 GOODS_COMMISSION_STALE_DAYS = 7   # 佣金数据时效线（对齐周报黄线口径）
 GOODS_OFF_SHELF_DAYS = 14         # 疑似下架线
 
@@ -93,7 +106,10 @@ def talent_healthcheck(conn):
             stale.append({'id': r.get('id'), 'name': r.get('name'),
                           'days': (now - updated) // DAY_MS})
 
-    # 重复疑似对：同抖音号 = 确定重复；同名 + 粉丝差 <5% = 疑似
+    # 重复疑似对（双口径，2026-11-11 老大修订：单口径「0」是假阴性，会骗人）：
+    # - dup_sure：同抖音号 = 确定重复；
+    # - dup_maybe（严格）：完全同名 + 粉丝差 <5% = 疑似；
+    # - dup_loose（宽松）：归一化同名（剥括号后缀）+ 粉丝差 <20% = 疑似，需人工确认。
     by_dy, dup_sure, dup_maybe = {}, [], []
     for r in rows:
         did = str(_col(r, 'douyin_id')).strip()
@@ -114,8 +130,37 @@ def talent_healthcheck(conn):
             if max(fans) > 0 and (max(fans) - min(fans)) / max(fans) < 0.05:
                 dup_maybe.append({'name': name, 'count': len(group)})
 
+    # 宽松档：名字像（归一后相似度 ≥0.6）即报，粉丝数只陈列不门槛
+    from difflib import SequenceMatcher
+    named = [(r, _norm_name(r.get('name'))) for r in rows]
+    named = [(r, n) for r, n in named if n]
+    seen_pairs = set()
+    dup_loose = []
+    for i in range(len(named)):
+        for j in range(i + 1, len(named)):
+            r1, n1 = named[i]
+            r2, n2 = named[j]
+            if n1 == n2:
+                sim = 1.0
+            else:
+                sim = SequenceMatcher(None, n1, n2).ratio()
+            if sim < DUP_LOOSE_NAME_SIM:
+                continue
+            key = tuple(sorted((r1.get('id') or '', r2.get('id') or '')))
+            if key in seen_pairs:
+                continue
+            seen_pairs.add(key)
+            dup_loose.append({
+                'sim': round(sim, 2),
+                'names': [str(r1.get('name')).strip(), str(r2.get('name')).strip()],
+                'followers': [int(float(r1.get('followers') or 0)),
+                              int(float(r2.get('followers') or 0))],
+            })
+    dup_loose.sort(key=lambda x: -x['sim'])
+    dup_loose = dup_loose[:DUP_LOOSE_MAX_REPORT]
+
     return {'total': len(rows), 'gaps': gaps, 'dup_sure': dup_sure,
-            'dup_maybe': dup_maybe, 'stale': stale}
+            'dup_maybe': dup_maybe, 'dup_loose': dup_loose, 'stale': stale}
 
 
 def goods_healthcheck(conn):
