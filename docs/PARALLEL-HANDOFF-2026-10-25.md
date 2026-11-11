@@ -10874,3 +10874,31 @@ launchd：`com.solobrave.keeper-talent`（每日 10:17）/ `keeper-goods`（10:2
 - commit 422927f（server maintain 分支+标题动态化+守卫）、095e329（三件套）、0ae2d4c（exec 修正）。1792 passed 全绿，secret_scan 过，origin/main==origin/dev 零分叉。
 - 生产数据操作：agents.json 备份 agents.json.bak-keeper-* / .bak-groupline-*；openclaw.json 备份 openclaw.json.bak-keeper-*；credit_accounts 两管家各充 500（ emp_talent_keeper 行系代理自动建，已 UPDATE 充 500）。
 - worker 16:0x 已重启（新标题代码生效），server 16:0x 已重启。
+
+## 97. 老大 18:48 三条修订——连夜修完（2026-11-11 19:10）
+
+**① 判重双口径（假阴性比假阳性危险）**：keeper_ops 宽松档改为「归一化名相似度≥0.60
+（剥括号后缀，粉丝差不门槛只陈列，上限 20 组）」。真库试跑抓 17 组，老大点名的 4 组
+全中（七月姐姐 29% 差、小美穿搭/搭配 0.83、明赫箱包6/7、优奢/新奢）。严格档保留。
+管家职责链判断依据/交付标准已同步，「建议人工过目」升主指标。
+守卫：tests/test_keeper_ops.py（真案例钉死 + 干净库双键不缺失），1795 passed。
+
+**② 采集链路实时监护**：collector_watch.py——products.daren_synced_at 最新 >48h
+⇒ notifications 一行告警（幂等按天）。launchd 每日 10:40。**试跑当天即告警：达人端
+商品同步已停摆 432h（18 天，最后一次 10-24 18:46）**——正是商品管家日报抓到的那个
+停摆，坐实「17 天没人发现」。处置：大概率是回源任务久未跑（filing/dim 采集是手动触发），
+需要跑一次 daren 维度回源补跑；补跑失败再查登录态。通知记录已清，明天 10:40 会再报。
+
+**③ 日报投递痕迹**：现状=notifications 落库（admin 后台可见），无已读/确认机制。
+产品改动（已阅按钮）未做——明早核对按老大口径先核「有没有人看」，若证实没人看再议
+投递路径改造。
+
+**排班**：keeper-goods 10:23 → **10:35**（与 talent 10:17 拉开 18 分钟）。
+
+**knowledge_admin 频率上限**：交付标准已加「每日最多一条汇总，不逐条推送」。
+（它暂无 launchd 排班，不会主动发；将来排班时此条已生效。）
+
+**明早核对改版（10:30）**：不核「交没交」（交不上会自告警），改核三件事——
+① 抽 3 条「建议人工过目」人工验准；② 宽松口径重跑判重对比；③ 日报投递后的处理痕迹。
+
+commit 3be1af8，main/dev 零分叉。工作区干净。
