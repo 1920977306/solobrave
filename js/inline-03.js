@@ -10353,6 +10353,8 @@ function loadEmpDutyCard(empId) {
           html += '<span class="emp-duty-recent-time">近期动态</span>还没有运行记录——等每日调度首跑';
         }
         html += '</div>';
+        // 派单一：SOUL 版本快照占位（有历史才填充，见函数末尾的 soul_history 拉取）
+        html += '<div class="emp-duty-soul" id="empDutySoul_' + esc(empId) + '"></div>';
       }
       // ②主管协同位 2026-11-10：直接下属（reports 反查），点击跳下属名片；主管无职责行也渲染
       if (reports.length) {
@@ -10369,6 +10371,22 @@ function loadEmpDutyCard(empId) {
       }
       card.innerHTML = html;
       card.style.display = '';
+      // 派单一：SOUL 版本联动——有快照历史才显示「SOUL v{N} · 日期更新」
+      fetch('/api/agents/' + encodeURIComponent(empId) + '/soul_history', { headers: headers, credentials: 'same-origin' })
+        .then(function (r) { return r.status === 200 ? r.json() : null; })
+        .then(function (b) {
+          var cur = b && b.current;
+          if (!cur || !cur.version) return;
+          var el = document.getElementById('empDutySoul_' + empId);
+          if (!el) return;
+          var dt = '';
+          if (cur.updated_at) {
+            var d0 = new Date(String(cur.updated_at).replace(' ', 'T'));
+            if (!isNaN(d0.getTime())) dt = d0.toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' });
+          }
+          el.textContent = 'SOUL v' + cur.version + (dt ? ' · ' + dt + '更新' : '');
+        })
+        .catch(function (e) { console.warn('soul_history 拉取失败:', e); });
     })
     .catch(function (e) { console.warn('loadEmpDutyCard 网络错误:', e); });
 }

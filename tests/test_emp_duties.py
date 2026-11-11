@@ -17,6 +17,7 @@ monkeypatch 替身（绝不写真 ~/.openclaw/openclaw.json）。
 import importlib.util
 import json
 import os
+import re
 
 import pytest
 
@@ -26,6 +27,11 @@ _spec = importlib.util.spec_from_file_location(
     'solobrave_server', os.path.join(ROOT, 'solobrave-server.py'))
 srv = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(srv)
+
+
+def _strip_soul_meta(text):
+    """SOUL.md 现在头部带三行 soul_ 元信息（派单一快照机制），内容比对前先剥掉。"""
+    return re.sub(r'<!--\s*soul_.*?-->\n?', '', text, flags=re.S)
 
 
 XIAOTUO_DUTY = {
@@ -159,16 +165,16 @@ def test_apply_duty_full_chain(mod, tmp_path):
     assert agent['systemPrompt'] == applied['prompt']
     assert '判定三关' in agent['systemPrompt']
 
-    # workspace SOUL.md 真的写进去了
+    # workspace SOUL.md 真的写进去了（头部三行 soul_ 元信息是派单一快照机制，比对正文）
     soul = (ws / 'SOUL.md').read_text(encoding='utf-8')
-    assert soul == applied['prompt']
+    assert _strip_soul_meta(soul) == applied['prompt']
     assert '日报格式' in soul
 
     # 改职责再 apply：两边都跟着变
     mod._save_duty('emp_test_apply', {'quota': 2, 'duty_name': '达人拓展专员V2'})
     applied2 = mod._apply_duty_to_agent('emp_test_apply')
     assert '每天 2 个深看名额' in applied2['prompt']
-    assert (ws / 'SOUL.md').read_text(encoding='utf-8') == applied2['prompt']
+    assert _strip_soul_meta((ws / 'SOUL.md').read_text(encoding='utf-8')) == applied2['prompt']
 
     # 负向对照：无职责行 → None（探针能红）
     conn = mod._db_conn()
@@ -216,13 +222,13 @@ def test_boundary_full_chain_roundtrip(mod, tmp_path):
                                           boundary='联系达人、谈佣金、寄样、结算'))
     applied = mod._apply_duty_to_agent('emp_test_apply')
     assert '【边界】你不负责：联系达人、谈佣金、寄样、结算' in applied['prompt']
-    assert (ws / 'SOUL.md').read_text(encoding='utf-8') == applied['prompt']
+    assert _strip_soul_meta((ws / 'SOUL.md').read_text(encoding='utf-8')) == applied['prompt']
 
     # 往返：清空 boundary ⇒ SOUL.md 里的边界段消失
     mod._save_duty('emp_test_apply', {'boundary': ''})
     applied2 = mod._apply_duty_to_agent('emp_test_apply')
     assert '【边界】' not in applied2['prompt']
-    assert (ws / 'SOUL.md').read_text(encoding='utf-8') == applied2['prompt']
+    assert _strip_soul_meta((ws / 'SOUL.md').read_text(encoding='utf-8')) == applied2['prompt']
 
 
 def test_ensure_emp_duties_migrates_existing_table(mod):
@@ -401,3 +407,139 @@ def test_report_title_uses_duty_name():
     # 负向：写死的旧标题不许回流
     assert "'小拓日报 · '" not in src
     assert '"小拓日报 · "' not in src
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# 派单一（2026-11-11）：SOUL.md 版本快照机制守卫
+# 覆盖：改职责存快照 + 元信息头 / 同内容去重 / 51 次保留策略（v1 不删）/ 只读端点
+# ═══════════════════════════════════════════════════════════════════════
+
+def _soul_meta_lines(text):
+    return ('<!-- soul_version:' in text and '<!-- soul_updated_at:' in text
+            and '<!-- soul_updated_by:' in text)
+
+
+def test_soul_snapshot_on_boundary_change(mod, tmp_path):
+    """改 boundary ⇒ 旧 SOUL 存一份快照（含三行元信息），新 SOUL 头部带 v2。"""
+    mod._ensure_emp_duties()
+    _mk_agent(mod)
+    ws = tmp_path / 'ws-test-apply'
+    mod._save_duty('emp_test_apply', dict(XIAOTUO_DUTY))
+    mod._apply_duty_to_agent('emp_test_apply')
+    # 首写：无旧内容 ⇒ 不存快照（没有可存的旧版）
+    assert mod._soul_snapshots(str(ws)) == []
+    v1 = (ws / 'SOUL.md').read_text(encoding='utf-8')
+    assert _soul_meta_lines(v1), '新 SOUL 头部必须带三行元信息'
+
+    # 改 boundary ⇒ 存 v1 快照 + 新头部 v2
+    mod._save_duty('emp_test_apply', {'boundary': '联系达人、谈佣金、寄样、结算'})
+    mod._apply_duty_to_agent('emp_test_apply')
+    snaps = mod._soul_snapshots(str(ws))
+    assert len(snaps) == 1 and snaps[0]['version'] == 1
+    assert snaps[0]['updated_by'] == 'duty_chain:emp_test_apply'
+    hist = mod._soul_history_dir(str(ws))
+    body = open(os.path.join(hist, snaps[0]['file']), encoding='utf-8').read()
+    assert _soul_meta_lines(body), '快照文件必须带三行元信息头'
+    assert '【边界】' not in body, 'v1 快照应是改 boundary 之前的旧内容'
+    v2 = (ws / 'SOUL.md').read_text(encoding='utf-8')
+    assert _soul_meta_lines(v2)
+    assert '【边界】你不负责：' in v2
+    assert mod._soul_parse_meta(v2)['version'] == 2
+
+
+def test_soul_snapshot_dedup_on_same_content(mod, tmp_path):
+    """同内容重复 apply ⇒ 快照数不增（防拼装器反复跑挤爆 50 份上限）。"""
+    mod._ensure_emp_duties()
+    _mk_agent(mod)
+    ws = tmp_path / 'ws-test-apply'
+    mod._save_duty('emp_test_apply', dict(XIAOTUO_DUTY))
+    mod._apply_duty_to_agent('emp_test_apply')
+    mod._save_duty('emp_test_apply', {'boundary': '只筛母婴类目'})
+    mod._apply_duty_to_agent('emp_test_apply')
+    assert len(mod._soul_snapshots(str(ws))) == 1
+    # 内容没变的重复 apply（同样的 duty 再保存一次再 apply）
+    mod._save_duty('emp_test_apply', {'boundary': '只筛母婴类目'})
+    mod._apply_duty_to_agent('emp_test_apply')
+    assert len(mod._soul_snapshots(str(ws))) == 1, '内容没变不许新增快照'
+
+
+def test_soul_snapshot_retention_keeps_v1(mod, tmp_path, monkeypatch):
+    """连续改 51 次 ⇒ 快照 ≤50 份且 v1 永不删（retention 不许吃掉基线）。"""
+    mod._ensure_emp_duties()
+    _mk_agent(mod)
+    ws = tmp_path / 'ws-test-apply'
+    mod._save_duty('emp_test_apply', dict(XIAOTUO_DUTY))
+    mod._apply_duty_to_agent('emp_test_apply')
+    for i in range(51):
+        mod._save_duty('emp_test_apply', {'boundary': f'边界批次{i}'})
+        mod._apply_duty_to_agent('emp_test_apply')
+    snaps = mod._soul_snapshots(str(ws))
+    assert len(snaps) == mod.SOUL_HISTORY_KEEP, f'快照应裁到 {mod.SOUL_HISTORY_KEEP} 份'
+    versions = [s['version'] for s in snaps]
+    assert 1 in versions, 'v1 基线必须保留（retention 从 v2 开始删）'
+    assert min(versions) == 1
+    # 当前 SOUL 头部版本号 = 已存快照数 + 1（单调递增语义）
+    cur = mod._soul_parse_meta((ws / 'SOUL.md').read_text(encoding='utf-8'))
+    assert cur['version'] == len(snaps) + 1
+
+
+def test_soul_history_endpoints(mod, tmp_path, monkeypatch):
+    """只读端点真机（127.0.0.1 临时端口）：列表 200 + 版本全文 200/404。"""
+    import threading
+    import urllib.request
+    import http.server as _http_server
+    mod._ensure_emp_duties()
+    _mk_agent(mod)
+    ws = tmp_path / 'ws-test-apply'
+    mod._save_duty('emp_test_apply', dict(XIAOTUO_DUTY))
+    mod._apply_duty_to_agent('emp_test_apply')
+
+    # localhost 匿名通道对纯 GET 不放行（日志实证）⇒ 替身鉴权，专注路由/响应
+    fake_auth = mod.AuthResult(user_info={'userId': 'u_test', 'name': '测试'})
+    monkeypatch.setattr(mod, '_authenticate', lambda *a, **kw: fake_auth)
+
+    httpd = _http_server.ThreadingHTTPServer(
+        ('127.0.0.1', 0), mod.SoloBraveHandler)
+    port = httpd.server_address[1]
+    t = threading.Thread(target=httpd.serve_forever, daemon=True)
+    t.start()
+    try:
+        base = f'http://127.0.0.1:{port}/api/agents/emp_test_apply'
+        with urllib.request.urlopen(base + '/soul_history', timeout=10) as r:
+            assert r.status == 200
+            listing = json.loads(r.read().decode('utf-8'))
+        assert listing['agent_id'] == 'emp_test_apply'
+        assert listing['current']['version'] == 1
+        assert listing['snapshots'] == [], '首写无旧内容 ⇒ 无快照'
+
+        # 改一次 ⇒ 列表里有 v1，取全文
+        mod._save_duty('emp_test_apply', {'boundary': '只筛母婴类目'})
+        mod._apply_duty_to_agent('emp_test_apply')
+        with urllib.request.urlopen(base + '/soul_history', timeout=10) as r:
+            listing = json.loads(r.read().decode('utf-8'))
+        assert len(listing['snapshots']) == 1
+        assert listing['current']['version'] == 2
+
+        with urllib.request.urlopen(base + '/soul_history/1', timeout=10) as r:
+            assert r.status == 200
+            full = json.loads(r.read().decode('utf-8'))
+        assert full['version'] == 1
+        assert '【边界】' not in full['content'], 'v1 全文应是旧内容（元信息头已剥掉）'
+
+        # 不存在的版本 ⇒ 404
+        try:
+            urllib.request.urlopen(base + '/soul_history/99', timeout=10)
+            assert False, 'v99 应 404'
+        except urllib.error.HTTPError as e:
+            assert e.code == 404
+        # 不存在的员工 ⇒ 404
+        try:
+            urllib.request.urlopen(
+                f'http://127.0.0.1:{port}/api/agents/emp_nope/soul_history',
+                timeout=10)
+            assert False, '不存在员工应 404'
+        except urllib.error.HTTPError as e:
+            assert e.code == 404
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
