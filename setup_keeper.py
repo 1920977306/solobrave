@@ -97,7 +97,7 @@ def ensure_openclaw_entry(slug, agent_id, name):
         'agentDir': str(agent_dir),
         'identity': {'name': name},
         'model': {'primary': f'{provider}/k3', 'fallbacks': ['minimax/MiniMax-M3']},
-        'tools': {'deny': ['exec', 'process', 'fs', 'apply_patch', 'automations',
+        'tools': {'deny': ['process', 'fs', 'apply_patch', 'automations',
                            'gateway', 'plugins'],
                   'alsoAllow': ['message']},
         'skills': ['session-logs'],
