@@ -3575,13 +3575,15 @@ def _square_write_report(summary, detail, agent_id=SQUARE_DUTY_AGENT):
     today = datetime.now().strftime('%m月%d日')
     supervisor_id = ''
     escalation = False
+    duty_name = '员工'
     conn = sqlite3.connect(str(DB_PATH), timeout=15)
     try:
         row = conn.execute(
-            'SELECT supervisor_agent_id, zero_streak FROM emp_duties WHERE agent_id = ?',
+            'SELECT supervisor_agent_id, zero_streak, duty_name FROM emp_duties WHERE agent_id = ?',
             (agent_id,)).fetchone()
         supervisor_id = (row[0] or '') if row else ''
         streak = int(row[1] or 0) if row else 0
+        duty_name = (row[2] or duty_name) if row else duty_name
         m = re.search(r'值得联系\s*(\d+)', summary or '')
         worthy = int(m.group(1)) if m else None
         new_streak = streak + 1 if worthy == 0 else 0
@@ -3592,16 +3594,16 @@ def _square_write_report(summary, detail, agent_id=SQUARE_DUTY_AGENT):
             'INSERT INTO notifications (id, user_id, agent_id, type, title, content, '
             'read, created_at) VALUES (?,?,?,?,?,?,0,?)',
             ('notif_' + uuid.uuid4().hex[:12], SQUARE_ADMIN_USER, agent_id,
-             'task_reminder', f'小拓日报 · {today}', detail, now_ms))
+             'task_reminder', f'{duty_name}日报 · {today}', detail, now_ms))
         if supervisor_id:
             conn.execute(
                 'INSERT INTO notifications (id, user_id, agent_id, type, title, content, '
                 'read, created_at) VALUES (?,?,?,?,?,?,0,?)',
                 ('notif_' + uuid.uuid4().hex[:12], SQUARE_ADMIN_USER, supervisor_id,
-                 'task_reminder', f'【抄送】小拓日报 · {today}', detail, now_ms))
+                 'task_reminder', f'【抄送】{duty_name}日报 · {today}', detail, now_ms))
         if escalation:
-            esc = (f'小拓连续 2 天日报「值得联系=0」'
-                   f'（{today} 摘要：{summary[:200]}）。建议主管在群里 @小拓 追问原因或调整类目/配额。')
+            esc = (f'{duty_name}连续 2 天日报「值得联系=0」'
+                   f'（{today} 摘要：{summary[:200]}）。建议主管在群里 @{duty_name} 追问原因或调整类目/配额。')
             for uid, aid in ((SQUARE_ADMIN_USER, agent_id), (SQUARE_ADMIN_USER, supervisor_id)):
                 conn.execute(
                     'INSERT INTO notifications (id, user_id, agent_id, type, title, content, '
@@ -3618,8 +3620,8 @@ def _square_write_report(summary, detail, agent_id=SQUARE_DUTY_AGENT):
     # 抄送主管的 openclaw 会话投递（旁路）：让她拿到上下文，能在群里 @小拓 追问
     if supervisor_id:
         _square_deliver_to_agent(supervisor_id,
-                                 f'【抄送】小拓日报（{today}）：{summary}。'
-                                 f'你是他的主管，详情见系统通知；如需追问可在群聊里 @小拓。')
+                                 f'【抄送】{duty_name}日报（{today}）：{summary}。'
+                                 f'你是他的主管，详情见系统通知；如需追问可在群聊里 @{duty_name}。')
 
 
 def _square_deliver_to_agent(agent_id, message):
