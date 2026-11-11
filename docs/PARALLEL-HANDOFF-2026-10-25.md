@@ -11012,3 +11012,38 @@ launchd 排班现状：小拓 9:30 / 达人库管家 10:17 / 商品库管家 10:
    a) 飞书达人端机器人  b) 飞书办公室（↔AI）  c) 网页聊天  d) 项目组群聊（AI 参与回答的）
 铁律：question/answer 明文存（内部训练场）；user 只存 hash；任何面向客户的页面需求打回。
 ```
+
+## 100. SOUL 版本快照机制全链路闭环（2026-11-11 20:50，A 边，派单一）
+
+**一句话：改员工职责 ⇔ SOUL 每次覆盖都留一份带元信息的旧版快照，可回查「它当时是怎么被定义的」。** 老大 20:23 说「你直接开始处理」，当晚闭环。
+
+### 已落地（commit a1d0b50 + cd794b5，push 双分支零分叉，server 已重启）
+
+| 块 | 内容 |
+|---|---|
+| 快照机制 | `_write_agent_docs` 写 SOUL.md 前：旧内容与新内容剥掉元信息后比对，**真变才存** `<workspace>/soul_history/<时间戳>.md`（三行元信息头 version/updated_at/updated_by）；**去重**（与最新快照相同则跳）；**保留策略**超 50 份删最旧、**v1 永不删** |
+| 归因 | 职责链改 ⇒ `duty_chain:<agent_id>`；人工改 ⇒ `human:<名字>` |
+| 只读端点 | `GET /api/agents/:id/soul_history`（列表+current 元信息）、`GET /api/agents/:id/soul_history/<n>`（全文，元信息已剥）；路由排在 `/api/agents/:id` 兜底**之前**（否则被当 agent_id 吃掉） |
+| 存量基线 | `scripts/import_soul_baseline.py`（dry-run 默认 / --apply）：已导入 **9 个** agent 的 v1 基线（小拓/Helen/emp_1779×3/knowledge_admin/emp_1787550091124_1048/两管家），updated_by=`baseline_import`，并给现 SOUL.md 盖 v1 元信息头 |
+| 前端联动 | 员工详情职责区底部小字「SOUL v{N} · 日期更新」（数据源 soul_history 端点，无历史不显示） |
+| 测试 | test_emp_duties 新增 4 守卫（改 boundary 存快照含元信息头 / 同内容去重 / **连改 51 次裁到 50 且 v1 在** / 端点真机 200+404）；存量等值断言改剥元信息后比对。**全量回归 1799 passed** |
+
+### 测试抓出的两个真 bug（都已修）
+
+1. **快照文件名秒级精度撞车**：同秒多次变更互相覆盖 ⇒ 保留策略形同虚设。已加撞名序号。
+2. **元信息头会进 LLM 上下文**：`_resolve_agent_soul`（聊天注灵魂）原样返回全文。已剥头——版本头只给人/端点看。
+
+### 真机验收证据（emp_xiaotuo，20:45~20:46）
+
+- 基线 v1（baseline_import）→ 改 boundary 加「对账」⇒ current v2、**v1 内容未变**（去重正确不重复存）→ 改回 ⇒ **新增 v2 快照**（duty_chain 归因，正是被改掉的「含对账」版）、current v3
+- 端点实测：列表/全文 200，v1 全文不含「对账」，不存在的版本/员工 404
+- boundary 已恢复原值；临时 API token 四枚全部吊销
+
+### 已知边缘（不阻塞，如实备查）
+
+- retention 删旧后 `len+1` 版本号可能与已删版本重复（50 份窗口内单调够用）；要绝对单调需改存 max(version)+1，二期再说
+- knowledge_admin 在 openclaw.json 无 entry，走声明端拼路径 `/Users/qichen/.openclaw/workspace-knowledge_admin`（导入时有一行 WARNING，属既有行为）
+
+### 遗留（老大定）
+
+- **17 个未挂 platform_product_id 的商品要不要 n-gram 对拍补挂**（§98 收尾项，未决）
