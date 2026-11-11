@@ -10209,12 +10209,16 @@ function openEmpDetail(empId) {
   if (_idCardName) _idCardName.textContent = emp.name;
   var _idCardRole = document.getElementById('empIdCardRole');
   if (_idCardRole) _idCardRole.textContent = getEmpRoleDisplay(emp);
-  document.getElementById('empDetailId').textContent = emp.id;
+  /* 〔empdetail-clean 2026-11-11〕ID/子分组/状态 三行已从 DOM 删除, 填充改空值守卫 */
+  var _edId = document.getElementById('empDetailId');
+  if (_edId) _edId.textContent = emp.id;
   document.getElementById('empDetailModel').textContent = emp.model || 'gpt-4o';
   document.getElementById('empDetailGroup').textContent = emp.group || emp.subCategory || '职能组';
-  document.getElementById('empDetailSubCategory').textContent = emp.subCategory || emp.group || '技术团队';
+  var _edSub = document.getElementById('empDetailSubCategory');
+  if (_edSub) _edSub.textContent = emp.subCategory || emp.group || '技术团队';
   var _stText = getStatusText(emp.status) || '在线';
-  document.getElementById('empDetailStatusText').textContent = _stText;
+  var _edStatusText = document.getElementById('empDetailStatusText');
+  if (_edStatusText) _edStatusText.textContent = _stText;
   /* 〔r83〕身份卡右端状态点胶囊同步(胶囊自带圆点, 剥掉文案里的 emoji) */
   var _pillDot = document.getElementById('empStatusDot');
   if (_pillDot) _pillDot.className = 'status-dot ' + escapeAttr(emp.status || 'offline');

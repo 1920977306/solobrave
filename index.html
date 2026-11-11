@@ -17720,22 +17720,18 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
   <div class="ai-emp-stat">
     <div class="ai-emp-stat-value placeholder" id="aiEmpStatTalents">--<span class="stat-uncaptured-chip" style="display:none;">未采集</span></div>
     <div class="ai-emp-stat-label">已服务达人数</div>
-    <div class="ai-emp-stat-source">talents + knowledge_events</div>
   </div>
   <div class="ai-emp-stat">
     <div class="ai-emp-stat-value placeholder" id="aiEmpStatAnalyses">--<span class="stat-uncaptured-chip" style="display:none;">未采集</span></div>
     <div class="ai-emp-stat-label">完成分析数</div>
-    <div class="ai-emp-stat-source">knowledge_events (analysis)</div>
   </div>
   <div class="ai-emp-stat">
     <div class="ai-emp-stat-value placeholder" id="aiEmpStatTasks">--<span class="stat-uncaptured-chip" style="display:none;">未采集</span></div>
     <div class="ai-emp-stat-label">完成任务数</div>
-    <div class="ai-emp-stat-source">tasks (status=completed)</div>
   </div>
   <div class="ai-emp-stat">
     <div class="ai-emp-stat-value placeholder" id="aiEmpStatSuccess">--<span class="stat-uncaptured-chip" style="display:none;">未采集</span></div>
     <div class="ai-emp-stat-label">工具调用成功率</div>
-    <div class="ai-emp-stat-source">tool_calls (window:<span id="aiEmpStatWindow">30d</span>)</div>
   </div>
 </div>
 
@@ -17759,10 +17755,7 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
      只有 emp_duties 有行的职能驱动员工才显示(小拓等), 普通员工整块隐藏。数据: GET /api/agents/:id/duties -->
 <div class="emp-duty-card" id="empDutyCard" style="display:none;"></div>
 <div class="emp-info-list">
-<div class="emp-info-item">
-<span class="emp-info-label">ID</span>
-<span class="emp-info-value" id="empDetailId">-</span>
-</div>
+<!-- 〔empdetail-clean 2026-11-11 老大「详情页简洁点」〕删 ID(内部噪声)/状态(与身份卡状态胶囊重复)/子分组(与分组同源近重复) 三行 -->
 <div class="emp-info-item">
 <span class="emp-info-label">模型</span>
 <span class="emp-info-value" id="empDetailModel">gpt-4o</span>
@@ -17770,14 +17763,6 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
 <div class="emp-info-item">
 <span class="emp-info-label">分组</span>
 <span class="emp-info-value" id="empDetailGroup">职能组</span>
-</div>
-<div class="emp-info-item">
-<span class="emp-info-label">子分组</span>
-<span class="emp-info-value" id="empDetailSubCategory">技术团队</span>
-</div>
-<div class="emp-info-item">
-<span class="emp-info-label">状态</span>
-<span class="emp-info-value" id="empDetailStatusText">在线</span>
 </div>
 <div class="emp-info-item">
 <span class="emp-info-label">创建时间</span>
@@ -17800,7 +17785,7 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
 <!-- 〔r77 批注④ 老大 21:14「重要部分先展示,详细的点击查看」: 高级设置折叠区
      — 核心信息 (emp-info-list  above) 直接展示; 描述/紧急标记/Dreaming 收进折叠区, 默认收起 -->
 <div class="emp-adv-toggle" onclick="toggleEmpAdv()">
-  <span><i class=sb2-ico-gear></i> 高级设置</span><span class="emp-adv-hint">描述 · 紧急标记 · Dreaming 模式</span><span class="emp-adv-arrow" id="empAdvArrow">▸</span>
+  <span><i class=sb2-ico-gear></i> 高级设置</span><span class="emp-adv-hint">描述 · 紧急标记</span><span class="emp-adv-arrow" id="empAdvArrow">▸</span>
 </div>
 <div class="emp-adv-body" id="empAdvBody" style="display:none;">
 <div class="emp-doc-section" style="margin-top:12px;">
@@ -18148,7 +18133,7 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
 </div>
 
 <!-- Drawer Overlay -->
-<script src="js/inline-03.js?v=phase3a20261012"></script>
+<script src="js/inline-03.js?v=empdetail1a20261111"></script>
 
 <!-- Modal Styles -->
 <style>
