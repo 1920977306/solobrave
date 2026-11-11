@@ -2280,8 +2280,102 @@ def build_duty_system_prompt(duty):
     )
 
 
+# ─────────── SOUL.md 版本快照（派单一 2026-11-11：改 prompt 前先存档，可追溯可回滚） ───────────
+SOUL_HISTORY_DIR = 'soul_history'
+SOUL_HISTORY_KEEP = 50          # 超 50 份删最旧，但 v1 基线永不删
+
+
+def _soul_history_dir(workspace_path):
+    return os.path.join(workspace_path, SOUL_HISTORY_DIR)
+
+
+def _soul_meta_header(version, updated_by, updated_at=None):
+    ts = updated_at or datetime.now().isoformat(timespec='seconds')
+    return (f"<!-- soul_version: {version} -->\n"
+            f"<!-- soul_updated_at: {ts} -->\n"
+            f"<!-- soul_updated_by: {updated_by} -->\n")
+
+
+def _soul_parse_meta(text):
+    """从快照/SOUL 头部解析三行元信息；缺省返回 None。"""
+    m_v = re.search(r'<!--\s*soul_version:\s*(\d+)\s*-->', text or '')
+    m_t = re.search(r'<!--\s*soul_updated_at:\s*(.+?)\s*-->', text or '')
+    m_b = re.search(r'<!--\s*soul_updated_by:\s*(.+?)\s*-->', text or '')
+    if not m_v:
+        return None
+    return {'version': int(m_v.group(1)),
+            'updated_at': m_t.group(1) if m_t else '',
+            'updated_by': m_b.group(1) if m_b else ''}
+
+
+def _soul_snapshots(workspace_path):
+    """列出全部快照（按版本升序）：[{version, file, updated_at, updated_by, size}]。"""
+    hist = _soul_history_dir(workspace_path)
+    out = []
+    if not os.path.isdir(hist):
+        return out
+    for fn in os.listdir(hist):
+        if not fn.endswith('.md'):
+            continue
+        try:
+            with open(os.path.join(hist, fn), encoding='utf-8') as f:
+                meta = _soul_parse_meta(f.read(2000))
+        except OSError:
+            meta = None
+        if meta:
+            out.append(dict(meta, file=fn,
+                            size=os.path.getsize(os.path.join(hist, fn))))
+    out.sort(key=lambda x: x['version'])
+    return out
+
+
+def _soul_snapshot_save(workspace_path, old_content, updated_by):
+    """内容真的变了才存档（去重：与最新快照相同则跳过）。
+
+    返回 (version, skipped)；skipped=True 表示内容未变未存。
+    保留策略：超 SOUL_HISTORY_KEEP 份删最旧，v1 永不删。
+    """
+    hist = _soul_history_dir(workspace_path)
+    os.makedirs(hist, exist_ok=True)
+    snaps = _soul_snapshots(workspace_path)
+    # ★ 去重：与最新快照内容相同 → 跳过（防拼装器反复跑挤爆 50 份上限）
+    if snaps:
+        latest_file = os.path.join(hist, snaps[-1]['file'])
+        try:
+            with open(latest_file, encoding='utf-8') as f:
+                latest_body = f.read()
+            latest_body = re.sub(r'<!--\s*soul_.*?-->\n?', '', latest_body, flags=re.S)
+            cur_body = re.sub(r'<!--\s*soul_.*?-->\n?', '', old_content or '', flags=re.S)
+            if latest_body.strip() == cur_body.strip():
+                return snaps[-1]['version'], True
+        except OSError:
+            pass
+    version = (snaps[-1]['version'] + 1) if snaps else 1
+    ts = datetime.now().strftime('%Y%m%d-%H%M%S')
+    path = os.path.join(hist, f'{ts}.md')
+    # 同秒多次变更 ⇒ 文件名撞车会互相覆盖（保留策略随之失效）⇒ 撞名加序号
+    n = 2
+    while os.path.exists(path):
+        path = os.path.join(hist, f'{ts}-{n}.md')
+        n += 1
+    with open(path, 'w', encoding='utf-8') as f:
+        f.write(_soul_meta_header(version, updated_by) + (old_content or ''))
+    # 保留策略：超上限删最旧（v1 永不删）
+    snaps = _soul_snapshots(workspace_path)
+    while len(snaps) > SOUL_HISTORY_KEEP:
+        victim = next((s for s in snaps if s['version'] != 1), None)
+        if not victim:
+            break
+        try:
+            os.remove(os.path.join(hist, victim['file']))
+        except OSError:
+            break
+        snaps = _soul_snapshots(workspace_path)
+    return version, False
+
+
 def _write_agent_docs(agent_id, soul_doc='', identity_doc='', user_doc='',
-                      agents_doc='', tools_doc=''):
+                      agents_doc='', tools_doc='', updated_by=''):
     """把人格文档写进 agent 的 OpenClaw workspace（唯一实现，HTTP 处理器与职责链共用）。
 
     安全闸门与 /api/openclaw/write-agent-docs 一致：默认路径解析 + 归属冲突校验，
@@ -2298,11 +2392,29 @@ def _write_agent_docs(agent_id, soul_doc='', identity_doc='', user_doc='',
     for fname, content in (('SOUL.md', soul_doc), ('IDENTITY.md', identity_doc),
                            ('USER.md', user_doc), ('AGENTS.md', agents_doc),
                            ('TOOLS.md', tools_doc)):
-        if content:
-            with open(os.path.join(workspace_path, fname), 'w',
-                      encoding='utf-8') as f:
-                f.write(content)
-            written.append(fname)
+        if not content:
+            continue
+        if fname == 'SOUL.md':
+            # ★ 派单一：改 prompt = 改行为，覆盖前把旧 SOUL 存档（内容真变才存，去重）
+            soul_path = os.path.join(workspace_path, fname)
+            old = ''
+            if os.path.exists(soul_path):
+                with open(soul_path, encoding='utf-8') as f:
+                    old = f.read()
+            old_body = re.sub(r'<!--\s*soul_.*?-->\n?', '', old, flags=re.S)
+            new_body = re.sub(r'<!--\s*soul_.*?-->\n?', '', content, flags=re.S)
+            if old_body.strip() and old_body.strip() != new_body.strip():
+                # 存剥掉元信息的正文（避免快照文件里叠两套 soul_ 头）
+                _soul_snapshot_save(workspace_path, old_body,
+                                    updated_by or f'duty_chain:{agent_id}')
+            # 新 SOUL 头部强制三行元信息（版本 = 已存快照数 + 1）
+            version = (len(_soul_snapshots(workspace_path)) + 1)
+            content = _soul_meta_header(
+                version, updated_by or f'duty_chain:{agent_id}') + new_body
+        with open(os.path.join(workspace_path, fname), 'w',
+                  encoding='utf-8') as f:
+            f.write(content)
+        written.append(fname)
     return written, workspace_path, ''
 
 
@@ -2321,7 +2433,8 @@ def _apply_duty_to_agent(agent_id):
     prompt = build_duty_system_prompt(duty)
     agent['systemPrompt'] = prompt
     _save_agents(agents)
-    written, workspace, conflict = _write_agent_docs(agent_id, soul_doc=prompt)
+    written, workspace, conflict = _write_agent_docs(
+        agent_id, soul_doc=prompt, updated_by=f'duty_chain:{agent_id}')
     return {'duty': duty, 'prompt': prompt,
             'soul_synced': 'SOUL.md' in written, 'workspace': workspace,
             'conflict': conflict}
@@ -9797,6 +9910,16 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             if agent_id:
                 self._handle_get_agent_duties(agent_id)
                 return
+        if path.startswith('/api/agents/') and path.endswith('/soul_history'):
+            agent_id = path[len('/api/agents/'):-len('/soul_history')]
+            if agent_id:
+                self._handle_soul_history(agent_id)
+                return
+        if path.startswith('/api/agents/') and '/soul_history/' in path:
+            _pre, _aid_ver = path[len('/api/agents/'):].split('/soul_history/', 1)
+            if _aid_ver and _pre:
+                self._handle_soul_history_version(_pre, _aid_ver)
+                return
         if path.startswith('/api/agents/'):
             agent_id = path[len('/api/agents/'):]
             if agent_id:
@@ -14843,6 +14966,69 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             traceback.print_exc()
             self._send_json(500, {'error': '服务器内部错误'})
 
+    def _handle_soul_history(self, agent_id):
+        """GET /api/agents/:id/soul_history — SOUL 快照版本列表（只读，派单一 2026-11-11）。"""
+        try:
+            auth = _authenticate(self.headers, self.client_address[0], self)
+            if not auth.is_authenticated:
+                self._send_auth_error(auth.error, auth.status)
+                return
+            agent = _get_agent_by_id(agent_id)
+            if not agent:
+                self._send_json(404, {'error': '员工不存在'})
+                return
+            workspace = _resolve_agent_workspace(agent_id, agent)
+            snaps = _soul_snapshots(workspace)
+            soul_path = os.path.join(workspace, 'SOUL.md')
+            current = None
+            if os.path.exists(soul_path):
+                with open(soul_path, encoding='utf-8') as f:
+                    current = _soul_parse_meta(f.read(2000))
+            self._send_json(200, {
+                'agent_id': agent_id,
+                'current': current,
+                'snapshots': [{'version': x['version'], 'file': x['file'],
+                               'updated_at': x['updated_at'],
+                               'updated_by': x['updated_by'], 'size': x['size']}
+                              for x in snaps],
+            })
+        except Exception as e:
+            logger.error(f'  [soul_history] ERROR: {e}')
+            self._send_json(500, {'error': '服务器内部错误'})
+
+    def _handle_soul_history_version(self, agent_id, version):
+        """GET /api/agents/:id/soul_history/<n> — 指定版本快照全文（只读）。"""
+        try:
+            auth = _authenticate(self.headers, self.client_address[0], self)
+            if not auth.is_authenticated:
+                self._send_auth_error(auth.error, auth.status)
+                return
+            agent = _get_agent_by_id(agent_id)
+            if not agent:
+                self._send_json(404, {'error': '员工不存在'})
+                return
+            try:
+                version = int(version)
+            except (TypeError, ValueError):
+                self._send_json(400, {'error': '版本号必须是数字'})
+                return
+            workspace = _resolve_agent_workspace(agent_id, agent)
+            snaps = _soul_snapshots(workspace)
+            hit = next((x for x in snaps if x['version'] == version), None)
+            if not hit:
+                self._send_json(404, {'error': f'v{version} 不存在'})
+                return
+            with open(os.path.join(_soul_history_dir(workspace), hit['file']),
+                      encoding='utf-8') as f:
+                content = f.read()
+            meta = _soul_parse_meta(content)
+            body = re.sub(r'<!--\s*soul_.*?-->\n?', '', content, flags=re.S)
+            self._send_json(200, {'agent_id': agent_id, 'version': version,
+                                  'meta': meta, 'content': body})
+        except Exception as e:
+            logger.error(f'  [soul_history/<n>] ERROR: {e}')
+            self._send_json(500, {'error': '服务器内部错误'})
+
     def _handle_update_agent(self, agent_id):
         """PUT /api/agents/:id"""
         try:
@@ -15612,9 +15798,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         # 核心写入逻辑收敛到 _write_agent_docs（与 emp_duties 职责链共用同一份实现）
+        _who = (auth.user_info or {}).get('name') or (auth.user_info or {}).get('userId') or 'unknown'
         written, workspace_path, conflict_owner = _write_agent_docs(
             agent_id, soul_doc=soul_doc, identity_doc=identity_doc,
-            user_doc=user_doc, agents_doc=agents_doc, tools_doc=tools_doc)
+            user_doc=user_doc, agents_doc=agents_doc, tools_doc=tools_doc,
+            updated_by=f'human:{_who}')
         if conflict_owner:
             self._send_json(409, {
                 'error': f'workspace 归属冲突：该目录属于 {conflict_owner}，拒绝写入',
@@ -27017,6 +27205,8 @@ def _resolve_agent_soul(agent):
         if os.path.isfile(soul_path):
             with open(soul_path, 'r', encoding='utf-8') as f:
                 content = f.read().strip()
+            # 派单一：头部三行 soul_ 元信息（版本快照机制）是给人/端点看的，不进 LLM 上下文
+            content = re.sub(r'<!--\s*soul_.*?-->\n?', '', content, flags=re.S).strip()
             if content:
                 return content
     except Exception as e:
