@@ -10851,3 +10851,26 @@ main=dev 零分叉，全量回归 **1787 passed / 10 skipped**，server 已重�
 
 ②上线时只重启了 server，漏了 worker——「推了代码 ≠ 跑了代码」第三例。
 **纪律：改 buyin_worker.py 后必须重启 worker 才算上线完成**，写入交接单核对清单。
+
+## 96. 组织第一批落地（2026-11-11 16:30，A 边）
+
+**派单来源**：老大 15:29 转发「AI 办公室组织结构第一批落地」五点全做。
+
+### 已落地（全部真机验证）
+1. **小拓改名「达人筛选专员」**（此前 15:33 完成）：emp_duties.duty_name + SOUL 重组装 + buyin_worker 日报标题三处 `{duty_name}` 动态化（守卫 test_report_title_uses_duty_name）。
+2. **新建达人库管家 emp_talent_keeper**：setup_keeper.py 建档（secret/openclaw entry+provider kimi_proxy_talent_keeper/workspace+tools 软链/agents.json）→ maintain 职责链落库（五要素全，quota=None）→ SOUL 重组装。**真机冒烟 16:16 交首份日报**：字段缺口168/重复疑似0/过期30/建议人工过目9（自己抓出判重口径盲区+采集口径缺字段，质量在线）。积分 500→459。
+3. **新建商品库管家 emp_goods_keeper**：同流程。**冒烟 16:26 交日报**：佣金过期47/字段缺口17（全缺店铺分）/疑似下架16/建议人工过目3（抓出佣金同步停摆17天+6条测试脏数据）。积分 500→485。
+4. **knowledge_admin 重定位「知识库管家」**：agents.json 改名+group=知识线+systemPrompt 补边界（不判断哪条对/不删除）+ maintain 职责行落库（无 openclaw entry，SOUL 落 fallback workspace，系统通道身份不受影响）。
+5. **侧栏三分组**：Helen/小拓→业务线、两管家→资产线、knowledge_admin→知识线。侧栏本就按 `subCategory` 分组渲染（inline-03.js renderEmployeeList），**只改数据字段零前端改动**。
+
+### 排班
+launchd：`com.solobrave.keeper-talent`（每日 10:17）/ `keeper-goods`（10:23），跑 keeper_daily.py --agent <id>（投任务→看门45分钟→未交告警管理员）。明早三岗自然跑：小拓 9:30 / 达人库 10:17 / 商品库 10:23。
+
+### 踩坑记录（两条）
+- **deny 列表误禁 exec**：keeper 需要跑 `python3 tools/keeper_ops.py`，建档时 deny 加了 'exec'（小拓的 deny 里没有）⇒ turn 首条消息后直接僵死。冒烟实锤后修正（commit 0ae2d4c），setup_keeper.py 模板同步。**以后照抄小拓形状时逐字段 diff，别自作主张加严。**
+- **kimi_proxy 通道对两个新管家首轮均 msg-fallback**：openclaw 自动降级 minimax/M3 后正常完成。proxy 为何对新 token 偶发失败未查（fallback 兜住了），若持续出现再查 /api/proxy/kimi 对该 token 的校验。
+
+### 代码
+- commit 422927f（server maintain 分支+标题动态化+守卫）、095e329（三件套）、0ae2d4c（exec 修正）。1792 passed 全绿，secret_scan 过，origin/main==origin/dev 零分叉。
+- 生产数据操作：agents.json 备份 agents.json.bak-keeper-* / .bak-groupline-*；openclaw.json 备份 openclaw.json.bak-keeper-*；credit_accounts 两管家各充 500（ emp_talent_keeper 行系代理自动建，已 UPDATE 充 500）。
+- worker 16:0x 已重启（新标题代码生效），server 16:0x 已重启。
