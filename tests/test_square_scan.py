@@ -350,10 +350,11 @@ def test_write_report_notifications_and_duty(tmp_path, monkeypatch):
     conn.execute('''CREATE TABLE notifications (id TEXT, user_id TEXT, agent_id TEXT,
                     type TEXT, title TEXT, content TEXT, read INTEGER, created_at INTEGER)''')
     conn.execute('''CREATE TABLE emp_duties (agent_id TEXT PRIMARY KEY,
+                    duty_name TEXT DEFAULT '达人筛选专员',
                     supervisor_agent_id TEXT DEFAULT '', zero_streak INTEGER DEFAULT 0,
                     last_run_at INTEGER DEFAULT 0, last_run_summary TEXT DEFAULT '',
                     updated_at INTEGER)''')
-    conn.execute("INSERT INTO emp_duties VALUES ('emp_xiaotuo', '', 0, 0, '', 0)")
+    conn.execute("INSERT INTO emp_duties VALUES ('emp_xiaotuo', '达人筛选专员', '', 0, 0, '', 0)")
     conn.commit()
     conn.close()
     monkeypatch.setattr(bw, 'DB_PATH', db)

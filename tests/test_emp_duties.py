@@ -323,3 +323,81 @@ def test_ensure_emp_duties_migrates_supervisor_cols(mod):
     mod._ensure_emp_duties()
     d = mod._load_duty('emp_mig2')
     assert 'supervisor_agent_id' in d and 'zero_streak' in d
+
+
+# ── 组织第一批 · 库管家 maintain 型（2026-11-11） ──
+
+KEEPER_DUTY = {
+    'duty_name': '达人库管家',
+    'role_type': 'maintain',
+    'quota': None,
+    'scope': '达人库档案的补全、去重、更新画像、过期标记、评级维护',
+    'assets': '达人库（talents 表）',
+    'judge_basis': '1. 字段缺口：核心五字段缺 ≥2 即上榜；2. 重复疑似：同抖音号确定；3. 过期：>14 天未更新',
+    'deliverable': '字段缺口 N 条｜重复疑似 N 对｜过期标记 N 条｜建议人工过目 N 条',
+    'boundary': '判断达人好不好；新建达人档案',
+    'supervisor': '',
+    'supervisor_agent_id': '',
+    'duty_desc': ['每日体检一次（只读）', '不新建、不删除、不合并', '出日报如实报数', '异常报老板'],
+}
+
+
+def test_maintain_prompt_structure(mod):
+    """maintain 分支：五要素渲染齐 + 无 collect 工具（square_scan 绝不出现）。"""
+    p = mod.build_duty_system_prompt(KEEPER_DUTY)
+    assert '你是达人库管家' in p
+    assert '负责范围：达人库档案的补全、去重、更新画像、过期标记、评级维护' in p
+    assert '判断依据：' in p and '重复疑似' in p
+    assert '交付标准：' in p and '建议人工过目' in p
+    assert 'keeper_ops.py' in p
+    assert '【边界】你不负责：判断达人好不好；新建达人档案' in p
+    assert '【汇报对象】直接向老板汇报' in p
+    # 与 collect 型的本质区别：维护型没有广场扫描工具、没有深看名额
+    assert 'square_scan' not in p
+    assert '深看名额' not in p
+
+
+def test_maintain_prompt_minimal_duty(mod):
+    """maintain 型只给 duty_name 也能拼（缺省不回退 collect 分支）。"""
+    p = mod.build_duty_system_prompt({'duty_name': '商品库管家', 'role_type': 'maintain'})
+    assert '你是商品库管家' in p
+    assert 'square_scan' not in p
+
+
+def test_maintain_quota_none_roundtrip(mod):
+    """maintain 型 quota=None（不跑采集）往返：_save_duty 不许压回默认 5。"""
+    mod._ensure_emp_duties()
+    d = mod._save_duty('emp_test_keeper', dict(KEEPER_DUTY))
+    assert d['quota'] is None, 'maintain 型 quota 必须保持 NULL'
+    d = mod._load_duty('emp_test_keeper')
+    assert d['role_type'] == 'maintain'
+    assert d['judge_basis'] and d['deliverable'] and d['assets']
+    # collect 型语义不被破坏：有 quota 仍硬顶 5
+    d2 = mod._save_duty('emp_test_collect', {'duty_name': 'x', 'quota': 9})
+    assert d2['quota'] == 5
+
+
+def test_maintain_full_chain(mod, tmp_path, monkeypatch):
+    """maintain 型全链路：职责行 ⇒ systemPrompt ⇒ SOUL.md（与小拓同款验收）。"""
+    mod._ensure_emp_duties()
+    ws = tmp_path / 'ws-test-keeper'
+    monkeypatch.setattr(mod, '_openclaw_agent_entries',
+                        lambda: {'emp_test_keeper': {'workspace': str(ws)}})
+    _mk_agent(mod, agent_id='emp_test_keeper', name='测试管家', openclawName='test-keeper')
+    mod._save_duty('emp_test_keeper', dict(KEEPER_DUTY))
+    applied = mod._apply_duty_to_agent('emp_test_keeper')
+    assert applied and applied['soul_synced'] is True
+    soul = (ws / 'SOUL.md').read_text(encoding='utf-8')
+    assert '你是达人库管家' in soul and 'square_scan' not in soul
+
+
+def test_report_title_uses_duty_name():
+    """日报标题动态化守卫：buyin_worker 的日报/抄送/升级三处标题必须用 duty_name 变量，
+    不许再写死「小拓日报」（2026-11-11 小拓改名筛选专员时落地）。"""
+    src = open(os.path.join(ROOT, 'buyin_worker.py'), encoding='utf-8').read()
+    assert "f'{duty_name}日报 · {today}'" in src
+    assert "f'【抄送】{duty_name}日报 · {today}'" in src
+    assert "f'{duty_name}连续 2 天日报" in src
+    # 负向：写死的旧标题不许回流
+    assert "'小拓日报 · '" not in src
+    assert '"小拓日报 · "' not in src

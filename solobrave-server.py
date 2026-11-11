@@ -2128,6 +2128,10 @@ def _ensure_emp_duties():
             supervisor_agent_id TEXT DEFAULT '',  -- 汇报对象 agent id（②主管协同位 2026-11-10：日报双投递/升级通知的寻址）
             boundary TEXT DEFAULT '',         -- 不做什么（边界，防越界；修订1 2026-11-10）
             zero_streak INTEGER DEFAULT 0,    -- 「值得联系=0」连续天数（≥2 触发升级通知主管）
+            role_type TEXT DEFAULT 'collect', -- 岗位形态：collect=采集型（广场扫描）/ maintain=维护型（库体检，quota 置 NULL）
+            assets TEXT DEFAULT '',           -- 维护对象（maintain 型）：如 达人库(talents) / 商品库(products)
+            judge_basis TEXT DEFAULT '',      -- 五要素③：判断依据（maintain 型必填）
+            deliverable TEXT DEFAULT '',      -- 五要素④：交付标准/日报格式（maintain 型必填）
             last_run_at INTEGER DEFAULT 0,    -- 最近一次日跑时间（名片「近期动态」）
             last_run_summary TEXT DEFAULT '', -- 最近一次日跑摘要
             created_at INTEGER,
@@ -2141,6 +2145,14 @@ def _ensure_emp_duties():
             conn.execute("ALTER TABLE emp_duties ADD COLUMN supervisor_agent_id TEXT DEFAULT ''")
         if 'zero_streak' not in cols:
             conn.execute("ALTER TABLE emp_duties ADD COLUMN zero_streak INTEGER DEFAULT 0")
+        if 'role_type' not in cols:
+            conn.execute("ALTER TABLE emp_duties ADD COLUMN role_type TEXT DEFAULT 'collect'")
+        if 'assets' not in cols:
+            conn.execute("ALTER TABLE emp_duties ADD COLUMN assets TEXT DEFAULT ''")
+        if 'judge_basis' not in cols:
+            conn.execute("ALTER TABLE emp_duties ADD COLUMN judge_basis TEXT DEFAULT ''")
+        if 'deliverable' not in cols:
+            conn.execute("ALTER TABLE emp_duties ADD COLUMN deliverable TEXT DEFAULT ''")
         conn.commit()
     finally:
         conn.close()
@@ -2157,10 +2169,11 @@ def _load_duty(agent_id):
 
 
 def _save_duty(agent_id, fields):
-    """upsert 职责字段（白名单），quota 硬顶 5。返回完整职责行。"""
+    """upsert 职责字段（白名单）。collect 型 quota 硬顶 5；maintain 型 quota=None（不跑采集）。"""
     allowed = ['duty_name', 'scope', 'category', 'quota', 'goods',
                'duty_desc', 'supervisor', 'supervisor_agent_id', 'boundary',
-               'zero_streak', 'last_run_at', 'last_run_summary']
+               'zero_streak', 'last_run_at', 'last_run_summary',
+               'role_type', 'assets', 'judge_basis', 'deliverable']
     now = int(time.time() * 1000)
     sets, vals = [], []
     for k in allowed:
@@ -2169,10 +2182,13 @@ def _save_duty(agent_id, fields):
             if k == 'duty_desc' and not isinstance(v, str):
                 v = json.dumps(v, ensure_ascii=False)
             if k == 'quota':
-                try:
-                    v = max(1, min(int(v), 5))
-                except (TypeError, ValueError):
-                    v = 5
+                if v is None:
+                    pass            # maintain 型：不跑采集，配额置 NULL
+                else:
+                    try:
+                        v = max(1, min(int(v), 5))
+                    except (TypeError, ValueError):
+                        v = 5
             sets.append(k)
             vals.append(v)
     conn = _db_conn()
@@ -2199,6 +2215,10 @@ def build_duty_system_prompt(duty):
     """职责行 → systemPrompt（拼装器唯一实现：改职责 = 从这里重组装）。
 
     结构按老大 2026-11-09 简报 A 的「达人拓展专员」模板定型。
+    两种岗位形态（2026-11-11 组织第一批）：
+    - collect（采集型，默认）：广场扫描 + 判定 + 入库（小拓）；
+    - maintain（维护型）：库体检日报，五要素必填 judge_basis/deliverable/assets，
+      quota 置 NULL，无 square_scan 工具。
     """
     duty = duty or {}
     desc = duty.get('duty_desc') or []
@@ -2208,6 +2228,29 @@ def build_duty_system_prompt(duty):
         except Exception:
             desc = [desc]
     desc_txt = '\n'.join(f'{i + 1}. {d}' for i, d in enumerate(desc))
+
+    if (duty.get('role_type') or 'collect') == 'maintain':
+        # 维护型（达人库/商品库管家）：判断权在别人，只保证档案完整准确
+        return (
+            f"你是{duty.get('duty_name') or '库管家'}。负责范围：{duty.get('scope') or '本库档案维护'}。\n"
+            + (f"判断依据：\n{duty.get('judge_basis')}\n" if (duty.get('judge_basis') or '').strip() else '')
+            + (f"交付标准：\n{duty.get('deliverable')}\n" if (duty.get('deliverable') or '').strip() else '')
+            + "工作方式：每日体检一次。只补全/更新已有档案，**不新建档案、不删除任何记录、"
+              "不合并任何条目**——合并与删除是人做的；体检本身只读，结论全进日报。\n"
+            + (f"【工具】keeper_ops.py --agent <你的id>：体检脚本（读库产出清单，"
+              f"输出即体检结果；不许改库）。\n"
+              f"【权限】读：{duty.get('assets') or '本库'}；写：日报（走 /square-report）；"
+              f"不给：删除权限、采集工具。\n"
+              if (duty.get('assets') or '').strip() else '')
+            + (f"【边界】你不负责：{duty.get('boundary')}——这些判断权在别的岗位，"
+               f"不要越界代劳。\n" if (duty.get('boundary') or '').strip() else '')
+            + ((f"【汇报对象】{duty.get('supervisor')}（agent: {duty.get('supervisor_agent_id')}）。"
+                f"日报同时抄送给他；他可以在群里 @ 你派活或追问。\n"
+                if (duty.get('supervisor_agent_id') or '').strip() else
+                "【汇报对象】直接向老板汇报（主管岗位第三批上线后再挂线）。\n"))
+            + f"【职责清单】\n{desc_txt}"
+        )
+
     cat = (duty.get('category') or duty.get('duty_name') or '本').strip()
     return (
         f"你是{duty.get('duty_name') or '达人拓展专员'}。"
@@ -5108,11 +5151,23 @@ def init_db():
             supervisor_agent_id TEXT DEFAULT '',
             boundary TEXT DEFAULT '',
             zero_streak INTEGER DEFAULT 0,
+            role_type TEXT DEFAULT 'collect',
+            assets TEXT DEFAULT '',
+            judge_basis TEXT DEFAULT '',
+            deliverable TEXT DEFAULT '',
             last_run_at INTEGER DEFAULT 0,
             last_run_summary TEXT DEFAULT '',
             created_at INTEGER,
             updated_at INTEGER
         )''')
+        # 存量迁移（与 _ensure_emp_duties 同一份幂等补加）
+        cols = [r[1] for r in conn.execute('PRAGMA table_info(emp_duties)')]
+        for c, ddl in (('role_type', "ALTER TABLE emp_duties ADD COLUMN role_type TEXT DEFAULT 'collect'"),
+                       ('assets', "ALTER TABLE emp_duties ADD COLUMN assets TEXT DEFAULT ''"),
+                       ('judge_basis', "ALTER TABLE emp_duties ADD COLUMN judge_basis TEXT DEFAULT ''"),
+                       ('deliverable', "ALTER TABLE emp_duties ADD COLUMN deliverable TEXT DEFAULT ''")):
+            if c not in cols:
+                conn.execute(ddl)
 
         conn.commit()
 
