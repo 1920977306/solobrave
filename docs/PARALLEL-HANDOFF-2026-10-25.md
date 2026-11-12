@@ -11327,3 +11327,40 @@ last_run_at 空（投递层 ❌）——它是 11-11 组织落位里「半就位
 | `docs/KB-KEEPER-DESIGN.md` | A 边新增 | 同上 |
 
 回归 1845 passed；推后自检 origin/dev..origin/main 见下。
+
+### 106. 资源层探针 + 小拓充 2000（2026-11-12 晚，A 边，commit `eb6b1b0`）
+
+老大 18:25 三条指令闭环：
+
+#### 106.1 小拓积分 +2000（老大拍板「不是一个零一个零地续」）
+
+- 先验后充：balance 92 / 近 7 日耗 408（11-10:56 → 11-11:116 → 11-12:236，
+  在加速——互@和重投尾巴）。充后 balance=2092。
+- 同 goods 路径：`_admin_grant_credits` 原子函数 + 流水
+  （operator=executor-session，note 含拍板原文）；
+  备份 `~/.solobrave-backups/solobrave.db.bak-20261112-pre-xiaotuo-recharge`。
+- 常态额度等 11-19 两周消耗数据齐了再定（老大口径）。
+
+#### 106.2 探针第五层「资源层」落地
+
+- 判据：余额 < 2×近 7 日日均消耗 → ⚠️；日均 = 近 7 日 credits_used 总和/7
+  （消耗加速时日均跟着涨，预警只会更早）；无消耗记录且余额 0 → ⚠️
+  「上岗即欠费」。全部实算，无写死阈值。
+- 真机：goods 1000/日均74 ✅、talent 425/11 ✅、xiaotuo 2092/58 ✅。
+- 守卫 +4（探针测试 26 passed），全量回归 1849 passed。
+
+#### 106.3 KB 管家设计单补上岗检查单
+
+`docs/KB-KEEPER-DESIGN.md` 第 6 节：积分先充 / 排班错开三班（建议 14:00 档）/
+boundary 进职责链 / 探针恢复在岗且全过——四项全勾才算真上岗。
+
+#### 106.4 本轮占用登记
+
+| 文件 | 谁占用 | 状态 |
+|---|---|---|
+| `scripts/agent_health_check.py` | A 边 | 已提交 `eb6b1b0` |
+| `tests/test_agent_health_check.py` | A 边 | 同上 |
+| `docs/KB-KEEPER-DESIGN.md` | A 边 | 同上 |
+
+运行时改动：emp_xiaotuo +2000（流水留痕，见 106.1）。
+推后自检：origin/dev..origin/main 见下。
