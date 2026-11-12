@@ -58,6 +58,14 @@ def test_deliver_passes_node_env_and_args(monkeypatch):
     assert captured['args'][:4] == [xd.OPENCLAW_CLI, 'agent', '--agent', 'emp_xiaotuo']
     assert '--message' in captured['args'] and '干活' in captured['args']
     assert '/opt/homebrew/bin' in captured['env']['PATH'].split(':')
+    # 每日新会话键（2026-11-12）：默认会话膨胀 → preflight compaction flaky
+    # 失败直接退出码 1（9:30/11:22 两轮实证），投递必须带当天 session-key
+    assert '--session-key' in captured['args']
+    key = captured['args'][captured['args'].index('--session-key') + 1]
+    assert key == xd.daily_session_key()
+    assert key.startswith('agent:emp_xiaotuo:daily-')
+    from datetime import datetime as _dt
+    assert key.endswith(_dt.now().strftime('%Y%m%d'))
 
 
 def test_deliver_never_raises(monkeypatch):

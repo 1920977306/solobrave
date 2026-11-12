@@ -78,9 +78,19 @@ def build_task_message(duty):
     )
 
 
+def daily_session_key():
+    """每日新会话键（2026-11-12）：默认会话 main 已 250+ 条消息，preflight
+    compaction 在投递前 summarize——今早实证该步 flaky 失败（summarization_failed，
+    CLI 直接退出码 1，9:30/11:22 两轮全灭）。每天一个干净会话让 preflight
+    永不触发；员工连续性由 workspace 的 SOUL.md/TOOLS.md 承载，不靠会话历史。
+    """
+    return f'agent:{AGENT_ID}:daily-{datetime.now():%Y%m%d}'
+
+
 def deliver_task(message):
     """投任务到 emp_xiaotuo 会话。返回 (exit_note, accepted_run_id)。"""
     args = [OPENCLAW_CLI, 'agent', '--agent', AGENT_ID, '--message', message,
+            '--session-key', daily_session_key(),
             '--json', '--timeout', str(TURN_TIMEOUT)]
     try:
         result = subprocess.run(args, capture_output=True, text=True,

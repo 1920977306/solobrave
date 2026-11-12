@@ -11086,3 +11086,51 @@ winner=kimi_proxy_xiaotuo/k3、fallbackUsed=false、**toolSummary.calls=7**。
 openclaw 默认会话 252 条消息触发 preflight compaction 失败
 （"model returned no summary text"）——与本次修复无关的独立问题，
 新会话键（--session-key）可绕开；若明天 9:30 再撞，需单独立项。
+
+## §102. 日报链路第二堵墙：preflight compaction + k3 跑题（2026-11-12 12:10，A 边，当日闭环）
+
+老大指令「不要放到明天，今天就做」——把 9:30 日报验收提前到当天。结果一天撞了两堵墙，都修了。
+
+### 102.1 第一堵墙：默认会话膨胀 → preflight compaction flaky 失败（已修）
+
+- **实证**：今日 9:30 / 11:22 两轮投递 CLI 退出码 1，轨迹库**零事件**（死在 preflight，
+  连 prompt.submitted 都没到）。11:37 复现：preflight 跑了 ~2 分钟才放行（flaky，
+  有时直接 summarization_failed）。根因：`agent:emp_xiaotuo:main` 会话 252+ 条消息，
+  每次投递前要做压缩总结。
+- **修法**：`xiaotuo_daily.py` / `keeper_daily.py` 投递一律带
+  `--session-key agent:<id>:daily-%Y%m%d`——每天干净会话，preflight 永不触发。
+  员工连续性本来由 workspace 的 SOUL.md/TOOLS.md 承载，不依赖会话历史。
+- **守卫**：test_xiaotuo_daily 扩展 1 条 + test_keeper_daily_watchdog 新增 2 条
+  （session-key 格式 / 管家去重闸），全量回归 **1820 passed**。
+
+### 102.2 第二堵墙：k3 干完 scan 后跑题求确认（当日绕过，根因待查）
+
+- **现象**：新会话键首轮（runId 7f67efec）scan 成功（翻页记忆实证：滤库内重复 20 个、
+  翻 3 页凑 5 候选），k3 却回复「你确认后我继续」+ 一段phantom 达人
+  （tal_sq_99e31a68e8，真实存在但不在候选里，疑似 memory 召回串入），
+  未判定未交报就结束了 turn。
+- **绕过**：往同一会话发确认指令（「不需要再等确认…忽略 tal_sq_99e31a68e8」），
+  67 秒完成 5 判定 + 交报：**今日深看5 | 新增3 | 排除2（结算<100元带不动）| 
+  建议人工过目 3 人（明赫箱包5、轩尼哲米乐乐箱包总店、吉尼斯袋鼠箱包 董小姐，
+  理由均可验证：结算额区间+类目+粉丝体量）**。通知 notif_32f2b2616495，
+  last_run_at 12:07:31，闹钟 12:08:09 干净收工。
+- **待查（独立问题，未深挖）**：① compaction summarization 为何返回空文本；
+  ② k3 为何求确认 + phantom 达人从哪来（memory 召回？代理串话？）；
+  ③ main 会话 252+ 条的瘦身/归档。
+
+### 102.3 顺手修：keeper_daily 当日去重闸
+
+- **实证**：商品管家 11-12 被手动 kickstart 重投，僵尸 turn + 新 turn 各交一份，
+  管理员收到**两条逐字相同**的日报（notif_54f031bfe147 11:27:39 /
+  notif_d6c3a8d50ee4 11:31:00）。keeper_daily 此前没有去重闸（派单二只给了小拓）。
+- **修法**：main() 投递前查 `last_run_at >= 今日 00:00` ⇒ 跳过。守卫 1 条。
+
+### 102.4 今日验收总账
+
+| 项 | 状态 |
+|---|---|
+| 小拓日报（筛选专员） | ✅ 12:07:31 交付，判定理由可验证 |
+| 达人库管家日报 | ✅ 10:17:56 |
+| 商品库管家日报 | ✅ 11:27:39（11:31:00 为重复件，去重闸已堵未来） |
+| 采集巡检 collector-watch | ✅ 10:40 正常（上次成功 15.1h 前，阈值 48h） |
+| 小拓未交日报告警 | 10:16 真告警（当时确实没交）；无新误报 |

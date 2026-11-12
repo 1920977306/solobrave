@@ -70,3 +70,47 @@ def test_truly_missing_still_alerts(duty_db, monkeypatch):
     monkeypatch.setattr('sys.argv', ['keeper_daily.py', '--agent', 'emp_talent_keeper'])
     kd.main()
     assert len(calls) == 1 and '未交日报' in calls[0][1] or '45 分钟' in calls[0][1]
+
+
+# ── 2026-11-12 追加：每日新会话键 + 当日去重闸 ──
+# 实证：① 默认会话膨胀 → preflight compaction flaky 失败，CLI 退出码 1
+# （小拓 9:30/11:22 两轮零轨迹全灭）；② 商品管家被手动 kickstart 重投，
+# 僵尸 turn + 新 turn 各交一份逐字相同的日报（11:27:39 / 11:31:00）。
+
+def test_deliver_alarm_uses_daily_session_key(monkeypatch):
+    captured = {}
+
+    class _R:
+        returncode = 0
+        stdout = '{}'
+        stderr = ''
+
+    def fake_run(args, **kw):
+        captured['args'] = args
+        return _R()
+    monkeypatch.setattr(kd.subprocess, 'run', fake_run)
+    ok, finished = kd.deliver_alarm('emp_talent_keeper', {'duty_name': '达人库管家'})
+    assert ok and finished
+    assert '--session-key' in captured['args']
+    key = captured['args'][captured['args'].index('--session-key') + 1]
+    assert key == kd.daily_session_key('emp_talent_keeper')
+    assert key.startswith('agent:emp_talent_keeper:daily-')
+    from datetime import datetime as _dt
+    assert key.endswith(_dt.now().strftime('%Y%m%d'))
+
+
+def test_dedup_gate_skips_redispatch(duty_db, monkeypatch):
+    """今日已交过日报 ⇒ 不投递、不告警（挡手动 kickstart 重投）。"""
+    delivered = []
+    monkeypatch.setattr(kd, 'load_duty',
+                        lambda aid: {'agent_id': aid, 'duty_name': '商品库管家',
+                                     'last_run_at': int(time.time() * 1000)})
+    monkeypatch.setattr(kd, 'deliver_alarm',
+                        lambda aid, duty: delivered.append(aid) or (True, True))
+    calls = []
+    monkeypatch.setattr(kd, 'notify_admin',
+                        lambda aid, text: calls.append((aid, text)))
+    monkeypatch.setattr('sys.argv', ['keeper_daily.py', '--agent', 'emp_goods_keeper'])
+    kd.main()
+    assert delivered == [], '今日已交日报 ⇒ 不许再投递'
+    assert calls == [], '跳过投递 ⇒ 更不许告警'

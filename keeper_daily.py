@@ -56,6 +56,14 @@ def load_duty(agent_id):
         conn.close()
 
 
+def daily_session_key(agent_id):
+    """每日新会话键（2026-11-12，与小拓同款）：默认会话膨胀后 preflight
+    compaction flaky 失败会让 CLI 直接退出；每天干净会话绕开它。
+    商品管家 11-12 实证：默认会话里乱逛 9 分钟被 15 分钟超时杀。
+    """
+    return f'agent:{agent_id}:daily-{datetime.now():%Y%m%d}'
+
+
 def deliver_alarm(agent_id, duty):
     """把今日任务投进管家的 openclaw 会话；CLI 等到 turn 结束。返回 (投成功, turn是否跑完)。"""
     duty_name = duty.get('duty_name') or agent_id
@@ -70,6 +78,7 @@ def deliver_alarm(agent_id, duty):
     try:
         result = subprocess.run(
             [OPENCLAW_CLI, 'agent', '--agent', agent_id, '--message', prompt,
+             '--session-key', daily_session_key(agent_id),
              '--json', '--timeout', str(TURN_TIMEOUT)],
             capture_output=True, text=True, timeout=TURN_TIMEOUT + 120,
             env=_subprocess_env())
@@ -149,6 +158,13 @@ def main():
     duty = load_duty(args.agent)
     if not duty:
         log(f'无职责行：{args.agent}（先 PUT duties 再排班）')
+        return
+    # 当日去重闸（2026-11-12，与小拓同款）：今日已交过日报 ⇒ 跳过重投。
+    # 实证：商品管家 11-12 被手动 kickstart 重投，僵尸 turn 与新 turn 各交一份，
+    # 管理员收到两条逐字相同的日报（11:27:39 / 11:31:00）。
+    if (duty.get('last_run_at') or 0) >= _today_start_ms():
+        log('今日已交过日报（last_run_at 在今天 00:00 之后），跳过本次投递——'
+            '如确需重跑，先清 emp_duties.last_run_at')
         return
     before = duty.get('last_run_at') or 0
     log(f'投今日任务给 {args.agent}（{duty.get("duty_name")}）…')
