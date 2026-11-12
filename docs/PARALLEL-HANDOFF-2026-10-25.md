@@ -11276,3 +11276,54 @@ last_run_at 空（投递层 ❌）——它是 11-11 组织落位里「半就位
 | `~/Library/LaunchAgents/com.solobrave.keeper-{talent,goods}.plist` | **A 边** | 已错峰并生效（仓库外文件，不入 git） |
 
 推后自检：`git rev-list --count origin/dev..origin/main` = **0**（319469e 双分支同点）。
+
+### 105. knowledge_admin 裁决落地 + 两件悬事闭环（2026-11-12 晚，A 边，commit `1ec95ff`）
+
+老大 17:52 验收后的追加指令，全部闭环：
+
+#### 105.1 探针主动/被动型分野（老大裁决）
+
+- `scheduled_agents()`：判定事实源 = LaunchAgents 目录扫描（不是任何手维护名单）。
+  认两种 plist 形态：①`--agent <id>`（keeper_daily）；②日报脚本无参、
+  `AGENT_ID` 硬编码在脚本里（xiaotuo_daily——第一版只认形态①把小拓误判成
+  被动型，真机抓出后补的形态②解析，教训：盘点形态必须看实物不看想象）。
+- 被动型投递层豁免（➖ + 判据写进输出头）；真机：三岗全「主动」，knowledge_admin 被动。
+- 守卫 22 passed（+4：两种形态解析、空目录、主动型投递 ❌ 退出码 1、designing 排除）。
+
+#### 105.2 knowledge_admin 摘岗标（消除假绿灯）
+
+- `emp_duties` 加 `duty_status` 列（''=在岗 / 'designing'=循环设计中；
+  `_ensure_emp_duties` 幂等迁移，SELECT * 透传 API，拼装器不受影响）。
+- knowledge_admin 已标 `designing`：探针在岗名单排除（真机只剩 3 岗）、
+  名片保留并渲染「循环设计中」角标（inline-03.js + index.html）。
+- 设计草案 `docs/KB-KEEPER-DESIGN.md`（A 新增质检 + B 过期复核，48h，建议先
+  @驱动后主动；设计过了再上岗）。
+
+#### 105.3 两件悬事
+
+1. **商品库管家会话键**：查实**已解决**——`897506b`（12:11 提交已部署）
+   给两管家加了每日新会话键（`agent:<id>:daily-YYYYMMDD`）；今天 10:18/10:50
+   跑在旧 main 会话（221k tokens 由此而来）是因为跑在旧码上。明早 10:47/11:17
+   自然跑自动切新键，无需手动干预；探针会话层已会盯。
+2. **商品库管家积分 0 → 已充 1000**（老大拍板原文「我建议充 1000，够跑
+   两个月」）。API 层 super_admin 闸无凭据（scoped token 永远 role=user，
+   9-16 已移除 localhost 匿名兜底），走同一原子函数 `_admin_grant_credits`
+   + 流水留痕：operator=executor-session，note 含拍板原文。
+   备份 `~/.solobrave-backups/solobrave.db.bak-20261112-pre-recharge`。
+
+#### 105.4 顺带发现（待老大拍板）
+
+- **emp_xiaotuo 积分余额 = 92**（充 500 耗 408）：按今日消耗速率，明早 9:30
+  一跑大概率欠费。老大只批了商品库管家 1000，小拓是否同充待拍。
+
+#### 105.5 本轮占用登记
+
+| 文件 | 谁占用 | 状态 |
+|---|---|---|
+| `scripts/agent_health_check.py` | A 边 | 已提交 `1ec95ff` |
+| `tests/test_agent_health_check.py` | A 边 | 同上 |
+| `js/inline-03.js` / `index.html` | A 边 | 同上（名片角标） |
+| `solobrave-server.py` | A 边 | 同上（_ensure_emp_duties 迁移） |
+| `docs/KB-KEEPER-DESIGN.md` | A 边新增 | 同上 |
+
+回归 1845 passed；推后自检 origin/dev..origin/main 见下。
