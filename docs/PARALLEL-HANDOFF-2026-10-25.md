@@ -11047,3 +11047,42 @@ launchd 排班现状：小拓 9:30 / 达人库管家 10:17 / 商品库管家 10:
 ### 遗留（老大定）
 
 - **17 个未挂 platform_product_id 的商品要不要 n-gram 对拍补挂**（§98 收尾项，未决）
+
+## 101. k3 丢 tool_use + 日报闹钟两缺陷，连夜修复（2026-11-12 10:50，A 边，派单一/二）
+
+### 派单一（P1）：k3 路由丢 tool_use —— 根因不在 kimi，在我们的 fallback 包装
+
+**根因链**（curl 复现钉死）：kimi 主路由失败 → 降级 minimax 非流式调用 →
+模型**已在响应里返回 tool_use**（"我来调工具"）→ `parse_response` 只抠文本 +
+`wrap_sse` 写死 `end_turn` ⇒ 工具调用被静默丢弃，OpenClaw 收到纯文本计划，
+工具链全断（小拓两轮 run tool.call=0，~27 秒空转）。
+
+**修复**（commit `61f5680`，provider_adapters.py + solobrave-server.py）：
+- 新增 `extract_tool_calls` / `anthropic_sse_from_content`（tool_use 块 +
+  input_json_delta + stop_reason=tool_use）/ `openai_sse_from_content`
+- `ProviderAdapter.wrap_sse_from_response`：有工具走 tool-aware 包装，无工具维持原状
+- 同族一并修：双向响应转换保留 tool_calls↔tool_use；`to_openai_messages` 保留
+  tool_use/tool_result 历史块；`OpenAIChatAdapter.prepare_body` 透传 tools
+- 守卫 tests/test_fallback_tool_use.py 13 条（含 AST 守卫防退回 wrap_sse）
+
+**真机验收**：重启后流式复测 tool_use 块恢复；小拓主备换回 k3 主
+（备份 `~/.openclaw/openclaw.json.bak-20261112-swapback`），openclaw 真跑一轮
+winner=kimi_proxy_xiaotuo/k3、fallbackUsed=false、**toolSummary.calls=7**。
+
+### 派单二（P2）：xiaotuo_daily 去重闸 + 看门狗竞态（commit `5f08812`）
+
+- 缺陷1：投递前查 `last_run_at` 今日已交 ⇒ 跳过（挡手动重投白烧 token）。
+  真机验证：跳过日志正确、exit 0、last_run_at 验后已还原。
+- 缺陷2：告警落笔前双路复查（last_run_at + 当日日报通知），竞态命中即静默。
+  keeper_daily 同款一并修，顺带修出 `>=` 边界 bug（before=0 时误判已交付，改 `>`）。
+- 误报清理 3 条（11-11 19:28 / 20:26 / 20:46，当日 9:31 日报均已交）。
+  ⚠️ **保留 11-12 10:16 的真告警**：今日 9:30 轮小拓确实没交日报——
+  就是 k3 丢 tool_use 的连带后果（没工具干不了活）。修复 10:33 已上线，
+  **明日 9:30 自然跑是最终验收**，日报到了 = 全链路真的好了。
+- 守卫 +6，全量回归 **1818 passed**，双分支零分叉。
+- 两脚本是 launchd 每次新起进程，无需重启服务。
+
+### 排查插曲（备查）
+openclaw 默认会话 252 条消息触发 preflight compaction 失败
+（"model returned no summary text"）——与本次修复无关的独立问题，
+新会话键（--session-key）可绕开；若明天 9:30 再撞，需单独立项。
