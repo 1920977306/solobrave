@@ -164,3 +164,75 @@ def test_main_no_duty_row_skips_quietly(monkeypatch):
     monkeypatch.setattr(xd.subprocess, 'run',
                         lambda *a, **k: (_ for _ in ()).throw(AssertionError('不该投任务')))
     assert xd.main() == 0
+
+
+# ── 5. 派单二（2026-11-12）：当日去重闸 + 看门狗竞态复查 ──
+
+def test_dedup_gate_skips_manual_redispatch(monkeypatch, duty_db):
+    """缺陷1：今日已交过日报 ⇒ 手动重投被跳过（不投任务、不告警、不烧规划 token）。"""
+    now_ms = int(__import__('time').time() * 1000)
+    conn = sqlite3.connect(str(duty_db))
+    conn.execute("INSERT INTO emp_duties VALUES ('emp_xiaotuo', ?, '已交', 0)", (now_ms,))
+    conn.commit()
+    conn.close()
+    monkeypatch.setattr(xd, 'load_duty', lambda: dict(DUTY, last_run_at=now_ms))
+    monkeypatch.setattr(xd.subprocess, 'run',
+                        lambda *a, **k: (_ for _ in ()).throw(AssertionError('不该投任务')))
+    assert xd.main() == 0
+    conn = sqlite3.connect(str(duty_db))
+    n = conn.execute("SELECT COUNT(*) FROM notifications").fetchone()[0]
+    conn.close()
+    assert n == 0
+
+
+def test_dedup_gate_ignores_yesterday(monkeypatch, duty_db):
+    """闸只认今天：last_run_at 是昨天 ⇒ 照常投递（9:30 自然跑不受误伤）。"""
+    yesterday_ms = xd._today_start_ms() - 3600_000
+    monkeypatch.setattr(xd, 'load_duty', lambda: dict(DUTY, last_run_at=yesterday_ms))
+    _patch_common(monkeypatch, duty_db, json.dumps({'ok': True, 'runId': 'r'}))
+    # 投递后交作业 ⇒ 无告警正常收工
+    conn = sqlite3.connect(str(duty_db))
+    future_ms = int(__import__('time').time() * 1000) + 3600_000
+    conn.execute("INSERT INTO emp_duties VALUES ('emp_xiaotuo', ?, '已交', 0)", (future_ms,))
+    conn.commit()
+    conn.close()
+    assert xd.main() == 0
+
+
+def test_watchdog_recheck_silences_race_alert(tmp_path, monkeypatch, duty_db):
+    """缺陷2：看门超时但日报通知恰在竞态窗口落库 ⇒ 复查命中，告警静默跳过。
+
+    复刻 11-11 20:46 误报：日报通知 20:45:47 落库（title 含「日报」），
+    看门狗 20:46:05 判超时——复查应看到当日日报通知存在 ⇒ 不写 escalation。
+    """
+    _patch_common(monkeypatch, duty_db, 'raise')
+    monkeypatch.setattr(xd, 'WATCHDOG_SEC', 0)
+    monkeypatch.setattr(xd, 'report_delivered', lambda since_ms: False)  # last_run_at 没赶上
+    conn = sqlite3.connect(str(duty_db))
+    conn.execute("INSERT INTO emp_duties VALUES ('emp_xiaotuo', 0, '', 0)")
+    conn.execute(
+        "INSERT INTO notifications VALUES ('notif_race', 'user_7acb72ff', 'emp_xiaotuo', "
+        "'task_reminder', '达人筛选专员日报 · 11月12日', '今日深看5', 0, ?)",
+        (int(__import__('time').time() * 1000),))
+    conn.commit()
+    conn.close()
+    assert xd.main() == 0
+    conn = sqlite3.connect(str(duty_db))
+    rows = conn.execute("SELECT title FROM notifications WHERE title LIKE '%未交日报%'").fetchall()
+    conn.close()
+    assert rows == [], '竞态窗口内日报已落库 ⇒ 不许写未交日报告警'
+
+
+def test_watchdog_still_alerts_when_truly_missing(tmp_path, monkeypatch, duty_db):
+    """反向对照：既无 last_run_at 又无当日日报通知 ⇒ 告警照写（真未报场景不静默）。"""
+    _patch_common(monkeypatch, duty_db, 'raise')
+    monkeypatch.setattr(xd, 'WATCHDOG_SEC', 0)
+    conn = sqlite3.connect(str(duty_db))
+    conn.execute("INSERT INTO emp_duties VALUES ('emp_xiaotuo', 0, '', 0)")
+    conn.commit()
+    conn.close()
+    assert xd.main() == 0
+    conn = sqlite3.connect(str(duty_db))
+    rows = conn.execute("SELECT title FROM notifications WHERE title LIKE '%未交日报%'").fetchall()
+    conn.close()
+    assert len(rows) == 1

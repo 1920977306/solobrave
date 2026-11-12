@@ -111,6 +111,37 @@ def notify_admin(agent_id, text):
         conn.close()
 
 
+def _today_start_ms():
+    now = datetime.now()
+    return int(now.replace(hour=0, minute=0, second=0, microsecond=0).timestamp() * 1000)
+
+
+def report_landed(agent_id, before_ms):
+    """看门狗复查（派单二缺陷2 同款，2026-11-12）：告警落笔前最后确认。
+
+    双路任一命中即静默跳过：last_run_at 已在投递后刷新，或当日日报通知已落库
+    （竞态窗口：日报恰在最后一次轮询后、告警前落库——小拓 11-11 误报实证）。
+    """
+    duty = load_duty(agent_id)
+    # 严格 >（与 watch_last_run 同口径）：before=0 且从未跑过时 last_run_at=0，
+    # 用 >= 会把「从未交付」误判成已交付
+    if duty and (duty.get('last_run_at') or 0) > before_ms:
+        return True
+    try:
+        conn = sqlite3.connect(str(DB), timeout=10)
+        try:
+            row = conn.execute(
+                "SELECT 1 FROM notifications WHERE agent_id = ? AND title LIKE '%日报%' "
+                "AND created_at >= ? LIMIT 1",
+                (agent_id, _today_start_ms())).fetchone()
+            return bool(row)
+        finally:
+            conn.close()
+    except Exception as e:
+        log(f'日报通知复查失败（按未存在处理，宁可多查）: {e}')
+        return False
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--agent', required=True)
@@ -136,6 +167,10 @@ def main():
     if watch_last_run(args.agent, before):
         log('看门确认：日报已交付 ✅')
     else:
+        # 竞态复查（派单二缺陷2 同款）：落笔前最后确认一次再决定告警
+        if report_landed(args.agent, before):
+            log('复查命中：日报已交付（竞态窗口内落库），告警静默跳过 ✅')
+            return
         log('看门超时：日报未交付，告警管理员')
         notify_admin(args.agent,
                      f'{duty.get("duty_name")}（{args.agent}）任务已投递但 45 分钟内未交日报，'

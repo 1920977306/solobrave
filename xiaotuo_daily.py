@@ -119,6 +119,46 @@ def report_delivered(since_ms):
         conn.close()
 
 
+def _today_start_ms():
+    """今天 00:00（本地时区）的毫秒时间戳。"""
+    now = datetime.now()
+    return int(now.replace(hour=0, minute=0, second=0, microsecond=0).timestamp() * 1000)
+
+
+def already_reported_today():
+    """当日去重闸（派单二缺陷1，2026-11-12）：今日是否已有成功日报。
+
+    挡的是「手动重投」——18:43 实证：手动重投当日已完成的任务，小拓合理拒绝
+    （「09:30 的班已跑完交过日报」），但那一轮规划 token 白烧了。
+    9:30 自然跑一天一次天然不受影响；真要多跑一轮，先清 last_run_at。
+    """
+    duty = load_duty()
+    last = (duty or {}).get('last_run_at') or 0
+    return last >= _today_start_ms()
+
+
+def report_notification_exists_today():
+    """看门狗复查（派单二缺陷2）：当日日报通知是否已落库。
+
+    竞态实证（11-11 20:46）：日报通知 20:45:47 落库，看门狗 20:46:05（晚 18 秒）
+    仍推「未交日报」误报——判「未交」时读到的是报告落库前的快照。
+    ⇒ 告警落笔前必须双路复查：last_run_at + 当日日报通知，任一存在即静默跳过。
+    """
+    try:
+        conn = sqlite3.connect(str(DB), timeout=10)
+        try:
+            row = conn.execute(
+                "SELECT 1 FROM notifications WHERE agent_id = ? AND title LIKE '%日报%' "
+                "AND created_at >= ? LIMIT 1",
+                (AGENT_ID, _today_start_ms())).fetchone()
+            return bool(row)
+        finally:
+            conn.close()
+    except Exception as e:
+        log(f'日报通知复查失败（按未存在处理，宁可多查）: {e}')
+        return False
+
+
 def alert_admin(note, run_id):
     """小拓没交作业 ⇒ 管理员告警（旁路，失败只记日志）。"""
     try:
@@ -146,6 +186,11 @@ def main():
     if not duty:
         log('emp_duties 没有小拓职责行，不投任务（先 PUT /api/agents/emp_xiaotuo/duties）')
         return 0
+    # 当日去重闸（派单二缺陷1）：今日已交过日报 ⇒ 跳过手动重投，不白烧规划 token
+    if already_reported_today():
+        log('今日已交过日报（last_run_at 在今天 00:00 之后），跳过本次投递——'
+            '如确需重跑，先清 emp_duties.last_run_at')
+        return 0
     message = build_task_message(duty)
     log(f'投递今日任务：类目={message.split("类目=")[1].split("，")[0]} '
         f'quota={duty.get("quota")}')
@@ -161,6 +206,12 @@ def main():
             log('小拓已交日报（emp_duties.last_run_at 已在本次投递后回写），收工')
             return 0
         time.sleep(60)
+    # 看门狗竞态复查（派单二缺陷2）：落笔告警前最后确认一次——
+    # 日报可能恰在最后一次轮询后、告警前落库（11-11 20:45:47 落库 vs
+    # 20:46:05 误报，只差 18 秒）。双路任一命中即静默跳过。
+    if report_delivered(dispatch_ms) or report_notification_exists_today():
+        log('复查命中：日报已交付（竞态窗口内落库），告警静默跳过')
+        return 0
     alert_admin(note, run_id)
     return 0
 
