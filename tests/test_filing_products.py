@@ -238,6 +238,35 @@ def test_strong_evidence_refuses_when_price_missing():
     assert ok is False
 
 
+# ───────────── 规格闸（2026-11-12 老大拍板，美印兔兔案）─────────────
+
+def test_spec_gate_rejects_same_price_commission_different_spec():
+    """12寸 SKU 与 10寸 SKU 价佣一致是巧合 ⇒ 规格词不一致必须出局。
+    （价格会变，规格不会；同名 verbatim 才是 SKU 身份的最强信号。）"""
+    daren = {"price": "¥39", "commission_rate": "30%",
+             "name": "美印兔兔照片书定制相册12寸28P106张纪念册家庭本大容量生日礼物"}
+    our = {"name": "【美印兔兔】10寸方款照片书定制相册纪念册家庭本大容量130张礼物",
+           "price": 39.0, "commission_rates": '{"自然流": 30, "default": 30.0}'}
+    ok, why = fp.strong_evidence({}, our, daren)
+    assert ok is False and "规格" in why
+
+
+def test_spec_gate_accepts_verbatim_name():
+    """同名 verbatim（规格词一致）⇒ 规格闸放行（价差 9 毛属裁决层，不归闸管）。"""
+    name = "【美印兔兔】10寸方款照片书定制相册纪念册家庭本大容量130张礼物"
+    daren = {"price": "¥39", "commission_rate": "30%", "name": name}
+    our = {"name": name, "price": 39.0, "commission_rates": '{"default": 30}'}
+    ok, why = fp.strong_evidence({}, our, daren)
+    assert ok is True
+
+
+def test_spec_tokens_extract():
+    assert fp.spec_tokens("10寸方款130张礼物28P") == {"10寸", "130张", "28p"}
+    assert fp.spec_tokens("无规格词") == set()
+    assert fp.spec_conflict("10寸130张", "12寸28P106张") != ""
+    assert fp.spec_conflict("无规格词", "12寸") == ""  # 我方无规格词 ⇒ 不拦
+
+
 # ───────────── 我方佣金率解析 ─────────────
 
 @pytest.mark.parametrize("raw,expect", [

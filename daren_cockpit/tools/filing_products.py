@@ -160,6 +160,34 @@ def resolve_conflicts(matches: list) -> tuple[list, list]:
     return winners, losers
 
 
+_SPEC_TOKEN_RE = re.compile(
+    r'(\d+(?:\.\d+)?)\s*(寸|张|[Pp]页?|双|条|包|片|件|套|克|g|G|kg|KG|ml|mL|升|L|cm|CM|mm|码)')
+
+
+def spec_tokens(name: str) -> set:
+    """商品名里的规格 token 集合（10寸 / 130张 / 28P / 9条 / 300G …）。"""
+    if not name:
+        return set()
+    return {f'{m.group(1)}{m.group(2)}'.lower()
+            for m in _SPEC_TOKEN_RE.finditer(str(name))}
+
+
+def spec_conflict(ours: str, theirs: str) -> str:
+    """规格闸（2026-11-12 老大拍板）：两边都有规格 token 且对不上 ⇒ 出局。
+
+    起因：美印兔兔案——12寸 SKU 与 10寸 SKU 价佣一致（巧合），按旧三证据
+    规则反而「该挂」；同名 verbatim 的那个才是真身。**价格会变，规格不会**。
+    我方名无规格词时不拦（无从判，不制造假证据）。
+    返回 '' = 不冲突；否则返回冲突说明。
+    """
+    o, t = spec_tokens(ours), spec_tokens(theirs)
+    if not o or not t:
+        return ''
+    if o != t:
+        return f'规格词不一致（我方 {sorted(o)} / 平台 {sorted(t)}）'
+    return ''
+
+
 def strong_evidence(pr: dict, our: dict, daren: dict | None) -> tuple[bool, str]:
     """n-gram 候选 → 真·同一商品的**强证据**校验。
 
@@ -185,6 +213,11 @@ def strong_evidence(pr: dict, our: dict, daren: dict | None) -> tuple[bool, str]
         return False, "佣金率缺失，无法判定"
     if abs(p_rate - o_rate) > 0.01:
         return False, f"佣金率不一致（我方 {o_rate:g}% / 平台 {p_rate:g}%）"
+    # 规格闸（2026-11-12）：价佣一致但规格不同 = 同品牌不同 SKU（美印兔兔案）
+    plat_name = (daren or {}).get("name") or pr.get("name") or ""
+    conflict = spec_conflict(our.get("name") or "", plat_name)
+    if conflict:
+        return False, conflict
     return True, f"价格与佣金率均一致（¥{p_price:g} / {p_rate:g}%）"
 
 
