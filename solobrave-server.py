@@ -36511,7 +36511,11 @@ def _proxy_chain_forward(body_json, *, request_format, is_streaming, write_head,
                 result['text'] = text
                 if is_streaming:
                     # 兜底 provider 非流式结果 → 包装成 request_format 的 SSE
-                    payload = adapter.wrap_sse(text, upstream_body.get('model', ''), request_format, usage)
+                    # ★ 派单一（2026-11-12）：走 tool-aware 包装——
+                    #   降级响应里模型已决定调工具（tool_use/tool_calls），
+                    #   只抠文本包装会把工具调用静默丢掉、stop_reason 错标 end_turn
+                    #   （小拓 k3 路由 tool.call=0 的根因，三轮实证）。
+                    payload = adapter.wrap_sse_from_response(resp_json, text, upstream_body.get('model', ''), request_format, usage)
                     write_head(200, 'text/event-stream', _chain_resp_headers(name, fallback_from))
                     write_chunk(payload)
                     logger.info(f'  [{log_prefix}] {name} 非流式结果已包装为 {request_format} SSE: text_len={len(text)}')

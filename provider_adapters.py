@@ -187,12 +187,23 @@ def anthropic_normalize_request(body, default_max_tokens=DEFAULT_MAX_TOKENS_PROX
 
 
 def transform_anthropic_to_openai(resp_json):
-    """将 Anthropic Messages API 响应转回 OpenAI chat/completions 格式。"""
+    """将 Anthropic Messages API 响应转回 OpenAI chat/completions 格式。
+    ★ 派单一（2026-11-12）：tool_use 块转成 message.tool_calls，不再静默丢弃。"""
     content_items = resp_json.get('content', []) if isinstance(resp_json.get('content'), list) else []
     texts = []
+    tool_calls = []
     for item in content_items:
-        if isinstance(item, dict) and item.get('type') == 'text':
+        if not isinstance(item, dict):
+            continue
+        if item.get('type') == 'text':
             texts.append(item.get('text', ''))
+        elif item.get('type') == 'tool_use':
+            tool_calls.append({
+                'id': item.get('id', ''),
+                'type': 'function',
+                'function': {'name': item.get('name', ''),
+                             'arguments': json.dumps(item.get('input') or {}, ensure_ascii=False)}
+            })
     content = ''.join(texts)
 
     usage = resp_json.get('usage', {})
@@ -200,8 +211,15 @@ def transform_anthropic_to_openai(resp_json):
     output_tokens = usage.get('output_tokens', 0)
 
     stop_reason = resp_json.get('stop_reason', '')
-    finish_reason_map = {'end_turn': 'stop', 'max_tokens': 'length', 'stop_sequence': 'stop'}
+    finish_reason_map = {'end_turn': 'stop', 'max_tokens': 'length',
+                         'stop_sequence': 'stop', 'tool_use': 'tool_calls'}
     finish_reason = finish_reason_map.get(stop_reason, stop_reason or 'stop')
+    if tool_calls and finish_reason == 'stop':
+        finish_reason = 'tool_calls'
+
+    message = {'role': 'assistant', 'content': content}
+    if tool_calls:
+        message['tool_calls'] = tool_calls
 
     return {
         'id': resp_json.get('id', ''),
@@ -209,7 +227,7 @@ def transform_anthropic_to_openai(resp_json):
         'model': resp_json.get('model', ''),
         'choices': [{
             'index': 0,
-            'message': {'role': 'assistant', 'content': content},
+            'message': message,
             'finish_reason': finish_reason
         }],
         'usage': {
@@ -249,15 +267,37 @@ def openai_extract_text_and_usage(resp_json):
 
 
 def transform_openai_resp_to_anthropic(resp_json, model=''):
-    """将 OpenAI chat.completion 响应转为 Anthropic Messages 格式。"""
+    """将 OpenAI chat.completion 响应转为 Anthropic Messages 格式。
+    ★ 派单一（2026-11-12）：tool_calls 转成 tool_use 块 + stop_reason='tool_use'，
+    不再静默丢弃（与 transform_anthropic_to_openai 对称）。"""
     text, usage = openai_extract_text_and_usage(resp_json)
+    content = [{'type': 'text', 'text': text}] if text else []
+    stop_reason = 'end_turn'
+    choices = resp_json.get('choices') or []
+    if choices and isinstance(choices[0], dict):
+        msg = choices[0].get('message') or {}
+        for tc in msg.get('tool_calls') or []:
+            if not isinstance(tc, dict):
+                continue
+            fn = tc.get('function') or {}
+            args = fn.get('arguments') or '{}'
+            try:
+                inp = json.loads(args) if isinstance(args, str) else (args or {})
+            except Exception:
+                inp = {}
+            content.append({'type': 'tool_use', 'id': tc.get('id', ''),
+                            'name': fn.get('name', ''), 'input': inp})
+        if content and any(b.get('type') == 'tool_use' for b in content):
+            stop_reason = 'tool_use'
+    if not content:
+        content = [{'type': 'text', 'text': ''}]
     return {
         'id': resp_json.get('id', f'msg_{int(time.time() * 1000)}'),
         'type': 'message',
         'role': 'assistant',
-        'content': [{'type': 'text', 'text': text}],
+        'content': content,
         'model': model or resp_json.get('model', ''),
-        'stop_reason': 'end_turn',
+        'stop_reason': stop_reason,
         'usage': {'input_tokens': usage['input_tokens'], 'output_tokens': usage['output_tokens']},
     }
 
@@ -289,10 +329,32 @@ def to_openai_messages(body_json):
             if isinstance(content, str):
                 oai_messages.append({'role': role, 'content': content})
             elif isinstance(content, list):
+                # ★ 派单一（2026-11-12）：tool_use / tool_result 块必须保留——
+                #   只抠文本会把「模型曾决定调工具」的历史抹掉，
+                #   openai 系上游看到的历史里工具链凭空消失。
                 texts = [item.get('text', '') for item in content
                          if isinstance(item, dict) and item.get('type') == 'text']
-                if texts:
+                tool_uses = [item for item in content
+                             if isinstance(item, dict) and item.get('type') == 'tool_use']
+                tool_results = [item for item in content
+                                if isinstance(item, dict) and item.get('type') == 'tool_result']
+                if tool_uses:
+                    amsg = {'role': 'assistant', 'content': '\n'.join(texts) or None}
+                    amsg['tool_calls'] = [{
+                        'id': tu.get('id', ''), 'type': 'function',
+                        'function': {'name': tu.get('name', ''),
+                                     'arguments': json.dumps(tu.get('input') or {}, ensure_ascii=False)}
+                    } for tu in tool_uses]
+                    oai_messages.append(amsg)
+                elif texts:
                     oai_messages.append({'role': role, 'content': '\n'.join(texts)})
+                for tr in tool_results:
+                    trc = tr.get('content')
+                    if isinstance(trc, list):
+                        trc = '\n'.join(b.get('text', '') for b in trc
+                                        if isinstance(b, dict) and b.get('type') == 'text')
+                    oai_messages.append({'role': 'tool', 'tool_call_id': tr.get('tool_use_id', ''),
+                                         'content': trc if isinstance(trc, str) else json.dumps(trc or '', ensure_ascii=False)})
     else:
         for msg in body_json.get('messages', []) or []:
             if not isinstance(msg, dict):
@@ -316,6 +378,151 @@ def to_openai_messages(body_json):
 
 def sse_event(event_name, data_obj):
     return f'event: {event_name}\ndata: {json.dumps(data_obj, ensure_ascii=False)}\n\n'
+
+
+def extract_tool_calls(resp_json, api_format):
+    """从非流式响应里抠工具调用（★ 2026-11-12 派单一：fallback SSE 包装丢 tool_use 的根因修复配套）。
+
+    anthropic → content[].tool_use；openai → choices[0].message.tool_calls
+    （arguments 是 JSON 串，解析成 dict 统一形态）。
+    返回 [{'id','name','input'}]，无工具调用返回 []。
+    """
+    out = []
+    if not isinstance(resp_json, dict):
+        return out
+    if api_format == 'anthropic':
+        for blk in resp_json.get('content') or []:
+            if isinstance(blk, dict) and blk.get('type') == 'tool_use':
+                out.append({'id': blk.get('id', ''), 'name': blk.get('name', ''),
+                            'input': blk.get('input') or {}})
+    else:
+        choices = resp_json.get('choices') or []
+        if choices and isinstance(choices[0], dict):
+            msg = choices[0].get('message') or {}
+            for tc in msg.get('tool_calls') or []:
+                if not isinstance(tc, dict):
+                    continue
+                fn = tc.get('function') or {}
+                args = fn.get('arguments') or '{}'
+                try:
+                    inp = json.loads(args) if isinstance(args, str) else (args or {})
+                except Exception:
+                    inp = {}
+                out.append({'id': tc.get('id', ''), 'name': fn.get('name', ''), 'input': inp})
+    return [t for t in out if t.get('name')]
+
+
+def anthropic_sse_from_content(text, tool_calls, model, msg_id=None, input_tokens=0, output_tokens=0):
+    """把（文本 + 工具调用）包装成 Anthropic messages 流式 SSE 序列。
+
+    ★ 为什么必须有（2026-11-12 派单一，k3 路由丢 tool_use 根因）：
+      降级 provider 非流式响应里模型**已经决定调工具**（返回 tool_use 块），
+      旧的 anthropic_sse_from_text 只抠文本 ⇒ 工具调用被静默丢弃、
+      stop_reason 被改成 end_turn ⇒ OpenClaw 收到纯文本计划，工具链全断。
+      实测：小拓经 kimi_proxy 的两轮 run tool.call=0，换直连立刻恢复。
+
+    tool_use 块的流式形态：content_block_start(tool_use, input={})
+      → content_block_delta(input_json_delta, partial_json) → content_block_stop。
+    有 tool_calls 时 stop_reason='tool_use'。
+    """
+    msg_id = msg_id or f'msg-fallback-{int(time.time() * 1000)}'
+    tool_calls = tool_calls or []
+    parts = [
+        sse_event('message_start', {
+            'type': 'message_start',
+            'message': {
+                'id': msg_id,
+                'type': 'message',
+                'role': 'assistant',
+                'content': [],
+                'model': model,
+                'stop_reason': None,
+                'stop_sequence': None,
+                'usage': {'input_tokens': input_tokens, 'output_tokens': 0}
+            }
+        }),
+    ]
+    idx = 0
+    if text:
+        parts.append(sse_event('content_block_start', {
+            'type': 'content_block_start',
+            'index': idx,
+            'content_block': {'type': 'text', 'text': ''}
+        }))
+        parts.append(sse_event('content_block_delta', {
+            'type': 'content_block_delta',
+            'index': idx,
+            'delta': {'type': 'text_delta', 'text': text}
+        }))
+        parts.append(sse_event('content_block_stop', {
+            'type': 'content_block_stop',
+            'index': idx
+        }))
+        idx += 1
+    for tc in tool_calls:
+        parts.append(sse_event('content_block_start', {
+            'type': 'content_block_start',
+            'index': idx,
+            'content_block': {'type': 'tool_use', 'id': tc['id'],
+                              'name': tc['name'], 'input': {}}
+        }))
+        parts.append(sse_event('content_block_delta', {
+            'type': 'content_block_delta',
+            'index': idx,
+            'delta': {'type': 'input_json_delta',
+                      'partial_json': json.dumps(tc.get('input') or {}, ensure_ascii=False)}
+        }))
+        parts.append(sse_event('content_block_stop', {
+            'type': 'content_block_stop',
+            'index': idx
+        }))
+        idx += 1
+    parts.append(sse_event('message_delta', {
+        'type': 'message_delta',
+        'delta': {'stop_reason': 'tool_use' if tool_calls else 'end_turn',
+                  'stop_sequence': None},
+        'usage': {'output_tokens': output_tokens}
+    }))
+    parts.append(sse_event('message_stop', {'type': 'message_stop'}))
+    return ''.join(parts).encode('utf-8')
+
+
+def openai_sse_from_content(text, tool_calls, model, input_tokens=0, output_tokens=0):
+    """把（文本 + 工具调用）包装成 OpenAI chat.completion.chunk 流式 SSE 序列。
+    tool_calls 以 delta 形态下发，finish_reason='tool_calls'。"""
+    tool_calls = tool_calls or []
+    chunk_id = f'chatcmpl-fallback-{int(time.time() * 1000)}'
+    created = int(time.time())
+
+    def _chunk(delta, finish_reason=None, usage=None):
+        obj = {
+            'id': chunk_id,
+            'object': 'chat.completion.chunk',
+            'created': created,
+            'model': model,
+            'choices': [{'index': 0, 'delta': delta, 'finish_reason': finish_reason}],
+        }
+        if usage is not None:
+            obj['usage'] = usage
+        return f'data: {json.dumps(obj, ensure_ascii=False)}\n\n'
+
+    parts = [_chunk({'role': 'assistant', 'content': ''})]
+    if text:
+        parts.append(_chunk({'content': text}))
+    for i, tc in enumerate(tool_calls):
+        parts.append(_chunk({'tool_calls': [{
+            'index': i, 'id': tc['id'], 'type': 'function',
+            'function': {'name': tc['name'],
+                         'arguments': json.dumps(tc.get('input') or {}, ensure_ascii=False)}
+        }]}))
+    finish = 'tool_calls' if tool_calls else 'stop'
+    parts.append(_chunk({}, finish_reason=finish, usage={
+        'prompt_tokens': input_tokens,
+        'completion_tokens': output_tokens,
+        'total_tokens': input_tokens + output_tokens,
+    }))
+    parts.append('data: [DONE]\n\n')
+    return ''.join(parts).encode('utf-8')
 
 
 def anthropic_sse_from_text(text, model, msg_id=None, input_tokens=0, output_tokens=0):
@@ -748,6 +955,30 @@ class ProviderAdapter:
             input_tokens=usage.get('input_tokens', 0),
             output_tokens=usage.get('output_tokens', 0))
 
+    def wrap_sse_from_response(self, resp_json, text, model, request_format, usage=None):
+        """★ 派单一（2026-11-12）：tool-aware 的 SSE 包装。
+
+        降级 provider 的非流式响应里可能带 tool_use / tool_calls
+        （模型已决定调工具）——只抠文本包装会把工具调用静默丢掉、
+        stop_reason 错标 end_turn（小拓 k3 路由 tool.call=0 的根因）。
+        有工具调用走 anthropic_sse_from_content / openai_sse_from_content，
+        没有则维持原 text-only 包装。"""
+        usage = usage or {}
+        tool_calls = extract_tool_calls(resp_json, self.api_format)
+        if tool_calls:
+            print(f'  [ProviderAdapter] {self.name} fallback 响应含 '
+                  f'{len(tool_calls)} 个工具调用，走 tool-aware SSE 包装', flush=True)
+            if request_format == 'anthropic':
+                return anthropic_sse_from_content(
+                    text, tool_calls, model,
+                    input_tokens=usage.get('input_tokens', 0),
+                    output_tokens=usage.get('output_tokens', 0))
+            return openai_sse_from_content(
+                text, tool_calls, model,
+                input_tokens=usage.get('input_tokens', 0),
+                output_tokens=usage.get('output_tokens', 0))
+        return self.wrap_sse(text, model, request_format, usage)
+
 
 class AnthropicMessagesAdapter(ProviderAdapter):
     """Anthropic Messages API（api.anthropic.com、Kimi coding 兼容端点）。
@@ -795,6 +1026,17 @@ class OpenAIChatAdapter(ProviderAdapter):
             messages, max_tokens = to_openai_messages(body)
             out = {'model': body.get('model', ''), 'messages': messages,
                    'max_tokens': max_tokens, 'stream': bool(body.get('stream', False))}
+            # ★ 派单一（2026-11-12）：anthropic tools 转 openai 形态透传——
+            #   不透传 ⇒ openai 系兜底 provider 眼里「没有工具可调」，
+            #   降级即断工具链（与 fallback SSE 丢 tool_use 同族）。
+            tools = body.get('tools')
+            if isinstance(tools, list) and tools:
+                out['tools'] = [{
+                    'type': 'function',
+                    'function': {'name': t.get('name', ''),
+                                 'description': t.get('description', ''),
+                                 'parameters': t.get('input_schema') or {'type': 'object', 'properties': {}}}
+                } for t in tools if isinstance(t, dict) and t.get('name')]
             return out
         return dict(body)
 
