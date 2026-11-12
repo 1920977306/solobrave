@@ -2153,6 +2153,10 @@ def _ensure_emp_duties():
             conn.execute("ALTER TABLE emp_duties ADD COLUMN judge_basis TEXT DEFAULT ''")
         if 'deliverable' not in cols:
             conn.execute("ALTER TABLE emp_duties ADD COLUMN deliverable TEXT DEFAULT ''")
+        if 'duty_status' not in cols:
+            # 老大 2026-11-12 裁决：摘在岗标。''=在岗；'designing'=职责循环设计中
+            # （名片保留+角标，探针在岗名单排除；knowledge_admin 首例）
+            conn.execute("ALTER TABLE emp_duties ADD COLUMN duty_status TEXT DEFAULT ''")
         conn.commit()
     finally:
         conn.close()

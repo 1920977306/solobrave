@@ -10323,6 +10323,8 @@ function loadEmpDutyCard(empId) {
       var html = '';
       if (d && (d.duty_name || d.scope)) {
         html += '<div class="emp-duty-head"><span class="emp-duty-name">' + esc(d.duty_name) + '</span>';
+        // 老大 2026-11-12 裁决：摘在岗标但名片保留——designing = 职责循环设计中，未上岗
+        if (d.duty_status === 'designing') html += '<span class="emp-duty-status">循环设计中</span>';
         if (d.scope) html += '<span class="emp-duty-scope">' + esc(d.scope) + '</span>';
         html += '</div>';
         var meta = [];

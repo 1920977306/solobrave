@@ -14,6 +14,9 @@
    （参考事故：主会话 433,776 input tokens 撞 8192 输出上限，长任务直接断）
 4. 投递层：通知/交付是否真落库 —— emp_duties.last_run_at 今日已刷新
    + 今日通知通道存在日报标识
+   主动型/被动型分野（老大 2026-11-12 裁决）：只有 launchd 有调度的主动型岗位
+   才查投递层；@驱动的被动型岗位无日调度，投递层豁免（➖），不再误报 ❌。
+   判据写进输出头；判定事实源 = LaunchAgents 目录扫描，不是任何手维护名单。
 
 铁律：全程只读（sqlite mode=ro），不改任何业务数据；断言失败只报告不修复。
 
@@ -27,6 +30,7 @@
 import argparse
 import datetime
 import json
+import plistlib
 import sqlite3
 import sys
 from pathlib import Path
@@ -36,6 +40,7 @@ _MARK = {PASS: '✅', FAIL: '❌', WARN: '⚠️', NA: '➖'}
 
 DEFAULT_SESSION_WARN_INPUT = 200_000   # usage.input 超此值 = 接近上下文风险区
 DEFAULT_MAX_RUN_AGE_HOURS = 30         # 最近 run 超此龄 = 「近期无运行」⚠️
+DEFAULT_LAUNCH_AGENTS_DIR = str(Path.home() / 'Library' / 'LaunchAgents')
 
 
 # ── 基础工具 ──
@@ -169,20 +174,70 @@ def check_delivery(db_con, agent_id, start_ms):
     return PASS, f'last_run_at={fmt_ts(last_run_at)}，今日日报通知 {hit} 条' + (f'；{s}' if s else '')
 
 
+# ── 主动型判定（调度事实源 = launchd plist） ──
+
+def scheduled_agents(launch_agents_dir=DEFAULT_LAUNCH_AGENTS_DIR):
+    """扫 LaunchAgents 目录，判定每个 agent 是否「有调度（主动型）」。
+    这是调度事实的唯一可信源（emp_duties 里没有调度字段）。
+    两种 plist 形态都要认：
+      ① `... --agent <id>`（keeper_daily.py 形态）
+      ② 跑日报脚本无参（xiaotuo_daily.py 形态）——目标 agent 硬编码在
+         脚本的 `AGENT_ID = '<id>'` 里，解析脚本源码提取，不维护名单
+    返回 {agent_id: [plist 文件名]}。"""
+    out = {}
+    d = Path(launch_agents_dir)
+    if not d.is_dir():
+        return out
+    for p in d.glob('*.plist'):
+        try:
+            with open(p, 'rb') as f:
+                obj = plistlib.load(f)
+        except Exception:
+            continue
+        args = [str(a) for a in (obj.get('ProgramArguments') or [])]
+        if '--agent' in args:
+            i = args.index('--agent')
+            if i + 1 < len(args) and args[i + 1]:
+                out.setdefault(args[i + 1], []).append(p.name)
+        for tok in args:
+            if tok.endswith('_daily.py') and Path(tok).is_file():
+                aid = _script_agent_id(Path(tok))
+                if aid:
+                    out.setdefault(aid, []).append(p.name)
+    return out
+
+
+def _script_agent_id(script_path):
+    """从日报闹钟脚本源码提取硬编码 AGENT_ID = '<id>'；无则 None。"""
+    try:
+        src = Path(script_path).read_text(encoding='utf-8', errors='replace')
+    except Exception:
+        return None
+    import re
+    m = re.search(r"^AGENT_ID\s*=\s*['\"]([^'\"]+)['\"]", src, re.M)
+    return m.group(1) if m else None
+
+
 # ── 汇总入口 ──
 
 def run_checks(db_path, traj_dir, agents=None, day_start=None,
                warn_input=DEFAULT_SESSION_WARN_INPUT,
-               max_age_hours=DEFAULT_MAX_RUN_AGE_HOURS, now_ms=None):
+               max_age_hours=DEFAULT_MAX_RUN_AGE_HOURS, now_ms=None,
+               launch_agents_dir=DEFAULT_LAUNCH_AGENTS_DIR):
     now_ms = now_ms or int(datetime.datetime.now().timestamp() * 1000)
     start_ms = day_start_ms(day_start)
     db_con = open_ro(db_path)
     if agents is None:
+        # 在岗 = 有职责名且非「循环设计中」（designing 是老大 11-12 裁决的
+        # 摘岗标：名片保留，但探针不把它当在岗员工要日报）
         agents = [r[0] for r in db_con.execute(
-            "SELECT agent_id FROM emp_duties WHERE duty_name!='' ORDER BY agent_id")]
+            "SELECT agent_id FROM emp_duties"
+            " WHERE duty_name!='' AND duty_status!='designing'"
+            " ORDER BY agent_id")]
+    sched = scheduled_agents(launch_agents_dir)
     out = []
     for aid in agents:
-        rec = {'agent_id': aid}
+        rec = {'agent_id': aid, 'scheduled': aid in sched}
         traj = Path(traj_dir) / aid / 'agent' / 'openclaw-agent.sqlite'
         if traj.exists():
             con = open_ro(traj)
@@ -195,17 +250,25 @@ def run_checks(db_path, traj_dir, agents=None, day_start=None,
         else:
             na = (NA, f'轨迹库不存在：{traj}')
             rec['model'] = rec['tool'] = rec['session'] = na
-        rec['delivery'] = check_delivery(db_con, aid, start_ms)
+        if rec['scheduled']:
+            rec['delivery'] = check_delivery(db_con, aid, start_ms)
+        else:
+            # 被动型（@驱动）岗位没有日调度，投递层无可判 ⇒ 豁免（老大 11-12 裁决）
+            rec['delivery'] = (NA,
+                               f'被动型（无 launchd 调度，投递层豁免；老大 11-12 裁决）')
         out.append(rec)
     db_con.close()
     return out
 
 
 def render_table(results):
-    lines = [f"{'员工':<22}{'模型层':<6}{'工具层':<6}{'会话层':<6}{'投递层':<6}判据"]
+    lines = ['判据：主动型 = launchd 有调度（查投递层）；被动型（@驱动）投递层豁免'
+             ' —— 老大 2026-11-12 裁决']
+    lines.append(f"{'员工':<22}{'型':<6}{'模型层':<6}{'工具层':<6}{'会话层':<6}{'投递层':<6}")
     lines.append('-' * 100)
     for r in results:
-        lines.append(f"{r['agent_id']:<22}"
+        mode = '主动' if r['scheduled'] else '被动'
+        lines.append(f"{r['agent_id']:<22}{mode:<6}"
                      f"{_MARK[r['model'][0]]:<6}{_MARK[r['tool'][0]]:<6}"
                      f"{_MARK[r['session'][0]]:<6}{_MARK[r['delivery'][0]]:<6}")
         for layer in ('model', 'tool', 'session', 'delivery'):
@@ -222,11 +285,14 @@ def main(argv=None):
     ap.add_argument('--json', action='store_true', help='机器可读输出')
     ap.add_argument('--session-warn-input', type=int, default=DEFAULT_SESSION_WARN_INPUT)
     ap.add_argument('--max-run-age-hours', type=float, default=DEFAULT_MAX_RUN_AGE_HOURS)
+    ap.add_argument('--launch-agents-dir', default=DEFAULT_LAUNCH_AGENTS_DIR,
+                    help='launchd plist 目录（判主动/被动型的事实源）')
     args = ap.parse_args(argv)
     agents = args.agent.split(',') if args.agent else None
     results = run_checks(args.db, args.traj_dir, agents,
                          warn_input=args.session_warn_input,
-                         max_age_hours=args.max_run_age_hours)
+                         max_age_hours=args.max_run_age_hours,
+                         launch_agents_dir=args.launch_agents_dir)
     if args.json:
         print(json.dumps(results, ensure_ascii=False, indent=1))
     else:
