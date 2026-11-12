@@ -18,6 +18,10 @@
    才查投递层；@驱动的被动型岗位无日调度，投递层豁免（➖），不再误报 ❌。
    判据写进输出头；判定事实源 = LaunchAgents 目录扫描，不是任何手维护名单。
 
+5. 资源层（老大 11-12 增量）：余额 < 2×近 7 日日均消耗 → ⚠️。
+   阈值按 credit_usage_log 实算，不写死——这层今天已两次靠人肉发现
+   （goods 0 分、xiaotuo 92 分），该机械化的就机械化。
+
 铁律：全程只读（sqlite mode=ro），不改任何业务数据；断言失败只报告不修复。
 
 用法：
@@ -218,6 +222,36 @@ def _script_agent_id(script_path):
     return m.group(1) if m else None
 
 
+# ── 资源层（积分余量，老大 11-12：余额 < 2×近 7 日日均消耗 → ⚠️） ──
+
+def check_credits(db_con, agent_id, now_ms, window_days=7):
+    """余额 < 2×近 window_days 日日均消耗 → WARN。阈值全部实算，不写死。
+
+    口径（老大拍板）：日均 = 近 7 日 credits_used 总和 / 7（不管有没有跑满
+    7 天——消耗加速时日均跟着涨，预警只会更早）。无消耗记录且余额为 0
+    → WARN「上岗即欠费」（knowledge_admin 案同款：上岗前必须先充）。
+    credit_usage_log.created_at 是 TEXT（datetime localtime 格式）。"""
+    row = db_con.execute(
+        "SELECT balance FROM credit_accounts WHERE agent_id=?", (agent_id,)).fetchone()
+    if not row:
+        return NA, 'credit_accounts 无此员工账户'
+    balance = row[0] or 0
+    since = datetime.datetime.fromtimestamp(
+        now_ms / 1000 - window_days * 86400).strftime('%Y-%m-%d %H:%M:%S')
+    used = db_con.execute(
+        "SELECT COALESCE(SUM(credits_used),0) FROM credit_usage_log"
+        " WHERE agent_id=? AND created_at>=?", (agent_id, since)).fetchone()[0]
+    daily = used / window_days
+    if used == 0 and balance == 0:
+        return WARN, ('近 7 日无消耗记录且余额为 0 —— 上岗即欠费，'
+                      '排班前必须先充值（老大 11-12 上岗检查单）')
+    if daily > 0 and balance < 2 * daily:
+        return WARN, (f'余额 {balance} < 2×近 7 日日均消耗（{daily:.0f}×2'
+                      f'={2*daily:.0f}）—— 撑不到两天')
+    basis = f'余额 {balance}，近 7 日日均消耗 {daily:.0f}'
+    return (PASS if used > 0 else NA), basis
+
+
 # ── 汇总入口 ──
 
 def run_checks(db_path, traj_dir, agents=None, day_start=None,
@@ -256,6 +290,7 @@ def run_checks(db_path, traj_dir, agents=None, day_start=None,
             # 被动型（@驱动）岗位没有日调度，投递层无可判 ⇒ 豁免（老大 11-12 裁决）
             rec['delivery'] = (NA,
                                f'被动型（无 launchd 调度，投递层豁免；老大 11-12 裁决）')
+        rec['credits'] = check_credits(db_con, aid, now_ms)
         out.append(rec)
     db_con.close()
     return out
@@ -264,15 +299,16 @@ def run_checks(db_path, traj_dir, agents=None, day_start=None,
 def render_table(results):
     lines = ['判据：主动型 = launchd 有调度（查投递层）；被动型（@驱动）投递层豁免'
              ' —— 老大 2026-11-12 裁决']
-    lines.append(f"{'员工':<22}{'型':<6}{'模型层':<6}{'工具层':<6}{'会话层':<6}{'投递层':<6}")
+    lines.append(f"{'员工':<22}{'型':<6}{'模型':<6}{'工具':<6}{'会话':<6}{'投递':<6}{'资源':<6}")
     lines.append('-' * 100)
     for r in results:
         mode = '主动' if r['scheduled'] else '被动'
         lines.append(f"{r['agent_id']:<22}{mode:<6}"
                      f"{_MARK[r['model'][0]]:<6}{_MARK[r['tool'][0]]:<6}"
-                     f"{_MARK[r['session'][0]]:<6}{_MARK[r['delivery'][0]]:<6}")
-        for layer in ('model', 'tool', 'session', 'delivery'):
-            lines.append(f"  {'└' if layer == 'delivery' else '├'} {layer:<8} {r[layer][1]}")
+                     f"{_MARK[r['session'][0]]:<6}{_MARK[r['delivery'][0]]:<6}"
+                     f"{_MARK[r['credits'][0]]:<6}")
+        for layer in ('model', 'tool', 'session', 'delivery', 'credits'):
+            lines.append(f"  {'└' if layer == 'credits' else '├'} {layer:<8} {r[layer][1]}")
     return '\n'.join(lines)
 
 

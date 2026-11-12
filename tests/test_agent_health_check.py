@@ -12,6 +12,7 @@
 6. 全程只读：探针以 mode=ro 打开业务库
 7. main：有 ❌ → 退出码 1；全过 → 0
 """
+import datetime
 import importlib.util
 import json
 import sqlite3
@@ -86,6 +87,14 @@ def biz(tmp_path):
           id TEXT PRIMARY KEY, user_id TEXT, agent_id TEXT, type TEXT,
           title TEXT, content TEXT, read INTEGER DEFAULT 0,
           created_at INTEGER);
+        CREATE TABLE credit_accounts (
+          agent_id TEXT PRIMARY KEY, balance INTEGER DEFAULT 0,
+          total_recharged INTEGER DEFAULT 0, total_consumed INTEGER DEFAULT 0,
+          updated_at TEXT DEFAULT '');
+        CREATE TABLE credit_usage_log (
+          id INTEGER PRIMARY KEY AUTOINCREMENT, agent_id TEXT NOT NULL,
+          credits_used INTEGER DEFAULT 0,
+          created_at TEXT DEFAULT '');
     ''')
     con.commit()
     con.close()
@@ -311,6 +320,14 @@ def _seed_full(tmp_path, aid, zero_tools=False, delivered=True):
           id TEXT PRIMARY KEY, user_id TEXT, agent_id TEXT, type TEXT,
           title TEXT, content TEXT, read INTEGER DEFAULT 0,
           created_at INTEGER);
+        CREATE TABLE credit_accounts (
+          agent_id TEXT PRIMARY KEY, balance INTEGER DEFAULT 0,
+          total_recharged INTEGER DEFAULT 0, total_consumed INTEGER DEFAULT 0,
+          updated_at TEXT DEFAULT '');
+        CREATE TABLE credit_usage_log (
+          id INTEGER PRIMARY KEY AUTOINCREMENT, agent_id TEXT NOT NULL,
+          credits_used INTEGER DEFAULT 0,
+          created_at TEXT DEFAULT '');
     ''')
     _seed_duty(con, aid, TODAY_START + 1000 if delivered else 0)
     con.execute("INSERT INTO notifications (id, title, created_at)"
@@ -422,6 +439,14 @@ def test_designing_excluded_from_active_roster(tmp_path):
           id TEXT PRIMARY KEY, user_id TEXT, agent_id TEXT, type TEXT,
           title TEXT, content TEXT, read INTEGER DEFAULT 0,
           created_at INTEGER);
+        CREATE TABLE credit_accounts (
+          agent_id TEXT PRIMARY KEY, balance INTEGER DEFAULT 0,
+          total_recharged INTEGER DEFAULT 0, total_consumed INTEGER DEFAULT 0,
+          updated_at TEXT DEFAULT '');
+        CREATE TABLE credit_usage_log (
+          id INTEGER PRIMARY KEY AUTOINCREMENT, agent_id TEXT NOT NULL,
+          credits_used INTEGER DEFAULT 0,
+          created_at TEXT DEFAULT '');
     ''')
     con.execute("INSERT INTO emp_duties VALUES ('emp_active', '管家', 0, '', '')")
     con.execute("INSERT INTO emp_duties VALUES ('knowledge_admin', '知识库管家',"
@@ -434,3 +459,54 @@ def test_designing_excluded_from_active_roster(tmp_path):
                          launch_agents_dir=str(launch))
     ids = [r['agent_id'] for r in res]
     assert ids == ['emp_active']  # designing 被摘岗，不进探针名单
+
+
+# ── 10. 资源层（余额 < 2×近 7 日日均消耗 → ⚠️） ──
+
+def _seed_credits(con, aid, balance, used_rows=()):
+    con.execute("INSERT INTO credit_accounts (agent_id, balance)"
+                " VALUES (?, ?)", (aid, balance))
+    for created_at, used in used_rows:
+        con.execute("INSERT INTO credit_usage_log (agent_id, credits_used,"
+                    " created_at) VALUES (?, ?, ?)", (aid, used, created_at))
+
+
+def _recent(days_ago, used):
+    d = datetime.datetime.fromtimestamp(NOW / 1000) - datetime.timedelta(days=days_ago)
+    return (d.strftime('%Y-%m-%d %H:%M:%S'), used)
+
+
+def test_credits_warn_below_two_days(biz):
+    con = sqlite3.connect(biz)
+    # 近 7 日耗 700（日均 100）→ 2×日均=200；余额 150 → ⚠️
+    _seed_credits(con, 'emp_a', 150, [_recent(i, 100) for i in range(7)])
+    con.commit()
+    status, basis = ahc.check_credits(con, 'emp_a', NOW)
+    con.close()
+    assert status == ahc.WARN and '150' in basis
+
+
+def test_credits_pass_adequate(biz):
+    con = sqlite3.connect(biz)
+    _seed_credits(con, 'emp_a', 2092, [_recent(i, 58 * 7 // 7) for i in range(7)])
+    con.commit()
+    status, basis = ahc.check_credits(con, 'emp_a', NOW)
+    con.close()
+    assert status == ahc.PASS and '2092' in basis
+
+
+def test_credits_warn_zero_balance_no_usage(biz):
+    """无消耗记录且余额 0 = 上岗即欠费（knowledge_admin 上岗检查单同款）。"""
+    con = sqlite3.connect(biz)
+    _seed_credits(con, 'emp_a', 0)
+    con.commit()
+    status, basis = ahc.check_credits(con, 'emp_a', NOW)
+    con.close()
+    assert status == ahc.WARN and '上岗即欠费' in basis
+
+
+def test_credits_na_unknown_agent(biz):
+    con = sqlite3.connect(biz)
+    status, _ = ahc.check_credits(con, 'emp_ghost', NOW)
+    con.close()
+    assert status == ahc.NA
