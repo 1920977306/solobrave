@@ -11211,3 +11211,68 @@ pid 的 pay_gmv，无值重审。
 
 **另**：挂载线判例已沉淀 `docs/MOUNT-ADJUDICATION.md`（半页手册：证据权重/三条判例/
 池内池外双验证口径/纪律），后续挂载照手册走，常规单不必回裁。
+
+### 104. 三块行动令收口（2026-11-12 晚，A 边，commit `319469e`）
+
+老大 17:21 转发的三块行动令（①k3 升 P0 定人+兜底 / ②四层健康探针 /
+③三岗错峰+汇报归档），逐条回：
+
+#### 104.1 ①k3 已修复，兜底互换不需要做（跨边消息时点错位）
+
+行动令①要求「今天定人修 k3 + 明早 10:00 前未修复则两管家主备互换」——
+**k3 当天早上已修复**（`61f5680`，10:33:50，fallback 非流式后 wrap_sse 只抠
+文本丢 tool_use；守卫 tests/test_fallback_tool_use.py 13 条；已推 main=dev）。
+小拓主备已换回 k3 主。行动令的消息快照落后于工作时点，按 §0.1.1 re-verify
+后豁免。修复后真路由证据（轨迹库 trajectory_runtime_events，截至 11-12 17:35）：
+
+| run | 时间 | 路由（末事件实际服务方） | tool.call |
+|---|---|---|---|
+| b148ed09（goods） | 10:50 | kimi_proxy_goods_keeper/k3 | **29 ✅** |
+| 067ee497（goods） | 11:31 | minimax/MiniMax-M3（fallback 后） | 23 ✅ |
+| 0622d6f1（talent） | 10:18 | minimax/MiniMax-M3 | 7 ✅ |
+| b39d4be3（xiaotuo） | 12:07 | kimi_proxy_xiaotuo/k3 | 6 ✅ |
+
+⚠️ 一条勘误：某中间版本曾把 067ee497 报成「走 k3」——实为 run 内
+fallback 切换，provider/modelId 跨事件 MAX() 拼错位（minimax/k3 假标签），
+探针已按「取 run 末事件」修掉（见 104.2）。
+
+#### 104.2 ②四层健康探针已落地（scripts/agent_health_check.py）
+
+一个命令跑完四层，只读（sqlite mode=ro），退出码 0/1 可挂 cron：
+```
+python3 scripts/agent_health_check.py            # 表格
+python3 scripts/agent_health_check.py --json     # 机器可读
+```
+- 模型层：最近 run tool.call=0 = ❌（k3 静默失败签名）；超 30h 无 run = ⚠️
+- 工具层：近 24h tool.result 成功计数；全失败 = ❌
+- 会话层：最近 usage.input ≥ 200,000 = ⚠️（43 万撞顶事故的同源判据）
+- 投递层：last_run_at 今日 + 今日通知通道有日报标识；已交付无通知 = ⚠️
+守卫 tests/test_agent_health_check.py 18 条，回归 1841 passed。
+**真机首跑即抓到一个真实缺口**：`knowledge_admin` 无轨迹库、无调度、
+last_run_at 空（投递层 ❌）——它是 11-11 组织落位里「半就位」的知识库
+管家，日报机制从未接上。待老大拍板：给它补调度，或从 emp_duties 在岗
+名单（duty_name 非空）里摘掉，免得探针每天为它报 ❌。
+
+#### 104.3 ③三岗错峰 + 汇报归档已落地
+
+- 错峰（已 bootout+bootstrap 生效，`launchctl print` 核实）：
+  小拓 **9:30 不动**；达人库管家 10:17→**10:47**；
+  商品库管家 10:35→**11:17**（⚠️ 老大消息里写「10:23」，plist 实况是
+  10:35——消息快照又一次落后于现实，以 plist 实况为准改了）。
+  plist 备份 `~/.solobrave-backups/com.solobrave.keeper-{talent,goods}.plist.bak-20261112-pre-stagger`。
+- 归档：`docs/PROGRESS-2026-11-10_12.md` 已拷入提交（源文件
+  `~/Documents/kimi/tasks/2026-09-30/15-47-22-6b6fc1a8/PROGRESS-2026-11-10_12.md`，
+  无敏感信息）。原文按原样保留，头部加「拷贝时点勘误」块覆盖 4 条已过时
+  表述（k3 未修→已修、商品库 10:23→实为 10:35 且已错峰、xiaotuo_daily
+  两小修已修）。给团队看的飞书简版仍待单做。
+
+#### 104.4 本轮占用登记
+
+| 文件 | 谁占用 | 状态 |
+|---|---|---|
+| `scripts/agent_health_check.py` | **A 边新增** | 本轮已提交 `319469e` |
+| `tests/test_agent_health_check.py` | **A 边新增** | 同上 |
+| `docs/PROGRESS-2026-11-10_12.md` | **A 边新增** | 同上 |
+| `~/Library/LaunchAgents/com.solobrave.keeper-{talent,goods}.plist` | **A 边** | 已错峰并生效（仓库外文件，不入 git） |
+
+推后自检：`git rev-list --count origin/dev..origin/main` = **0**（319469e 双分支同点）。
