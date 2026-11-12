@@ -95,3 +95,109 @@ def test_no_duplicates_reports_empty_not_none(talent_db):
     finally:
         conn.close()
     assert r['dup_sure'] == [] and r['dup_maybe'] == [] and r['dup_loose'] == []
+
+
+# ── 撞名关系标注（老大 11-13：抖音号是身份键，撞名≠重复，合并才制造错误数据） ──
+
+def _seed_relations(db, rows):
+    conn = sqlite3.connect(str(db))
+    conn.execute('''CREATE TABLE IF NOT EXISTS talent_relations (
+        id TEXT PRIMARY KEY, a_talent_id TEXT NOT NULL, b_talent_id TEXT NOT NULL,
+        relation_label TEXT NOT NULL, labeled_by TEXT NOT NULL,
+        labeled_at INTEGER NOT NULL, evidence TEXT DEFAULT '', note TEXT DEFAULT '',
+        UNIQUE (a_talent_id, b_talent_id), CHECK (a_talent_id < b_talent_id))''')
+    conn.executemany(
+        'INSERT OR IGNORE INTO talent_relations VALUES (?,?,?,?,?,?,?,?)', rows)
+    conn.commit()
+    conn.close()
+
+
+def test_labeled_different_is_silenced(talent_db):
+    """已标 different 的 pair 从 dup_loose 消失（降噪——标过还每天重报 =
+    逼人对同一问题标第二次）。真案例：小美穿搭 vs 小美搭配（0.83 相似度）。"""
+    _seed(talent_db, [
+        ('t1', '小美穿搭日记', 245000, 'dy3', '女装', None, None, None, _NOW, None),
+        ('t2', '小美搭配日记', 580000, 'dy4', '女装', None, None, None, _NOW, None),
+    ])
+    _seed_relations(talent_db, [
+        ('r1', 't1', 't2', 'different', 'boss', _NOW,
+         'douyin dy3 vs dy4 号不同', ''),
+    ])
+    conn = ko._conn()
+    try:
+        r = ko.talent_healthcheck(conn)
+        names = [tuple(d['names']) for d in r['dup_loose']]
+        assert ('小美穿搭日记', '小美搭配日记') not in names
+    finally:
+        conn.close()
+
+
+def test_labeled_same_team_kept_with_prefix(talent_db):
+    """已标 same_team 的 pair 仍列出（供商务参考）但带 labeled 前缀。真案例：明赫 5/6/7。"""
+    _seed(talent_db, [
+        ('t1', '明赫箱包5', 26578, 'dy1', '箱包', 2500, None, None, _NOW, None),
+        ('t2', '明赫箱包6', 4135, 'dy2', '箱包', 1500, None, None, _NOW, None),
+        ('t3', '明赫箱包7', 2094, 'dy3', '箱包', 300, None, None, _NOW, None),
+    ])
+    _seed_relations(talent_db, [
+        ('r1', 't1', 't2', 'same_team', 'boss', _NOW, '同店矩阵', ''),
+        ('r2', 't1', 't3', 'same_team', 'boss', _NOW, '同店矩阵', ''),
+        ('r3', 't2', 't3', 'same_team', 'boss', _NOW, '同店矩阵', ''),
+    ])
+    conn = ko._conn()
+    try:
+        r = ko.talent_healthcheck(conn)
+        labeled = [d for d in r['dup_loose'] if d.get('labeled') == 'same_team']
+        assert len(labeled) == 3   # 三对都在且都带前缀
+    finally:
+        conn.close()
+
+
+def test_unknown_pair_still_reported(talent_db):
+    """unknown（待补证据）不降噪——人还没裁完，必须继续出现在清单里。"""
+    _seed(talent_db, [
+        ('t1', '七月姐姐', 17000, '', '鞋靴', None, None, None, _NOW, None),
+        ('t2', '七月姐姐（赚钱买房）', 12000, '', '鞋靴', None, None, None, _NOW, None),
+    ])
+    _seed_relations(talent_db, [
+        ('r1', 't1', 't2', 'unknown', 'executor', _NOW,
+         '均无抖音号，粉丝差29%', ''),
+    ])
+    conn = ko._conn()
+    try:
+        r = ko.talent_healthcheck(conn)
+        assert len(r['dup_loose']) == 1 and 'labeled' not in r['dup_loose'][0]
+    finally:
+        conn.close()
+
+
+def test_shell_records_triple_condition(talent_db):
+    """空壳三条件：无抖音号 + 0粉 + 无结算。鸡腿堡案：空壳与实号分开列。"""
+    _seed(talent_db, [
+        ('t1', '鸡腿堡', 0, '', '百货', None, None, None, _NOW, None),
+        ('t2', '劲脆鸡腿堡', 4620, 'dy9', '鞋靴箱包', 100, None, None, _NOW, None),
+        ('t3', '有号零粉', 0, 'dy10', '百货', None, None, None, _NOW, None),  # 有号不算
+        ('t4', '无号有粉', 5000, '', '百货', None, None, None, _NOW, None),   # 有粉不算
+        ('t5', '无号零粉有结算', 0, '', '百货', 88, None, None, _NOW, None),  # 有结算不算
+    ])
+    conn = ko._conn()
+    try:
+        r = ko.talent_healthcheck(conn)
+        shells = {s['id'] for s in r['shells']}
+        assert shells == {'t1'}
+    finally:
+        conn.close()
+
+
+def test_relations_table_missing_is_safe(talent_db):
+    """旧库无 talent_relations 表：体检照常，不炸（幂等迁移前兼容）。"""
+    _seed(talent_db, [
+        ('t1', '七月姐姐', 17000, 'dy1', '鞋靴', None, None, None, _NOW, None),
+        ('t2', '七月姐姐（赚钱买房）', 12000, 'dy2', '鞋靴', None, None, None, _NOW, None),
+    ])
+    conn = ko._conn()
+    try:
+        r = ko.talent_healthcheck(conn)
+        assert len(r['dup_loose']) == 1
+    finally:
+        conn.close()

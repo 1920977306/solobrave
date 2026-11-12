@@ -71,6 +71,23 @@ def _col(row, key, default=''):
     return v if v not in (None, '') else default
 
 
+def _load_relations(conn):
+    """已有人工标注的撞名关系 {pair_key: label}（pair_key = 排序后的 (a,b)）。
+    老大 11-13 口径：抖音号是身份键，撞名≠重复——已标 different 的 pair 在
+    dup_loose/dup_maybe 里降噪（标过还每天重报 = 逼人对同一问题标第二次）；
+    改判不删行插新行，这里取每组最新一条。表不存在（未迁移的旧库）→ {}。"""
+    if not _cols(conn, 'talent_relations'):
+        return {}   # 表不存在（未迁移的旧库）
+    rows = conn.execute(
+        'SELECT a_talent_id, b_talent_id, relation_label FROM talent_relations'
+        ' GROUP BY a_talent_id, b_talent_id'
+        ' HAVING labeled_at = MAX(labeled_at)').fetchall()
+    out = {}
+    for a, b, label in rows:
+        out[(a, b)] = label
+    return out
+
+
 def talent_healthcheck(conn):
     """达人库体检：字段缺口 / 重复疑似对 / 过期标记。返回纯 dict（可 JSON 序列化）。"""
     cols = _cols(conn, 'talents')
@@ -119,6 +136,12 @@ def talent_healthcheck(conn):
         if len(group) > 1:
             dup_sure.append({'douyin_id': did,
                              'names': [g.get('name') for g in group]})
+    relations = _load_relations(conn)
+
+    def _pair_label(r1, r2):
+        key = tuple(sorted((str(r1.get('id') or ''), str(r2.get('id') or ''))))
+        return relations.get(key)
+
     by_name = {}
     for r in rows:
         name = str(_col(r, 'name')).strip()
@@ -126,9 +149,18 @@ def talent_healthcheck(conn):
             by_name.setdefault(name, []).append(r)
     for name, group in by_name.items():
         if len(group) > 1:
+            pair = [(group[i], group[j])
+                    for i in range(len(group)) for j in range(i + 1, len(group))]
+            if any(_pair_label(a, b) == 'different' for a, b in pair):
+                continue  # 已裁决不同人：降噪，不再占用日报篇幅
             fans = [float(g.get('followers') or 0) for g in group]
             if max(fans) > 0 and (max(fans) - min(fans)) / max(fans) < 0.05:
-                dup_maybe.append({'name': name, 'count': len(group)})
+                labeled = next((_pair_label(a, b) for a, b in pair
+                                if _pair_label(a, b) in ('same_team', 'same_person')), '')
+                item = {'name': name, 'count': len(group)}
+                if labeled:
+                    item['labeled'] = labeled
+                dup_maybe.append(item)
 
     # 宽松档：名字像（归一后相似度 ≥0.6）即报，粉丝数只陈列不门槛
     from difflib import SequenceMatcher
@@ -150,17 +182,33 @@ def talent_healthcheck(conn):
             if key in seen_pairs:
                 continue
             seen_pairs.add(key)
-            dup_loose.append({
+            label = _pair_label(r1, r2)
+            if label == 'different':
+                continue  # 已裁决不同人：降噪（老大 11-13：人标一次永久生效）
+            item = {
                 'sim': round(sim, 2),
                 'names': [str(r1.get('name')).strip(), str(r2.get('name')).strip()],
                 'followers': [int(float(r1.get('followers') or 0)),
                               int(float(r2.get('followers') or 0))],
-            })
+            }
+            if label in ('same_team', 'same_person'):
+                item['labeled'] = label   # 仍列出供商务参考，但带已标前缀
+            dup_loose.append(item)
     dup_loose.sort(key=lambda x: -x['sim'])
     dup_loose = dup_loose[:DUP_LOOSE_MAX_REPORT]
 
+    # 空壳嫌疑（老大 11-13 数据包 B 类）：无抖音号 + 0 粉 + 无结算。
+    # 不是撞名问题——处理口径是补号或删除候选，删除归人（管家 boundary）。
+    shells = []
+    for r in rows:
+        if (not str(_col(r, 'douyin_id')).strip()
+                and not float(r.get('followers') or 0)
+                and not _col(r, 'monthly_settlement')):
+            shells.append({'id': r.get('id'), 'name': r.get('name')})
+
     return {'total': len(rows), 'gaps': gaps, 'dup_sure': dup_sure,
-            'dup_maybe': dup_maybe, 'dup_loose': dup_loose, 'stale': stale}
+            'dup_maybe': dup_maybe, 'dup_loose': dup_loose, 'stale': stale,
+            'shells': shells}
 
 
 def goods_healthcheck(conn):
