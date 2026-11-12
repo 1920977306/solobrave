@@ -510,3 +510,105 @@ def test_credits_na_unknown_agent(biz):
     status, _ = ahc.check_credits(con, 'emp_ghost', NOW)
     con.close()
     assert status == ahc.NA
+
+
+# ── 11. 产物对拍（第六层：日报写的 vs 工具算的，与运行时分列） ──
+
+def _product_db(tmp_path):
+    """带 talents/talent_relations/notifications 的最小库。"""
+    biz = tmp_path / 'prod.db'
+    conn = sqlite3.connect(biz)
+    conn.executescript('''
+        CREATE TABLE talents (
+          id TEXT, name TEXT, followers INTEGER, douyin_id TEXT,
+          main_category TEXT, monthly_settlement REAL,
+          contact TEXT, contact_wechat TEXT,
+          updated_at INTEGER, archived INTEGER);
+        CREATE TABLE talent_relations (
+          id TEXT PRIMARY KEY, a_talent_id TEXT NOT NULL,
+          b_talent_id TEXT NOT NULL, relation_label TEXT NOT NULL,
+          labeled_by TEXT NOT NULL, labeled_at INTEGER NOT NULL,
+          evidence TEXT DEFAULT '', note TEXT DEFAULT '',
+          UNIQUE (a_talent_id, b_talent_id),
+          CHECK (a_talent_id < b_talent_id));
+        CREATE TABLE emp_duties (
+          agent_id TEXT PRIMARY KEY, duty_name TEXT DEFAULT '',
+          last_run_at INTEGER DEFAULT 0, last_run_summary TEXT DEFAULT '',
+          duty_status TEXT DEFAULT '');
+        CREATE TABLE notifications (
+          id TEXT PRIMARY KEY, user_id TEXT, agent_id TEXT, type TEXT,
+          title TEXT, content TEXT, read INTEGER DEFAULT 0,
+          created_at INTEGER);
+    ''')
+    conn.commit()
+    conn.close()
+    return biz
+
+
+def test_product_pass_when_numbers_match(tmp_path):
+    biz = _product_db(tmp_path)
+    conn = sqlite3.connect(biz)
+    # 字段齐全（含结算+联系方式）→ 缺口实数 0，与日报 0 对上
+    conn.execute("INSERT INTO talents VALUES ('t1','七月姐姐',17000,'dy1',"
+                 "'鞋靴',5000,'wx:x',NULL,?,NULL)", (NOW,))
+    conn.execute("INSERT INTO emp_duties (agent_id, last_run_summary)"
+                 " VALUES ('emp_talent_keeper', ?)",
+                 ('重复疑似：严格口径 0 组 / 宽松口径 0 组（确定重复 0 组）'
+                  '\n字段缺口 0 条\n过期标记 0 条',))
+    conn.commit()
+    conn.close()
+    res = ahc.run_product_checks(str(biz), ['emp_talent_keeper'], now_ms=NOW)
+    assert res[0]['product'][0] == ahc.PASS
+
+
+def test_product_warn_number_mismatch(tmp_path):
+    """摘要数字 ≠ 工具实数（11-12 塌缩事故的机械化捕获）。"""
+    biz = _product_db(tmp_path)
+    conn = sqlite3.connect(biz)
+    conn.execute("INSERT INTO talents VALUES ('t1','七月姐姐',17000,'dy1',"
+                 "'鞋靴',NULL,NULL,NULL,?,NULL)", (NOW,))
+    conn.execute("INSERT INTO talents VALUES ('t2','七月姐姐（赚钱买房）',"
+                 "12000,'dy2','鞋靴',NULL,NULL,NULL,?,NULL)", (NOW,))
+    conn.execute("INSERT INTO emp_duties (agent_id, last_run_summary)"
+                 " VALUES ('emp_talent_keeper', ?)",
+                 ('重复疑似：宽松口径 0 组',))   # 塌缩：报 0，实数 1
+    conn.commit()
+    conn.close()
+    res = ahc.run_product_checks(str(biz), ['emp_talent_keeper'], now_ms=NOW)
+    status, basis = res[0]['product']
+    assert status == ahc.WARN and '宽松口径：日报报 0 vs 工具实数 1' in basis
+    assert '严格口径：日报未报该数字' in basis   # 缺失即塌缩签名
+
+
+def test_product_warn_labeled_group_missing(tmp_path):
+    """已标组未整组出现在日报 → ⚠️（明赫三撞 B3 验收的机械化）。"""
+    biz = _product_db(tmp_path)
+    conn = sqlite3.connect(biz)
+    conn.execute("INSERT INTO talents VALUES ('a1','明赫箱包5',100,'d1',"
+                 "'箱包',50,NULL,NULL,?,NULL)", (NOW,))
+    conn.execute("INSERT INTO talents VALUES ('b1','明赫箱包6',200,'d2',"
+                 "'箱包',60,NULL,NULL,?,NULL)", (NOW,))
+    conn.execute("INSERT INTO talent_relations VALUES ('r1','a1','b1',"
+                 "'same_team','boss',?,'','')", (NOW,))
+    conn.execute("INSERT INTO emp_duties (agent_id, last_run_summary)"
+                 " VALUES ('emp_talent_keeper', ?)",
+                 ('重复疑似：严格口径 0 组 / 宽松口径 0 组（确定重复 0 组）'
+                  '\n字段缺口 0 条\n过期标记 0 条',))
+    conn.commit()
+    conn.close()
+    res = ahc.run_product_checks(str(biz), ['emp_talent_keeper'], now_ms=NOW)
+    status, basis = res[0]['product']
+    assert status == ahc.WARN and '已标组缺组' in basis and '明赫' in basis
+
+
+def test_product_goods_numbers(tmp_path):
+    biz = _product_db(tmp_path)
+    conn = sqlite3.connect(biz)
+    conn.execute("INSERT INTO emp_duties (agent_id, last_run_summary)"
+                 " VALUES ('emp_goods_keeper', ?)",
+                 ('佣金过期 0 条\n字段缺口 0 条\n疑似下架 0 条',))
+    conn.commit()
+    conn.close()
+    # goods 表不存在 → 对拍异常只应报 NA 不炸
+    res = ahc.run_product_checks(str(biz), ['emp_goods_keeper'], now_ms=NOW)
+    assert res[0]['product'][0] in (ahc.NA, ahc.WARN)

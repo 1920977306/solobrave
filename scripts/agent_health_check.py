@@ -35,6 +35,7 @@ import argparse
 import datetime
 import json
 import plistlib
+import re
 import sqlite3
 import sys
 from pathlib import Path
@@ -296,6 +297,156 @@ def run_checks(db_path, traj_dir, agents=None, day_start=None,
     return out
 
 
+# ── 第六层「产物对拍」（老大 11-13 规格：锁所有数字，不只撞名） ──
+# 性质与前五层不同：前五层 = 运行时健康；本层 = 日报产物 vs 工具实数。
+# 失败模式（11-12 塌缩事故）：「摘要数字 ≠ 工具实数」——对日报里每个数成立。
+# 输出必须与运行时分列标注，别把产物问题混进运行时结论。
+
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+
+
+def _keeper_ops():
+    try:
+        sys.path.insert(0, str(_REPO_ROOT))
+        import tools.keeper_ops as ko
+        return ko
+    except Exception:
+        return None
+
+
+def today_report_text(db_con, agent_id, start_ms):
+    """今日产物文本 = 职责行 last_run_summary + 今日通知通道里的日报内容。"""
+    parts = []
+    row = db_con.execute(
+        "SELECT last_run_summary FROM emp_duties WHERE agent_id=?",
+        (agent_id,)).fetchone()
+    if row and row[0]:
+        parts.append(str(row[0]))
+    for (title, content) in db_con.execute(
+            "SELECT title, content FROM notifications"
+            " WHERE created_at>=? AND (agent_id=? OR title LIKE '%日报%'"
+            " OR title LIKE '%深看%') ORDER BY created_at DESC LIMIT 5",
+            (start_ms, agent_id)):
+        for t in (title, content):
+            if t:
+                parts.append(str(t))
+    return '\n'.join(parts)
+
+
+_NUM = lambda pat, text: (int(m.group(1)) if (m := re.search(pat, text)) else None)
+
+
+def _num_or_warn(diffs, label, reported, actual):
+    """单个数字对拍：缺失记 diff（缺失即塌缩签名——宽松口径必须存在）。"""
+    if reported is None:
+        diffs.append(f'{label}：日报未报该数字（缺失即塌缩签名）')
+    elif reported != actual:
+        diffs.append(f'{label}：日报报 {reported} vs 工具实数 {actual}')
+
+
+def check_product_talent(db_con, report_text, health, relations_rows):
+    """达人库管家产物对拍。返回 (status, basis)。"""
+    if not report_text.strip():
+        return NA, '今日无日报产物文本'
+    diffs = []
+    _num_or_warn(diffs, '严格口径', _NUM(r'严格口径\s*(\d+)', report_text),
+                  len(health['dup_maybe']))
+    _num_or_warn(diffs, '宽松口径', _NUM(r'宽松口径\s*(\d+)', report_text),
+                  len(health['dup_loose']))
+    _num_or_warn(diffs, '确定重复', _NUM(r'确定重复\s*(\d+)', report_text),
+                  len(health['dup_sure']))
+    _num_or_warn(diffs, '字段缺口', _NUM(r'字段缺口\s*(\d+)', report_text),
+                  len(health['gaps']))
+    _num_or_warn(diffs, '过期标记', _NUM(r'过期标记\s*(\d+)', report_text),
+                  len(health['stale']))
+    shells_n = _NUM(r'空壳候选\s*(\d+)', report_text)
+    if shells_n is not None:   # 第六行（老大 11-13 新格式）报了才比
+        _num_or_warn(diffs, '空壳候选', shells_n, len(health['shells']))
+    # 已标组覆盖：labeled=same_team/unknown 的组必须整组出现在日报里
+    # （明赫三撞是其中一例，不是唯一——老大 11-13：别做专用守卫）
+    labeled = [r for r in relations_rows
+               if r[2] in ('same_team', 'unknown')]
+    if labeled:
+        names_by_id = {str(tid): str(nm or '').strip()
+                       for (tid, nm) in db_con.execute(
+                           'SELECT id, name FROM talents').fetchall()}
+        covered, missing = 0, []
+        for a, b, label in [(r[0], r[1], r[2]) for r in labeled]:
+            na, nb = names_by_id.get(a, ''), names_by_id.get(b, '')
+            if na and nb and na in report_text and nb in report_text:
+                covered += 1
+            else:
+                missing.append(f'{na or a}×{nb or b}({label})')
+        if missing:
+            diffs.append(f'已标组缺组：{len(missing)}/{len(labeled)} 组未整组'
+                         f'出现在日报：{("; ".join(missing))[:200]}')
+        else:
+            pass
+    if diffs:
+        return WARN, '；'.join(diffs)
+    return PASS, (f'三口径+缺口/过期数全对拍一致；已标组 {covered}/{len(labeled)}'
+                  f' 整组覆盖' if labeled else '三口径+缺口/过期数全对拍一致')
+
+
+def check_product_goods(db_con, report_text, health):
+    if not report_text.strip():
+        return NA, '今日无日报产物文本'
+    diffs = []
+    _num_or_warn(diffs, '佣金过期', _NUM(r'佣金过期\s*(\d+)', report_text),
+                  len(health['commission_stale']))
+    _num_or_warn(diffs, '字段缺口', _NUM(r'字段缺口\s*(\d+)', report_text),
+                  len(health['gaps']))
+    _num_or_warn(diffs, '疑似下架', _NUM(r'疑似下架\s*(\d+)', report_text),
+                  len(health['suspect_off']))
+    if diffs:
+        return WARN, '；'.join(diffs)
+    return PASS, '佣金过期/字段缺口/疑似下架三数全对拍一致'
+
+
+def run_product_checks(db_path, agents, day_start=None, now_ms=None):
+    """产物对拍独立入口（与运行时分列）。agents 限定 maintain 岗。"""
+    ko = _keeper_ops()
+    if ko is None:
+        return [{'agent_id': a, 'product': (NA, 'tools.keeper_ops 不可导入')}
+                for a in agents]
+    now_ms = now_ms or int(datetime.datetime.now().timestamp() * 1000)
+    start_ms = day_start_ms(day_start)
+    db_con = open_ro(db_path)
+    db_con.row_factory = sqlite3.Row   # keeper_ops 内部 dict(row) 依赖 Row
+    out = []
+    try:
+        for aid in agents:
+            rec = {'agent_id': aid}
+            try:
+                if aid == 'emp_talent_keeper':
+                    health = ko.talent_healthcheck(db_con)
+                    rel_rows = [tuple(r) for r in db_con.execute(
+                        'SELECT a_talent_id, b_talent_id, relation_label'
+                        ' FROM talent_relations')]
+                    text = today_report_text(db_con, aid, start_ms)
+                    rec['product'] = check_product_talent(
+                        db_con, text, health, rel_rows)
+                elif aid == 'emp_goods_keeper':
+                    health = ko.goods_healthcheck(db_con)
+                    text = today_report_text(db_con, aid, start_ms)
+                    rec['product'] = check_product_goods(db_con, text, health)
+                else:
+                    rec['product'] = (NA, '产物对拍暂未覆盖该岗位')
+            except Exception as e:
+                rec['product'] = (NA, f'对拍异常（只读）: {e}')
+            out.append(rec)
+    finally:
+        db_con.close()
+    return out
+
+
+def render_product(results):
+    lines = ['产物对拍（与运行时分列；性质不同：这是「日报写的」vs「工具算的」）']
+    for r in results:
+        lines.append(f"{r['agent_id']:<22}{_MARK[r['product'][0]]:<6}{r['product'][1]}")
+    return '\n'.join(lines)
+
+
 def render_table(results):
     lines = ['判据：主动型 = launchd 有调度（查投递层）；被动型（@驱动）投递层豁免'
              ' —— 老大 2026-11-12 裁决']
@@ -323,16 +474,26 @@ def main(argv=None):
     ap.add_argument('--max-run-age-hours', type=float, default=DEFAULT_MAX_RUN_AGE_HOURS)
     ap.add_argument('--launch-agents-dir', default=DEFAULT_LAUNCH_AGENTS_DIR,
                     help='launchd plist 目录（判主动/被动型的事实源）')
+    ap.add_argument('--no-product', action='store_true',
+                    help='跳过第六层产物对拍（与运行时分列，不影响退出码）')
     args = ap.parse_args(argv)
     agents = args.agent.split(',') if args.agent else None
     results = run_checks(args.db, args.traj_dir, agents,
                          warn_input=args.session_warn_input,
                          max_age_hours=args.max_run_age_hours,
                          launch_agents_dir=args.launch_agents_dir)
+    product = [] if args.no_product else run_product_checks(
+        args.db, agents if agents else
+        [r['agent_id'] for r in results if r['agent_id'].endswith('_keeper')],
+        now_ms=int(datetime.datetime.now().timestamp() * 1000))
     if args.json:
-        print(json.dumps(results, ensure_ascii=False, indent=1))
+        print(json.dumps({'runtime': results, 'product': product},
+                         ensure_ascii=False, indent=1))
     else:
         print(render_table(results))
+        if product:
+            print()
+            print(render_product(product))
     has_fail = any(FAIL in (r['model'][0], r['tool'][0], r['session'][0], r['delivery'][0])
                    for r in results)
     return 1 if has_fail else 0
