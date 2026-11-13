@@ -2790,8 +2790,13 @@ def _offload_chat_images(agent_id, messages):
                         b64 = img.split(';base64,', 1)[1]
                 elif isinstance(img, dict):
                     raw = img.get('base64')
-                    if isinstance(raw, str) and raw.startswith('data:') and ';base64,' in raw:
-                        b64 = raw.split(';base64,', 1)[1]
+                    if isinstance(raw, str):
+                        if raw.startswith('data:') and ';base64,' in raw:
+                            b64 = raw.split(';base64,', 1)[1]
+                        elif not raw.startswith(('/chat-images/', 'http://', 'https://')):
+                            # 裸 base64（如飞书通道落库的 {base64, media_type} 形态,
+                            # 无前缀 → 前端 <img src> 本就渲染不出, 落盘转路径顺带修复）
+                            b64 = raw
                 if not b64:
                     continue
                 data = _b64.b64decode(b64)
