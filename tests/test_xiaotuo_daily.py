@@ -244,3 +244,12 @@ def test_watchdog_still_alerts_when_truly_missing(tmp_path, monkeypatch, duty_db
     rows = conn.execute("SELECT title FROM notifications WHERE title LIKE '%未交日报%'").fetchall()
     conn.close()
     assert len(rows) == 1
+
+
+# ── 5. 交付工具点名铁律（11-13 实证：fresh 会话+k3 下发现式交付空转 41 次） ──
+
+def test_task_message_names_delivery_tool_and_bans_search_discovery():
+    m = xd.build_task_message(DUTY)
+    assert 'xiaotuo_ops.py' in m and 'report' in m   # 交付工具点名
+    assert 'tool_search' in m and '不允许' in m      # 禁止现场发现
+    assert '赌博' in m                                # 后果定性

@@ -11475,3 +11475,38 @@ C. 原有四项保留：真干活（tool.call>0）/ 日报落库 / 新会话键�
   先全量枚举数据源再逐条对账，与「错挂比漏挂贵」「假阴性比假阳性危险」同族并记。
 - 守卫 +4（产物对拍），探针测试 30 passed，全量回归 1858 passed。
 - 明早 B3 三条验收（明赫整组/双口径没塌缩/shells 第六行）**一条探针全包**。
+
+## §139 今晨三岗实况 + k3 漫游止血 + deliverable 升级（2026-11-13 中午，A 边本会话，当日闭环）
+
+### 1. 今晨三岗验收（12:09 独立核完）
+| 岗 | 运行时五层 | 产物对拍 | 结论 |
+|---|---|---|---|
+| 商品库管家 11:17 | 全绿 | ✅ 三数全对 | 完美班 |
+| 达人库管家 10:47 | 全绿 | ⚠️ 明赫三对已标组未整组出现 | 新 deliverable 未生效（本轮已修，见 3） |
+| 小拓 09:30 | **投递 ❌** | — | **全新失败模式：干完活没交卷** |
+
+### 2. 小拓「干完活没交卷」证据链
+- 09:30 班（runId `2eca23af`，`daily-20261113` 新会话键**首实战**，kimi_proxy_xiaotuo/k3）：turn status=success、stopReason=stop、109 次 tool.call、95k input——模型/工具/会话键都没病。
+- 病灶在最后 6 个调用：全在 `tool_search` 空转（「talent analysis report creator」等偏题关键词），判定扫描全干完，交卷时找不到投递工具，36k 文本收场。今日零入库、日报没影，10:27 看门狗真阳性，**告警后两小时无人重投**（昨天有人救，今天没有）。
+- 12:21 重投班：25 分钟 340 tool.call、**141 次 tool_search（41%）**——`xiaotuo_daily.py` 任务书已加「交付工具点名铁律」守卫（+1 测试，15 passed），**点名也拦不住**。
+- **结论升级**：61f5680 修了 k3 的 tool_use 传输，但 k3 在 fresh 会话**指令遵循退化**——「能调工具」≠「能按指令找到正确工具」。k3 维持 fallback 定位，专项归因另案，禁止再回切 primary 验证。
+- 烧钱量化：两轮烧 2093 分（9:30 班 109 tools + 漫游班 340 tools/25min）。余额探针今天两次靠人肉发现（0 和 92），已拍板探针加第五层资源层（§106）。
+
+### 3. 本轮已执行（老大 12:46 令，四件）
+1. **P0 两管家切 minimax 主**：emp_talent_keeper / emp_goods_keeper 的 openclaw.json 主备互换（primary=minimax/MiniMax-M3，fallback=kimi_proxy/k3），备份 `~/.openclaw/openclaw.json.bak-20261113-keepers`，网关已 kickstart（pid 81755）。依据：同窗口同配置小拓炸了管家没炸 = **随机性不是免疫**，明早 fresh 会话+k3 是同一颗骰子。
+2. **P0 小拓充 2000**：备份 `~/.solobrave-backups/solobrave.db.bak-20261113-pre-xiaotuo-recharge2` → `_admin_grant_credits`，balance=2000，流水 operator=executor-session、note 含老大拍板原文与漫游烧钱数据。
+3. **P1 talent keeper deliverable 升级**（12:48 已落地）：SOUL.md v1→v2（updated_by=duty_chain:emp_talent_keeper），两条追加：
+   a) 已标组（talent_relations labeled=same_team/same_person/unknown）必须带 labeled 前缀整组出现在日报，不得归「待裁决」（人标了再问 = 逼人对同一问题标第二次 = 标注系统信用腐蚀）；
+   b) 空壳第六行格式：「空壳候选 N 条（无抖音号+0粉+无结算 = 无补全路径，删除决策归人）：点名 3 条最老的 + 完整清单以体检工具输出为准（不许省略规则）；处置请老板批：□ 批量删除 □ 补号重验 □ 挂起观察」。
+   - **快照机制说明**：soul_history 无新文件是**设计使然**——快照只存档「被覆盖的旧内容」且与最新快照去重，旧 v1 早在 11-11 归档过，故跳过；v2 快照将在下次变更时生成。验收看 SOUL.md 头部 soul_version=2 + 两条逐字在（已验，grep 命中行 18-19）。
+4. **k3 结论升级**：见 §2 末段，已写入本节。
+
+### 4. 本轮文件占用登记
+- `xiaotuo_daily.py`（任务书加交付工具点名铁律 + 禁止 tool_search 现场发现）——未 commit，随本批进。
+- `tests/test_xiaotuo_daily.py`（+1 守卫 `test_task_message_names_delivery_tool_and_bans_search_discovery`）——未 commit，随本批进。
+- 已在上批 commit（f74fe53）：`keeper_ops.py`、`agent_health_check.py`（第六层产物对拍）、`AGENTS.md`（Y 条）、`tests/test_keeper_ops.py`、`tests/test_agent_health_check.py`。
+
+### 5. 待办（下轮）
+- k3 专项归因派单块（fresh 会话指令遵循退化）未起草——明早盯岗（9:30 小拓 minimax 主首跑 / 10:47 talent keeper 新 deliverable 对拍 ⚠️→✅ / 11:17 goods）后或老大要时起草。
+- 宽松层 9 组新对 + 大丸子组关系标注待人工。
+- 空壳 79 条处置（批量删/补号/挂起）老大未拍。
