@@ -178,7 +178,7 @@ curl -s -X POST "http://127.0.0.1:8092/admin/api/plan-scan?token=$TOKEN" \
 | 文件 | 持有方 | 开始时间 | 预计完成 | 备注 |
 |---|---|---|---|---|
 | `index.html` + `js/inline-03.js` | A 边 | 2026-11-11 19:00 | ✅ 19:20 已交（c8c8808 + 9dfda97）| 老大 18:56：员工详情页精简（删调试标签/重复信息行，信息行 ID 加空值守卫）|
-| `solobrave-server.py` | A 边 | 2026-11-13 20:30 | 当日 | 老大 20:12「你自己看」：聊天加载 33-41s 根因=历史截图 base64 撑大聊天 JSON（Helen 9.2MB），图片落盘 + /chat-images 静态出口 + 存量迁移 |
+| `solobrave-server.py` | A 边 | 2026-11-13 20:30 | ✅ 21:20 已交（053e8a7 + 9c36d29）| 老大 20:12「你自己看」：聊天加载 33-41s 根因=历史截图 base64 撑大聊天 JSON（Helen 9.2MB），图片落盘 + /chat-images 静态出口 + 存量迁移 |
 | `daren_bot/ops_alert.py`（新）| A 边 | 2026-10-25 18:00 | ✅ 18:10 已交 | 运营告警出口（多通道降级）|
 | `daren_bot/login_watcher.py`（新）| A 边 | 2026-10-25 18:00 | ✅ 18:10 已交 | 登录态巡检线程 |
 | `daren_bot/worker.py` | A 边 | 2026-10-25 17:40 | ✅ 18:10 已交 | 只改 `_fail` 展示层 |
@@ -11686,3 +11686,37 @@ matched_rules 是否结构化落库。
 fresh 会话，预算 800，人盯版熔断）→ check_daily_recommendations.py 四条 →
 汇总推老大（推荐名单 + 脚本输出 + minimax 三指标 + B 表行数）。烧完没交卷
 不重试，留归因。
+
+## §146 聊天加载 30-40s 根因实锤 + 图片 base64 落盘（老大 20:12「你自己看」，A 边，20:3x–21:2x）
+
+**拍板凭据**：老大 RC「我已经点开了，你自己看」（点开 Helen 聊天，4 次 GET /api/chat 全部 22-41s）。
+
+### 146.1 根因（比之前 busy_timeout 假设深一层）
+
+`[SLOW]` + `[ChatGET]` 时间戳对照实锤：**handler 本身 0.03s 完成**（[ChatGET] 打出后），
+但响应要再花 30-40s 写完——`wfile.write(8.7MB)` 向后台/冻结标签页 trickle ≈250KB/s。
+为什么 8.7MB：Helen 聊天 121 条消息文本仅 0.1MB，**images 字段 8.5MB base64 截图**
+（老大历次发的达人分析截图），`GET /api/chat` 每次全量回传、且应用启动时给每个员工
+都预取一遍（日志实锤）。
+
+### 146.2 修法（commit `053e8a7` + `9c36d29`，服务端单点改动）
+
+- `_save_chat` 落库前 `_offload_chat_images()`：base64 → `data/chat_images/<agent>/` 文件，
+  JSON 只留 `/chat-images/` 路径；**前端零改动**（`img.base64 || img` 塞 `<img src>`，路径透明可用）
+- `GET /chat-images/<agent>/<file>` 无鉴权静态出口（`<img>` 发不出 Authorization；暴露面与
+  base64 内嵌一致，文件名含 10 位内容 digest 不可枚举）
+- 兼容形态：data-url 字符串 / `{base64,filename}` / **裸 base64 `{base64,media_type}`**
+  （9c36d29 补：飞书通道落库形态，前端本就无法渲染，落盘顺带修复）
+- 单图失败保留原值不丢数据；幂等跳过已落盘
+
+### 146.3 验证
+
+- 存量迁移（workbench 脚本 `migrate_chat_images.py` 一次性跑过即弃）：**13.7MB → 0.43MB，
+  84 张图落盘，残留 base64 0 条**；Helen 聊天 9.2MB → 296KB
+- `/chat-images/...` curl 200 ✅；py_compile / secret_scan ✅；服务已重启生效 ✅
+- 顺带：今晚百应扫码也已确认生效（cookie 续到 2027-01，worker `/open` 重刷 logged_in=true）
+
+### 146.4 遗留尾巴
+
+- GitHub push 一度 HTTP2/超时（本地网络抖动），重试已成功（main = 9c36d29）
+- 应用启动仍会给每个员工预取聊天（现在每条只有 KB 级，代价可忽略；要再省可改前端惰性加载，另开单）
