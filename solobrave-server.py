@@ -19486,8 +19486,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             return
         priority = body.get('priority')
         if priority is not None:
-            if not auth.is_admin:
-                self._send_json_error(403, '优先级只能由老大拍板后代录（admin）')
+            # ★ 越权焊点补焊 (2026-11-13 22:0x prod 实测洞): X-Agent-Id 直连会映射成
+            #   owner 用户身份, owner 是 admin 时 is_admin=True ⇒ 员工以老大身份自建 P1。
+            #   铁律 = 优先级只有「真人老大(JWT admin)」能写, agent 直连一律拒。
+            if not auth.is_admin or getattr(auth, 'localhost_agent_id', None):
+                self._send_json_error(403, '优先级只能由老大拍板后代录（真人 admin；AI 员工含 owner 身份映射均无权）')
                 return
             try:
                 priority = int(priority)
@@ -19536,8 +19539,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             sets, params = [], []
 
             if 'priority' in body:
-                if not auth.is_admin:
-                    self._send_json_error(403, '优先级只能由老大拍板后代录（admin），AI 员工无权自调')
+                # 同 POST 的焊点: agent 直连(localhost_agent_id)即使映射 admin owner 也拒
+                if not auth.is_admin or getattr(auth, 'localhost_agent_id', None):
+                    self._send_json_error(403, '优先级只能由老大拍板后代录（真人 admin；AI 员工含 owner 身份映射均无权自调）')
                     return
                 try:
                     p = int(body['priority'])
