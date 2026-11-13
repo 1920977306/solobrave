@@ -5131,6 +5131,28 @@ def init_db():
         ''')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_notifications_user_created ON notifications(user_id, created_at DESC)')
 
+        # ★ feat/dispatch-queue (2026-11-13 老大拍板): 派单队列
+        #   状态机: 待领 → 施工(认领) → 待验 → 完成
+        #   优先级 1-5 (P1 最高), 唯一写入口 = 老大拍板后代录 (API 层 admin-only, AI 员工无权自调)
+        #   p1_escalated_at: P1 逾期 24h 升级提醒的幂等标记 (0=未升级), 防每日扫描重复升级
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS dispatch_queue (
+                id TEXT PRIMARY KEY,
+                summary TEXT NOT NULL,
+                priority INTEGER NOT NULL DEFAULT 3 CHECK(priority BETWEEN 1 AND 5),
+                assignee_session TEXT DEFAULT '',
+                status TEXT NOT NULL DEFAULT '待领' CHECK(status IN ('待领','施工','待验','完成')),
+                created_by TEXT DEFAULT '',
+                created_at INTEGER,
+                updated_at INTEGER,
+                claimed_at INTEGER,
+                completed_at INTEGER,
+                p1_escalated_at INTEGER DEFAULT 0
+            )
+        ''')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_dispatch_status ON dispatch_queue(status)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_dispatch_priority ON dispatch_queue(priority, status)')
+
         # 用户通知开关
         conn.execute('''
             CREATE TABLE IF NOT EXISTS user_settings (
@@ -10206,6 +10228,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if path == '/api/deals':
             self._handle_get_deals()
             return
+        # ★ feat/dispatch-queue: 派单队列列表（内部工具, 登录即可见, 无租户隔离）
+        if path == '/api/dispatch-queue':
+            self._handle_get_dispatch_queue()
+            return
         if path == '/api/deals/plan':
             # ★ 排品表预览（GET）/ 落库（POST）
             #   必须排在 startswith('/api/deals/') 前面，否则会被当成 deal_id='plan'
@@ -10963,6 +10989,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._handle_post_deal()
             return
 
+        # ★ feat/dispatch-queue: 派单创建（priority 仅 admin 可指定, 见处理器）
+        if path == '/api/dispatch-queue':
+            self._handle_post_dispatch_queue()
+            return
+
         # 合作单：排品表落库
         if path == '/api/deals/plan':
             self._handle_post_deal_plan()
@@ -11238,7 +11269,15 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 self._handle_put_knowledge_pattern(sub)
                 return
 
+        # ★ feat/dispatch-queue: 派单认领/状态流转/优先级调整（priority 仅 admin）
+        if path.startswith('/api/dispatch-queue/'):
+            sub = path[len('/api/dispatch-queue/'):]
+            if sub and '/' not in sub:
+                self._handle_put_dispatch_queue(sub)
+                return
+
         # 合作单：更新（含状态流转）
+
         if path.startswith('/api/deals/'):
             sub = path[len('/api/deals/'):]
             if sub and '/' not in sub:
@@ -19398,6 +19437,168 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             'text': plan.plan_text(plan.future_slots(slots),
                                    plan.display_name(talent)),
         })
+
+    def _handle_get_dispatch_queue(self):
+        """GET /api/dispatch-queue?status=&priority= — 派单队列列表
+        内部协作工具: 登录即可见全量 (无租户隔离概念)。按 优先级升序 + 更新时间倒序。"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        qs = parse_qs(urlparse(self.path).query)
+        status = qs.get('status', [''])[0].strip()
+        priority = qs.get('priority', [''])[0].strip()
+        try:
+            sql = 'SELECT * FROM dispatch_queue'
+            conds, params = [], []
+            if status:
+                conds.append('status = ?')
+                params.append(status)
+            if priority:
+                conds.append('priority = ?')
+                params.append(int(priority))
+            if conds:
+                sql += ' WHERE ' + ' AND '.join(conds)
+            sql += ' ORDER BY priority ASC, updated_at DESC'
+            conn = _db_conn()
+            try:
+                rows = conn.execute(sql, params).fetchall()
+            finally:
+                conn.close()
+            items = [dict(r) for r in rows]
+            self._send_json(200, {'items': items, 'total': len(items)})
+        except Exception as e:
+            logger.error(f'  [DispatchQueue] list failed: {e}')
+            self._send_json_error(500, 'List failed')
+
+    def _handle_post_dispatch_queue(self):
+        """POST /api/dispatch-queue — 创建派单 {summary, priority?}
+        ★ 优先级唯一写入口 = 老大拍板后代录: priority 仅 admin 可指定;
+          非 admin 创建一律落默认 3 (传了非 3 的 priority 直接 403, 不静默吞)。"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        body = self._read_body()
+        summary = (body.get('summary') or '').strip()
+        if not summary:
+            self._send_json_error(400, 'Missing summary')
+            return
+        priority = body.get('priority')
+        if priority is not None:
+            if not auth.is_admin:
+                self._send_json_error(403, '优先级只能由老大拍板后代录（admin）')
+                return
+            try:
+                priority = int(priority)
+            except (TypeError, ValueError):
+                self._send_json_error(400, 'priority must be 1-5')
+                return
+            if not 1 <= priority <= 5:
+                self._send_json_error(400, 'priority must be 1-5')
+                return
+        else:
+            priority = 3
+        did = f'dq_{uuid.uuid4().hex[:12]}'
+        now = int(time.time() * 1000)
+        conn = _db_conn()
+        try:
+            conn.execute(
+                'INSERT INTO dispatch_queue (id, summary, priority, status, created_by, created_at, updated_at) '
+                "VALUES (?, ?, ?, '待领', ?, ?, ?)",
+                (did, summary, priority, auth.user_id or '', now, now))
+            conn.commit()
+            row = conn.execute('SELECT * FROM dispatch_queue WHERE id = ?', (did,)).fetchone()
+        finally:
+            conn.close()
+        logger.info(f'  [DispatchQueue] 创建 {did} P{priority} by {auth.user_id}: {summary[:50]}')
+        self._send_json(200, dict(row))
+
+    def _handle_put_dispatch_queue(self, did):
+        """PUT /api/dispatch-queue/<id> — 认领 / 状态流转 / 优先级调整
+        - {assignee_session} 认领: 待领→施工, 记 claimed_at
+        - {status} 状态流转: 待领/施工/待验/完成; 完成记 completed_at
+        - {priority} 仅 admin (优先级唯一写入口铁律)
+        - {summary} 仅 admin 或创建者可改"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        body = self._read_body()
+        conn = _db_conn()
+        try:
+            row = conn.execute('SELECT * FROM dispatch_queue WHERE id = ?', (did,)).fetchone()
+            if not row:
+                self._send_json_error(404, 'Not found')
+                return
+            cur = dict(row)
+            now = int(time.time() * 1000)
+            sets, params = [], []
+
+            if 'priority' in body:
+                if not auth.is_admin:
+                    self._send_json_error(403, '优先级只能由老大拍板后代录（admin），AI 员工无权自调')
+                    return
+                try:
+                    p = int(body['priority'])
+                except (TypeError, ValueError):
+                    self._send_json_error(400, 'priority must be 1-5')
+                    return
+                if not 1 <= p <= 5:
+                    self._send_json_error(400, 'priority must be 1-5')
+                    return
+                sets.append('priority = ?')
+                params.append(p)
+
+            if 'summary' in body:
+                s = (body['summary'] or '').strip()
+                if not s:
+                    self._send_json_error(400, 'summary cannot be empty')
+                    return
+                if not auth.is_admin and auth.user_id != cur['created_by']:
+                    self._send_json_error(403, '仅 admin 或创建者可改摘要')
+                    return
+                sets.append('summary = ?')
+                params.append(s)
+
+            new_status = body.get('status')
+            if new_status is not None:
+                if new_status not in ('待领', '施工', '待验', '完成'):
+                    self._send_json_error(400, 'status must be 待领/施工/待验/完成')
+                    return
+                sets.append('status = ?')
+                params.append(new_status)
+                if new_status == '完成':
+                    sets.append('completed_at = ?')
+                    params.append(now)
+
+            if 'assignee_session' in body:
+                sess = (body['assignee_session'] or '').strip()
+                sets.append('assignee_session = ?')
+                params.append(sess)
+                # 认领语义: 带上会话即视为认领, 待领自动进施工
+                if sess and cur['status'] == '待领' and new_status is None:
+                    sets.append("status = '施工'")
+                    sets.append('claimed_at = ?')
+                    params.append(now)
+
+            if not sets:
+                self._send_json_error(400, 'Nothing to update')
+                return
+            sets.append('updated_at = ?')
+            params.append(now)
+            params.append(did)
+            conn.execute(f'UPDATE dispatch_queue SET {", ".join(sets)} WHERE id = ?', params)
+            conn.commit()
+            row = conn.execute('SELECT * FROM dispatch_queue WHERE id = ?', (did,)).fetchone()
+            logger.info(f'  [DispatchQueue] 更新 {did} by {auth.user_id}: '
+                        f'status={dict(row)["status"]} P{dict(row)["priority"]} assignee={dict(row)["assignee_session"]!r}')
+            self._send_json(200, dict(row))
+        except Exception as e:
+            logger.error(f'  [DispatchQueue] update failed: {e}')
+            self._send_json_error(500, 'Update failed')
+        finally:
+            conn.close()
 
     def _handle_get_deals(self):
         """GET /api/deals?talent_id=&status=&limit=&offset= — 合作单列表（子账号隔离）"""
