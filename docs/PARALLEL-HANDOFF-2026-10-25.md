@@ -178,7 +178,7 @@ curl -s -X POST "http://127.0.0.1:8092/admin/api/plan-scan?token=$TOKEN" \
 | 文件 | 持有方 | 开始时间 | 预计完成 | 备注 |
 |---|---|---|---|---|
 | `index.html` + `js/inline-03.js` | A 边 | 2026-11-11 19:00 | ✅ 19:20 已交（c8c8808 + 9dfda97）| 老大 18:56：员工详情页精简（删调试标签/重复信息行，信息行 ID 加空值守卫）|
-| `daren_bot/failure_text.py`（新）| A 边 | 2026-10-25 17:40 | ✅ 18:10 已交 | 失败话术翻译层 |
+| `solobrave-server.py` | A 边 | 2026-11-13 20:30 | 当日 | 老大 20:12「你自己看」：聊天加载 33-41s 根因=历史截图 base64 撑大聊天 JSON（Helen 9.2MB），图片落盘 + /chat-images 静态出口 + 存量迁移 |
 | `daren_bot/ops_alert.py`（新）| A 边 | 2026-10-25 18:00 | ✅ 18:10 已交 | 运营告警出口（多通道降级）|
 | `daren_bot/login_watcher.py`（新）| A 边 | 2026-10-25 18:00 | ✅ 18:10 已交 | 登录态巡检线程 |
 | `daren_bot/worker.py` | A 边 | 2026-10-25 17:40 | ✅ 18:10 已交 | 只改 `_fail` 展示层 |

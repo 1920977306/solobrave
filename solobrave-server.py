@@ -285,6 +285,9 @@ USERS_FILE = os.path.join(DATA_DIR, 'users.json')
 AGENTS_FILE = os.path.join(DATA_DIR, 'agents.json')
 GROUPS_FILE = os.path.join(DATA_DIR, 'groups.json')
 CHATS_DIR = os.path.join(DATA_DIR, 'chats')
+# 聊天图片落盘目录（2026-11-13 chatimg-offload）：消息 images 里的 base64 截图转存为文件，
+# 消息 JSON 只留 /chat-images/ 路径引用——<img src> 直接可用，聊天 JSON 从 MB 级降回 KB 级
+CHAT_IMAGES_DIR = os.path.join(DATA_DIR, 'chat_images')
 SETTINGS_FILE = os.path.join(DATA_DIR, 'settings.json')
 TEAMS_FILE = os.path.join(DATA_DIR, 'teams.json')
 PERMISSIONS_FILE = os.path.join(DATA_DIR, 'permissions.json')
@@ -2749,6 +2752,74 @@ def _load_chat(agent_id):
     return _read_json(filepath, [])
 
 
+def _offload_chat_images(agent_id, messages):
+    """把消息 images 里的 base64 截图转存为文件，JSON 里只留 /chat-images/ 路径。
+
+    2026-11-13 chatimg-offload：Helen 聊天 9.2MB（121 条消息文本仅 0.1MB，
+    images 字段 8.5MB base64），GET /api/chat 每次全量回传 → 后台标签页
+    TCP 读停滞，wfile.write 阻塞 30-40s（[SLOW] 实锤）。落盘后聊天 JSON
+    降回 KB 级，图片走 /chat-images/ 按需加载。
+
+    - 兼容形态: 'data:...;base64,xxx' 字符串 / {'base64': ...} / {'base64','filename'}
+      / {'base64','media_type'}；已是 /chat-images/ 路径的跳过（幂等）
+    - 文件名 <msgid|idx>_<n>.<ext>，同内容已存在则复用不重写
+    - 单条失败保留原值（绝不丢图），整个 offload 不抛异常
+    前端兼容: buildChatImagesHtml 用 `img.base64 || img` 塞 <img src>，
+    路径字符串透明可用，无需改前端。
+    """
+    import base64 as _b64
+    import hashlib as _hashlib
+    try:
+        out_dir = os.path.join(CHAT_IMAGES_DIR, agent_id)
+        os.makedirs(out_dir, exist_ok=True)
+    except Exception:
+        return
+    for mi, m in enumerate(messages):
+        if not isinstance(m, dict):
+            continue
+        imgs = m.get('images')
+        if not isinstance(imgs, list) or not imgs:
+            continue
+        msg_key = str(m.get('id') or mi)
+        changed = False
+        for ii, img in enumerate(imgs):
+            try:
+                b64 = None
+                if isinstance(img, str):
+                    if img.startswith('data:') and ';base64,' in img:
+                        b64 = img.split(';base64,', 1)[1]
+                elif isinstance(img, dict):
+                    raw = img.get('base64')
+                    if isinstance(raw, str) and raw.startswith('data:') and ';base64,' in raw:
+                        b64 = raw.split(';base64,', 1)[1]
+                if not b64:
+                    continue
+                data = _b64.b64decode(b64)
+                digest = _hashlib.md5(data).hexdigest()[:10]
+                ext = 'png'
+                head = (data[:12] or b'').hex()
+                if head.startswith('ffd8ff'):
+                    ext = 'jpg'
+                elif head.startswith('47494638'):
+                    ext = 'gif'
+                elif head.startswith('52494646') and head[16:20] == '574542':
+                    ext = 'webp'
+                fname = f'{msg_key}_{ii}_{digest}.{ext}'
+                fpath = os.path.join(out_dir, fname)
+                if not os.path.exists(fpath):
+                    with open(fpath, 'wb') as _f:
+                        _f.write(data)
+                url = f'/chat-images/{agent_id}/{fname}'
+                if imgs[ii] != url:
+                    imgs[ii] = url
+                    changed = True
+            except Exception as _e:
+                logger.warning(f'  [ChatImg] offload 失败 {agent_id} msg#{mi} img#{ii}: {_e}')
+                continue
+        if changed:
+            m['images'] = imgs
+
+
 def _save_chat(agent_id, messages):
     """保存某 Agent 的聊天记录"""
     filepath = os.path.join(_td(CHATS_DIR), f'{agent_id}.json')
@@ -2758,6 +2829,8 @@ def _save_chat(agent_id, messages):
             cleaned = _strip_fake_tool_calls(m['content'])
             if cleaned != m['content']:
                 m['content'] = cleaned
+    # 落库前把 base64 图片转存文件（聊天 JSON 瘦身，见 _offload_chat_images）
+    _offload_chat_images(agent_id, messages)
     _write_json(filepath, messages)
 
 
@@ -9862,6 +9935,13 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         # Auth routes (no auth required)
         if path == '/api/auth/me' or path == '/auth/me':
             self._handle_auth_me()
+            return
+
+        # Chat images（落盘出口，无鉴权：2026-11-13 chatimg-offload。
+        # <img> 标签发不出 Authorization 头；暴露面与此前 base64 内嵌一致，
+        # 且文件名含 10 位内容 digest，不可枚举）
+        if path.startswith('/chat-images/'):
+            self._serve_chat_image(path)
             return
 
         # Public OpenClaw routes - now require auth
@@ -25174,6 +25254,33 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json(200, info)
         else:
             self._send_json(200, {'stage': None, 'detail': '', 'updated_at': None})
+
+    def _serve_chat_image(self, path):
+        """GET /chat-images/<agent_id>/<file> — 聊天落盘图片出口（无鉴权，理由见 _do_GET 路由注释）"""
+        rel = path[len('/chat-images/'):]
+        parts = [p for p in rel.split('/') if p]
+        if len(parts) != 2 or parts[0] in ('.', '..') or parts[1] in ('.', '..'):
+            self._send_json_error(404, 'not found')
+            return
+        fpath = os.path.join(CHAT_IMAGES_DIR, parts[0], parts[1])
+        if not os.path.isfile(fpath):
+            self._send_json_error(404, 'not found')
+            return
+        try:
+            with open(fpath, 'rb') as _f:
+                data = _f.read()
+        except OSError:
+            self._send_json_error(404, 'not found')
+            return
+        import mimetypes
+        ctype = mimetypes.guess_type(fpath)[0] or 'application/octet-stream'
+        self.send_response(200)
+        self._add_cors_headers()
+        self.send_header('Content-Type', ctype)
+        self.send_header('Content-Length', str(len(data)))
+        self.send_header('Cache-Control', 'public, max-age=31536000, immutable')
+        self.end_headers()
+        self.wfile.write(data)
 
     def _handle_get_chat(self, agent_id):
         """GET /api/chat/:agentId?type=personal|group"""
