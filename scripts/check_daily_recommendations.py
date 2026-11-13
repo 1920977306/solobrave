@@ -56,7 +56,7 @@ def main() -> int:
     # ── 检查 1：日报通知含「每日推荐」段 ──
     row = cur.execute(
         "select title, content from notifications "
-        "where agent_id='emp_xiaotuo' and title like '小拓日报%' "
+        "where agent_id='emp_xiaotuo' and title like '%日报%' "  # 标题以职责名为前缀（重组装后=「达人筛选专员日报」，旧=「小拓日报」），不能钉死「小拓日报%」——11-13 夜验实踩
         "  and title not like '%未交%' and created_at>=? and created_at<? "
         "order by created_at desc limit 1",
         (day0, day1)).fetchone()
