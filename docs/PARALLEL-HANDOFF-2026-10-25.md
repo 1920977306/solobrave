@@ -12214,3 +12214,33 @@ quarantined 行是最全的案发现场，排查直接查 quarantined=1 行即�
   **也不另立验收盘**——验收口径已写进同一单（quarantined 新增归零 30 分钟 +
   unquarantine 冲回账行两清），人盯由 A 边承担（本就在盯余额曲线）。
   若老大仍要独立验收盘，回一句即立（优先级待定）。
+
+## §162 Helen 泄漏根因闭环：孤儿 agentic 循环实锤 + 429 隔离闸门断根（2026-11-15 16:2x-16:5x，A 边施工，老大 16:03「认领」）
+
+### 根因全链（全部实机核实）
+1. **真凶定位**：OpenClaw 网关进程（node pid 81755，11-13 kickstart）内一个**孤儿 agentic 循环**——挂在 Helen（emp_1780199176680）`agent:...:main` 会话（k3 模型路由，1.0M token 转录本）上。
+2. **失控机理**：会话轨迹 11-15 10:05 已 `session.ended=interrupted`（k3 超时），但**网关进程内的循环驱动没死**——10:05 之后 KimiProxy 流量照涨：messages 3942→4122+、body 7.2MB→7.65MB/次、每 4-8 秒一次真实模型往返（input 恒 208 = 写死 prompt 模板；先 k3 超时 → fallback minimax 成功）。**错误和超时都杀不死它**（10:05 那个 timeout 就是证据）——它是网关运行时里的无会话登记僵尸，CLI 无中止手段（`sessions list --active 15` 全域零活跃、main 会话受保护不可 delete）。
+3. **计费链**：循环每轮走 `/api/proxy/kimi` → `_record_credit_usage` 四个 KimiProxy 调用点不传 session_id → 空 session consumption 行 → 余额实扣。§155-§161 的指纹（5s 节奏/208 输入/空 session）全部吻合。
+
+### 断根处置（未动网关、未触互斥红线）
+- `sessions delete` main 会话被拒（受保护）→ CLI 无精准中止手段 → **核选项（重启网关）未动用**（会断 buyin_worker 浏览器会话 + 三岗调度，需老大拍板，本次不需要了）。
+- **方案**：KimiProxy 入口加**隔离闸门**（commit `d429689`）：`agent_id ∈ QUARANTINE_LEAK_AGENTS` → 直接 429（anthropic rate_limit_error 格式），不转发上游、不计费、不进记忆管道。**守卫管记账冻结，闸门管上游成本**，双件套共用同一名单常量。
+- **实机验证**：服务重启（16:20:55 新进程接管 8080）→ 僵尸 16:22:54 重试撞 429 → **循环终止**（此后零连接零日志，此前已连跑 3 天+）。16:16:38 后零上游转发。prod 探针复核：HTTP 429 + 正确错误格式。
+- 守卫测试 6 passed（新增闸门存在性+顺序不变量用例）；全量回归 1862 passed（2 failed 为 §160 已登记的 test_phase1_permission_assets 预存失败，非本次引入）。
+
+### 解冻路径（预写，防「能冻不能解」）
+1. 从 `QUARANTINE_LEAK_AGENTS`（solobrave-server.py ~35592 行）移除该 id；
+2. 重启 com.solobrave.server；
+3. `python3 scripts/unquarantine_credits.py --apply` 冲回。
+
+### 验收与冲回（本单关闭口径）
+- quarantined 新增归零 30 分钟达标（最后隔离行 16:17:06，窗口至 16:47）→
+  冲回 quarantined_credits=976 → 账行两清 → `dq_0f6069d56a0e` 转完成（冲回数已回填本节）。
+- 附加事实报备：Helen 的模型路由**没参与 11-13 三岗换 minimax 主**——
+  她 primary 仍是 `kimi_proxy_helen/k3`（日志 `fallback_from=kimi` 实证）。
+  解冻时建议顺手把她也切 minimax 主/k3 备，与三岗同轨。
+
+### 防复发建议（网关/OpenClaw 侧能力，不在本仓库自改）
+1. 后台 run 加 max-turns / 工具连续失败 N 次即终止——本次循环从 10:05 中断后空转 6+ 小时无人知，缺这层刹车；
+2. 网关对「轨迹已 ended 但进程内循环仍跑」的状态加哨兵（心跳与轨迹一致性检查）；
+3. server.log 已 8.6GB（本次泄漏单日贡献 ~1.3GB），**日志轮转 hygiene 单**值得立一张。
