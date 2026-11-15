@@ -5141,7 +5141,7 @@ def init_db():
                 summary TEXT NOT NULL,
                 priority INTEGER NOT NULL DEFAULT 3 CHECK(priority BETWEEN 1 AND 5),
                 assignee_session TEXT DEFAULT '',
-                status TEXT NOT NULL DEFAULT '待领' CHECK(status IN ('待领','施工','待验','完成')),
+                status TEXT NOT NULL DEFAULT '待领' CHECK(status IN ('待领','施工','待验','完成','已作废')),
                 created_by TEXT DEFAULT '',
                 created_at INTEGER,
                 updated_at INTEGER,
@@ -5150,6 +5150,31 @@ def init_db():
                 p1_escalated_at INTEGER DEFAULT 0
             )
         ''')
+        # ★ 2026-11-15 「连单」作废语义（老大 17:01 拍）：存量库 CHECK 不含「已作废」
+        #   → 幂等重建小表放开新值（复制重建，行数极少，秒级）。改前已备份。
+        _dq_sql = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='dispatch_queue'"
+        ).fetchone()
+        if _dq_sql and '已作废' not in (_dq_sql[0] or ''):
+            conn.execute('''CREATE TABLE dispatch_queue_new (
+                id TEXT PRIMARY KEY,
+                summary TEXT NOT NULL,
+                priority INTEGER NOT NULL DEFAULT 3 CHECK(priority BETWEEN 1 AND 5),
+                assignee_session TEXT DEFAULT '',
+                status TEXT NOT NULL DEFAULT '待领' CHECK(status IN ('待领','施工','待验','完成','已作废')),
+                created_by TEXT DEFAULT '',
+                created_at INTEGER,
+                updated_at INTEGER,
+                claimed_at INTEGER,
+                completed_at INTEGER,
+                p1_escalated_at INTEGER DEFAULT 0
+            )''')
+            conn.execute('INSERT INTO dispatch_queue_new SELECT * FROM dispatch_queue')
+            conn.execute('DROP TABLE dispatch_queue')
+            conn.execute('ALTER TABLE dispatch_queue_new RENAME TO dispatch_queue')
+            conn.execute('CREATE INDEX IF NOT EXISTS idx_dispatch_status ON dispatch_queue(status)')
+            conn.execute('CREATE INDEX IF NOT EXISTS idx_dispatch_priority ON dispatch_queue(priority, status)')
+            logger.info('  [DispatchQueue] 迁移：CHECK 放开「已作废」状态（连单作废语义）')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_dispatch_status ON dispatch_queue(status)')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_dispatch_priority ON dispatch_queue(priority, status)')
 
@@ -19642,8 +19667,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
             new_status = body.get('status')
             if new_status is not None:
-                if new_status not in ('待领', '施工', '待验', '完成'):
-                    self._send_json_error(400, 'status must be 待领/施工/待验/完成')
+                if new_status not in ('待领', '施工', '待验', '完成', '已作废'):
+                    self._send_json_error(400, 'status must be 待领/施工/待验/完成/已作废')
                     return
                 sets.append('status = ?')
                 params.append(new_status)
