@@ -12251,3 +12251,44 @@ quarantined 行是最全的案发现场，排查直接查 quarantined=1 行即�
   （行合计 976 = 账户累计 976）。
 - `dq_0f6069d56a0e` 已置「完成」（16:48:15）。DB 备份
   `solobrave.db.bak-20261115-pre-queue-close`。
+
+## §163 防复发三件套落地（2026-11-15 17:0x，A 边施工，老大 17:04「你直接处理啊」）
+
+§162 收尾时提的三条防复发建议，全部在本仓库能力范围内直接施工完成（commit `b1d717f`，双分支零分叉），未走派单队列：
+
+### ① 动态限频隔离闸门（server 内，形态学熔断）——三件中价值最高
+- **判别式**：同一 agent 10 分钟内 KimiProxy 调用 >120 次 → 自动隔离（429 拒转上游、
+  不转发不计费）+ `_notify_admin` 通知老大 + `_desktop_notify` 桌面横幅。
+  阈值依据：Helen 僵尸实测 ~150/10min；正常班峰值 <60；窗口分散的正常调用不触发（单测覆盖）。
+- **与静态名单的关系**：`QUARANTINE_LEAK_AGENTS`（数据止血，一次调用也拒）与
+  `_dynamic_quarantined`（失控熔断，超阈值才拒）共用同一 `_is_proxy_quarantined` 闸门。
+- **解除面**：`GET /api/admin/quarantine`（两份名单+阈值）；`DELETE ?agent_id=X`
+  解动态隔离（静态名单 409 拒绝接口解除——必须走代码变更+重启+冲回脚本，防误解冻）。
+  管理端点走 `_require_admin`（is_platform_admin）。
+- **已修 bug**：隔离 429 错误体的 `message` 键曾带前导空格（` message`→
+  非标准字段，anthropic SDK 取不到错误详情）。已修并经 hex 逐字节验证
+  （`6d657373616765` = 干净 message）。
+
+### ② 孤儿循环哨兵：scripts/watch_orphan_loop.py + launchd 每小时
+- 判别式照抄本案病征：近 15 分钟有 KimiProxy 流量，但 openclaw 会话库
+  （`~/.openclaw/agents/<aid>/agent/openclaw-agent.sqlite`）mtime 早于流量 >30 分钟
+  = 疑似孤儿（本案实证：流量到 16:16，会话库停在 10:05，领先 360 分钟——试跑即捕获）。
+- 数据源只读（server.log 尾部 30MB + 文件 mtime）；launchd
+  `com.solobrave.orphan-watch`（StartInterval 3600，日志
+  logs/orphan-watch.launchd.log）。v1 为日志告警版，接通知链路的升级单未来可立。
+
+### ③ 日志轮转：scripts/rotate_server_log.sh + launchd 每日 03:47
+- copytruncate 式（进程持有 fd 不断流），4GB 阈值，留最近 3 份 .gz。
+  背景：server.log 已 8.6GB，Helen 泄漏单日贡献 ~1.3GB。
+- launchd `com.solobrave.log-rotate`。
+
+### 实机验证锚
+- 静态闸门 429 + 干净错误键（hex 验证）；admin 端点未授权访问被拒；
+  守卫测试 10 passed；全量回归 1867 passed（2 failed 为 §160 已登记预存失败）。
+
+### 仍未做（诚实清单）
+- ①②③ 都是**本仓库层**防线；OpenClaw 网关侧的根治（后台 run max-turns /
+  「轨迹 ended 但循环仍跑」运行态哨兵）不在本仓库，若要做需网关侧执行方——
+  本次以代理层闸门 + 哨兵把风险兜住，网关侧根治可降级为可选单。
+- 孤儿哨兵 v1 只写日志不接通知；如需推送老大，复用 _notify_admin 加个
+  server 端点即可，留作升级项。
