@@ -12326,6 +12326,11 @@ quarantined 行是最全的案发现场，排查直接查 quarantined=1 行即�
 6. buyin 停摆半因：11-14 09:30 扫描卡死浏览器线程 → 11-15 09:58 launchd 重启自愈。
    `talent_collects` 锚点（11-11 19:56）= 商品同步口径，与广场扫描成功两回事，验收别混。
 
+### 备注：周期性 SIGTERM 升级线（第四方 11-15 背书时前瞻提醒，照原文登记）
+wrapper 重试治「被杀后干等」，但**如果 SIGTERM 是周期性外部力量**（比如某个清理
+脚本每天 09:37 扫射），重试只是兜底——**今明两天 09:30 班如果连续被掐，「外部力量
+是谁」就要升级成立专项**。今晨班没被掐，是第一天的阴性证据（11-15 09:30 正常）。
+
 ## §166 按建议录四单入队 + SIGTERM 单闭环（2026-11-15 18:0x，A 边代录/施工，老大 17:51 拍「按建议录」）
 
 - **四条入队**（created_by=boss-20261115-按建议录(A边代录)，读回已验 priority/status）：
@@ -12338,3 +12343,78 @@ quarantined 行是最全的案发现场，排查直接查 quarantined=1 行即�
   deliver_task 返回加 rc；守卫测试 18 passed）。kill 发送者不可考 = 不可考尾巴，
   已如实登记。
 - 队列待领全景（18:1x）：P1 待领×3（③B表 ④总闸 ⑥聊天）+ P1-⑦ + P2×3。
+
+## §168 wrapper 重试背书落地：验收③补全施工完毕 + 前瞻备注入档（2026-11-15 18:1x，协调边）
+
+### 背书与抽验登记
+- 第四方抽验 `run 2c8c624e`：`externalAbort=True / aborted=True / timedOut=False /
+  status=interrupted` 与协调边 §165 证据链（CLI 自请求 chat.abort = 外部 SIGTERM
+  优雅中止）**完全吻合**，「外部 SIGTERM 后 CLI 优雅中止」结论成立。
+- 背书口径：直接施工不需新拍板（连单已授权②号单，wrapper 重试即该单施工主体）。
+
+### 施工与四条验收对照
+| # | 验收口径 | 状态 | 落点 |
+|---|---|---|---|
+| 1 | exit 143 专属重试、只一次、新会话键、15 分钟内起新 run | ✅ | `094b661`（重试主体）+ `04ba171` |
+| 2 | 重试不豁免看护（熔断/验卷/积分看门全量生效） | ✅ | 重试后 fall-through 进同一 45 分钟看门；外部三机制不经过 wrapper 无豁免点 |
+| 3 | 幂等防双交卷：retried_from 标记 + 日报注明重试班 + 通知不重复发 | ✅ 补全 | `04ba171`：①JSONL 留痕 `data/xiaotuo_retry_log.jsonl`（first/retry 键、首投 rc/runId）②重试任务书注明「本班为重试班」③交付后 `mark_retry_delivery` 给通知标题打「（重试班，retried_from=…）」——**prompt 之外改标题，模型不自觉也兜得住**（与验卷同哲学）；标题 NOT LIKE 幂等只标一次 |
+| 4 | 「谁发的信号」保留开放尾巴 | ✅ | §165 备注（macOS 不记录信号来源 = 平台限制非失职） |
+
+### 测试与回归
+- 小拓专项 21 passed（+3：重试恰一次/新键/双锚点/通知标注合体、标注幂等、
+  DB 侧兜底语义）。
+- 全量 1873 passed / 2 failed = §160 已登记预存失败（test_phase1_permission_assets
+  ×2，与本改动无关，未动）。
+- 施工插曲（如实记）：首版新测试有毫秒级时间戳竞态（通知 created_at 取当前毫秒
+  vs main() 内 dispatch_ms，单跑同毫秒侥幸过、全量跑必挂）——已按本文件既有
+  future_ms 写法修复。教训新证：**守卫测试的时间锚一律取未来值，不取当前值**。
+
+### 前瞻备注
+周期性 SIGTERM 升级线已照原文写入 §165 备注（今晨班阴性证据第一天）。
+
+### B 表 DDL 草案（答复第四方）
+**要，现在拟。** 协调边认这个前置：③号单（dq 队列 B 表施工）领单人少一半工，
+且 §143 字段集（snapshot_json / matched_rules / reason_text / pipeline_status /
+deal_pid / gmv / refund_flag + 同日去重）由协调边代拟草案、执行方审修，
+符合「宁可少存不可编造」的口径出处归属。草案落点：下节 §167 或随③号单
+认领时附（以登记为准）。
+
+## §167 talent_recommendations 建表 DDL 草案（协调边代拟 11-15 18:2x，③号单领单参考）
+
+> 性质：**草案代拟，非施工**——③号单领单人审修后以其为准（§143 字段集归属协调边，
+> 口径出处「宁可少存不可编造」随草案走）。幂等迁移：整表 IF NOT EXISTS；存量老库
+> 若已有残表则 PRAGMA table_info 逐列补差，不 DROP 重盖（残数据可审）。
+
+```sql
+CREATE TABLE IF NOT EXISTS talent_recommendations (
+  id              TEXT PRIMARY KEY,              -- rec_<uuid16>
+  agent_id        TEXT NOT NULL,                -- 产出员工（emp_xiaotuo）
+  run_id          TEXT,                         -- 产出 run（轨迹库 runId；班次 lineage）
+  session_key     TEXT,                         -- 班次会话键（重试班对得上 §166 retried_from）
+  talent_id       TEXT,                         -- 关联 talents.id（未建档达人留空）
+  talent_name     TEXT NOT NULL,                -- 点名快照（达人数据天天变，名字也存当时的）
+  snapshot_json   TEXT NOT NULL,                -- ★ §143 必须快照：达人数据天天变
+  matched_rules   TEXT NOT NULL
+                  CHECK (json_valid(matched_rules)),  -- 结构化 JSON 数组；宁可少存不可编造（空数组=⚠️ 由验收脚本判，不硬拒）
+  reason_text     TEXT NOT NULL,                -- 可验证事实，禁止形容词（验收④：非空且含数字）
+  pipeline_status TEXT NOT NULL DEFAULT 'pending',  -- pending → Lark 侧回同步后更新
+  deal_pid        TEXT,                         -- 出单回搜链路回填（已有口径）
+  gmv             REAL,
+  refund_flag     INTEGER,                      -- 0/1
+  recommend_date  TEXT NOT NULL,                -- YYYY-MM-DD（同日去重维度）
+  created_at      INTEGER NOT NULL              -- 毫秒
+);
+-- §143「同日去重」：同日期+员工+达人（id 或名字）唯一；部分 NULL 参与唯一索引行为
+-- 已在草案评审点标注，领单人定夺（可选应用层去重替代）。
+CREATE UNIQUE INDEX IF NOT EXISTS ux_reco_day_agent_talent
+  ON talent_recommendations (recommend_date, agent_id, talent_id, talent_name);
+CREATE INDEX IF NOT EXISTS ix_reco_date ON talent_recommendations (recommend_date);
+```
+
+### 评审点（领单人必答）
+1. `talent_id` 为 NULL 时唯一索引不拦重（SQLite NULL 唯一特性）⇒ 未建档达人同日
+   重复靠应用层还是触发器？建议：写入侧 `COALESCE(talent_id, talent_name)` 生成
+   去重键列 + 唯一索引改挂该列。
+2. `matched_rules` 空数组：脚本判 ⚠️ 不判败（§144 规格原文）——草案不硬拒，确认。
+3. 与飞书多维表格（商务侧手工 A 表）无主外键关系，纯机器侧 B 表——确认不建同步。
+4. 回填三列（deal_pid/gmv/refund_flag）默认 NULL 非 0——0 与「没回填」必须可分。
