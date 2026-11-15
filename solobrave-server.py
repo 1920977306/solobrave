@@ -3312,6 +3312,11 @@ class AuthResult:
 
     @property
     def is_admin(self):
+        # ★ 身份总闸（P1-④，2026-11-15）：AI 员工本地直连（localhost_agent_id）强制非 admin。
+        # 身份映射根上收权——创建者再高的身份（admin/super_admin kind 行）也不可被员工继承；
+        # 下游 56 处焊点自此变成纵深防御，不再是唯一屏障。
+        if getattr(self, 'localhost_agent_id', None):
+            return False
         return self.user_info and self.user_info.get('role') == 'admin'
 
     @property
@@ -3322,7 +3327,12 @@ class AuthResult:
         - kind 行存在 → 以 kind 为准（super_admin 才算平台超管）
         - 无 kind 行（迁移期兜底）→ 回退 role=='admin'
         全部主体落表后移除回退分支（TODO: 阶段 2 收口）。
+        ★ 身份总闸（P1-④，2026-11-15）：localhost_agent_id 存在时恒 False——
+        注意 userId 映射的是创建者，kind 行读出来可能是 super_admin，
+        必须在这层挡住，否则员工直连携 creator 的 kind 直通平台面。
         """
+        if getattr(self, 'localhost_agent_id', None):
+            return False
         uid = (self.user_info or {}).get('userId', '')
         kind = _subject_kind(uid) if uid else None
         if kind:
@@ -19600,8 +19610,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_post_dispatch_queue(self):
         """POST /api/dispatch-queue — 创建派单 {summary, priority?}
-        ★ 优先级唯一写入口 = 老大拍板后代录: priority 仅 admin 可指定;
-          非 admin 创建一律落默认 3 (传了非 3 的 priority 直接 403, 不静默吞)。"""
+        ★ 优先级唯一写入口 = 老大拍板后代录: priority 仅真人老大（platform_admin/super_admin kind）可指定;
+          非 platform_admin 创建一律落默认 3 (传了非 3 的 priority 直接 403, 不静默吞)。"""
         auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
@@ -19613,10 +19623,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             return
         priority = body.get('priority')
         if priority is not None:
-            # ★ 越权焊点补焊 (2026-11-13 22:0x prod 实测洞): X-Agent-Id 直连会映射成
-            #   owner 用户身份, owner 是 admin 时 is_admin=True ⇒ 员工以老大身份自建 P1。
-            #   铁律 = 优先级只有「真人老大(JWT admin)」能写, agent 直连一律拒。
-            if not auth.is_admin or getattr(auth, 'localhost_agent_id', None):
+            # ★ 优先级唯一写入口 = 真人老大（super_admin kind）+ 总闸双保险：
+            #   X-Agent-Id 直连映射 creator 身份，2026-11-13 prod 实测洞（员工以老大身份自建 P1）
+            #   已由身份总闸（is_platform_admin 对 localhost_agent_id 恒 False）在根上封死，
+            #   这里保留显式 localhost 拒绝做纵深（同 /api/admin/subjects/grant 口子风格）。
+            if not auth.is_platform_admin or getattr(auth, 'localhost_agent_id', None):
                 self._send_json_error(403, '优先级只能由老大拍板后代录（真人 admin；AI 员工含 owner 身份映射均无权）')
                 return
             try:
@@ -19648,8 +19659,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         """PUT /api/dispatch-queue/<id> — 认领 / 状态流转 / 优先级调整
         - {assignee_session} 认领: 待领→施工, 记 claimed_at
         - {status} 状态流转: 待领/施工/待验/完成; 完成记 completed_at
-        - {priority} 仅 admin (优先级唯一写入口铁律)
-        - {summary} 仅 admin 或创建者可改"""
+        - {priority} 仅真人老大（platform_admin，优先级唯一写入口铁律）
+        - {summary} 仅 platform_admin 或创建者可改"""
         auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
@@ -19666,8 +19677,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             sets, params = [], []
 
             if 'priority' in body:
-                # 同 POST 的焊点: agent 直连(localhost_agent_id)即使映射 admin owner 也拒
-                if not auth.is_admin or getattr(auth, 'localhost_agent_id', None):
+                # 同 POST：总闸（agent 直连 is_platform_admin 恒 False）+ 显式纵深
+                if not auth.is_platform_admin or getattr(auth, 'localhost_agent_id', None):
                     self._send_json_error(403, '优先级只能由老大拍板后代录（真人 admin；AI 员工含 owner 身份映射均无权自调）')
                     return
                 try:
@@ -19686,7 +19697,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 if not s:
                     self._send_json_error(400, 'summary cannot be empty')
                     return
-                if not auth.is_admin and auth.user_id != cur['created_by']:
+                if not auth.is_platform_admin and auth.user_id != cur['created_by']:
                     self._send_json_error(403, '仅 admin 或创建者可改摘要')
                     return
                 sets.append('summary = ?')
