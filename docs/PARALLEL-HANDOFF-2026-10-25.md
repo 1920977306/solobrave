@@ -12304,3 +12304,24 @@ quarantined 行是最全的案发现场，排查直接查 quarantined=1 行即�
   症状2（切对话残留，独立立案）分开验收。
 - 队列全景：待领 P1×4（②SIGTERM ③B表 ④总闸 ⑥聊天）+ 已作废×1 + 完成×2。
 - 全量回归 1867 passed（2 failed 为 §160 已登记预存失败）。
+
+## §165 SIGTERM kill 来源排查底稿（2026-11-15 18:0x，A 边，dq_ce3e2f985257 认领前预查）
+
+**已实锤的证据链**（全部一手日志）：
+1. 11-14 09:30:05 launchd 正常触发 wrapper → CLI 建 run `2c8c624e`（minimax，
+   健康形态 44 calls/0 search）。
+2. 09:37:02.603 **同一 CLI 连接自请求 chat.abort**（gateway.log：
+   `chat.abort requested: actor=cli conn=5d5461a7 session=agent:emp_xiaotuo:daily-20261114`
+   该 conn 全生命周期仅 3 行：建 run → 请求 abort → abort 应答）。
+3. 轨迹 `session.ended`：`externalAbort=true, timedOut=false` → CLI 收到**外部 SIGTERM**
+   （exit 143）后走优雅中止握手，run 本身无病。
+4. **排除清单**：包装超时（TURN_TIMEOUT=2400s，7min 远未及）；jetsam（11-14 09:34-40
+   内核日志唯一 kill 是 assessmentagent idle-exit）；网关重启（gateway-restart.log
+   该窗口零记录）；solobrave-server 代码零信号调用点；主会话与另两个活跃 AI 会话
+   wire.jsonl 无 kill/sigterm/pkill 行为（skill 等词干扰已词边界排除）。
+5. **剩余嫌疑类**：本地进程管理器/人为对 CLI pid 发 SIGTERM——macOS 不记录信号
+   来源，wire 日志范围内不可考。修复不依赖揪出发送者：
+   **wrapper 对 exit 143 立即换新会话键重试一次**（而非等 45 分钟告警），代码点在
+   `xiaotuo_daily.py` 轮询段。
+6. buyin 停摆半因：11-14 09:30 扫描卡死浏览器线程 → 11-15 09:58 launchd 重启自愈。
+   `talent_collects` 锚点（11-11 19:56）= 商品同步口径，与广场扫描成功两回事，验收别混。
