@@ -12418,3 +12418,35 @@ CREATE INDEX IF NOT EXISTS ix_reco_date ON talent_recommendations (recommend_dat
 2. `matched_rules` 空数组：脚本判 ⚠️ 不判败（§144 规格原文）——草案不硬拒，确认。
 3. 与飞书多维表格（商务侧手工 A 表）无主外键关系，纯机器侧 B 表——确认不建同步。
 4. 回填三列（deal_pid/gmv/refund_flag）默认 NULL 非 0——0 与「没回填」必须可分。
+
+## §169 ③号单 B 表全链路闭环（2026-11-15 18:5x，A 边直接施工，老大 18:31「跑」）
+
+老大 18:31 转发执行指令「跑」（协调边全天零认领，第四次等协调边落空→A 边直接弄）。
+A 边按序全部落地，commit `c1320ad`（main+dev 双分支零分叉，`rev-list --count origin/dev..origin/main` = 0）。
+
+### 交付内容（§143 规格全落地）
+
+| 层 | 内容 | 位置 |
+|---|---|---|
+| DDL | `talent_recommendations`（rec_id PK=rec_YYYYMMDD_<talent_id> / rec_date 本地00:00ms / matched_rules 默认'[]' / reason_text / snapshot_json / pipeline_status / run_id；**UNIQUE(rec_date, talent_id) 同日去重** + idx_tr_date） | solobrave-server.py 初始化区（dispatch_queue 块后），server 重启即建表 ✅ 已验证 |
+| worker | `_square_normalize_recs`：钉 5 人上限[:5]、非dict跳过、缺talent_id跳过、matched_rules非list⇒'[]'（宁可少存不可编造）、snapshot只收dict；`_square_write_report` 同事务 INSERT OR REPLACE；**只认 SQUARE_DUTY_AGENT=emp_xiaotuo**，其他 agent 一律不落 | buyin_worker.py |
+| 工具 | `xiaotuo_ops.py cmd_report` 加 `--rec '<JSON数组>'`（非法JSON报错不投递），HTTP 入口 /square-report 透传 | ~/.openclaw/workspace-xiaotuo/tools/（不进 git，部署随工作区） |
+| 任务书 | build_task_message 追加「每日推荐 5 人」段规格（从值得联系选≤5、每人一行含可验证数字理由、report 带 --rec、matched_rules 宁可[]、snapshot 只放候选真实字段） | xiaotuo_daily.py |
+| 手册 | TOOLS.md 第 4 步交日报段同步「每日推荐」段必填格式 + --rec 格式 + 不编造铁律 | workspace-xiaotuo |
+
+### 部署实况
+
+- 全量回归 **1881 passed**（2 failed = 已知预存 test_phase1_permission_assets×2，P1-④ 归属，非本次引入）；专项守卫 `test_talent_recommendations.py` 8 条全绿；`test_xiaotuo_daily.py` 21 条全绿。
+- server 已重启（:8080 健康），`sqlite_master` 实测表已建 ✅
+- buyin_worker 已重启（先 graceful-daren 落 cookie 再 kickstart，:8095 健康；两浏览器关闭=互斥设计常态，任务来自动拉起，cookie 在盘 auto-login 无需扫码）
+- secret_scan --staged ✅；DB 写前备份 `~/.solobrave-backups/solobrave.db.bak-<ts>-pre-btable-close` ✅
+
+### 队列闭环
+
+`dq_aa7f03662de9` 置「完成」（sqlite3 直改，API 不认 A 边 agent 身份），assignee=A 边，summary 附闭环注记。
+
+### 明早验收安排
+
+9:30 班真跑后（自动带 --rec，因任务书已重组装）：
+`python3 scripts/check_daily_recommendations.py --date 2026-11-16`
+四条判据：日报含「每日推荐」段≥5 人 / 当日记录数=5 / matched_rules 非空 JSON 数组 / reason_text 含数字。
