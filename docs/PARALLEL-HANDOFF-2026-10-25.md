@@ -12170,3 +12170,35 @@ tool-call JSON 泄漏现行（商品库管家 21:44:42，§151 证据更新节�
   冲回并核对 quarantined_credits 累计数。
 - **仍待拍**：升级通知单优先级（协调边建议 P2，见 §158④ 实证）——
   老大未回，未入队。
+
+## §160 止血守卫施工完毕并实机验证（2026-11-15 15:0x，A 边直接施工，老大 14:48「你直接弄」）
+
+### 交付物（commit c97a963，双分支零分叉）
+- `solobrave-server.py`：`_record_credit_usage` 止血守卫——
+  `QUARANTINE_LEAK_AGENTS={'emp_1780199176680'}` 且空 session 的行：
+  行照写 + `quarantined=1`（指纹保留）+ 余额冻结 +
+  `credit_accounts.quarantined_credits` 累计；带 session / 名单外 / bypass 路径
+  一律原行为（守卫测试 5 条全过）。迁移：两表各加一列（幂等 PRAGMA 检查）。
+- `scripts/unquarantine_credits.py`：冲回端（协调边硬条件②），**默认 dry-run**，
+  `--apply` 才动库；冲回前对账（行合计 vs 账户累计，不一致以行为准并告警）。
+- `tests/test_quarantine_guard.py`：5 守卫测试（含范围限定与 bypass 不沾边）。
+- 备份：`solobrave.db.bak-20261115-pre-quarantine-guard`。
+
+### 实机验证（15:00 起，双双命中 §159 生效口径）
+- 行还在涨：泄漏源未掐，5s 节奏指纹原样保留（id 34126-34128，quarantined=1）；
+- 余额不再跌：balance 冻结在 949,505，quarantined_credits 随写随累计（55+）。
+- dry-run 对账一致（25 行 / 58 分，账行两清）。
+
+### 队列闭环
+`dq_2e3dcf47d76c`（P1-⑤ 止血守卫）= **完成**（施工 + 实机验证 + 冲回端同交付）。
+
+### 遗留登记（非本次引入，不静默吞）
+全量回归有 2 条**预先存在**失败：`test_phase1_permission_assets` 的 is_admin
+「业务消费清零」不变量被 11-13 派单队列特性（`_handle_post/put_dispatch_queue`
+的 priority 焊点 ×3）打破——stash 验证与我的改动无关。**属派单队列特性方
+（P1-④ 身份总闸同源）**：要么焊点归入白名单标签，要么 P1-④ 修根后焊点
+自消。回归放行理由：止血紧急 + 失败路径与改动零交集；放行已呈报老大。
+
+### 根因单状态
+dq_0f6069d56a0e（谁在写空 session 行）**仍待领**——守卫只停血未治病，
+quarantined 行是最全的案发现场，排查直接查 quarantined=1 行即可。
