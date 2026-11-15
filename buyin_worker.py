@@ -3563,7 +3563,42 @@ def _square_decide(payload):
     return ({'ok': True, 'inserted': True, 'talent_id': tid, 'verdict': verdict}, 200)
 
 
-def _square_write_report(summary, detail, agent_id=SQUARE_DUTY_AGENT):
+def _square_normalize_recs(recs, now_ms):
+    """推荐条目归一化（③号单 2026-11-15）：agent 在日报里随附的
+    「每日推荐 5 人」→ talent_recommendations 行。
+    铁律（§143）：matched_rules 宁可少存不可编造（不是数组/造不出来 ⇒ '[]'，
+    让验收脚本亮 ⚠️ 而不是脏数据污染反推）；reason_text 原样存（验收看可验证性）；
+    snapshot_json 只保留 dict，由调用方裁好字段再传（勿全表快照）。"""
+    import datetime as _dt
+    day_start = int(_dt.datetime.combine(
+        _dt.datetime.fromtimestamp(now_ms / 1000).date(),
+        _dt.time.min).timestamp() * 1000)
+    ymd = _dt.datetime.fromtimestamp(now_ms / 1000).strftime('%Y%m%d')
+    rows = []
+    for r in (recs or [])[:5]:                      # 规格钉死 5 人，多退
+        if not isinstance(r, dict):
+            continue
+        tid = str(r.get('talent_id') or '').strip()
+        if not tid:
+            continue
+        rules = r.get('matched_rules')
+        if not isinstance(rules, list):
+            rules = []                               # 编造不如空存（审计探针视角）
+        snap = r.get('snapshot')
+        rows.append((
+            f'rec_{ymd}_{tid}',                      # rec_id：同日去重键的一半
+            day_start, tid,
+            str(r.get('talent_name') or '').strip()[:100],
+            json.dumps(rules, ensure_ascii=False)[:2000],
+            str(r.get('reason_text') or '').strip()[:500],
+            (json.dumps(snap, ensure_ascii=False)[:4000] if isinstance(snap, dict) else None),
+            None,                                    # run_id：worker 侧不可知，留空
+            now_ms, now_ms,
+        ))
+    return rows
+
+
+def _square_write_report(summary, detail, agent_id=SQUARE_DUTY_AGENT, recommendations=None):
     """日报交付（②主管协同位 2026-11-10）：
     - notifications → 管理员（原有）
     - 抄送主管（emp_duties.supervisor_agent_id）：notifications 留痕 + openclaw 会话投递
@@ -3614,6 +3649,20 @@ def _square_write_report(summary, detail, agent_id=SQUARE_DUTY_AGENT):
             'UPDATE emp_duties SET last_run_at = ?, last_run_summary = ?, zero_streak = ?, '
             'updated_at = ? WHERE agent_id = ?',
             (now_ms, summary, new_streak, now_ms, agent_id))
+        # ③号单：「每日推荐 5 人」落 B 表（与日报同事务——日报交了推荐才算交，
+        # 防「推荐写了日报没交」的半吊子状态）。rec_id 含日期 ⇒ 同日重投幂等覆盖。
+        # 只认小拓（SQUARE_DUTY_AGENT）——别的 agent 走 /square-report 不 contaminates B 表。
+        rec_rows = (_square_normalize_recs(recommendations, now_ms)
+                    if agent_id == SQUARE_DUTY_AGENT else [])
+        for row in rec_rows:
+            conn.execute(
+                'INSERT OR REPLACE INTO talent_recommendations '
+                '(rec_id, rec_date, talent_id, talent_name, matched_rules, reason_text, '
+                ' snapshot_json, run_id, created_at, updated_at) '
+                'VALUES (?,?,?,?,?,?,?,?,?,?)',
+                (row[0], row[1], row[2], row[3], row[4], row[5], row[6], row[7], row[8], row[9]))
+        if rec_rows:
+            log(f'[SquareReport] 推荐落库 {len(rec_rows)} 条 → talent_recommendations')
         conn.commit()
     finally:
         conn.close()
@@ -5081,11 +5130,13 @@ class ControlHandler(BaseHTTPRequestHandler):
             summary = str((body or {}).get('summary') or '').strip()
             detail = str((body or {}).get('detail') or '').strip()
             agent_id = str((body or {}).get('agent_id') or 'emp_xiaotuo').strip()
+            recommendations = (body or {}).get('recommendations')
             if not summary or not detail:
                 self._json(400, {'error': 'summary 和 detail 必填'})
                 return
             try:
-                _square_write_report(summary[:500], detail[:2000], agent_id)
+                _square_write_report(summary[:500], detail[:2000], agent_id,
+                                     recommendations=recommendations)
             except Exception as e:
                 log(f'[SquareReport] 写日报失败: {e}')
                 self._json(500, {'ok': False, 'error': str(e)})

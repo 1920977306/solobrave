@@ -78,7 +78,15 @@ def build_task_message(duty):
         '★ 铁律（11-13 实证：fresh 会话 + k3 下 tool_search 现场发现交付工具'
         '空转 41 次、干完活没交卷）：收工必须按名字调用 tools/xiaotuo_ops.py '
         'report 交卷——上面三步的工具名都已点名，不允许靠 tool_search 现场'
-        '发现；发现式交付等于赌博。'
+        '发现；发现式交付等于赌博。\n'
+        '★ 每日推荐 5 人（11-15 起，③号单）：日报正文必须有「每日推荐」段——'
+        '从今日「值得联系」里选最多 5 人，每人一行：'
+        '序号. 昵称（talent_id）｜一句话可验证理由（必须含数字，如结算额/粉丝数）。\n'
+        '同时 report 命令带 --rec 落 B 表（talent_recommendations，同日去重），'
+        'JSON 数组每项：{"talent_id","talent_name","matched_rules":[...],'
+        '"reason_text","snapshot":{核心字段+判定依据字段}}。'
+        'matched_rules 宁可空数组不可编造（没有命中的规则就存 []，编造的规则'
+        '三个月后反推全是假规律）；snapshot 只放候选里有的字段。'
     )
 
 

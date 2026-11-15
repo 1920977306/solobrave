@@ -5178,6 +5178,33 @@ def init_db():
         conn.execute('CREATE INDEX IF NOT EXISTS idx_dispatch_status ON dispatch_queue(status)')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_dispatch_priority ON dispatch_queue(priority, status)')
 
+        # ★ feat/talent-recommendations（2026-11-15 ③号单 dq_aa7f03662de9 施工，规格 §143）：
+        #   选达人指标线 B 表——机器侧推荐落库，喂命中率的「三个率」指标。
+        #   matched_rules 结构化 JSON（宁可少存不可编造）；snapshot_json 只快照
+        #   核心字段+判定依据字段（达人数据天天变，勿全表快照）；
+        #   UNIQUE(rec_date, talent_id) = 同日去重（重投幂等）。
+        #   写入方=buyin_worker /square-report（与日报同事务）；rec_date=当日 00:00 ms。
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS talent_recommendations (
+                rec_id TEXT PRIMARY KEY,
+                rec_date INTEGER NOT NULL,
+                talent_id TEXT NOT NULL,
+                talent_name TEXT NOT NULL DEFAULT '',
+                matched_rules TEXT NOT NULL DEFAULT '[]',
+                reason_text TEXT NOT NULL DEFAULT '',
+                snapshot_json TEXT,
+                pipeline_status TEXT NOT NULL DEFAULT 'pending',
+                deal_pid TEXT,
+                gmv REAL,
+                refund_flag INTEGER,
+                run_id TEXT,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL,
+                UNIQUE(rec_date, talent_id)
+            )
+        ''')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_tr_date ON talent_recommendations(rec_date)')
+
         # 用户通知开关
         conn.execute('''
             CREATE TABLE IF NOT EXISTS user_settings (
