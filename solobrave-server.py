@@ -37467,6 +37467,24 @@ def _handle_proxy_kimi(self):
         # 非代理key，直接转发（兼容旧配置）
         agent_id = None
 
+    # 2.6 隔离闸门（2026-11-15，根因单 dq_0f6069d56a0e）：
+    #     QUARANTINE_LEAK_AGENTS 中的员工直接 429 拒转上游。
+    #     止血守卫（_record_credit_usage）只管记账冻结；这里把上游模型
+    #     成本也掐掉——已实机证实网关内存在孤儿 agentic 循环，每 4-8 秒
+    #     重试一次模型调用，错误/超时均杀不死它，只有掐断出口能止烧。
+    #     解冻方式：从 QUARANTINE_LEAK_AGENTS 移除该 id + 重启服务 + 跑
+    #     scripts/unquarantine_credits.py --apply 冲回。
+    if agent_id in QUARANTINE_LEAK_AGENTS:
+        logger.warning(
+            f'[KimiProxy] 隔离拒转: agent_id={agent_id} path={self.path} '
+            f'(credit-quarantined: upstream forwarding suspended, not billed)'
+        )
+        self._send_json(429, {'type': 'error', 'error': {
+            'type': 'rate_limit_error',
+            'message': f'agent {agent_id} is credit-quarantined; upstream forwarding suspended. Unquarantine via QUARANTINE_LEAK_AGENTS + service restart, then run scripts/unquarantine_credits.py --apply.',
+        }})
+        return
+
     # 计时工具：在关键步骤前后打点，日志可直接看出各环节耗时
     _t_start = time.perf_counter()
     def _timing(label, since):

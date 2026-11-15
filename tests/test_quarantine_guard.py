@@ -124,3 +124,22 @@ def test_quarantine_accumulates_across_rows(conn):
     acc = conn.execute('SELECT * FROM credit_accounts WHERE agent_id=?', (LEAK_AGENT,)).fetchone()
     n = conn.execute('SELECT COUNT(*) FROM credit_usage_log WHERE quarantined=1').fetchone()[0]
     assert n == 5 and acc['quarantined_credits'] == 5 and acc['balance'] == 1000
+
+
+# ── 隔离闸门（2026-11-15 根因单 dq_0f6069d56a0e）────────────────────────────
+# _handle_proxy_kimi 对名单内 agent 直接 429 拒转上游。
+# 实机依据：Helen 泄漏是网关内孤儿 agentic 循环，错误/超时杀不死，
+# 只有掐断出口能止烧（16:22:54 网关重试撞上 429 后循环终止，16:16:38 后
+# 零转发）。该测试守的是「闸门存在且位于上游转发之前」这一不变量——
+# 真实往返已由 prod 探针验证（HTTP 429 + anthropic 错误格式，零计费）。
+
+def test_proxy_quarantine_gate_exists_and_precedes_upstream():
+    import re
+    src = _extract_func(_server_tree, '_handle_proxy_kimi')
+    # 名单常量与处理函数必须真实存在且引用同一常量
+    m = re.search(r'QUARANTINE_LEAK_AGENTS\s*=\s*\{([^}]*)\}', _server_src)
+    assert m and LEAK_AGENT in m.group(1), '模块级隔离名单必须含泄漏员工'
+    # 闸门分支存在
+    assert 'rate_limit_error' in src and '隔离拒转' in src
+    # 闸门必须位于上游深管道（记忆召回）之前——429 先行，不许任何上游动作
+    assert src.index('QUARANTINE_LEAK_AGENTS') < src.index('recall_with_budget')
