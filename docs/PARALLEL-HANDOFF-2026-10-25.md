@@ -12325,3 +12325,16 @@ quarantined 行是最全的案发现场，排查直接查 quarantined=1 行即�
    `xiaotuo_daily.py` 轮询段。
 6. buyin 停摆半因：11-14 09:30 扫描卡死浏览器线程 → 11-15 09:58 launchd 重启自愈。
    `talent_collects` 锚点（11-11 19:56）= 商品同步口径，与广场扫描成功两回事，验收别混。
+
+## §166 按建议录四单入队 + SIGTERM 单闭环（2026-11-15 18:0x，A 边代录/施工，老大 17:51 拍「按建议录」）
+
+- **四条入队**（created_by=boss-20261115-按建议录(A边代录)，读回已验 priority/status）：
+  P1-⑦ 熔断/验卷实现（dq_fuse_verify_impl，含一页纸施工规格：数据源/判定口径
+  calls>100 或 share>0.4 且 calls>30/心跳 480s/验卷挂接/验收 verify_fuse_replay ≥6/7）、
+  P2-① 空壳口径+隔离、P2-② 看门三件套入 prod（注意 ro URI 打不开 credit 库）、
+  P2-③ 升级通知通道修复。
+- **dq_ce3e2f985257（SIGTERM+停摆）= 完成**：施工主体 = exit 143 自愈重试
+  （commit `094b661`：`-r2` 新会话键重试一次、已交不重试防双烧、双 143 落看门；
+  deliver_task 返回加 rc；守卫测试 18 passed）。kill 发送者不可考 = 不可考尾巴，
+  已如实登记。
+- 队列待领全景（18:1x）：P1 待领×3（③B表 ④总闸 ⑥聊天）+ P1-⑦ + P2×3。
