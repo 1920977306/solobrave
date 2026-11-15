@@ -91,29 +91,40 @@ def daily_session_key():
     return f'agent:{AGENT_ID}:daily-{datetime.now():%Y%m%d}'
 
 
-def deliver_task(message):
-    """投任务到 emp_xiaotuo 会话。返回 (exit_note, accepted_run_id)。"""
+def deliver_task(message, session_key=None):
+    """投任务到 emp_xiaotuo 会话。返回 (exit_note, accepted_run_id, returncode)。
+
+    2026-11-15（§165）：加 session_key 参数——exit 143 外部 SIGTERM 重试时
+    必须换新会话键（同一退化会话重试会重蹈漫游，11-13 红线）。"""
     args = [OPENCLAW_CLI, 'agent', '--agent', AGENT_ID, '--message', message,
-            '--session-key', daily_session_key(),
+            '--session-key', session_key or daily_session_key(),
             '--json', '--timeout', str(TURN_TIMEOUT)]
     try:
         result = subprocess.run(args, capture_output=True, text=True,
                                 encoding='utf-8', errors='replace',
                                 timeout=TURN_TIMEOUT + 120, env=_subprocess_env())
     except subprocess.TimeoutExpired:
-        return ('CLI 等待超时（turn 可能仍在跑）', None)
+        return ('CLI 等待超时（turn 可能仍在跑）', None, None)
     except Exception as e:
-        return (f'CLI 调用失败：{e}', None)
+        return (f'CLI 调用失败：{e}', None, None)
     if result.returncode != 0:
-        return (f'CLI 退出码 {result.returncode}：{(result.stderr or "")[:200]}', None)
+        return (f'CLI 退出码 {result.returncode}：{(result.stderr or "")[:200]}', None,
+                result.returncode)
     try:
         output = json.loads(result.stdout)
     except Exception:
-        return (f'CLI 输出非 JSON：{(result.stdout or "")[:200]}', None)
+        return (f'CLI 输出非 JSON：{(result.stdout or "")[:200]}', None, result.returncode)
     run_id = output.get('runId') if isinstance(output, dict) else None
     if output.get('ok') is False and not run_id:
-        return (f'网关拒绝：{json.dumps(output, ensure_ascii=False)[:200]}', None)
-    return ('turn 已结束' if output.get('ok') else '网关已接受（turn 可能仍在跑）', run_id)
+        return (f'网关拒绝：{json.dumps(output, ensure_ascii=False)[:200]}', None,
+                result.returncode)
+    return ('turn 已结束' if output.get('ok') else '网关已接受（turn 可能仍在跑）',
+            run_id, result.returncode)
+
+
+# 外部 SIGTERM 的退出码形态（11-14 09:37 实锤：CLI 被外部 kill → 优雅 chat.abort
+# → exit 143；subprocess 原生形态为 returncode=-15。两种都认）。
+EXTERNAL_KILL_RCS = (143, -15)
 
 
 def report_delivered(since_ms):
@@ -210,8 +221,20 @@ def main():
         f'quota={duty.get("quota")}')
 
     dispatch_ms = int(time.time() * 1000)
-    note, run_id = deliver_task(message)
+    note, run_id, rc = deliver_task(message)
     log(f'投递结果：{note}' + (f'（runId={run_id}）' if run_id else ''))
+
+    # ★ 外部 SIGTERM 自愈重试（§165，2026-11-15）：11-14 09:37 实锤——CLI 被外部
+    #   kill（exit 143）后自请求 chat.abort 优雅中止，run 无病。发送者不可考
+    #   （macOS 不记录信号来源），但修复不依赖它：立即换新会话键重试一次，
+    #   而不是干等 45 分钟看门狗告警 = 白丢一班。仅一次防双烧；作业已交不重试。
+    if rc in EXTERNAL_KILL_RCS:
+        if report_delivered(dispatch_ms) or report_notification_exists_today():
+            log('首投被外部中止（143），但作业已交付——无需重试，收工')
+            return 0
+        log('首投 CLI 被外部 SIGTERM（exit 143，§165 实锤形态）——换新会话键重试一次')
+        note, run_id, rc = deliver_task(message, session_key=daily_session_key() + '-r2')
+        log(f'重投结果：{note}' + (f'（runId={run_id}）' if run_id else ''))
 
     # 看门：turn 结束后（或早退）等它交作业
     deadline = time.time() + WATCHDOG_SEC

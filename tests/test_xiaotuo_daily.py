@@ -53,7 +53,7 @@ def test_deliver_passes_node_env_and_args(monkeypatch):
         captured['env'] = kw.get('env')
         return _fake_run(json.dumps({'ok': True, 'runId': 'r1'}))
     monkeypatch.setattr(xd.subprocess, 'run', fake_run)
-    note, run_id = xd.deliver_task('干活')
+    note, run_id, rc = xd.deliver_task('干活')
     assert run_id == 'r1' and note == 'turn 已结束'
     assert captured['args'][:4] == [xd.OPENCLAW_CLI, 'agent', '--agent', 'emp_xiaotuo']
     assert '--message' in captured['args'] and '干活' in captured['args']
@@ -72,11 +72,11 @@ def test_deliver_never_raises(monkeypatch):
     def boom(*a, **k):
         raise FileNotFoundError('no cli')
     monkeypatch.setattr(xd.subprocess, 'run', boom)
-    note, run_id = xd.deliver_task('x')
+    note, run_id, rc = xd.deliver_task('x')
     assert run_id is None and '失败' in note
 
     monkeypatch.setattr(xd.subprocess, 'run', lambda *a, **k: _fake_run(rc=127, stderr='node?'))
-    note, _ = xd.deliver_task('x')
+    note, _, _rc = xd.deliver_task('x')
     assert '127' in note
 
 
@@ -84,7 +84,7 @@ def test_deliver_gateway_accepted_keeps_runid(monkeypatch):
     out = json.dumps({'ok': False, 'runId': 'abc',
                       'error': {'message': 'gateway timeout'}})
     monkeypatch.setattr(xd.subprocess, 'run', lambda *a, **k: _fake_run(stdout=out))
-    note, run_id = xd.deliver_task('x')
+    note, run_id, rc = xd.deliver_task('x')
     assert run_id == 'abc' and '已接受' in note
 
 
@@ -253,3 +253,79 @@ def test_task_message_names_delivery_tool_and_bans_search_discovery():
     assert 'xiaotuo_ops.py' in m and 'report' in m   # 交付工具点名
     assert 'tool_search' in m and '不允许' in m      # 禁止现场发现
     assert '赌博' in m                                # 后果定性
+
+
+# ── 6. 外部 SIGTERM 自愈重试（§165，2026-11-15）──────────────────────────────
+# 11-14 09:37 实锤：CLI 被外部 kill（exit 143）→ 自请求 chat.abort，run 无病。
+# 闹钟必须立即换新会话键重试一次（而非等 45min 看门狗），且仅一次防双烧。
+
+def test_external_kill_retries_once_with_fresh_session_key(tmp_path, monkeypatch, duty_db):
+    calls = []
+
+    def fake_run(args, **kw):
+        calls.append(args)
+        if len(calls) == 1:
+            return _fake_run(rc=143, stderr='terminated')      # 首投被外部 SIGTERM
+        return _fake_run(stdout=json.dumps({'ok': True, 'runId': 'r2'}))
+    monkeypatch.setattr(xd, 'load_duty', lambda: dict(DUTY))
+    monkeypatch.setattr(xd.subprocess, 'run', fake_run)
+    monkeypatch.setattr(xd.time, 'sleep', lambda s: None)
+    monkeypatch.setattr(xd, 'WATCHDOG_SEC', 0)
+    # 重试前未交（防误判已交而不重试）；看门阶段判定已交（future_ms 晚于投递）⇒ 无告警收工
+    # 状态化假看门：重试前那次检查返回 False（未交→触发重试），此后 True（已交→收工）
+    _gate = {'n': 0}
+    def _rd(since_ms):
+        _gate['n'] += 1
+        return _gate['n'] >= 2
+    monkeypatch.setattr(xd, 'report_delivered', _rd)
+    monkeypatch.setattr(xd, 'report_notification_exists_today', lambda: False)
+    future_ms = int(__import__('time').time() * 1000) + 3600_000
+    conn = sqlite3.connect(str(duty_db))
+    conn.execute("INSERT INTO emp_duties VALUES ('emp_xiaotuo', ?, '已交', 0)", (future_ms,))
+    conn.commit()
+    conn.close()
+    assert xd.main() == 0
+    assert len(calls) == 2, '143 后必须恰好重试一次'
+    k1 = calls[0][calls[0].index('--session-key') + 1]
+    k2 = calls[1][calls[1].index('--session-key') + 1]
+    assert k2 == k1 + '-r2', '重试必须换新会话键（同会话重试=重蹈漫游红线）'
+
+
+def test_external_kill_no_retry_when_already_delivered(tmp_path, monkeypatch, duty_db):
+    calls = []
+
+    def fake_run(args, **kw):
+        calls.append(args)
+        return _fake_run(rc=143, stderr='terminated')
+    monkeypatch.setattr(xd, 'load_duty', lambda: dict(DUTY))
+    monkeypatch.setattr(xd.subprocess, 'run', fake_run)
+    monkeypatch.setattr(xd.time, 'sleep', lambda s: None)
+    # 作业已交付（last_run_at 晚于投递）⇒ 中止后不重试、不告警
+    future_ms = int(__import__('time').time() * 1000) + 3600_000
+    conn = sqlite3.connect(str(duty_db))
+    conn.execute("INSERT INTO emp_duties VALUES ('emp_xiaotuo', ?, '已交', 0)", (future_ms,))
+    conn.commit()
+    conn.close()
+    assert xd.main() == 0
+    assert len(calls) == 1, '作业已交则不许重试（防双烧）'
+
+
+def test_external_kill_double_143_falls_to_watchdog(tmp_path, monkeypatch, duty_db):
+    """两次都 143 ⇒ 不再无限重试，落入正常看门告警流程。"""
+    calls = []
+    monkeypatch.setattr(xd, 'load_duty', lambda: dict(DUTY))
+    monkeypatch.setattr(xd.subprocess, 'run',
+                        lambda *a, **k: (calls.append(a), _fake_run(rc=143))[1])
+    monkeypatch.setattr(xd.time, 'sleep', lambda s: None)
+    monkeypatch.setattr(xd, 'WATCHDOG_SEC', 0)
+    conn = sqlite3.connect(str(duty_db))
+    conn.execute("INSERT INTO emp_dutues VALUES ('emp_xiaotuo', 0, '', 0)") if False else None
+    conn.execute("INSERT INTO emp_duties VALUES ('emp_xiaotuo', 0, '', 0)")
+    conn.commit()
+    conn.close()
+    assert xd.main() == 0
+    assert len(calls) == 2, '重试仅一次，二次 143 不得再投'
+    conn = sqlite3.connect(str(duty_db))
+    rows = conn.execute("SELECT title FROM notifications WHERE title LIKE '%未交日报%'").fetchall()
+    conn.close()
+    assert len(rows) == 1, '两次被kill后看门告警照常落库'
