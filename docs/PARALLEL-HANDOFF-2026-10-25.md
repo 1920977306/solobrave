@@ -12450,3 +12450,30 @@ A 边按序全部落地，commit `c1320ad`（main+dev 双分支零分叉，`rev-
 9:30 班真跑后（自动带 --rec，因任务书已重组装）：
 `python3 scripts/check_daily_recommendations.py --date 2026-11-16`
 四条判据：日报含「每日推荐」段≥5 人 / 当日记录数=5 / matched_rules 非空 JSON 数组 / reason_text 含数字。
+
+## §170 P1-④ 身份总闸闭环（2026-11-15 23:0x，A 边直接施工，老大 22:27「④⑥⑦ 归 A 边」+看守点）
+
+老大看守点全落地：is_admin / is_platform_admin **双强制** + 守卫第三断言（agent 打 platform_admin 端点必 403）。commit `ff269d7`（main+dev 零分叉）。
+
+### 根因与修法
+
+- 根：`AuthResult.is_admin` / `is_platform_admin` 两个 property 上 `localhost_agent_id` 存在时恒 False（server.py ~3314/3326）。**为什么必须在 property 层**：agent 直连的 userId 映射的是 creator，`_subject_kind(creator_uid)` 对老大恰读出 `super_admin`——不在这层挡，员工直连就携 creator 的 kind 行直通平台面。
+- 全仓扫描实证：`:12393 /:12426 /:12923` 等**十余处 is_platform_admin 端点闸历史上无 localhost 焊点**（租户管理/组织/用量观测面）——总闸是唯一屏障，不是锦上添花。
+- 派单队列三处裸 is_admin 消费（POST/PUT 优先级口 ×2 + summary 口 ×1）切 `is_platform_admin`（真人老大=super_admin kind，语义不变；显式 localhost 拒绝保留做纵深）。**§160 两条预存失败（权限不变量×派单焊点）随之转绿**，IS-ADMIN-LABELS 重出：业务消费 **0 处**。
+
+### 验证
+
+| 项 | 结果 |
+|---|---|
+| 守卫 test_identity_root_gate.py | 7 单元 + 3 live（SOLO_BRAVE_LIVE 门禁）全过；含 kind=super_admin 打桩也抬不起 agent、真人老大三闸全开、员工模块权限走创建者角色模板（admin 模板全模块+*分类）不被误伤、无 priority 开放创建面不受影响 |
+| 全量回归 | **1890 passed 0 failed（历史首次零红）** |
+| 活机验收（server 重启后） | agent 直连打 /api/dispatch-queue 带 priority → 403；打 /api/tenants（无焊点平台面）→ **403**（旧代码会 200=洞被实证封死）；开放创建 → 200 且探针行已作废清场 |
+| 在岗链路排查 | buyin_worker admin_token()=真人凭据 /api/auth/login（非 agent 映射，不受闸影响）；worker 写库走 admin=True Bearer；采集状态回写走开放面（is_authenticated+模块权限）；xiaotuo_ops 只打 :8095；管家/Helen 工具零 http 调用——**总闸对全部在岗 agent 流程零误伤** |
+
+### 队列
+
+dq_394807732167 置「完成」。明早六行确认第①行（优先级焊点 agent→403）今晚已活机验证转绿。
+
+### 剩单
+
+P1：⑥聊天两症状（dq_chat_ui_symptoms）、⑦熔断/验卷（dq_fuse_verify_impl）；P2×3。A 边继续按 ⑥→⑦ 或老大新令。
