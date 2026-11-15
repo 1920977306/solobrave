@@ -329,3 +329,102 @@ def test_external_kill_double_143_falls_to_watchdog(tmp_path, monkeypatch, duty_
     rows = conn.execute("SELECT title FROM notifications WHERE title LIKE '%未交日报%'").fetchall()
     conn.close()
     assert len(rows) == 1, '两次被kill后看门告警照常落库'
+
+
+# ── 6. 外部 SIGTERM 自愈重试 · 验收③四口径守卫（§165 + 第四方背书 11-15）──
+
+def test_sigterm_retry_once_new_key_retried_from_and_notice_mark(tmp_path, monkeypatch, duty_db):
+    """验收①③合体：exit 143 → 恰重试一次、新键 -r2、任务书注明重试班、
+    retried_from 双锚点（JSONL + 通知标题）、日报通知被打「重试班」标。"""
+    calls = []
+
+    def seq_run(*a, **k):
+        calls.append(a)
+        if len(calls) == 1:
+            return _fake_run(rc=143, stderr='SIGTERM')          # 首投被外部杀
+        return _fake_run(stdout=json.dumps({'ok': True, 'runId': 'r2'}))
+
+    monkeypatch.setattr(xd, 'load_duty', lambda: dict(DUTY))
+    monkeypatch.setattr(xd.subprocess, 'run', seq_run)
+    monkeypatch.setattr(xd.time, 'sleep', lambda s: None)
+    monkeypatch.setattr(xd, 'RETRY_LOG', tmp_path / 'retry.jsonl')
+    seen = {'n': 0}
+
+    def fake_delivered(since_ms):
+        seen['n'] += 1
+        return seen['n'] > 1   # 重试决策点=没交（触发重试）；看门轮询=已交（重试班交了）
+
+    monkeypatch.setattr(xd, 'report_delivered', fake_delivered)
+    monkeypatch.setattr(xd, 'report_notification_exists_today', lambda: False)
+    now_ms = int(__import__('time').time() * 1000)
+    conn = sqlite3.connect(str(duty_db))
+    conn.execute("INSERT INTO emp_duties VALUES ('emp_xiaotuo', 0, '', 0)")
+    # 通知 created_at 必须晚于 main() 里的 dispatch 时刻（对齐本文件 last_run_at
+    # 的 future_ms 写法）——毫秒级同刻竞态：单跑常同毫秒过、全量跑必超毫秒挂
+    future_ms = now_ms + 3600_000
+    conn.execute(
+        "INSERT INTO notifications VALUES ('notif_r2', 'user_7acb72ff', 'emp_xiaotuo', "
+        "'task_reminder', '达人筛选专员日报', '今日深看5', 0, ?)", (future_ms,))
+    conn.commit()
+    conn.close()
+
+    assert xd.main() == 0
+    # 验收①：恰一次重试 + 新会话键
+    assert len(calls) == 2
+    flat1 = [str(x) for x in calls[1][0]]
+    assert any('-r2' in x for x in flat1), '重试必须换新会话键'
+    # 任务书注明「本班为重试班」（模型侧锚点，DB 侧另由 mark_retry_delivery 兜底）
+    assert any('本班为重试班' in x for x in flat1)
+    # 验收③：retried_from 留痕（JSONL 锚点）
+    lines = (tmp_path / 'retry.jsonl').read_text(encoding='utf-8').strip().splitlines()
+    assert len(lines) == 1
+    rec = json.loads(lines[0])
+    assert rec['retry_session_key'] == rec['first_session_key'] + '-r2'
+    assert rec['first_rc'] == 143
+    # 验收③：通知标题锚点（幂等防双交卷的可见标记）
+    conn = sqlite3.connect(str(duty_db))
+    title = conn.execute(
+        "SELECT title FROM notifications WHERE id='notif_r2'").fetchone()[0]
+    conn.close()
+    assert '重试班' in title and 'retried_from=' in title
+
+
+def test_mark_retry_delivery_idempotent(tmp_path, monkeypatch, duty_db):
+    """同一通知只标一次：重看门/复查双路径都调 mark 也不会叠后缀。"""
+    now_ms = int(__import__('time').time() * 1000)
+    conn = sqlite3.connect(str(duty_db))
+    conn.execute("INSERT INTO emp_duties VALUES ('emp_xiaotuo', 0, '', 0)")
+    conn.execute(
+        "INSERT INTO notifications VALUES ('notif_x', 'user_7acb72ff', 'emp_xiaotuo', "
+        "'task_reminder', '达人筛选专员日报', 'x', 0, ?)", (now_ms,))
+    conn.commit()
+    conn.close()
+    monkeypatch.setattr(xd, 'DB', duty_db)
+    xd.mark_retry_delivery('agent:emp_xiaotuo:daily-20990101', now_ms - 1000)
+    xd.mark_retry_delivery('agent:emp_xiaotuo:daily-20990101', now_ms - 1000)
+    conn = sqlite3.connect(str(duty_db))
+    title = conn.execute(
+        "SELECT title FROM notifications WHERE id='notif_x'").fetchone()[0]
+    conn.close()
+    assert title.count('重试班') == 1
+
+
+def test_retry_delivery_uses_db_anchor_not_prompt_faith(tmp_path, monkeypatch, duty_db):
+    """验收③兜底语义：即使模型没在日报里自称重试班，交付后通知仍被标注——
+    检查在 AI 拦不住的地方（与验卷同哲学）。"""
+    now_ms = int(__import__('time').time() * 1000)
+    conn = sqlite3.connect(str(duty_db))
+    conn.execute("INSERT INTO emp_duties VALUES ('emp_xiaotuo', 0, '', 0)")
+    conn.execute(
+        "INSERT INTO notifications VALUES ('notif_y', 'user_7acb72ff', 'emp_xiaotuo', "
+        "'task_reminder', '达人筛选专员日报', '今日深看5（模型没提重试班）', 0, ?)",
+        (now_ms,))
+    conn.commit()
+    conn.close()
+    monkeypatch.setattr(xd, 'DB', duty_db)
+    xd.mark_retry_delivery('agent:emp_xiaotuo:daily-20990102', now_ms - 1000)
+    conn = sqlite3.connect(str(duty_db))
+    title = conn.execute(
+        "SELECT title FROM notifications WHERE id='notif_y'").fetchone()[0]
+    conn.close()
+    assert '重试班' in title and '20990102' in title

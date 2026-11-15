@@ -206,6 +206,50 @@ def alert_admin(note, run_id):
         log(f'告警写入失败（不阻断）: {e}')
 
 
+# 重试留痕（验收③「同班次标记 retried_from」，2026-11-15）：append-only JSONL，
+# data/ 已 gitignore；通知标题里的「（重试班，retried_from=…）」是 DB 侧同锚点。
+RETRY_LOG = ROOT / 'data' / 'xiaotuo_retry_log.jsonl'
+
+
+def _log_retry(first_key, retry_key, first_rc, first_run_id):
+    rec = {'ts': int(time.time() * 1000), 'agent': AGENT_ID, 'kind': 'sigterm-retry',
+           'first_session_key': first_key, 'retry_session_key': retry_key,
+           'first_rc': first_rc, 'first_run_id': first_run_id}
+    try:
+        with open(RETRY_LOG, 'a', encoding='utf-8') as f:
+            f.write(json.dumps(rec, ensure_ascii=False) + '\n')
+    except Exception as e:
+        log(f'重试留痕写盘失败（不阻断）: {e}')
+
+
+def mark_retry_delivery(first_key, since_ms):
+    """重试班交付后给当日日报通知打「重试班」标（幂等，含 retried_from）。
+
+    在 prompt 之外改通知标题（交付后落库即标），不依赖模型自觉注明——
+    与验卷同哲学：检查在 AI 拦不住的地方。任何一步失败只记日志不阻断。"""
+    try:
+        conn = sqlite3.connect(str(DB), timeout=10)
+        try:
+            row = conn.execute(
+                "SELECT id, title FROM notifications WHERE agent_id=? "
+                "AND title LIKE '%日报%' AND title NOT LIKE '%未交%' "
+                "AND title NOT LIKE '%重试班%' AND created_at>=? "
+                "ORDER BY created_at DESC LIMIT 1",
+                (AGENT_ID, since_ms)).fetchone()
+            if not row:
+                log('重试标注：未找到可标注的日报通知（按未标注处理，不阻断）')
+                return
+            nid, title = row
+            conn.execute("UPDATE notifications SET title=? WHERE id=?",
+                         (f'{title}（重试班，retried_from={first_key}）', nid))
+            conn.commit()
+            log(f'重试标注完成：{nid}')
+        finally:
+            conn.close()
+    except Exception as e:
+        log(f'重试标注失败（不阻断）: {e}')
+
+
 def main():
     duty = load_duty()
     if not duty:
@@ -228,18 +272,30 @@ def main():
     #   kill（exit 143）后自请求 chat.abort 优雅中止，run 无病。发送者不可考
     #   （macOS 不记录信号来源），但修复不依赖它：立即换新会话键重试一次，
     #   而不是干等 45 分钟看门狗告警 = 白丢一班。仅一次防双烧；作业已交不重试。
+    #   验收③（第四方背书 11-15）：retried_from 双锚点留痕（JSONL+通知标题），
+    #   重试班看护不豁免（fall-through 进同一看门+外部熔断/验卷/积分看门）。
+    retried = False
+    retry_first_key = None
     if rc in EXTERNAL_KILL_RCS:
         if report_delivered(dispatch_ms) or report_notification_exists_today():
             log('首投被外部中止（143），但作业已交付——无需重试，收工')
             return 0
+        retry_first_key = daily_session_key()
+        retry_key = retry_first_key + '-r2'
+        _log_retry(retry_first_key, retry_key, rc, run_id)
         log('首投 CLI 被外部 SIGTERM（exit 143，§165 实锤形态）——换新会话键重试一次')
-        note, run_id, rc = deliver_task(message, session_key=daily_session_key() + '-r2')
+        retry_msg = message + (
+            '\n★ 本班为重试班：首投被外部信号中止（exit 143），流程照常跑完交日报。')
+        note, run_id, rc = deliver_task(retry_msg, session_key=retry_key)
+        retried = True
         log(f'重投结果：{note}' + (f'（runId={run_id}）' if run_id else ''))
 
     # 看门：turn 结束后（或早退）等它交作业
     deadline = time.time() + WATCHDOG_SEC
     while time.time() < deadline:
         if report_delivered(dispatch_ms):
+            if retried:
+                mark_retry_delivery(retry_first_key, dispatch_ms)
             log('小拓已交日报（emp_duties.last_run_at 已在本次投递后回写），收工')
             return 0
         time.sleep(60)
@@ -247,6 +303,8 @@ def main():
     # 日报可能恰在最后一次轮询后、告警前落库（11-11 20:45:47 落库 vs
     # 20:46:05 误报，只差 18 秒）。双路任一命中即静默跳过。
     if report_delivered(dispatch_ms) or report_notification_exists_today():
+        if retried:
+            mark_retry_delivery(retry_first_key, dispatch_ms)
         log('复查命中：日报已交付（竞态窗口内落库），告警静默跳过')
         return 0
     alert_admin(note, run_id)
