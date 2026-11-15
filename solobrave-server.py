@@ -5259,6 +5259,20 @@ def init_db():
             _logging.getLogger(__name__).warning('[credit_usage_log migrate] reason/delta/note 列添加失败: %s', _e)
         conn.execute('CREATE INDEX IF NOT EXISTS idx_credit_usage_log_reason ON credit_usage_log(reason, created_at)')
 
+        # ★ 止血守卫迁移（老大 2026-11-15 14:12 拍「止血」，P1-⑤ = dq_2e3dcf47d76c）：
+        #   credit_usage_log 加 quarantined 标记列；credit_accounts 加 quarantined_credits 累计列。
+        #   行照写不删——指纹（5s 节奏/空 session/空 note）是根因排查唯一现场（协调边硬条件①）。
+        try:
+            _qcols = [r['name'] for r in conn.execute("PRAGMA table_info(credit_usage_log)").fetchall()]
+            if 'quarantined' not in _qcols:
+                conn.execute("ALTER TABLE credit_usage_log ADD COLUMN quarantined INTEGER DEFAULT 0")
+            _acols = [r['name'] for r in conn.execute("PRAGMA table_info(credit_accounts)").fetchall()]
+            if 'quarantined_credits' not in _acols:
+                conn.execute("ALTER TABLE credit_accounts ADD COLUMN quarantined_credits INTEGER DEFAULT 0")
+        except Exception as _e:
+            import logging as _logging
+            _logging.getLogger(__name__).warning('[quarantine migrate] quarantined 列添加失败: %s', _e)
+
         # 任务管理表
         # ★ r75 派单 老大 10-08 派单 tab 6 任务-达人关联:
         #   - tasks 表加 talent_id TEXT DEFAULT '' (非破坏迁移, 旧数据 talent_id='' 兼容)
@@ -35570,6 +35584,14 @@ def _admin_grant_credits(conn, agent_id, delta, operator='', note=''):
     return {'ok': True, 'balance': new_balance, 'delta': delta, 'reason': reason, 'note': note, 'new_balance': new_balance}
 
 
+# ★ 止血守卫名单（P1-⑤ dq_2e3dcf47d76c，老大 2026-11-15 14:12 拍「止血」，A 边直接施工）：
+# 这些 agent 的【空 session_id】consumption 行 = 行照写(quarantined=1) + 余额冻结 +
+# quarantined_credits 累计，不碰其他任何功能（该 id 兼日报抄送发送方，禁止盲掐）。
+# 解除方式 = scripts/unquarantine_credits.py（协调边硬条件②：禁止能冻不能解）。
+# 根因（谁在写空 session 行，dq_0f6069d56a0e）查明并修复后，跑 unquarantine 冲回。
+QUARANTINE_LEAK_AGENTS = {'emp_1780199176680'}
+
+
 def _record_credit_usage(conn, agent_id, input_tokens, output_tokens, cache_read_tokens, session_id='', created_at=None):
     """记录一条算力消耗：写入 credit_usage_log 并扣减 credit_accounts.balance。
     积分 = ceil(total_tokens / 1000)；余额可以扣到 0，但不为负数（调用方负责幂等与 commit）。
@@ -35589,26 +35611,36 @@ def _record_credit_usage(conn, agent_id, input_tokens, output_tokens, cache_read
     except Exception:
         _kind = None          # 表缺失等异常 → 不 bypass（照扣）
     credit_bypass = _kind in ('super_admin', 'platform_internal')
+    # ★ 止血守卫判定（P1-⑤）：名单内 agent + 空 session ⇒ 冻结余额但行照写。
+    # 注意判定顺序：须在 ensure 之前算好，INSERT 里直接落 quarantined 标记。
+    _quarantined = agent_id in QUARANTINE_LEAK_AGENTS and not (session_id or '').strip()
     # ★ 修复: 始终 ensure credit_accounts (FK 约束需要), bypass 只是不扣减余额
     _ensure_credit_account(conn, agent_id)
     if created_at:
         conn.execute(
-            '''INSERT INTO credit_usage_log (agent_id, input_tokens, output_tokens, cache_read_tokens, total_tokens, credits_used, session_id, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
-            (agent_id, input_tokens, output_tokens, cache_read_tokens, total_tokens, credits_used, session_id, created_at)
+            '''INSERT INTO credit_usage_log (agent_id, input_tokens, output_tokens, cache_read_tokens, total_tokens, credits_used, session_id, created_at, quarantined)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+            (agent_id, input_tokens, output_tokens, cache_read_tokens, total_tokens, credits_used, session_id, created_at, 1 if _quarantined else 0)
         )
     else:
         conn.execute(
-            '''INSERT INTO credit_usage_log (agent_id, input_tokens, output_tokens, cache_read_tokens, total_tokens, credits_used, session_id)
-               VALUES (?, ?, ?, ?, ?, ?, ?)''',
-            (agent_id, input_tokens, output_tokens, cache_read_tokens, total_tokens, credits_used, session_id)
+            '''INSERT INTO credit_usage_log (agent_id, input_tokens, output_tokens, cache_read_tokens, total_tokens, credits_used, session_id, quarantined)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
+            (agent_id, input_tokens, output_tokens, cache_read_tokens, total_tokens, credits_used, session_id, 1 if _quarantined else 0)
         )
-    # 扣减余额：允许透支到 0，但不能为负数 (admin / main 不扣减)
+    # 扣减余额：允许透支到 0，但不能为负数 (admin / main 不扣减; 止血守卫名单内的
+    # 空 session 行不扣减、只累计 quarantined_credits——根因排查靠这些行的指纹)
     if not credit_bypass:
-        conn.execute(
-            "UPDATE credit_accounts SET balance = MAX(balance - ?, 0), total_consumed = total_consumed + ?, updated_at = datetime('now','localtime') WHERE agent_id = ?",
-            (credits_used, credits_used, agent_id)
-        )
+        if _quarantined:
+            conn.execute(
+                "UPDATE credit_accounts SET quarantined_credits = COALESCE(quarantined_credits, 0) + ?, updated_at = datetime('now','localtime') WHERE agent_id = ?",
+                (credits_used, agent_id)
+            )
+        else:
+            conn.execute(
+                "UPDATE credit_accounts SET balance = MAX(balance - ?, 0), total_consumed = total_consumed + ?, updated_at = datetime('now','localtime') WHERE agent_id = ?",
+                (credits_used, credits_used, agent_id)
+            )
     return credits_used
 
 
