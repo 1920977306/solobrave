@@ -10085,6 +10085,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._handle_get_chat_model()
             return
 
+        # KimiProxy 隔离名单查询（admin only，§162 防复发配套）
+        if path == '/api/admin/quarantine':
+            self._handle_admin_quarantine('GET')
+            return
+
         # FIXME: 大脑知识中枢 API
         if path == '/api/brain/status':
             self._handle_get_brain_status()
@@ -11411,6 +11416,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json_error(400, '非法请求路径')
             return
 
+        # KimiProxy 动态隔离解除（admin only；静态名单成员须走代码变更+重启+冲回脚本）
+        if path == '/api/admin/quarantine':
+            self._handle_admin_quarantine('DELETE')
+            return
+
         # 规律库：硬删除
         if path.startswith('/api/knowledge-patterns/'):
             sub = path[len('/api/knowledge-patterns/'):]
@@ -11702,6 +11712,57 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 'permissions': _get_effective_permissions({'id': user['id'], 'role': user.get('role', 'employee'), 'roleTemplateId': user.get('roleTemplateId')})
             }
         })
+
+    def _handle_admin_quarantine(self, method):
+        """GET/DELETE /api/admin/quarantine — KimiProxy 隔离名单管理（§162 防复发配套）。
+        GET：列出静态名单 + 动态隔离（含隔离时刻与窗口内调用数）。
+        DELETE ?agent_id=X：解除【动态】隔离并清空其限频窗口；
+                静态名单成员拒绝 409（必须走 QUARANTINE_LEAK_AGENTS 代码变更 +
+                重启 + unquarantine_credits.py --apply，防接口误操作解冻漏网之鱼）。"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        err, status = _require_admin(auth)
+        if err:
+            self._send_auth_error(err, status)
+            return
+
+        from urllib.parse import urlparse, parse_qs
+        qs = parse_qs(urlparse(self.path).query)
+
+        if method == 'GET':
+            with _proxy_rate_lock:
+                dynamic = [
+                    {'agent_id': aid, 'quarantined_at': t,
+                     'window_calls': len(_proxy_rate_buckets.get(aid, []))}
+                    for aid, t in _dynamic_quarantined.items()
+                ]
+            self._send_json(200, {
+                'static': sorted(QUARANTINE_LEAK_AGENTS),
+                'dynamic': dynamic,
+                'rate_window_sec': _PROXY_RATE_WINDOW_SEC,
+                'rate_limit': _PROXY_RATE_LIMIT,
+            })
+            return
+
+        agent_id = (qs.get('agent_id') or [''])[0].strip()
+        if not agent_id:
+            self._send_json(400, {'error': '缺少 agent_id 参数'})
+            return
+        if agent_id in QUARANTINE_LEAK_AGENTS:
+            self._send_json(409, {'error': f'{agent_id} 在静态止血名单，禁止接口解除：'
+                                            '须改 QUARANTINE_LEAK_AGENTS + 重启 + '
+                                            'scripts/unquarantine_credits.py --apply'})
+            return
+        with _proxy_rate_lock:
+            removed = _dynamic_quarantined.pop(agent_id, None)
+            _proxy_rate_buckets.pop(agent_id, None)
+        if removed is None:
+            self._send_json(404, {'error': f'{agent_id} 不在动态隔离名单'})
+            return
+        logger.warning(f'[KimiProxy] 动态隔离已解除: agent_id={agent_id}（admin {auth.user_id} 操作）')
+        self._send_json(200, {'ok': True, 'unquarantined': agent_id})
 
     def _handle_auth_register(self):
         """POST /api/auth/register（需要 admin token）"""
@@ -35592,6 +35653,54 @@ def _admin_grant_credits(conn, agent_id, delta, operator='', note=''):
 QUARANTINE_LEAK_AGENTS = {'emp_1780199176680'}
 
 
+# ★ 动态隔离（2026-11-15 §162 防复发，根因单 dq_0f6069d56a0e 闭环交付）：
+# Helen 僵尸循环的形态学特征 = 无会话登记的高频代理调用（每 4-8 秒一次、
+# 24 小时不停、错误和超时都杀不死，只有 429 掐断出口有效——16:22:54 实机实证）。
+# 静态名单拦得住已知，拦不住下一个；这里把闸门通用化：
+#   同一 agent 在滑动窗口内 KimiProxy 调用超阈值 ⇒ 自动隔离（429 拒转上游）+
+#   通知老大 + 日志留痕。解除必须走 /api/admin/quarantine（admin 鉴权），
+#   进程内不自解（防「AI 拦 AI」误触解除）。
+_PROXY_RATE_WINDOW_SEC = 600     # 滑动窗口 10 分钟
+_PROXY_RATE_LIMIT = 120         # 窗口内调用上限；僵尸实测 ~150/10min，正常班峰值 <60
+_proxy_rate_lock = threading.Lock()
+_proxy_rate_buckets = {}       # agent_id -> [调用时间戳]
+_dynamic_quarantined = {}        # agent_id -> 隔离时刻(time.time)
+
+
+def _proxy_rate_record_and_check(agent_id):
+    """滑动窗口限频：登记本次调用并检测是否触发自动隔离。返回 True = 本次触发。"""
+    if not agent_id:
+        return False
+    now = time.time()
+    with _proxy_rate_lock:
+        bucket = _proxy_rate_buckets.setdefault(agent_id, [])
+        cutoff = now - _PROXY_RATE_WINDOW_SEC
+        while bucket and bucket[0] < cutoff:
+            bucket.pop(0)
+        bucket.append(now)
+        if len(bucket) > _PROXY_RATE_LIMIT and agent_id not in _dynamic_quarantined:
+            _dynamic_quarantined[agent_id] = now
+            return True
+    return False
+
+
+def _is_proxy_quarantined(agent_id):
+    """静态名单（数据止血）与动态隔离（形态熔断）共用同一 429 闸门。"""
+    return bool(agent_id) and (agent_id in QUARANTINE_LEAK_AGENTS or agent_id in _dynamic_quarantined)
+
+
+def _notify_admin(title, content):
+    """系统级告警通知：发给 users.json 中第一个 role='admin' 的用户。失败只记日志。"""
+    try:
+        users = _read_json(USERS_FILE, []) or []
+        admin = next((u for u in users if u.get('role') == 'admin'), None)
+        if admin:
+            return _push_notification(admin.get('userId') or admin.get('id'), 'message', title, content)
+    except Exception as e:
+        logger.error(f'  [Notify] 管理员告警发送失败: {e}')
+    return None
+
+
 def _record_credit_usage(conn, agent_id, input_tokens, output_tokens, cache_read_tokens, session_id='', created_at=None):
     """记录一条算力消耗：写入 credit_usage_log 并扣减 credit_accounts.balance。
     积分 = ceil(total_tokens / 1000)；余额可以扣到 0，但不为负数（调用方负责幂等与 commit）。
@@ -37474,14 +37583,30 @@ def _handle_proxy_kimi(self):
     #     重试一次模型调用，错误/超时均杀不死它，只有掐断出口能止烧。
     #     解冻方式：从 QUARANTINE_LEAK_AGENTS 移除该 id + 重启服务 + 跑
     #     scripts/unquarantine_credits.py --apply 冲回。
-    if agent_id in QUARANTINE_LEAK_AGENTS:
+    # 动态限频检测：先登记本次调用，触发阈值则自动隔离 + 告警（见 §162 防复发）
+    if agent_id and _proxy_rate_record_and_check(agent_id):
+        logger.error(
+            f'[KimiProxy] 自动隔离: agent_id={agent_id} '
+            f'{_PROXY_RATE_WINDOW_SEC // 60}分钟内代理调用>{_PROXY_RATE_LIMIT}次 '
+            f'（Helen 泄漏同款形态：疑似孤儿循环/失控run），已 429 拒转并通知老大。'
+            f'解除：DELETE /api/admin/quarantine?agent_id={agent_id}（admin 鉴权）'
+        )
+        _notify_admin(
+            'KimiProxy 自动隔离 ⚠️ 疑似失控循环',
+            f'agent {agent_id} 在 {_PROXY_RATE_WINDOW_SEC // 60} 分钟内代理调用超阈值'
+            f'（>{_PROXY_RATE_LIMIT} 次，常态班峰值 <60）。已自动隔离拒转上游（不转发不计费）。'
+            f'解除：DELETE /api/admin/quarantine?agent_id={agent_id}。',
+        )
+        _desktop_notify('KimiProxy 自动隔离', f'{agent_id} 高频代理调用被自动隔离')
+
+    if _is_proxy_quarantined(agent_id):
         logger.warning(
             f'[KimiProxy] 隔离拒转: agent_id={agent_id} path={self.path} '
             f'(credit-quarantined: upstream forwarding suspended, not billed)'
         )
         self._send_json(429, {'type': 'error', 'error': {
             'type': 'rate_limit_error',
-            'message': f'agent {agent_id} is credit-quarantined; upstream forwarding suspended. Unquarantine via QUARANTINE_LEAK_AGENTS + service restart, then run scripts/unquarantine_credits.py --apply.',
+            'message': f'agent {agent_id} is credit-quarantined; upstream forwarding suspended. Static list: QUARANTINE_LEAK_AGENTS + service restart + scripts/unquarantine_credits.py --apply. Dynamic: DELETE /api/admin/quarantine?agent_id={agent_id}.',
         }})
         return
 

@@ -139,7 +139,83 @@ def test_proxy_quarantine_gate_exists_and_precedes_upstream():
     # 名单常量与处理函数必须真实存在且引用同一常量
     m = re.search(r'QUARANTINE_LEAK_AGENTS\s*=\s*\{([^}]*)\}', _server_src)
     assert m and LEAK_AGENT in m.group(1), '模块级隔离名单必须含泄漏员工'
-    # 闸门分支存在
+    # 闸门分支存在（静态 + 动态共用）
     assert 'rate_limit_error' in src and '隔离拒转' in src
+    assert '_is_proxy_quarantined' in src and '_proxy_rate_record_and_check' in src
     # 闸门必须位于上游深管道（记忆召回）之前——429 先行，不许任何上游动作
     assert src.index('QUARANTINE_LEAK_AGENTS') < src.index('recall_with_budget')
+
+
+# ── 动态隔离（§162 防复发①：形态学熔断，不限于写死名单）─────────────────────
+# Helen 僵尸的通用形态 = 无会话登记的高频代理调用。动态限频闸门必须在
+# 滑动窗口超阈值时自动隔离且只触发一次；静态名单行为保持不变。
+
+_NS2 = {}
+_src2 = '\n\n'.join([
+    'import threading',
+    'import time',
+    '_PROXY_RATE_WINDOW_SEC = 600',
+    '_PROXY_RATE_LIMIT = 120',
+    '_proxy_rate_lock = threading.Lock()',
+    '_proxy_rate_buckets = {}',
+    '_dynamic_quarantined = {}',
+    "QUARANTINE_LEAK_AGENTS = {'emp_1780199176680'}",
+    _extract_func(_server_tree, '_proxy_rate_record_and_check'),
+    _extract_func(_server_tree, '_is_proxy_quarantined'),
+])
+exec(compile(_src2, '<dyn-quarantine-ns>', 'exec'), _NS2)
+
+
+def test_dynamic_quarantine_triggers_once_over_limit():
+    import time as _t
+    base = 2000000.0
+    agent = 'emp_zombie_test'
+    triggered = []
+    for i in range(125):                      # > 120 阈值
+        now = base + i * 5.0                  # 全部落在 10 分钟窗口内
+        real = _t.time
+        _t.time = lambda: now
+        try:
+            if _NS2['_proxy_rate_record_and_check'](agent):
+                triggered.append(i)
+        finally:
+            _t.time = real
+    assert len(triggered) == 1, f'自动隔离应只触发一次，实际 {len(triggered)} 次'
+    assert agent in _NS2['_dynamic_quarantined']
+    assert _NS2['_is_proxy_quarantined'](agent)
+
+
+def test_dynamic_quarantine_window_pruning_no_false_positive():
+    import time as _t
+    base = 3000000.0
+    agent = 'emp_busy_shift_test'
+    # 121 次调用但摊在 30 分钟里（间隔 15s > 窗口内不可能超阈值）：
+    # 任何 10 分钟窗口内只有 ~40 次 → 不触发
+    for i in range(121):
+        now = base + i * 15.0
+        real = _t.time
+        _t.time = lambda: now
+        try:
+            hit = _NS2['_proxy_rate_record_and_check'](agent)
+        finally:
+            _t.time = real
+        assert not hit, '分散的正常调用不得触发自动隔离'
+    assert agent not in _NS2['_dynamic_quarantined']
+    assert not _NS2['_is_proxy_quarantined'](agent)
+
+
+def test_static_list_still_quarantined_without_rate():
+    # 静态名单：一次调用（远低于阈值）也要拒转（数据止血语义不变）
+    import time as _t
+    real = _t.time
+    _t.time = lambda: 4000000.0
+    try:
+        assert not _NS2['_proxy_rate_record_and_check'](LEAK_AGENT)
+    finally:
+        _t.time = real
+    assert _NS2['_is_proxy_quarantined'](LEAK_AGENT)
+
+
+def test_empty_agent_id_never_quarantined():
+    assert not _NS2['_is_proxy_quarantined']('')
+    assert not _NS2['_is_proxy_quarantined'](None)
