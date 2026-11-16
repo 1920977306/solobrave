@@ -12508,3 +12508,27 @@ P1：⑥聊天两症状（dq_chat_ui_symptoms）、⑦熔断/验卷（dq_fuse_ve
 ### 队列
 
 dq_fuse_verify_impl 置「完成」。⑥聊天两症状（dq_chat_ui_symptoms）A 边施工**中**（代码今天交付，真机验收等老大在场）。P2-④（dq_b_table_spec_fix）已入队待领。
+
+## §172 P1-⑥ 聊天两症状代码全交付（2026-11-16 17:0x，A 边施工，老大 14:27「转」；真机验收等老大在场）
+
+两症状**分开立案、分开 commit**，均双分支零分叉、回归全绿（1911 passed）、已部署（服务重启 + 缓存戳已刷）。
+
+### 症状1（正文泄漏 tool-call JSON / 协议标记）——commit `e586d81`
+
+- 现行证据 `notif_37b075fdf2c7` 两类泄漏：①provider 切换协议标记 `]<]minimax[>[`（网关产物，全仓 0 出处，只能消费端剥成空串）；②JSON 形态 tool-call 块 `{"name": ..., "arguments": {...}}`（旧 sanitizer 只认 `exec(command=`/`tool_call(`/`<tool_call>` 字面形态）。
+- 修法：**扩存储/通知咽喉的活跃 sanitizer**（`_strip_fake_tool_calls` :33438，调用点已覆盖 cleaned_reply 落库前与通知组装——一处修两层）。**非网关回滚**（chatimg 嫌疑已降级，未动）。
+- ⚠️ 同名遮蔽坑（§8.6 同族）：该函数在 solobrave-server.py 有**两个 def**（:2711 死 + :33438 活），守卫锁「活跃版必须带新形态处理」，改到死版本立即红。
+- 守卫：`tests/test_chat_leak_sanitize.py` 6 条（证据原文剥净/协议标记/行内嵌套 JSON/正常回复不误伤/旧形态回归/AST 遮蔽锁）。
+
+### 症状2（切对话残留上一对话内容）——commit `45629c4`
+
+- 根因（前端 sb2 路径，`js/inline-10.js`，可见面板 `#sb2ChatMessages`；legacy `openChat` 清的是隐藏的 `#messagesArea`，对可见面板无效）：
+  1. `sb2_loadHistory` **fetch 期间不清面板** → 旧会话气泡全程可见（老大实机的「残留」）；
+  2. **无代际守卫** → 快点两人时慢响应覆盖新会话（A 的内容出现在 B 的对话里）；
+  3. `sb2_doSend` 响应回来时不查是否已切走 → 旧回复 push 进新会话 messages + 覆盖新会话最后一条气泡。
+- 修法：loadHistory **立即清空 + 代际守卫**（`_loadGen`，过期响应在 await 后两处丢弃）；doSend 记住 `_sendAgent`，响应回来时若已切走 → 只 `sb2_loadHistory()` 刷新当前会话（回复服务端已落库），**不 push 不覆盖**。
+- `index.html` inline-10 缓存戳刷为 `chatswitchfix1a20261116`（已 curl 实测服务端发新戳）。
+
+### 待办
+
+真机验收（老大在场时过）：①发消息零代码泄漏（症状1 现行样本 `notif_37b075fdf2c7` 重放）；②切两次对话零残留、快点两人不串（症状2）；console 0 error。dq_chat_ui_symptoms 置「待验收」。
