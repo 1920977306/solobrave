@@ -12532,3 +12532,58 @@ dq_fuse_verify_impl 置「完成」。⑥聊天两症状（dq_chat_ui_symptoms�
 ### 待办
 
 真机验收（老大在场时过）：①发消息零代码泄漏（症状1 现行样本 `notif_37b075fdf2c7` 重放）；②切两次对话零残留、快点两人不串（症状2）；console 0 error。dq_chat_ui_symptoms 置「待验收」。
+
+## §173 P2 批次×4 全交付（2026-11-16 17:5x，老大 16:56「转」A 边，四单全部待验）
+
+P1 清零（6 完成 + 1 作废 + ⑥待真机验）后，P2 四单按 ②→③→①→④ 序当日全闭环。
+四单各独立 commit、全量回归 1935 全绿、main+dev 零分叉。
+
+### P2-② 看门入 prod（`ef2423b`）
+- `scripts/watch_credits.py`（积分窗看门，MARKER_DIR 归 prod data/watchdog-markers）
+  + `scripts/preflight_925.py`（六行确认；③「熔断已部署」改 launchd run-watchdog **真信号**——
+  原 git-log 代理上线次日即假红；踩 import 遮蔽坑修掉）。**改名原因**：.gitignore 的
+  `check_*.py` 规则会吞掉 check_925.py。
+- launchd 双任务在岗：`com.solobrave.check-925`（每日 09:25）+ `com.solobrave.credit-watch`
+  （09:25→12:00 窗，emp_xiaotuo limit 800）。
+- **watch_heartbeat.py 被 run_watchdog 取代不迁**（同 480s 阈值且 run_watchdog 多腿动作，
+  双装双报警）——如实披露，非漏项。
+- 守卫 `tests/test_watchdog_scripts_prod.py` 4 条。
+
+### P2-③ 升级机制补建 + 双锚告警（`a854104`）
+- **根因实锤**：`p1_escalated_at` 自始只有 schema，**全仓无任何代码写它或发通知**——
+  11-15 那笔标记是一次性手工 sqlite。「通道坏」实为「机制不存在」。
+- 补建 `scripts/dispatch_escalate.py`（P1 逾期 24h：幂等标记 + 通知**同事务必达**，
+  标记即送达证据）+ launchd `com.solobrave.dispatch-escalate`（每日 10:07）。
+  账龄锚 = claimed_at 优先否则 created_at；「待验」单不升级（等验收≠被抛弃）。
+- **采集停摆告警断点口径核查结论**：11-16 10:40 告警**为真**——商品同步锚
+  （products.daren_synced_at）确已停 117h（11-11 19:34 起）；协调边看到的
+  talent_collects 09:27 新鲜是**另一条链**（广场扫描），两链独立。
+  collector_watch 改**双锚分列**（商品同步/达人采集各自判各自报，标题带链名），
+  防再被另一条链的成功误读成误报。商品同步停摆仍在（worker 自愈只救了扫描链）——
+  这条是活欠账，见下「遗留」。
+- 守卫 `tests/test_dispatch_escalate.py` 8 条。
+
+### P2-① 空壳口径单一真源（`8880435`）
+- `tools/talent_shell.py`：**七信号**（无抖音号/无平台关联/0粉/0GMV/无月结算/无任何联系方式
+  ×4）全中才算空壳；keeper 旧三信号口径废弃（是其子集，并存会报两个数）。
+  实测 **23/184 = 12.5%**。
+- 隔离：`/api/talents` 默认 `NOT SHELL_SQL`，`?shells=only` 只看空壳、`?shells=all` 全量；
+  响应带 `shell_count`。server 动态加载保持零包耦合；加载失败 fail-open 不锁列表。
+- keeper 日报带 `shell_rate`（23/184 12.5%）。守卫 6 条含 **SQL 谓词 vs Python 全表对拍**。
+
+### P2-④ B 表口径整改（`0d1c7d6`）
+- ① rec_date 毫秒 → 'YYYY-MM-DD'：写入侧 + DDL + **存量 2 行迁移**（表重建换列亲和，
+  自动备份 `*.bak-20261116-172943-pre-b-table-migrate`）；
+- ② run_id 回填：payload 可选传入 + 轨迹兜底 + 存量两行回填
+  `8ca29af4-…`（11-16 唯一交付班，trajectory 实证含 7 个 report 事件）；
+- ③ pipeline_status 落库即 'recommended'（不再靠 DDL 默认 pending）；
+- ④ 验收判据②改「≥1 且 ≤5 且 = 日报推荐段人数（2b 对拍）」；**配套披露**：检查1 下界
+  ≥5 同步改 ≥1（单的 4 条明文之外，不整改则零候选日必假红——已如实上报，不算擅自扩单）。
+- check 脚本 ro URI 改直连（WAL 模式下 ro 打不开，preflight 同款坑）。
+- 迁移幂等复跑验证；整改后 `check_daily_recommendations.py --date 2026-11-16` 全过（2 vs 2 对拍一致）。
+- 守卫 6 条；旧 `test_normalize_rec_id_and_day_start` 断言随整改同步。
+
+### 遗留（诚实清单，不在四单范围内）
+- **达人端商品同步仍停摆 117h+**（P2-③ 核查实锤）：worker 自愈只救了扫描链，
+  商品回源链没人救——建议立单（复跑回源 + 登录态核查）。
+- 前端「空壳 X 条」入口未做（本次只交付 API 层隔离 + 计数下发，前端入口是下一单）。
