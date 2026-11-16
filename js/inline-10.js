@@ -351,15 +351,24 @@
       sb2_renderMessages();
       return;
     }
+    // ★ fix/chat-switch-residue (2026-11-16 P1-⑥症状2 老大实机): 切对话残留根因——
+    //   旧实现 fetch 期间不清面板, 旧会话气泡全程可见; 且无代际守卫, 快点两人时
+    //   慢响应会覆盖新会话(A 的内容出现在 B 的对话里)。现: 立即清空 + 代际丢弃。
+    var _gen = (_sb2Chat._loadGen = (_sb2Chat._loadGen || 0) + 1);
+    _sb2Chat.messages = [];
+    sb2_renderMessages();
     try {
       var resp = await apiFetch('/api/chat/' + encodeURIComponent(_sb2Chat.agentId) + '?type=personal&limit=100');
+      if (_gen !== _sb2Chat._loadGen) return; // 已切走, 丢弃过期响应
       if (!resp) { _sb2Chat.messages = []; sb2_renderMessages(); return; }
       var data = await resp.json();
+      if (_gen !== _sb2Chat._loadGen) return; // json() 期间又切了, 同样丢弃
       if (Array.isArray(data)) _sb2Chat.messages = data;
       else if (data && Array.isArray(data.messages)) _sb2Chat.messages = data.messages;
       else _sb2Chat.messages = [];
     } catch (e) {
       console.error('[sb2_loadHistory]', e);
+      if (_gen !== _sb2Chat._loadGen) return;
       _sb2Chat.messages = [];
     }
     sb2_renderMessages();
@@ -563,6 +572,10 @@
     // 3. POST
     // 〔stop-cmd 2026-10-08〕/stop 真中止: AbortController signal 透传 apiFetch (options 展开进 fetch)
     _sb2Chat.abortCtrl = new AbortController();
+    // ★ fix/chat-switch-residue (2026-11-16 P1-⑥症状2): 记住发送时的员工,
+    //   响应回来时若已切走, 回复落库已由服务端保证, 只刷新当前会话历史,
+    //   绝不 push 进新会话 messages / 覆盖新会话的最后一条气泡。
+    var _sendAgent = _sb2Chat.agentId;
     try {
       var resp = await apiFetch('/api/chat/' + encodeURIComponent(_sb2Chat.agentId) + '?type=personal', {
         method: 'POST',
@@ -582,6 +595,13 @@
         return;
       }
       var reply = await resp.json();
+      // ★ fix/chat-switch-residue: 响应回来时若已切到其他员工 → 本条回复服务端已落库,
+      //   刷新当前会话历史即可; 继续走原路会把旧回复 push 进新会话并覆盖其最后一条气泡。
+      if (_sendAgent !== _sb2Chat.agentId) {
+        _sb2StopProg();
+        sb2_loadHistory();
+        return;
+      }
       // server 返 {userMessage, aiMessage:{id, role, content, ...}, archived, ...}
       // ★ 止血 2026-10-08 (派单条件2): 服务端 error 或 AI 无回复时不再显示「-」装死,
       //    走 sb2_failBubble 错误态 (含后端给的明确原因)。
