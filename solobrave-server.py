@@ -17,6 +17,7 @@ SoloBrave Server — Auth + CORS Proxy + OpenClaw Management API
 
 import http.server
 import http as _http  # 给 WSS Origin reject 用 HTTPStatus.FORBIDDEN
+import importlib.util
 import json
 import os
 import subprocess
@@ -6089,6 +6090,24 @@ def _proposal_row_to_dict(row):
             except Exception:
                 pass  # 保留原 string, 避免解析失败炸 handler
     return d
+
+
+# ★ P2-① 空壳口径单一真源（2026-11-16）：tools/talent_shell.py 是全仓唯一口径定义
+#   （七信号：无抖音号/无平台关联/0粉/0GMV/无月结算/无任何联系方式），此处动态加载
+#   保持 server 与 tools 零包耦合；加载失败退回不排除（fail-open，不锁死列表）。
+def _load_talent_shell():
+    try:
+        p = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'tools', 'talent_shell.py')
+        spec = importlib.util.spec_from_file_location('talent_shell', p)
+        m = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(m)
+        return m
+    except Exception as e:
+        logger.warning(f'[talent_shell] 加载失败，列表不排除空壳: {e}')
+        return None
+
+
+_talent_shell = _load_talent_shell()
 
 
 def _talent_row_to_dict(row):
@@ -22880,10 +22899,17 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         include_demo = query.get('include_demo', ['0'])[0] == '1'
         offset = int(query.get('offset', ['0'])[0])
         limit = int(query.get('limit', ['50'])[0])
+        # ★ P2-① 空壳隔离：默认排除空壳（不混正常列表）；shells=only 只看空壳；shells=all 全量
+        shells = query.get('shells', [''])[0]
         conn = _db_conn()
         try:
             sql = "SELECT * FROM talents WHERE 1=1"
             params = []
+            if _talent_shell:
+                if shells == 'only':
+                    sql += f" AND {_talent_shell.SHELL_SQL}"
+                elif shells != 'all':
+                    sql += f" AND NOT {_talent_shell.SHELL_SQL}"
             if status:
                 if include_demo and status == 'active':
                     # 开关开启时主列表并入演示数据
@@ -22970,11 +22996,25 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             if cs in facets_cooperation:
                 facets_cooperation[cs] += 1
         talents = talents[offset:offset + limit]
+        # P2-①: 响应带空壳计数（全库口径，与当前过滤无关），前端可挂「空壳 X 条」入口
+        shell_count = None
+        if _talent_shell:
+            try:
+                conn2 = _db_conn()
+                try:
+                    shell_count = conn2.execute(
+                        f"SELECT COUNT(*) FROM talents WHERE {_talent_shell.SHELL_SQL}").fetchone()[0]
+                finally:
+                    conn2.close()
+            except Exception:
+                shell_count = None
         self._send_json(200, {
             'talents': talents,
             'total': total,
             'offset': offset,
             'limit': limit,
+            'shell_count': shell_count,
+            'shells_mode': shells or 'exclude',
             'facets': {
                 'rating': facets_rating,
                 'category': facets_category,

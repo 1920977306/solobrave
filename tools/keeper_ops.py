@@ -34,6 +34,13 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 DB = ROOT / 'data' / 'solobrave.db'
 
+# P2-① 空壳 canonical（七信号单一真源，keeper 日报与 /api/talents 隔离共用）
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+try:
+    import talent_shell
+except ImportError:  # 包式引用兜底（tools 作为包被导入时）
+    from tools import talent_shell  # type: ignore
+
 DAY_MS = 24 * 3600 * 1000
 TALENT_STALE_DAYS = 14      # 达人档案过期线
 DUP_LOOSE_NAME_SIM = 0.60   # 宽松口径：归一名相似度阈值（difflib ratio，老大 11-11：
@@ -197,18 +204,19 @@ def talent_healthcheck(conn):
     dup_loose.sort(key=lambda x: -x['sim'])
     dup_loose = dup_loose[:DUP_LOOSE_MAX_REPORT]
 
-    # 空壳嫌疑（老大 11-13 数据包 B 类）：无抖音号 + 0 粉 + 无结算。
-    # 不是撞名问题——处理口径是补号或删除候选，删除归人（管家 boundary）。
-    shells = []
-    for r in rows:
-        if (not str(_col(r, 'douyin_id')).strip()
-                and not float(r.get('followers') or 0)
-                and not _col(r, 'monthly_settlement')):
-            shells.append({'id': r.get('id'), 'name': r.get('name')})
+    # 空壳嫌疑（老大 11-13 数据包 B 类）：不是撞名问题——处理口径是补号或删除候选，
+    # 删除归人（管家 boundary）。
+    # ★ P2-①（2026-11-16）: 判定换 canonical tools/talent_shell.py（七信号），
+    #   旧三信号口径（无抖音号+0粉+无结算）废弃——它是 canonical 的子集，口径分叉会报出两个数。
+    shells = [{'id': r.get('id'), 'name': r.get('name')}
+              for r in rows if talent_shell.is_shell(r)]
 
     return {'total': len(rows), 'gaps': gaps, 'dup_sure': dup_sure,
             'dup_maybe': dup_maybe, 'dup_loose': dup_loose, 'stale': stale,
-            'shells': shells}
+            'shells': shells,
+            'shell_stats': {'shell': len(shells), 'total': len(rows)},
+            'shell_rate': f'{len(shells)}/{len(rows)} '
+                          f'({len(shells) / len(rows) * 100:.1f}%)'}
 
 
 def goods_healthcheck(conn):
