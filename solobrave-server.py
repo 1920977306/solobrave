@@ -33430,6 +33430,17 @@ def _append_self_update_prompt(system_prompt):
 _FAKE_TOOLCALL_INLINE_RE = re.compile(r'<\|?/?tool_call[^\n]*')
 _FAKE_TOOL_CALL_RE = re.compile(
     r'(?:exec\s*\(\s*(?:command|cmd)\s*=|tool_call\s*\(|tool_use\s*\(|function_call\s*\()[^\n]*')
+# ★ fix/chat-leak-provider-switch-json (2026-11-16 老大 21:49 实机两症状之①):
+#   通知/正文里出现两类新泄漏形态，旧 sanitizer 全漏：
+#   ①provider 切换协议标记 `]<]minimax[>[`（网关产物，全仓 0 出处，只能消费端剥）；
+#   ②JSON 形态 tool-call 块 `{"name": "keeper_ops", "arguments": {...}}`
+#   （现有正则只认 exec(command=/tool_call( 字面形态）。现行证据 notif_37b075fdf2c7。
+_FAKE_PROVIDER_SWITCH_RE = re.compile(r'\]<[\w\-\]]*\[>\[')
+# JSON 块两种形态：独占整行（至行尾）/ 行内平衡花括号（容 2 层嵌套）
+_FAKE_TOOLCALL_JSON_LINE_RE = re.compile(
+    r'^\s*\{\s*"name"\s*:\s*"[^"]+"\s*,\s*"arguments"\s*:\s*\{.*$', re.M)
+_FAKE_TOOLCALL_JSON_INLINE_RE = re.compile(
+    r'\{\s*"name"\s*:\s*"[^"]+"\s*,\s*"arguments"\s*:\s*\{(?:[^{}]|\{[^{}]*\}|\{[^{}]*\{[^{}]*\}[^{}]*\})*\}\s*\}')
 _FAKE_TOOL_PLACEHOLDER = '（正在查询系统数据…）'
 _FAKE_TOOL_PLACEHOLDER_RUN_RE = re.compile(
     r'（正在查询系统数据…）(?:\s*（正在查询系统数据…）)+')
@@ -33446,6 +33457,11 @@ def _strip_fake_tool_calls(text):
     cleaned = _FAKE_TOOLCALL_INLINE_RE.sub(_FAKE_TOOL_PLACEHOLDER, cleaned)
     # exec(command=/cmd=)/tool_call(/tool_use(/function_call( 字面形态至行尾
     cleaned = _FAKE_TOOL_CALL_RE.sub(_FAKE_TOOL_PLACEHOLDER, cleaned)
+    # provider 切换协议标记 `]<]minimax[>[` → 剥成空串（不是占位，它本就不该有文本）
+    cleaned = _FAKE_PROVIDER_SWITCH_RE.sub('', cleaned)
+    # JSON 形态 tool-call 块（整行 / 行内平衡花括号）→ 占位文案
+    cleaned = _FAKE_TOOLCALL_JSON_LINE_RE.sub(_FAKE_TOOL_PLACEHOLDER, cleaned)
+    cleaned = _FAKE_TOOLCALL_JSON_INLINE_RE.sub(_FAKE_TOOL_PLACEHOLDER, cleaned)
     cleaned = _FAKE_TOOL_PLACEHOLDER_RUN_RE.sub(_FAKE_TOOL_PLACEHOLDER, cleaned)
     return cleaned.strip()
 
