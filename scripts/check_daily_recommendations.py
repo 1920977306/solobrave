@@ -50,8 +50,10 @@ def main() -> int:
 
     print(f'── 每日推荐验收 · {args.date} · 库 {args.db} ──')
 
-    conn = sqlite3.connect(f'file:{args.db}?mode=ro', uri=True)
+    # 纯 SELECT（行为只读）；不用 mode=ro URI——本库 WAL 模式下 ro 打不开（preflight_925 同款坑）
+    conn = sqlite3.connect(args.db)
     cur = conn.cursor()
+    entries = None  # 检查1 解析出的「每日推荐」段条目数（检查2b 对拍用）
 
     # ── 检查 1：日报通知含「每日推荐」段 ──
     row = cur.execute(
@@ -73,9 +75,11 @@ def main() -> int:
             entries = [ln for ln in body.splitlines()
                        if re.search(r'\d{5,}', ln) or re.match(r'\s*\d+[.、\)]', ln)
                        or re.match(r'\s*[-•]', ln)]
-            report(len(entries) >= 5,
+            # ★ P2-④ 配套（施工披露项，超出单的 4 条明文——不整改则零候选日必假红）：
+            # 下界 5→1 与判据②「宁缺毋滥」对齐；「最多 5」由落库侧裁，此处只管段在位。
+            report(len(entries) >= 1,
                    f'检查1 「每日推荐」段在位，识别到达人条目 {len(entries)} 条'
-                   f'（{title}）')
+                   f'（{title}；下界已随判据②整改为 ≥1）')
 
     # ── 检查 2/3/4：talent_recommendations 落库 ──
     exists = cur.execute(
@@ -84,17 +88,22 @@ def main() -> int:
     if not exists:
         report(False, '检查2-4 talent_recommendations 表不存在（管线未交付？）')
     else:
+        # ★ P2-④（2026-11-16）：rec_date 唯一口径 = 'YYYY-MM-DD' TEXT（整改后写入侧口径）。
+        # 判据②整改（宁缺毋滥）：≥1 且 ≤5 且 = 日报「每日推荐」段实际人数——
+        # 不再钉死 =5（零候选日如实报零，硬要 5 人会逼 AI 凑数编造）。
         rows = cur.execute(
             "select rec_id, matched_rules, reason_text from talent_recommendations "
-            "where rec_date>=? and rec_date<?", (day0, day1)).fetchall()
-        # rec_date 若按 YYYYMMDD 整数存（另一可能口径），兜底再查一次
+            "where rec_date=?", (args.date,)).fetchall()
         if not rows:
-            ymd = int(args.date.replace('-', ''))
+            # 存量毫秒行兜底（迁移脚本跑完前的过渡态）
             rows = cur.execute(
                 "select rec_id, matched_rules, reason_text from talent_recommendations "
-                "where rec_date=?", (ymd,)).fetchall()
-        report(len(rows) == 5,
-               f'检查2 当日推荐记录数 = {len(rows)}（期望 5，同日去重后 ±0）')
+                "where rec_date>=? and rec_date<?", (day0, day1)).fetchall()
+        report(1 <= len(rows) <= 5,
+               f'检查2 当日推荐记录数 = {len(rows)}（整改口径：≥1 且 ≤5，宁缺毋滥）')
+        if entries is not None:
+            report(len(rows) == len(entries),
+                   f'检查2b 落库数 = 日报推荐段人数（{len(rows)} vs {len(entries)}）')
 
         bad_rules = []
         for rec_id, mr, _ in rows:

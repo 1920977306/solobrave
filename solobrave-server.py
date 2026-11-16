@@ -5194,11 +5194,14 @@ def init_db():
         #   matched_rules 结构化 JSON（宁可少存不可编造）；snapshot_json 只快照
         #   核心字段+判定依据字段（达人数据天天变，勿全表快照）；
         #   UNIQUE(rec_date, talent_id) = 同日去重（重投幂等）。
-        #   写入方=buyin_worker /square-report（与日报同事务）；rec_date=当日 00:00 ms。
+        #   写入方=buyin_worker /square-report（与日报同事务）。
+        #   ★ P2-④（2026-11-16）：rec_date 口径从「当日 00:00 ms INTEGER」整改为
+        #   'YYYY-MM-DD' TEXT（同人读友好、验收脚本直等匹配）。存量毫秒行由
+        #   scripts/migrate_b_table_recdate.py 一次性迁移（含表重建换列亲和）。
         conn.execute('''
             CREATE TABLE IF NOT EXISTS talent_recommendations (
                 rec_id TEXT PRIMARY KEY,
-                rec_date INTEGER NOT NULL,
+                rec_date TEXT NOT NULL,
                 talent_id TEXT NOT NULL,
                 talent_name TEXT NOT NULL DEFAULT '',
                 matched_rules TEXT NOT NULL DEFAULT '[]',

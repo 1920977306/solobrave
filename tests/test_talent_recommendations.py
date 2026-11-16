@@ -71,16 +71,15 @@ def test_normalize_snapshot_only_dict():
     assert rows[1][6] is None, 'snapshot 非 dict 必须落 NULL（勿全表快照）'
 
 
-def test_normalize_rec_id_and_day_start():
+def test_normalize_rec_id_and_recdate_ymd():
+    # P2-④ 整改①：rec_date 口径毫秒串 → 'YYYY-MM-DD' TEXT（断言随整改同步）
     rows = bw._square_normalize_recs([{'talent_id': 'tal_abc'}], REAL_NOW_MS)
-    rid, day_start, tid = rows[0][0], rows[0][1], rows[0][2]
+    rid, rec_date, tid = rows[0][0], rows[0][1], rows[0][2]
     assert tid == 'tal_abc'
     assert rid.startswith('rec_') and rid.endswith('_tal_abc')
     from datetime import datetime
-    expect = int(datetime.combine(
-        datetime.fromtimestamp(REAL_NOW_MS / 1000).date(),
-        datetime.min.time()).timestamp() * 1000)
-    assert day_start == expect, 'rec_date 必须当日 00:00 ms（check 脚本按日范围查）'
+    expect = datetime.fromtimestamp(REAL_NOW_MS / 1000).strftime('%Y-%m-%d')
+    assert rec_date == expect, 'rec_date 必须是 YYYY-MM-DD，实测 %r' % (rec_date,)
 
 
 @pytest.fixture()
@@ -95,7 +94,7 @@ def rec_db(tmp_path, monkeypatch):
                     agent_id TEXT, type TEXT, title TEXT, content TEXT,
                     read INTEGER DEFAULT 0, created_at INTEGER)''')
     conn.execute('''CREATE TABLE talent_recommendations (
-                    rec_id TEXT PRIMARY KEY, rec_date INTEGER NOT NULL,
+                    rec_id TEXT PRIMARY KEY, rec_date TEXT NOT NULL,
                     talent_id TEXT NOT NULL, talent_name TEXT NOT NULL DEFAULT '',
                     matched_rules TEXT NOT NULL DEFAULT '[]',
                     reason_text TEXT NOT NULL DEFAULT '', snapshot_json TEXT,

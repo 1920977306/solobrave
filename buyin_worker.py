@@ -3563,17 +3563,16 @@ def _square_decide(payload):
     return ({'ok': True, 'inserted': True, 'talent_id': tid, 'verdict': verdict}, 200)
 
 
-def _square_normalize_recs(recs, now_ms):
-    """推荐条目归一化（③号单 2026-11-15）：agent 在日报里随附的
-    「每日推荐 5 人」→ talent_recommendations 行。
-    铁律（§143）：matched_rules 宁可少存不可编造（不是数组/造不出来 ⇒ '[]'，
-    让验收脚本亮 ⚠️ 而不是脏数据污染反推）；reason_text 原样存（验收看可验证性）；
-    snapshot_json 只保留 dict，由调用方裁好字段再传（勿全表快照）。"""
+def _square_normalize_recs(recs, now_ms, run_id=''):
+    """推荐条目归一化（③号单 2026-11-15；P2-④ 2026-11-16 口径整改）：
+    铁律（§143）：matched_rules 宁可少存不可编造；reason_text 原样存；
+    snapshot_json 只保留 dict（勿全表快照）。
+    P2-④ 整改：①rec_date 毫秒串 → 'YYYY-MM-DD'（同人读友好，验收脚本直等匹配）；
+    ②run_id 从 payload/轨迹兜底回填（不再恒空——留空行反推时无法回溯交付班）。"""
     import datetime as _dt
-    day_start = int(_dt.datetime.combine(
-        _dt.datetime.fromtimestamp(now_ms / 1000).date(),
-        _dt.time.min).timestamp() * 1000)
-    ymd = _dt.datetime.fromtimestamp(now_ms / 1000).strftime('%Y%m%d')
+    day = _dt.datetime.fromtimestamp(now_ms / 1000).date()
+    ymd = day.strftime('%Y%m%d')
+    ymd_dash = day.strftime('%Y-%m-%d')
     rows = []
     for r in (recs or [])[:5]:                      # 规格钉死 5 人，多退
         if not isinstance(r, dict):
@@ -3587,18 +3586,42 @@ def _square_normalize_recs(recs, now_ms):
         snap = r.get('snapshot')
         rows.append((
             f'rec_{ymd}_{tid}',                      # rec_id：同日去重键的一半
-            day_start, tid,
+            ymd_dash, tid,
             str(r.get('talent_name') or '').strip()[:100],
             json.dumps(rules, ensure_ascii=False)[:2000],
             str(r.get('reason_text') or '').strip()[:500],
             (json.dumps(snap, ensure_ascii=False)[:4000] if isinstance(snap, dict) else None),
-            None,                                    # run_id：worker 侧不可知，留空
+            (str(run_id).strip() or None),
             now_ms, now_ms,
         ))
     return rows
 
 
-def _square_write_report(summary, detail, agent_id=SQUARE_DUTY_AGENT, recommendations=None):
+def _square_latest_run_id(agent_id):
+    """从 openclaw 轨迹库取该 agent 当天最近一次 run_id（run_id 兜底回填用）。
+
+    只读；查不到返回 ''（落库仍走，run_id 留空——宁缺不编造）。
+    """
+    import glob as _glob
+    try:
+        pat = f'/Users/qichen/.openclaw/agents/*{agent_id}*/agent/openclaw-agent.sqlite'
+        dbs = _glob.glob(pat)
+        if not dbs:
+            return ''
+        conn = sqlite3.connect(dbs[0])
+        try:
+            row = conn.execute(
+                'SELECT run_id FROM trajectory_runtime_events ORDER BY created_at DESC LIMIT 1'
+            ).fetchone()
+            return (row[0] or '') if row else ''
+        finally:
+            conn.close()
+    except Exception as e:
+        log(f'[SquareReport] run_id 轨迹兜底失败（不影响落库）: {e}')
+        return ''
+
+
+def _square_write_report(summary, detail, agent_id=SQUARE_DUTY_AGENT, recommendations=None, run_id=''):
     """日报交付（②主管协同位 2026-11-10）：
     - notifications → 管理员（原有）
     - 抄送主管（emp_duties.supervisor_agent_id）：notifications 留痕 + openclaw 会话投递
@@ -3652,15 +3675,19 @@ def _square_write_report(summary, detail, agent_id=SQUARE_DUTY_AGENT, recommenda
         # ③号单：「每日推荐 5 人」落 B 表（与日报同事务——日报交了推荐才算交，
         # 防「推荐写了日报没交」的半吊子状态）。rec_id 含日期 ⇒ 同日重投幂等覆盖。
         # 只认小拓（SQUARE_DUTY_AGENT）——别的 agent 走 /square-report 不 contaminates B 表。
-        rec_rows = (_square_normalize_recs(recommendations, now_ms)
+        # P2-④: run_id 优先 payload 传入，缺省轨迹兜底（只读），仍空则落 NULL 不编造
+        rid = str(run_id or '').strip() or _square_latest_run_id(agent_id)
+        rec_rows = (_square_normalize_recs(recommendations, now_ms, rid)
                     if agent_id == SQUARE_DUTY_AGENT else [])
         for row in rec_rows:
             conn.execute(
                 'INSERT OR REPLACE INTO talent_recommendations '
                 '(rec_id, rec_date, talent_id, talent_name, matched_rules, reason_text, '
-                ' snapshot_json, run_id, created_at, updated_at) '
-                'VALUES (?,?,?,?,?,?,?,?,?,?)',
-                (row[0], row[1], row[2], row[3], row[4], row[5], row[6], row[7], row[8], row[9]))
+                ' snapshot_json, pipeline_status, run_id, created_at, updated_at) '
+                'VALUES (?,?,?,?,?,?,?,?,?,?,?)',
+                (row[0], row[1], row[2], row[3], row[4], row[5], row[6],
+                 'recommended',  # P2-④③: 初值 recommended（入库即待商务跟进，非 pending）
+                 row[7], row[8], row[9]))
         if rec_rows:
             log(f'[SquareReport] 推荐落库 {len(rec_rows)} 条 → talent_recommendations')
         conn.commit()
@@ -5131,12 +5158,13 @@ class ControlHandler(BaseHTTPRequestHandler):
             detail = str((body or {}).get('detail') or '').strip()
             agent_id = str((body or {}).get('agent_id') or 'emp_xiaotuo').strip()
             recommendations = (body or {}).get('recommendations')
+            run_id = str((body or {}).get('run_id') or '').strip()  # P2-④② 可选回填
             if not summary or not detail:
                 self._json(400, {'error': 'summary 和 detail 必填'})
                 return
             try:
                 _square_write_report(summary[:500], detail[:2000], agent_id,
-                                     recommendations=recommendations)
+                                     recommendations=recommendations, run_id=run_id)
             except Exception as e:
                 log(f'[SquareReport] 写日报失败: {e}')
                 self._json(500, {'ok': False, 'error': str(e)})
