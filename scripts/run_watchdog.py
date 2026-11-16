@@ -176,17 +176,17 @@ def scan_agent(agent_id, cfg, conn, now_ms, dry, traj_db=None):
         if already_recorded(conn, rid, 'no_delivery'):
             continue
         events = fc.load_tool_calls(agent_id, rid, db_path=traj_db)
-        delivered = fc.detect_delivery_events(cfg['delivery'], events)
+        delivered = fc.detect_delivery_events(cfg['anchors'], events)
         if delivered:
             continue
-        reason = 'tool.call 序列无任务书点名交付工具'
+        reason = 'tool.call 参数无交付锚点'
         if record_event(conn, agent_id, rid, 'no_delivery', reason):
-            log(f'{label}: run {rid[:8]} 未交卷（{r["calls"]} 次调用无交付工具）')
+            log(f'{label}: run {rid[:8]} 未交卷（{r["calls"]} 次调用无交付锚点）')
             notify(conn, agent_id, '未交卷',
                    f'[未交卷] {label}班未交卷 · {datetime.now():%m月%d日}',
-                   f'run {rid} 已静默 {silent // 1000}s，序列 {r["calls"]} 次调用'
-                   f'中无交付工具（{cfg["delivery"]}）。'
-                   f'按 §145：不看 turn 状态，只看交付工具。')
+                   f'run {rid} 已静默 {silent // 1000}s，{r["calls"]} 次调用的参数文本'
+                   f'中无交付锚点（{cfg["anchors"]}）。'
+                   f'按 §145：不看 turn 状态，只看交付命令真跑过没有。')
 
 
 def main():

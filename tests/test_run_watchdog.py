@@ -61,7 +61,9 @@ def _tool_run(rid, n_calls, n_search=0, last_ts=NOW - 60_000, delivered=True):
         name = 'tool_search' if i < n_search else f'tool_{i}'
         ev.append((rid, 'tool.call', name, {'i': i}, last_ts - 1000 + i))
     if delivered:
-        ev.append((rid, 'tool.call', 'xiaotuo_ops', {'cmd': 'report'}, last_ts))
+        ev.append((rid, 'tool.call', 'exec',
+                   {'command': 'python3 tools/xiaotuo_ops.py report --summary x'},
+                   last_ts))
     return ev
 
 
@@ -150,16 +152,25 @@ def test_load_runs_marks_session_ended(tmp_path):
 # ─── 4. 验卷 ────────────────────────────────────────────────────────────────
 
 def test_delivery_xiaotuo_report_subcommand():
-    wants = [{'name': 'xiaotuo_ops', 'arg_contains': 'report'}]
-    assert fc.detect_delivery_events(wants, [('xiaotuo_ops', {'cmd': 'report'})]) is True
-    assert fc.detect_delivery_events(wants, [('xiaotuo_ops', {'cmd': 'scan'})]) is False
-    assert fc.detect_delivery_events(wants, [('tool_search', {})]) is False
+    """今晨班 8ca29af4 真实签名回归：交付 = exec 里跑
+    `python3 tools/xiaotuo_ops.py report ...`——按工具名匹配必漏（名字是通用 exec）。"""
+    anchors = fc.AGENTS['emp_xiaotuo']['anchors']
+    good = [('exec', '{"command": "cd /Users/qichen/.openclaw/workspace-xiaotuo && '
+                       'python3 tools/xiaotuo_ops.py report --summary \'今日深看5\'"}')]
+    assert fc.detect_delivery_events(anchors, good) is True
+    help_call = [('exec', '{"command": "python3 tools/xiaotuo_ops.py --help"}')]
+    assert fc.detect_delivery_events(anchors, help_call) is False
+    assert fc.detect_delivery_events(anchors, [('tool_search', '{"query":"x"}')]) is False
 
 
-def test_delivery_keeper_any_call():
-    wants = [{'name': 'keeper_ops', 'arg_contains': None}]
-    assert fc.detect_delivery_events(wants, [('keeper_ops', {'op': 'checkup'})]) is True
-    assert fc.detect_delivery_events(wants, []) is False
+def test_delivery_keeper_anchor():
+    """管家今晨班真实签名：exec 里 keeper_ops.py 体检 + square-report 投递通道。"""
+    anchors = fc.AGENTS['emp_talent_keeper']['anchors']
+    hc = [('exec', '{"command": "python3 tools/keeper_ops.py --agent emp_talent_keeper --json"}')]
+    assert fc.detect_delivery_events(anchors, hc) is True
+    post = [('exec', '{"title": "Post daily report to square-report"}')]
+    assert fc.detect_delivery_events(anchors, post) is True
+    assert fc.detect_delivery_events(anchors, []) is False
 
 
 # ─── 5. ps 定位三条件 ───────────────────────────────────────────────────────
@@ -179,8 +190,7 @@ def test_parse_openclaw_pids_three_conditions():
 
 def _scan(tmp_path, solodb, ev, agent='emp_probe', cfg=None, now=NOW):
     traj = _mk_traj(tmp_path / f'traj_{agent}.db', ev)
-    c = cfg or {'label': '探针岗', 'delivery': [{'name': 'xiaotuo_ops',
-                                                'arg_contains': 'report'}]}
+    c = cfg or {'label': '探针岗', 'anchors': ['xiaotuo_ops.py report']}
     killed = []
     mp = pytest.MonkeyPatch()
     mp.setattr(rw, 'find_cli_pids', lambda aid: [424242])

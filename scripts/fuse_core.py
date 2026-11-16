@@ -25,20 +25,21 @@ DELIVERY_QUIET_MS = 30 * 60_000  # run 静默 > 30 分钟 → 具备验卷条件
 RUN_STALE_MS = 60 * 60_000       # run 最后事件超过 1 小时 → 不再视为活跃
 VERDICT_RECENT_MS = 6 * 60 * 60_000  # 验卷回溯窗：今天的班都在窗内，历史班不追诉
 
-# 三岗配置：交付工具 = 任务书点名的「交卷」工具（验卷判据）
+# 三岗配置：交付锚点 = 任务书点名的「交卷」命令在 tool.call 参数里的特征串
+# （轨迹实测：交付走 exec，工具名是通用的 exec/read/write——按名字匹配必漏，
+#  必须按 args 文本锚点判。11-16 今晨班 seq60 = python3 tools/xiaotuo_ops.py report）
 AGENTS = {
     'emp_xiaotuo': {
         'label': '小拓',
-        # 交付 = xiaotuo_ops 工具以 report 子命令调用（--rec 可选）
-        'delivery': [{'name': 'xiaotuo_ops', 'arg_contains': 'report'}],
+        'anchors': ['xiaotuo_ops.py report'],
     },
     'emp_talent_keeper': {
         'label': '达人库管家',
-        'delivery': [{'name': 'keeper_ops', 'arg_contains': None}],
+        'anchors': ['keeper_ops.py', 'square-report'],
     },
     'emp_goods_keeper': {
         'label': '商品库管家',
-        'delivery': [{'name': 'keeper_ops', 'arg_contains': None}],
+        'anchors': ['keeper_ops.py', 'square-report'],
     },
 }
 
@@ -112,27 +113,28 @@ def verdict(calls, search):
     return True, f'放行({calls}次,search占比{share:.0%})'
 
 
-def detect_delivery_events(delivery_wants, events):
-    """带参数版验卷：events = [(name, args_dict_or_str), ...]。
+def detect_delivery_events(anchors, events):
+    """验卷：该 run 的 tool.call 参数文本里是否出现任一交付锚点。
 
-    delivery_wants = 岗位配置里的交付工具清单（不再按 agent_id 反查全局表，
-    看门狗扫描时配置随岗传入——测试/新岗接入都不依赖写死全局）。
-    xiaotuo 的交付形态是 xiaotuo_ops + report 子命令；管家是 keeper_ops 体检输出。
+    events = [(name, blob), ...]，blob = 参数序列化文本（json.dumps 或原字符串）。
+    钉死 11-13 教训：turn success ≠ 交付；判据只看交付命令真跑过没有
+    （11-16 实证：交付走 exec 通用名，锚点在 args.command 文本里）。
     """
-    for want in delivery_wants:
-        for name, args in events:
-            if want['name'] not in (name or ''):
-                continue
-            if want['arg_contains'] is None:
-                return True
-            blob = args if isinstance(args, str) else json.dumps(args, ensure_ascii=False)
-            if want['arg_contains'] in blob:
+    for name, blob in events:
+        if not blob:
+            continue
+        for a in anchors:
+            if a in blob:
                 return True
     return False
 
 
 def load_tool_calls(agent_id, run_id, db_path=None):
-    """取某 run 全部 (name, args)：验卷的参数级判据用。"""
+    """取某 run 全部 (name, blob)：验卷的锚点判据用。
+
+    实测轨迹 data 里参数字段叫 args（不叫 arguments）——11-16 首部署即踩，
+    两个键都收，blob 为序列化文本。
+    """
     path = db_path or TRAJ_DB.format(agent_id=agent_id)
     db = sqlite3.connect(path, uri=path.startswith('file:'))
     try:
@@ -149,7 +151,16 @@ def load_tool_calls(agent_id, run_id, db_path=None):
         if d.get('type') != 'tool.call':
             continue
         data = d.get('data') or {}
-        out.append((data.get('name') or '', data.get('arguments')))
+        args = data.get('args')
+        if args is None:
+            args = data.get('arguments')
+        if isinstance(args, str):
+            blob = args
+        elif args is None:
+            blob = ''
+        else:
+            blob = json.dumps(args, ensure_ascii=False)
+        out.append((data.get('name') or '', blob))
     return out
 
 
