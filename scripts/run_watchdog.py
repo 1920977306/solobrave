@@ -113,65 +113,80 @@ def scan_agent(agent_id, cfg, conn, now_ms, dry, traj_db=None):
     if not runs:
         log(f'{label}: 轨迹库空或不可读，跳过')
         return
-    # 只看近期 run（1 小时内有事件的），历史班回放不归看门狗管
+    # 活跃面（1 小时内有事件）：熔断/心跳只看最新 run
     recent = {rid: r for rid, r in runs.items()
               if now_ms - r['last_ts'] < fc.RUN_STALE_MS}
-    if not recent:
+    # 验卷面（6 小时静默窗口，逐 run 幂等）：覆盖今天各岗全部班——
+    # 首部署不追诉历史（11-13 的班 >6h 自然排除），今天的班都在窗口内。
+    verdict_pool = {rid: r for rid, r in runs.items()
+                    if now_ms - r['last_ts'] < fc.VERDICT_RECENT_MS}
+
+    if recent:
+        rid = max(recent, key=lambda r: recent[r]['last_ts'])
+        r = recent[rid]
+        silent = now_ms - r['last_ts']
+        ok, why = fc.verdict(r['calls'], r['search'])
+        state = '已结束' if r['ended'] else f'活跃(静默{silent // 1000}s)'
+        log(f'{label}: run {rid[:8]} {state} calls={r["calls"]} '
+            f'search={r["search"]} → {why}')
+
+        # ── 1. 熔断（只对活跃 run；已结束的 run 中止无意义，交给验卷/基线回放）──
+        if not ok and not r['ended']:
+            if already_recorded(conn, rid, 'fuse'):
+                return  # 已熔断过，等 wrapper 重试班产生新 run
+            pids = find_cli_pids(agent_id)
+            if dry:
+                log(f'  [DRY] 熔断条件命中，将 SIGTERM {pids or "(未找到进程)"}')
+            else:
+                acted = 0
+                for pid in pids:
+                    try:
+                        os.kill(pid, signal.SIGTERM)
+                        acted = 1
+                        log(f'  已 SIGTERM pid={pid}（wrapper 将换新会话键重试一次）')
+                    except Exception as e:
+                        log(f'  SIGTERM pid={pid} 失败: {e}')
+                if record_event(conn, agent_id, rid, 'fuse', why, acted):
+                    notify(conn, agent_id, '熔断',
+                           f'[熔断] {label}班被中止 · {datetime.now():%m月%d日}',
+                           f'run {rid} 命中{why}，已强制中止（wrapper 自动换新会话键重试一次）。'
+                           f'调用分布：{r["calls"]} 次 tool.call，其中 tool_search '
+                           f'{r["search"]} 次。中止本身计入失败样本。')
+
+        # ── 2. 心跳看门（活跃 + 静默 > 480s，告警不中止，一条 run 报一次）──
+        elif not r['ended'] and silent > fc.HEARTBEAT_SILENT_MS:
+            if record_event(conn, agent_id, rid, 'heartbeat',
+                            f'静默{silent // 1000}s'):
+                notify(conn, agent_id, '心跳',
+                       f'[心跳] {label}班静默超 {fc.HEARTBEAT_SILENT_MS // 60000} 分钟',
+                       f'run {rid} 最后事件距今 {silent // 1000}s，turn 可能挂起。'
+                       f'当前 {r["calls"]} 次调用。只告警不中止。')
+    else:
         log(f'{label}: 无活跃 run')
-        return
 
-    rid = max(recent, key=lambda r: recent[r]['last_ts'])
-    r = recent[rid]
-    silent = now_ms - r['last_ts']
-    ok, why = fc.verdict(r['calls'], r['search'])
-    state = '已结束' if r['ended'] else f'活跃(静默{silent // 1000}s)'
-    log(f'{label}: run {rid[:8]} {state} calls={r["calls"]} '
-        f'search={r["search"]} → {why}')
-
-    # ── 1. 熔断（只对活跃 run；已结束的 run 中止无意义，交给验卷/基线回放）──
-    if not ok and not r['ended']:
-        if already_recorded(conn, rid, 'fuse'):
-            return  # 已熔断过，等 wrapper 重试班产生新 run
-        pids = find_cli_pids(agent_id)
-        if dry:
-            log(f'  [DRY] 熔断条件命中，将 SIGTERM {pids or "(未找到进程)"}')
-        else:
-            acted = 0
-            for pid in pids:
-                try:
-                    os.kill(pid, signal.SIGTERM)
-                    acted = 1
-                    log(f'  已 SIGTERM pid={pid}（wrapper 将换新会话键重试一次）')
-                except Exception as e:
-                    log(f'  SIGTERM pid={pid} 失败: {e}')
-            if record_event(conn, agent_id, rid, 'fuse', why, acted):
-                notify(conn, agent_id, '熔断',
-                       f'[熔断] {label}班被中止 · {datetime.now():%m月%d日}',
-                       f'run {rid} 命中{why}，已强制中止（wrapper 自动换新会话键重试一次）。'
-                       f'调用分布：{r["calls"]} 次 tool.call，其中 tool_search '
-                       f'{r["search"]} 次。中止本身计入失败样本。')
-
-    # ── 2. 心跳看门（活跃 + 静默 > 480s，告警不中止，一条 run 报一次）──
-    elif not r['ended'] and silent > fc.HEARTBEAT_SILENT_MS:
-        if record_event(conn, agent_id, rid, 'heartbeat',
-                        f'静默{silent // 1000}s'):
-            notify(conn, agent_id, '心跳',
-                   f'[心跳] {label}班静默超 {fc.HEARTBEAT_SILENT_MS // 60000} 分钟',
-                   f'run {rid} 最后事件距今 {silent // 1000}s，turn 可能挂起。'
-                   f'当前 {r["calls"]} 次调用。只告警不中止。')
-
-    # ── 3. 验卷（静默 > 30 分钟才判，给「跑完正在投递」留窗口）──
-    if silent > fc.DELIVERY_QUIET_MS and not already_recorded(conn, rid, 'no_delivery'):
+    # ── 3. 验卷（静默 > 30 分钟才判，给「跑完正在投递」留窗口；逐 run 幂等）──
+    for rid, r in verdict_pool.items():
+        silent = now_ms - r['last_ts']
+        if silent <= fc.DELIVERY_QUIET_MS:
+            continue
+        # 同 run 事故不重复立案：已熔断（wrapper 重试班才是交付主体）或
+        # 已心跳告警（事故已在处理中）的 run，不再追「未交卷」
+        if already_recorded(conn, rid, 'fuse') or already_recorded(conn, rid, 'heartbeat'):
+            continue
+        if already_recorded(conn, rid, 'no_delivery'):
+            continue
         events = fc.load_tool_calls(agent_id, rid, db_path=traj_db)
         delivered = fc.detect_delivery_events(cfg['delivery'], events)
-        if not delivered:
-            reason = 'tool.call 序列无任务书点名交付工具'
-            if record_event(conn, agent_id, rid, 'no_delivery', reason):
-                notify(conn, agent_id, '未交卷',
-                       f'[未交卷] {label}班未交卷 · {datetime.now():%m月%d日}',
-                       f'run {rid} 已静默 {silent // 1000}s，序列 {r["calls"]} 次调用'
-                       f'中无交付工具（{cfg["delivery"]}）。'
-                       f'按 §145：不看 turn 状态，只看交付工具。')
+        if delivered:
+            continue
+        reason = 'tool.call 序列无任务书点名交付工具'
+        if record_event(conn, agent_id, rid, 'no_delivery', reason):
+            log(f'{label}: run {rid[:8]} 未交卷（{r["calls"]} 次调用无交付工具）')
+            notify(conn, agent_id, '未交卷',
+                   f'[未交卷] {label}班未交卷 · {datetime.now():%m月%d日}',
+                   f'run {rid} 已静默 {silent // 1000}s，序列 {r["calls"]} 次调用'
+                   f'中无交付工具（{cfg["delivery"]}）。'
+                   f'按 §145：不看 turn 状态，只看交付工具。')
 
 
 def main():

@@ -23,6 +23,7 @@ SHARE_MIN_CALLS = 30     # 且 calls > 30 → 占比腿触发
 HEARTBEAT_SILENT_MS = 480_000    # 最后事件静默 > 8 分钟 → 心跳告警（不中止）
 DELIVERY_QUIET_MS = 30 * 60_000  # run 静默 > 30 分钟 → 具备验卷条件
 RUN_STALE_MS = 60 * 60_000       # run 最后事件超过 1 小时 → 不再视为活跃
+VERDICT_RECENT_MS = 6 * 60 * 60_000  # 验卷回溯窗：今天的班都在窗内，历史班不追诉
 
 # 三岗配置：交付工具 = 任务书点名的「交卷」工具（验卷判据）
 AGENTS = {
