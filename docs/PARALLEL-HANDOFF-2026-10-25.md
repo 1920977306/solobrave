@@ -12477,3 +12477,34 @@ dq_394807732167 置「完成」。明早六行确认第①行（优先级焊点 
 ### 剩单
 
 P1：⑥聊天两症状（dq_chat_ui_symptoms）、⑦熔断/验卷（dq_fuse_verify_impl）；P2×3。A 边继续按 ⑥→⑦ 或老大新令。
+
+## §171 P1-⑦ 熔断/验卷看门狗闭环（2026-11-16 15:0x，A 边施工，老大 14:27「转」）
+
+⑦⑥ 两单正式转 A 边（执行方 43h 零认领，产能证据充分）。⑦ 今天内交付达成。commits `cf58bf5`→`389f46a`→`c298f88`（main+dev 零分叉）。
+
+### 交付物
+
+| 件 | 位置 |
+|---|---|
+| 判据核心（纯函数） | `scripts/fuse_core.py`：复合判据（calls>100 或 share>0.4 且 calls>30，无时长/积分腿）、轨迹双格式解析、ps 三条件定位、七样本基线 |
+| 执行层 | `scripts/run_watchdog.py`：熔断 SIGTERM→wrapper §165 自愈（换新会话键重试一次，**对正在跑的班生效**）、心跳 480s 告警不中止、验卷 6h 窗逐 run 幂等、fuse_events (run_id,kind) 唯一、notifications [熔断]/[心跳]/[未交卷] |
+| 常驻 | launchd `com.solobrave.run-watchdog` StartInterval 300（<480s 心跳腿），已 bootstrap 在岗 |
+| 守卫 | `tests/test_run_watchdog.py` 15 条（判据边界/七样本回放钉死/双格式/ps 三条件/端到端含幂等） |
+
+### 首部署即抓出两个真口径 bug（已修已清留痕）
+
+1. 轨迹 data 参数字段叫 **`args`**（不叫 arguments）——loader 全取 None；
+2. 三岗交付全走 **`exec` 通用工具名**（今晨班 8ca29af4 seq60 实证 `python3 tools/xiaotuo_ops.py report`）——按工具名匹配 100% 漏判。
+修法：验卷改 **args 文本锚点**（小拓=`xiaotuo_ops.py report`；管家=`keeper_ops.py`/`square-report`）。
+误报的三条 [未交卷]（今晨三班实为真交付，日报 09:33/10:47/11:19 全在库）已按 run_id 精确清理。
+
+### 验收（规格口径）
+
+- 七样本回放（HEALTH-BASELINE 六行 + 今晨 8ca29af4）：**7/7 全对**（规格 ≥6/7）
+- 8ca29af4 = 36/1（2.8%）→ **正确放行**（实况库严格口径复算一致）
+- 全量回归 **1905 passed 0 failed**
+- 修正版实扫：零误报，今日三班正确判交付
+
+### 队列
+
+dq_fuse_verify_impl 置「完成」。⑥聊天两症状（dq_chat_ui_symptoms）A 边施工**中**（代码今天交付，真机验收等老大在场）。P2-④（dq_b_table_spec_fix）已入队待领。
