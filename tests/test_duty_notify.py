@@ -47,7 +47,8 @@ def _file(db, cause, now=NOW, agent='emp_goods_keeper'):
 # ── 1. 枚举钉死 ──────────────────────────────────────────────
 def test_root_cause_enum_locked():
     assert dn.ROOT_CAUSES == ('need_login', 'roam_search',
-                              'no_delivery', 'heartbeat_silent')
+                              'no_delivery', 'heartbeat_silent',
+                              'worker_thread_sick')   # ⑤ worker_sentry（老大 11-18 00:30 拍板）
 
 
 def test_file_case_rejects_free_text_cause(solodb):
@@ -75,10 +76,15 @@ def test_consecutive_same_cause_escalates(solodb, monkeypatch):
     _file(solodb, 'need_login', now=NOW - 600_000)
     out = _file(solodb, 'need_login', now=NOW)
     assert out['escalated'] is True
-    ups = [t for (u, t) in solodb.execute(
-        'SELECT user_id,title FROM notifications').fetchall()
+    ups = [(t, c) for (u, t, c) in solodb.execute(
+        'SELECT user_id,title,content FROM notifications').fetchall()
         if u == dn.ADMIN_ID and '值班升级' in t]
     assert len(ups) == 1                       # 升级通知恰一条
+    # 老大 11-18 00:30 拍板：升级正文必须带连击两条立案的 case_id（幽灵升级教训——
+    # 「通知在、案卷缺席」视为链路 bug，每条推给老大的告警都要可回溯）
+    ids = solodb.execute('SELECT id FROM duty_cases ORDER BY created_at').fetchall()
+    for (cid,) in ids:
+        assert cid in ups[0][1]
 
 
 def test_different_cause_no_escalate(solodb, monkeypatch):

@@ -45,7 +45,8 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DB = os.path.join(ROOT, 'data', 'solobrave.db')
 ADMIN_ID = 'user_7acb72ff'
 
-ROOT_CAUSES = ('need_login', 'roam_search', 'no_delivery', 'heartbeat_silent')
+ROOT_CAUSES = ('need_login', 'roam_search', 'no_delivery', 'heartbeat_silent',
+               'worker_thread_sick')   # ⑤ 老大 11-18 00:30 拍板追加（probe=null 归此类）
 ESCALATE_WINDOW_MS = 24 * 3600 * 1000   # 同码升级 24h 幂等（老大钉死）
 
 
@@ -106,19 +107,29 @@ def _consecutive_same_cause(conn, cause):
 
 
 def _escalate_if_needed(conn, cause, agent_id, now_ms):
-    """连击判定 + 24h 幂等 + 升级双通道。返回是否真升级（测试断言用）。"""
+    """连击判定 + 24h 幂等 + 升级双通道。返回是否真升级（测试断言用）。
+
+    ★ 升级正文必须带 case_id 清单（老大 11-18 00:30 拍板）：推给老大的每一条
+      告警都要能回溯到具体立案——「通知存在但案卷缺席」视为链路 bug，不允许。
+    """
     if not _consecutive_same_cause(conn, cause):
         return False
     row = conn.execute('SELECT last_at FROM duty_escalations WHERE root_cause = ?',
                        (cause,)).fetchone()
     if row and now_ms - row[0] < ESCALATE_WINDOW_MS:
         return False  # 24h 内同码已升级过（幂等）
+    # 取连击的两条立案 id（回溯锚）
+    pair = conn.execute(
+        'SELECT id FROM duty_cases WHERE root_cause = ? '
+        'ORDER BY created_at DESC, id DESC LIMIT 2', (cause,)).fetchall()
+    case_ids = [r[0] for r in pair]
     conn.execute('INSERT OR REPLACE INTO duty_escalations (root_cause, last_at)'
                  ' VALUES (?,?)', (cause, now_ms))
     title = f'[值班升级] 同根因连击：{cause}'
     content = (f'root_cause={cause} 连续 2 次立案（24h 幂等窗口内每码只升级一次）。'
-               f'最新一条来自 agent={agent_id}。按 P1-⑧ 规格直接推老大：'
-               f'该修修根因了，别让它出第三次。')
+               f'立案链：{case_ids[1]} → {case_ids[0]}（最新来自 agent={agent_id}）。'
+               f'回溯：SELECT * FROM duty_cases WHERE id IN 上述两 id。'
+               f'按 P1-⑧ 规格直接推老大：该修修根因了，别让它出第三次。')
     _insert_notification(conn, ADMIN_ID, agent_id, title, content, now_ms)
     conn.commit()
     desktop_push(title, content)

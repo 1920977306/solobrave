@@ -12659,3 +12659,30 @@ P1 清零（6 完成 + 1 作废 + ⑥待真机验）后，P2 四单按 ②→③
 ### 守卫
 `tests/test_duty_notify.py` 15 条：枚举钉死/三连立案/连击升级/异码不升/24h 幂等按码/
 跨窗口再升/desktop_push 永不抛/run_watchdog 映射/沿检测四态/preflight⑦行。
+
+## §178 幽灵升级判决 + worker_sentry 线程病自愈（2026-11-18 00:4x，协调边 00:22 动作包收口）
+
+### 幽灵升级判决（notif_f3ac5adfa300，三证据闭合）
+- **铁证**：`created_at=1794932400000`（精确整秒 00:20:00.000）+ **duty_escalations 空表**
+  （生产 `_escalate_if_needed` 先插 escalation 行再插通知，真升级不可能「通知在、行缺席」）
+  + duty_cases 全空（无配套立案）。**结论=表外直插**，最大嫌疑=协调边自己的桌面通道
+  验收回放（它原话「含连续两班同根因模拟回放」，走 CLI 则 duty_cases 必有 2 行）。
+- **现场健康**：daren-shot 探活正常（buyin dashboard 落地）；「第三次线程病」当时不成立
+  （daren_probe=null 是常态，仅 /probe-daren 按需填充）。
+- **判决动作**（老大 00:30 拍板）：升级正文**必须带连击两条立案 case_id 清单**——
+  推给老大的每条告警可回溯，「通知在案卷缺席」视为链路 bug。守卫已锁
+  （test_duty_notify 升级断言含全部 case_id）。
+
+### worker_sentry 线程病自愈（协调边指令包第 3 条落地）
+- `scripts/worker_sentry.py` + launchd `com.solobrave.worker-sentry` StartInterval 300：
+  签名扫描（worker.log + launchd.out.log 并集，行时间戳增量位点）→ 连续 2 轮病
+  （「Sync API inside the asyncio loop」，11-14/11-17 两次复发实证的签名）→ 自动 kickstart，
+  **冷却 30 分钟**；kick 顺序按 §8.2 实证姿势（graceful-daren 落盘 cookie → kick →
+  等 /health → open-daren，无需扫码）；kick 前写 worker-kick.marker 维护窗（+15min），
+  **daren_login_watch 窗内抑制 need_login 立案**（防自愈动作制造误报风暴；窗内不动状态
+  文件，真实死态窗后照常沿检测）。
+- 立案走 P1-⑧ 通知链：**root_cause 第 5 码 worker_thread_sick**（老大 00:30 拍板，
+  probe=null 归此类）——可见、可回溯、连击升级带 case_id。
+- 守卫 `tests/test_worker_sentry.py` 9 条：扫描增量/双日志并集/单轮不 kick/连击 kick/
+  清零/冷却/维护窗抑制+窗后沿保留。全量回归 **1959 passed**。
+- 首跑实况：00:38:57 在岗 exit 0（历史签名计 1 轮，位点已推进，不触发 kick）。

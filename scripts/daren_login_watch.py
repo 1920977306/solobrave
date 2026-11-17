@@ -36,6 +36,8 @@ DB = os.path.join(ROOT, 'data', 'solobrave.db')
 WORKER = os.environ.get('DAREN_WORKER', 'http://127.0.0.1:8095')
 STATE_FILE = os.path.join(ROOT, 'data', 'watchdog-markers',
                           'daren-login-watch.state')
+KICK_MARKER = os.path.join(ROOT, 'data', 'watchdog-markers',
+                           'worker-kick.marker')   # worker_sentry 维护窗
 AGENT = 'emp_goods_keeper'   # 达人端登录态的主要消费者 = 商品维度采集链
 
 
@@ -67,6 +69,21 @@ def _save_state(alive):
         json.dump({'alive': alive, 'ts': int(time.time() * 1000)}, f)
 
 
+def _in_maintenance_window(now_ms=None):
+    """worker_sentry kickstart 维护窗（marker until_ms 内）→ True。
+
+    重启必然瞬断 daren_logged_in——窗内抑制 need_login 立案，
+    否则自愈动作会自己制造误报风暴。窗内**不改状态文件**：
+    保持 prev 沿，窗期一过沿检测照常触发，不吞真实死态。
+    """
+    try:
+        with open(KICK_MARKER, encoding='utf-8') as f:
+            until = int(json.load(f).get('until_ms', 0))
+    except Exception:
+        return False
+    return (now_ms or int(time.time() * 1000)) < until
+
+
 def main():
     reachable, logged_in = probe()
     prev = _load_state()
@@ -91,6 +108,9 @@ def main():
     # alive→dead 沿（含首次运行即死：prev is None 视为「沿」，立即报——
     # 宁可一次沿误报，不可漏报首见死）
     if prev is not False:
+        if _in_maintenance_window():
+            log('worker_sentry 维护窗内（kickstart 瞬断属预期），抑制 need_login 立案')
+            return 0   # 不改状态文件：保持沿，窗后真实死态照常报
         conn = sqlite3.connect(DB, timeout=15)
         try:
             dn.ensure_case_tables(conn)
