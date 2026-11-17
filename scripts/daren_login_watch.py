@@ -87,6 +87,10 @@ def _in_maintenance_window(now_ms=None):
 def main():
     reachable, logged_in = probe()
     prev = _load_state()
+    # 观测性（解剖指令④）：每轮探活必留痕（case_id+db 路径在立案行）——
+    # 0 字节日志曾是黑洞：看不出「跑过且健康」和「根本没跑」的区别。
+    log(f'probe reachable={reachable} logged_in={logged_in} prev={prev} '
+        f'db={DB}')
 
     if not reachable:
         # worker 挂了 ≠ 登录态死：不立案，推一次横幅（幂等 = 状态文件保持 alive 语义不清，

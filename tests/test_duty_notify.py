@@ -112,6 +112,21 @@ def test_escalation_refires_after_24h(solodb, monkeypatch):
     assert _file(solodb, 'need_login', now=NOW)['escalated'] is True
 
 
+def test_escalation_refused_when_case_files_missing(solodb, monkeypatch):
+    """幽灵升级硬闸（解剖指令②）：案卷不足 2 条 → 拒绝升级，
+    不插通知、不插幂等标记——「通知在案卷缺席」不允许发生第二次。"""
+    monkeypatch.setattr(dn, 'desktop_push', lambda t, b='': True)
+    # 绕开 _consecutive_same_cause 的结构性保护，直接施压损坏态
+    assert dn._escalate_if_needed(solodb, 'need_login',
+                                  'emp_goods_keeper', NOW) is False
+    assert solodb.execute('SELECT COUNT(*) FROM duty_escalations') \
+        .fetchone()[0] == 0          # 幂等标记不落地
+    ups = solodb.execute(
+        "SELECT COUNT(*) FROM notifications WHERE title LIKE '[值班升级]%'") \
+        .fetchone()[0]
+    assert ups == 0                  # 幽灵推送不发生
+
+
 # ── 4. desktop_push 永不抛 ──────────────────────────────────
 def test_desktop_push_never_raises(monkeypatch):
     import subprocess

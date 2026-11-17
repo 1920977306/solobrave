@@ -123,6 +123,13 @@ def _escalate_if_needed(conn, cause, agent_id, now_ms):
         'SELECT id FROM duty_cases WHERE root_cause = ? '
         'ORDER BY created_at DESC, id DESC LIMIT 2', (cause,)).fetchall()
     case_ids = [r[0] for r in pair]
+    if len(case_ids) < 2:
+        # 硬闸（解剖指令 ②）：案卷缺失拒绝升级——宁可不推不可幽灵推。
+        # _consecutive_same_cause 已结构性保证 2 行在库，此闸防并发/损坏态，
+        # 任何路径下「通知在案卷缺席」不允许发生第二次。
+        log(f'[audit] 拒绝升级：{cause} 案卷不足 2 条（实 {len(case_ids)}）——'
+            f'幽灵升级硬闸触发，不推送')
+        return False
     conn.execute('INSERT OR REPLACE INTO duty_escalations (root_cause, last_at)'
                  ' VALUES (?,?)', (cause, now_ms))
     title = f'[值班升级] 同根因连击：{cause}'
@@ -132,6 +139,7 @@ def _escalate_if_needed(conn, cause, agent_id, now_ms):
                f'按 P1-⑧ 规格直接推老大：该修修根因了，别让它出第三次。')
     _insert_notification(conn, ADMIN_ID, agent_id, title, content, now_ms)
     conn.commit()
+    log(f'[audit] 升级推送：cause={cause} 立案链 {case_ids[1]} → {case_ids[0]}')
     desktop_push(title, content)
     return True
 
@@ -161,6 +169,10 @@ def file_case(conn, agent_id, cause, title, content, *,
     escalated = _escalate_if_needed(conn, cause, agent_id, now_ms)
     if escalated:
         log(f'[值班升级] {cause} 连击，已直推老大 case={case_id}')
+    # 审计（解剖指令①）：每条立案留 case_id + notify 通道 + 落库路径——
+    # 00:20 幽灵案的教训：事后回查「谁写的、走的哪条链」必须不用猜。
+    log(f'[audit] file_case case={case_id} cause={cause} '
+        f'notify={"双通道" if notify else "仅留痕"} db={DB}')
     return {'case_id': case_id, 'escalated': escalated}
 
 

@@ -12686,3 +12686,21 @@ P1 清零（6 完成 + 1 作废 + ⑥待真机验）后，P2 四单按 ②→③
 - 守卫 `tests/test_worker_sentry.py` 9 条：扫描增量/双日志并集/单轮不 kick/连击 kick/
   清零/冷却/维护窗抑制+窗后沿保留。全量回归 **1959 passed**。
 - 首跑实况：00:38:57 在岗 exit 0（历史签名计 1 轮，位点已推进，不触发 kick）。
+
+## §179 幽灵案解剖指令落地（2026-11-18 01:0x，协调边 00:52 指令包四条）
+
+- **指令②拒幽灵升级硬闸**：`_escalate_if_needed` 案卷不足 2 条 → 拒绝升级
+  （不插通知、不插幂等标记）——结构性保护之外再加硬闸，「通知在案卷缺席」
+  不允许发生第二次。守卫 test_escalation_refused_when_case_files_missing。
+- **指令①审计日志**：`file_case` 每条立案打 `case_id+cause+notify 通道+db 路径`；
+  升级路径打立案链两 id。以后「谁写的、走哪条链」不用猜。
+- **指令④看门观测性**：daren_login_watch 每轮探活必留痕
+  （reachable/logged_in/prev/db 路径）——0 字节日志曾是「看不出跑过且健康
+  和根本没跑」的黑洞。
+- **指令③按证据修正（不全照施工）**：协调边疑「第三次线程病」的物证
+  （browser_up=false / probe=null）经实测均为常态——前者是 §8.2 双浏览器
+  互斥设计（两 up 永不同时为真），后者仅 /probe-daren 按需填充；
+  00:53 实测 daren_logged_in=true、daren_browser_up=true，登录链健康。
+  若按「browser_up=false 即报 worker_thread_sick」施工会造误报风暴。
+  worker_thread_sick 的真实检出口 = worker_sentry 签名扫描（§178），已落地。
+- 全量回归 **1960 passed**；双分支推送零分叉。
