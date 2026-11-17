@@ -29,6 +29,7 @@ from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import fuse_core as fc
+import duty_notify as dn
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DB = os.path.join(ROOT, 'data', 'solobrave.db')
@@ -84,7 +85,8 @@ def record_event(conn, agent_id, run_id, kind, reason, acted=0):
 
 
 def notify(conn, agent_id, kind_tag, title, content):
-    """通知落库（notifications 链三天日报实证可靠）。失败只记日志不阻断。"""
+    """通知落库（notifications 链三天日报实证可靠）+ 桌面横幅（P1-⑧ 双通道）。
+    失败只记日志不阻断。"""
     try:
         conn.execute(
             'INSERT INTO notifications (id, user_id, agent_id, type, title, content,'
@@ -92,9 +94,22 @@ def notify(conn, agent_id, kind_tag, title, content):
             ('notif_' + uuid.uuid4().hex[:12], ADMIN_ID, agent_id,
              'task_reminder', title, content, _now_ms()))
         conn.commit()
-        log(f'  通知已落库 [{kind_tag}] {title}')
+        dn.desktop_push(title, content)   # P1-⑧：通知落库≠有人被推动，桌面才叫醒
+        log(f'  通知已落库+桌面推 [{kind_tag}] {title}')
     except Exception as e:
         log(f'  通知写入失败（不阻断）: {e}')
+
+
+def _file(conn, agent_id, cause, title, content):
+    """P1-⑧：立案留痕 + 连击升级判定（通知本体由 notify 已双通道送达，
+    这里 notify=False 防重复）。"""
+    try:
+        dn.ensure_case_tables(conn)
+        out = dn.file_case(conn, agent_id, cause, title, content, notify=False)
+        if out['escalated']:
+            log(f'  [值班升级] {cause} 连击已直推老大')
+    except Exception as e:
+        log(f'  立案留痕失败（不阻断）: {e}')
 
 
 def find_cli_pids(agent_id):
@@ -152,6 +167,8 @@ def scan_agent(agent_id, cfg, conn, now_ms, dry, traj_db=None):
                            f'run {rid} 命中{why}，已强制中止（wrapper 自动换新会话键重试一次）。'
                            f'调用分布：{r["calls"]} 次 tool.call，其中 tool_search '
                            f'{r["search"]} 次。中止本身计入失败样本。')
+                    _file(conn, agent_id, dn.map_fuse_reason(why),
+                          f'[熔断] {label}班被中止', f'run {rid} 命中{why}')
 
         # ── 2. 心跳看门（活跃 + 静默 > 480s，告警不中止，一条 run 报一次）──
         elif not r['ended'] and silent > fc.HEARTBEAT_SILENT_MS:
@@ -161,6 +178,9 @@ def scan_agent(agent_id, cfg, conn, now_ms, dry, traj_db=None):
                        f'[心跳] {label}班静默超 {fc.HEARTBEAT_SILENT_MS // 60000} 分钟',
                        f'run {rid} 最后事件距今 {silent // 1000}s，turn 可能挂起。'
                        f'当前 {r["calls"]} 次调用。只告警不中止。')
+                _file(conn, agent_id, 'heartbeat_silent',
+                      f'[心跳] {label}班静默超 {fc.HEARTBEAT_SILENT_MS // 60000} 分钟',
+                      f'run {rid} 静默{silent // 1000}s')
     else:
         log(f'{label}: 无活跃 run')
 
@@ -187,6 +207,8 @@ def scan_agent(agent_id, cfg, conn, now_ms, dry, traj_db=None):
                    f'run {rid} 已静默 {silent // 1000}s，{r["calls"]} 次调用的参数文本'
                    f'中无交付锚点（{cfg["anchors"]}）。'
                    f'按 §145：不看 turn 状态，只看交付命令真跑过没有。')
+            _file(conn, agent_id, 'no_delivery',
+                  f'[未交卷] {label}班未交卷', f'run {rid} 无交付锚点（{reason}）')
 
 
 def main():

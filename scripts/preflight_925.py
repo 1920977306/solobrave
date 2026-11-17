@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
-"""明早 9:25 六行前置确认一键核（老大 11-13 22:37 铁律：现在就弄，不拖到明早）。
+"""明早 9:25 七行前置确认一键核（老大 11-13 22:37 铁律：现在就弄，不拖到明早）。
 
-自动核 4 行 + 人工报 2 行，输出全绿才允许开跑。退出码 0 = 全绿，1 = 有红行。
-用法：python3 check_925.py [--note "人工报：熔断验卷=未部署,聊天bug=revert不消失"]
+自动核 5 行 + 人工报 2 行，输出全绿才允许开跑。退出码 0 = 全绿，1 = 有红行。
+⑦（P2-⑤ 三件套之①，11-17 加）= 达人端登录态班前探活：失效 → 当班跳过不烧积分，
+先跑 `python3 scripts/daren_relogin.py`（半自动重登，人 1 分钟）。
+用法：python3 preflight_925.py [--note "人工报：熔断验卷=未部署,聊天bug=revert不消失"]
 """
 import argparse
 import json
@@ -81,8 +83,26 @@ def main():
     line('⑥ 聊天 bug 处置结论', v.lower() in ('已修', 'revert已验', '根因定位'),
          v or '待人工报数', auto=False)
 
+    # ⑦ 达人端登录态班前探活（P2-⑤ 三件套之①，老大 11-17 19:46：
+    #    失效直接跳过当班不烧积分——探活入口挂 preflight 9:25 档）
+    #    注意：不能用 probe()——它 body 截断 [:200]，health JSON 会被切断。
+    try:
+        with urllib.request.urlopen('http://127.0.0.1:8095/health',
+                                    timeout=5) as r7:
+            st = json.loads(r7.read().decode('utf-8', errors='ignore'))
+        up7 = bool(st.get('daren_browser_up')) and bool(st.get('daren_logged_in'))
+        line('⑦ 达人端登录态探活', up7,
+             'buyin_worker 在岗且 daren_logged_in=true' if up7 else
+             '🔴 登录态失效/浏览器未起——当班跳过不烧积分，'
+             '修：python3 scripts/daren_relogin.py（半自动重登，人 1 分钟）')
+    except Exception as e:
+        line('⑦ 达人端登录态探活', False,
+             f'buyin_worker 控制口不可达——launchctl kickstart -k '
+             f'gui/$(id -u)/com.solobrave.buyin-worker（{e}）')
+
     reds = [r for r in results if not r[1]]
-    print(f'\n六行确认：{6 - len(reds)}/6 绿' + (f'，🔴 {len(reds)} 行：' + '、'.join(r[0] for r in reds) if reds else '，可开跑'))
+    print(f'\n七行确认：{len(results) - len(reds)}/{len(results)} 绿'
+          + (f'，🔴 {len(reds)} 行：' + '、'.join(r[0] for r in reds) if reds else '，可开跑'))
     sys.exit(1 if reds else 0)
 
 
