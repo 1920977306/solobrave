@@ -12630,3 +12630,32 @@ P1 清零（6 完成 + 1 作废 + ⑥待真机验）后，P2 四单按 ②→③
   **实现承诺：明上午 9:30 班前交付**；施工序=P1-⑧ 先行，再续三件套。
 - 协调边另指明：对方「model 字段透传」是上下文串台（说的是模型选择功能，非聊天两症状），
   2 分钟真机清单口径不变。
+
+## §177 P1-⑧ 值班通知链 + P2-⑤ 三件套全交付（2026-11-17 19:5x，老大 19:46「今晚全做完，不等明早」）
+
+单 commit `46df227`（推送时空响应一次，重试成功，双分支零分叉）。全量回归 **1950 passed**。
+三机制（熔断/验卷/通知链）+ 三件套（探活/告警/重登）全部在码在库在 launchd。
+
+### P1-⑧ 值班通知链（dq_duty_notify_chain → 待验）
+- `scripts/duty_notify.py`：立案双通道（notifications 落库 + osascript 桌面横幅，best-effort
+  不反噬主链）；root_cause **短码枚举**（老大钉死：need_login / roam_search / no_delivery /
+  heartbeat_silent）——立案时映射、判重按码；**连续 2 次同码 → [值班升级] 直推老大，
+  24h 每码幂等**（duty_escalations 表锚）。
+- 挂接：`run_watchdog.py` 三立案点（fuse→roam_search 两条腿同属漫游家族/heartbeat→
+  heartbeat_silent/no_delivery→no_delivery）+ `daren_login_watch.py` need_login。
+- 回放通道：`python3 scripts/duty_notify.py file --cause X --agent Y --title ... --now <ms>`
+  （协调边第四方用它回放 13:36/17:41 两班 need_login 样本验证升级推送）。
+
+### P2-⑤ 登录态维持三件套（dq_be2c7727e167 → 待验，范围=机制非补 cookie）
+- **① 班前探活**：preflight_925 加**⑦ 达人端登录态探活**（真信号=8095 /health 探测——
+  踩过 probe() body 截断 [:200] 坑，已绕开）；失效=当班跳过不烧积分，红灯自带修复路径。
+- **② 失效即时告警**：`scripts/daren_login_watch.py` + launchd
+  `com.solobrave.daren-login-watch` StartInterval 120（**转死 <5 分钟必达**，2.5 倍余量）。
+  沿检测防警报疲劳；控制口不可达 ≠ 登录死（只推横幅不立案 need_login，不污连击计数）。
+- **③ 半自动重登**：`scripts/daren_relogin.py` 一条命令——拉浏览器→引导扫码页
+  （登录→达人工作台，今晚实测路径）→推「请扫码」→轮询确认→推「已恢复」，人 1 分钟。
+- 实机全过：preflight 7/7 绿、watch exit 0、relogin --step open 冒烟过。
+
+### 守卫
+`tests/test_duty_notify.py` 15 条：枚举钉死/三连立案/连击升级/异码不升/24h 幂等按码/
+跨窗口再升/desktop_push 永不抛/run_watchdog 映射/沿检测四态/preflight⑦行。
