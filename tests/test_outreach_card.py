@@ -31,16 +31,16 @@ def _mk_db(tmp_path, with_match=True):
     conn = sqlite3.connect(str(db))
     conn.execute('''CREATE TABLE products (
         id TEXT PRIMARY KEY, name TEXT, price REAL, commission_rates TEXT,
-        platform_product_id TEXT, platform_pay_gmv REAL)''')
+        platform_product_id TEXT, platform_pay_gmv REAL, category TEXT)''')
     conn.execute('''CREATE TABLE product_talent_match (
         id TEXT PRIMARY KEY, product_id TEXT, talent_id TEXT,
         match_score REAL, match_reason TEXT)''')
     conn.executemany(
-        'INSERT INTO products VALUES (?,?,?,?,?,?)', [
-            ('p1', '骑士靴时尚款', 549.0, '{"default": 5}', 'pid_1', 1589342.0),
+        'INSERT INTO products VALUES (?,?,?,?,?,?,?)', [
+            ('p1', '骑士靴时尚款', 549.0, '{"default": 5}', 'pid_1', 1589342.0, None),
             ('p2', '人字拖沙滩款', 159.0, '{"投放期": 10, "常规活动期": 5, "其他": 5}',
-             'pid_2', 20000.0),
-            ('p3', '无佣金品', 99.0, '{}', 'pid_3', 999999.0),
+             'pid_2', 20000.0, None),
+            ('p3', '无佣金品', 99.0, '{}', 'pid_3', 999999.0, None),
         ])
     if with_match:
         conn.executemany(
@@ -90,6 +90,58 @@ def test_fallback_to_gmv_products(tmp_path):
     conn.close()
 
 
+# ── 4b. P3 类目过滤：达人 category 命中时优先类目池，真无命中才热销回退 ──
+def _mk_db_with_talent(tmp_path, talent_cat):
+    db, conn = _mk_db(tmp_path, with_match=False)
+    conn.execute('''CREATE TABLE talents (id TEXT PRIMARY KEY, name TEXT,
+                    category TEXT, main_category TEXT, top_categories TEXT)''')
+    conn.execute('INSERT INTO talents VALUES (?,?,?,?,?)',
+                 ('tal_cat', '类目达人', talent_cat, '', '[]'))
+    conn.execute("INSERT INTO products VALUES ('p4','家清爆款',39.0,"
+                 "'{\"default\": 20}','pid_4',500.0,'个护家清/纸品')")
+    conn.execute("UPDATE products SET category='鞋靴/靴子' WHERE id IN ('p1','p3')")
+    conn.execute("UPDATE products SET category='个护家清/纸品' WHERE id='p4'")
+    conn.execute("UPDATE products SET category='鞋靴/拖鞋' WHERE id='p2'")
+    conn.commit()
+    return db, conn
+
+
+def test_fallback_prefers_talent_category(tmp_path):
+    """达人类目（个护家清）在池中有命中 ⇒ 优先推类目品，不推GMV更高的靴。"""
+    db, conn = _mk_db_with_talent(tmp_path, '食品饮料/个护家清')
+    prods = oc.match_products_for_talent(conn, 'tal_cat', top_n=2)
+    assert prods and all(p['source'] == 'fallback_cat' for p in prods)
+    assert '家清爆款' in [p['name'] for p in prods], '类目命中的品先进卡'
+    assert all('骑士靴' not in p['name'] for p in prods), '有类目命中就不回退热销'
+    conn.close()
+
+
+def test_fallback_no_category_match_uses_hot_sale(tmp_path):
+    """达人类目池中真无命中 ⇒ 回退热销（机制不变，宁回退不错配）。"""
+    db, conn = _mk_db_with_talent(tmp_path, '生鲜/母婴')
+    prods = oc.match_products_for_talent(conn, 'tal_cat', top_n=2)
+    assert prods and all(p['source'] == 'fallback' for p in prods)
+    assert '骑士靴时尚款' in [p['name'] for p in prods]
+    conn.close()
+
+
+def test_whole_token_match_not_substring(tmp_path):
+    """整 token 包含：「食品」撞「特医食品」不算命中（防弱子串错配）。"""
+    db, conn = _mk_db(tmp_path, with_match=False)
+    conn.execute('''CREATE TABLE talents (id TEXT PRIMARY KEY, name TEXT,
+                    category TEXT, main_category TEXT, top_categories TEXT)''')
+    conn.execute("INSERT INTO talents VALUES ('tal_f','食饮','食品饮料','','[]')")
+    conn.execute("INSERT INTO products VALUES ('p5','特医钙片',59.0,"
+                 "'{\"default\": 15}','pid_5',100.0,NULL)")
+    conn.execute("UPDATE products SET category='营养保健/特医食品/维生素' WHERE id='p5'")
+    conn.execute("UPDATE products SET category='鞋靴/靴子' WHERE id IN ('p1','p3')")
+    conn.execute("UPDATE products SET category='鞋靴/拖鞋' WHERE id='p2'")
+    conn.commit()
+    prods = oc.match_products_for_talent(conn, 'tal_f', top_n=2)
+    assert all(p['source'] == 'fallback' for p in prods), '子串不算命中⇒热销回退'
+    conn.close()
+
+
 # ── 5. 两边都无 ⇒ 明示暂无可配品，达人不丢 ──────────────────────
 def test_empty_pool_explicit_note(tmp_path):
     db = tmp_path / 'empty.db'
@@ -116,11 +168,12 @@ def _duty_db(tmp_path):
                     last_run_at INTEGER DEFAULT 0, last_run_summary TEXT DEFAULT '',
                     updated_at INTEGER)''')
     conn.execute('''CREATE TABLE products (id TEXT PRIMARY KEY, name TEXT, price REAL,
-                    commission_rates TEXT, platform_product_id TEXT, platform_pay_gmv REAL)''')
+                    commission_rates TEXT, platform_product_id TEXT, platform_pay_gmv REAL,
+                    category TEXT)''')
     conn.execute('''CREATE TABLE product_talent_match (id TEXT PRIMARY KEY,
                     product_id TEXT, talent_id TEXT, match_score REAL, match_reason TEXT)''')
     conn.execute("INSERT INTO emp_duties VALUES ('emp_xiaotuo', '达人筛选专员', '', 0, 0, '', 0)")
-    conn.execute("INSERT INTO products VALUES ('p1','骑士靴',549.0,'{\"default\": 5}','pid_1',100.0)")
+    conn.execute("INSERT INTO products VALUES ('p1','骑士靴',549.0,'{\"default\": 5}','pid_1',100.0,'鞋靴/靴子')")
     conn.execute("INSERT INTO product_talent_match VALUES ('m1','p1','tal_a',88.0,'类目一致')")
     conn.execute('''CREATE TABLE talent_recommendations (
         rec_id TEXT PRIMARY KEY, rec_date TEXT NOT NULL, talent_id TEXT NOT NULL,

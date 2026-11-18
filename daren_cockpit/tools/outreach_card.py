@@ -21,6 +21,7 @@
 """
 from __future__ import annotations
 
+import re
 import sqlite3
 from typing import Any
 
@@ -37,12 +38,54 @@ ORDER BY m.match_score DESC, COALESCE(p.platform_pay_gmv, 0) DESC
 '''
 
 _FALLBACK_SQL = '''
-SELECT id, name, price, commission_rates, platform_pay_gmv
+SELECT id, name, price, commission_rates, platform_pay_gmv, category
 FROM products
 WHERE platform_product_id IS NOT NULL AND platform_product_id != ''
-  AND COALESCE(platform_pay_gmv, 0) > 0
-ORDER BY platform_pay_gmv DESC
+ORDER BY COALESCE(platform_pay_gmv, 0) DESC
 '''
+
+_TALENT_CAT_SQL = 'SELECT category, main_category, top_categories FROM talents WHERE id = ?'
+
+_CAT_SPLIT_RE = re.compile(r'[/,，、\[\]"\']+')
+
+
+def _split_tokens(text: Any) -> set:
+    """从类目串里抽 token：按 / 、，, 空白与 JSON 残片切，只留 ≥2 字的。"""
+    tokens = set()
+    for part in _CAT_SPLIT_RE.split(str(text or '')):
+        part = part.strip()
+        if len(part) >= 2:
+            tokens.add(part)
+    return tokens
+
+
+def _talent_cat_tokens(conn, talent_id: str) -> set:
+    """达人类目 token（category/main_category/top_categories 三路合并）。
+
+    talents 表缺失/无行 ⇒ 空集（调用方回退热销，不报错）。
+    """
+    try:
+        row = conn.execute(_TALENT_CAT_SQL, (talent_id,)).fetchone()
+    except sqlite3.Error:
+        return set()
+    if not row:
+        return set()
+    tokens: set = set()
+    for col in row:
+        tokens |= _split_tokens(col)
+    return tokens
+
+
+def _prod_cat_matches(tokens: set, prod_category: Any) -> bool:
+    """整 token 双向包含（不是任意子串）——「食品」撞「特医食品」不算命中。"""
+    if not tokens:
+        return False
+    segs = _split_tokens(prod_category)
+    for t in tokens:
+        for s in segs:
+            if t in s or s in t:
+                return True
+    return False
 
 
 def _fmt_gmv(gmv: Any) -> str:
@@ -94,23 +137,36 @@ def match_products_for_talent(conn, talent_id: str, top_n: int = 2) -> list[dict
         frows = conn.execute(_FALLBACK_SQL).fetchall()
     except sqlite3.Error:
         frows = []
-    for r in frows:
-        prod = {'name': r[1], 'price': r[2], 'commission_rates': r[3],
-                'platform_pay_gmv': r[4]}
-        rate = product_facts.commission_rate_of(prod)
-        if not prod.get('name') or rate <= 0:
-            continue
-        out.append({
-            'name': str(prod['name']),
-            'price': product_facts.price_of(prod),
-            'rate': rate,
-            'note': product_facts.commission_note(prod),
-            'gmv_text': _fmt_gmv(prod.get('platform_pay_gmv')),
-            'source': 'fallback',
-        })
-        if len(out) >= top_n:
-            break
-    return out
+    # P3（2026-11-18 晚）：回退池先按达人类目过滤（整 token 双向包含），
+    # 命中≥1 用品（佣金真值在）；真无命中才回退全店热销——宁回退不错配。
+    tokens = _talent_cat_tokens(conn, tid)
+
+    def _pick(rows, source):
+        picked = []
+        for r in rows:
+            prod = {'name': r[1], 'price': r[2], 'commission_rates': r[3],
+                    'platform_pay_gmv': r[4]}
+            rate = product_facts.commission_rate_of(prod)
+            if not prod.get('name') or rate <= 0:
+                continue
+            picked.append({
+                'name': str(prod['name']),
+                'price': product_facts.price_of(prod),
+                'rate': rate,
+                'note': product_facts.commission_note(prod),
+                'gmv_text': _fmt_gmv(prod.get('platform_pay_gmv')),
+                'source': source,
+            })
+            if len(picked) >= top_n:
+                break
+        return picked
+
+    if tokens:
+        cat_rows = [r for r in frows if _prod_cat_matches(tokens, r[5])]
+        cat_picked = _pick(cat_rows, 'fallback_cat')
+        if cat_picked:
+            return cat_picked
+    return _pick(frows, 'fallback')
 
 
 def _prod_bit(p: dict, idx: int) -> str:
