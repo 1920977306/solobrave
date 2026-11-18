@@ -26160,6 +26160,58 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 # 剥离伪工具调用文本（exec(command=/tool_call( 等模型演戏输出）
                 cleaned_reply = _strip_fake_tool_calls(cleaned_reply)
 
+                # ★ P1-⑩（2026-11-18）：整条回复只剩占位 = 模型意图调工作区脚本
+                # （keeper_ops 等），而 web 聊天无工具运行时——旧行为是落库占位后
+                # 问题悬空（用户追问「结果呢」无下文，协调边 16:32 实证）。
+                # 纠错重试一次（CollectTakeover 31314 行同款口径：工具调用是错的，
+                # 直接基于已有信息回答，答不了就明说）；重试仍只有占位 → 落库明示
+                # 话术，绝不悬空。不动 sanitizer 本体、不动 openclaw 路径。
+                if cleaned_reply and _FAKE_TOOL_PLACEHOLDER in cleaned_reply:
+                    _ft_remainder = cleaned_reply.replace(_FAKE_TOOL_PLACEHOLDER, '').strip()
+                    if not _ft_remainder:
+                        logger.warning(
+                            f'  [FakeToolRetry] {agent_id} 整条回复=占位（伪工具调用被剥光），'
+                            f'触发纠错重试'
+                        )
+                        _ft_fallback = ('该查询需要我在工作区跑体检脚本，'
+                                        '日报里给你结果。')
+                        try:
+                            _ft_retry = _call_ai_api(
+                                agent,
+                                '【输出规范】上一条输出工具调用是错的——你没有工具运行时，'
+                                '直接基于已有信息回答，答不了就明说。\n\n'
+                                + content + '\n\n现在请直接回答，禁止输出任何工具调用。',
+                                auth.user_info, include_history=not is_extract,
+                                allowed_knowledge_categories=allowed_cats,
+                                requester_id=auth.user_id,
+                                tenant_manager=auth.is_tenant_manager,
+                                team_ids=auth.team_ids, group_ids=auth.group_ids
+                            )
+                            _ft_accepted = False
+                            if _ft_retry:
+                                _ft_updates, _ft_cleaned = _parse_self_updates(_ft_retry)
+                                if _ft_updates:
+                                    _apply_agent_self_update(
+                                        agent_id, _ft_updates,
+                                        source=f'chat:{auth.user_id}')
+                                _ft_cleaned = _strip_fake_tool_calls(_ft_cleaned)
+                                if _ft_cleaned and _ft_cleaned.replace(
+                                        _FAKE_TOOL_PLACEHOLDER, '').strip():
+                                    cleaned_reply = _ft_cleaned
+                                    _ft_accepted = True
+                                    logger.info(
+                                        f'  [FakeToolRetry] {agent_id} 纠错重试成功 '
+                                        f'len={len(_ft_cleaned)}')
+                            if not _ft_accepted:
+                                cleaned_reply = _ft_fallback
+                                logger.info(
+                                    f'  [FakeToolRetry] {agent_id} 重试仍只有占位/为空，'
+                                    f'落明示话术')
+                        except Exception as _ft_err:
+                            logger.error(
+                                f'  [FakeToolRetry] {agent_id} 纠错重试失败: {_ft_err}')
+                            cleaned_reply = _ft_fallback
+
                 # ★ bug/helen-amnesia: fallback reply 防御
                 # LLM 偶尔无视 system_prompt + 用户消息末尾的【系统数据】注入,
                 # 在已有富数据时仍回"请提供具体数据或截图",触发用户重新提供。

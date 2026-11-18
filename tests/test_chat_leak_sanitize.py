@@ -77,3 +77,29 @@ def test_active_def_has_new_handlers():
     src = ast.get_source_segment(SERVER.read_text(encoding='utf-8'), active)
     assert '_FAKE_PROVIDER_SWITCH_RE' in src, '活跃版 sanitizer 缺协议标记处理（改到死版本了？）'
     assert '_FAKE_TOOLCALL_JSON_INLINE_RE' in src, '活跃版 sanitizer 缺 JSON 块处理（改到死版本了？）'
+
+
+# ── P1-⑩ 守卫（2026-11-18）：整条=占位 → 纠错重试 → 明示话术，问题不悬空 ──
+
+def test_p1x_retry_logic_present():
+    """守卫①：ChatPOST API 代理路径含 FakeToolRetry 纠错链（源码断言）。"""
+    src = SERVER.read_text(encoding='utf-8')
+    assert '[FakeToolRetry]' in src
+    assert '整条回复=占位' in src
+    # CollectTakeover 同款口径（31314 行模式：工具调用是错的，答不了就明说）
+    assert '上一条输出工具调用是错的' in src
+    assert '没有工具运行时' in src
+    # 重试仍只有占位 → 明示话术落库（不悬空）
+    assert '该查询需要我在工作区跑体检脚本' in src
+    # 重试结果再过一遍 sanitizer（防重试回泄漏形态）
+    seg = src.split("[FakeToolRetry] {agent_id} 整条回复=占位", 1)[1]
+    assert seg.count('_strip_fake_tool_calls(_ft_cleaned)') == 1
+
+
+def test_p1x_sanitizer_untouched():
+    """守卫②（回归）：P1-⑩ 不动 sanitizer 本体——症状1 全部既有断言保持。"""
+    out = srv._strip_fake_tool_calls(_LEAK_SAMPLE)
+    assert out == '（正在查询系统数据…）'
+    # 281 字级正常长答不受任何影响（正常回答路径不误伤的 sanitizer 层基线）
+    long_answer = ('今天广场扫了 4 个新达人，深看 5 人，排除 18 人。' * 8)[:281]
+    assert srv._strip_fake_tool_calls(long_answer) == long_answer
