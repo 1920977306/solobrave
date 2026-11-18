@@ -109,21 +109,32 @@ def step_open(cfg, timeout_s):
 
 
 def step_guide(cfg):
-    """达人端：官网 → 登录 → 达人工作台（11-17 19:08 实测路径）。
-    团长端：/open 直达百应首页，未登录自动落扫码页（worker 自证「如需登录请扫码」），
-    控制口无团长端点击端点，引导即就位确认。"""
-    if cfg is ENDS['daren']:
-        try:
+    """引导至扫码页。达人端：官网 → 登录 → 达人工作台（11-17 实测）。
+    团长端：百应精选联盟四步（11-18 截图实证走通）——
+      1. 导航身份选择页（/open 只到官网落地页，**那里没有码**，两轮 45 分钟
+         零扫码的教训：未登录 buyin 根路由重定向官网，官网无二维码）
+      2. 点「招商团长」→ 登录表单
+      3. 点「其他登录方式」的抖音图标（img[src*='-ecop'] 第一个）
+      4. 落到 open.douyin.com OAuth 页，**真二维码**显示"""
+    try:
+        if cfg is ENDS['daren']:
             _post('/daren-click', {'text': '登录', 'wait': 3})
             time.sleep(4)
             _post('/daren-click', {'text': '达人工作台', 'wait': 6})
             log('已引导至扫码页（登录→达人工作台）')
             return True
-        except Exception as e:
-            log(f'引导失败：{e}')
-            return False
-    log('团长端扫码页就位（百应首页未登录态自动落登录页）')
-    return True
+        _post('/click', {
+            'url': 'https://buyin.jinritemai.com/mpa/account/'
+                   'institution-role-select',
+            'text': '招商团长', 'wait': 6})
+        time.sleep(8)
+        _post('/click', {'selector': "img[src*='-ecop']", 'sel_nth': 0,
+                         'wait': 8})
+        log('已引导至抖音 OAuth 扫码页（精选联盟→招商团长→抖音图标）')
+        return True
+    except Exception as e:
+        log(f'引导失败：{e}')
+        return False
 
 
 def step_notify(cfg):

@@ -2919,6 +2919,29 @@ def _browser_loop():
             except Exception as e:
                 log(f'[Control] 商品API探测失败: {e}')
             continue
+        if row.get('_captain_shot'):
+            # 团长端当前页截图 + 正文（不切换浏览器——与 _daren_shot 的关键区别，
+            # 登录引导期间不能把被引导端切走）
+            try:
+                if not BROWSER.up():
+                    raise RuntimeError('团长端浏览器未启动')
+                page = BROWSER.page
+                safe = re.sub(r'[^\w]+', '_', str(row.get('name') or 'captain'))[:40]
+                path = SHOTS_DIR / f'captain_{safe}_{int(time.time())}.png'
+                page.screenshot(path=str(path))
+                txt = ''
+                try:
+                    txt = page.evaluate(
+                        "() => (document.body ? document.body.innerText : '').slice(0, 900)")
+                except Exception:
+                    pass
+                with _job_lock:
+                    STATE['captain_shot'] = {'path': str(path), 'url': page.url,
+                                             'title': page.title()[:80], 'body': txt}
+                log(f'[Control] 团长端截图已存: {path.name}')
+            except Exception as e:
+                log(f'[Control] 团长端截图失败: {e}')
+            continue
         if row.get('_daren_shot'):
             # 达人端当前页截图 + 正文（判断停在哪个页面/是否扫码页用）
             try:
@@ -2940,6 +2963,164 @@ def _browser_loop():
                 with _job_lock:
                     STATE['daren_shot'] = {'error': str(e)}
                 log(f'[Control] 达人端截图失败: {e}')
+            continue
+        if row.get('_captain_click'):
+            # 团长端按文字点击（镜像 _daren_click，关键区别：不切换浏览器——
+            # 登录引导期间不能把被引导端切走）
+            ctext = str(row.get('text') or '').strip()
+            cnth = int(row.get('nth') or 0)
+            cwait = float(row.get('wait') or 4.0)
+            curl_ = str(row.get('url') or '').strip()
+            out = {'text': ctext, 'nth': cnth, 'ok': False}
+            try:
+                if not BROWSER.up() or BROWSER.page.is_closed():
+                    raise RuntimeError('团长端浏览器未启动')
+                page = BROWSER.page
+                if curl_:
+                    # 先导航（登录引导主路径）：未登录访问 /dashboard 业务路径，
+                    # 平台会弹到 passport 登录墙（§110 实证），墙上有扫码二维码
+                    page.goto(curl_, timeout=60000)
+                    page.wait_for_load_state('domcontentloaded')
+                    _human_sleep(3, 5)
+                out['start_url'] = page.url
+                if row.get('dump_links'):
+                    # 只读：倒出页面上的链接（text+href），找登录入口用——
+                    # 不猜 URL，问页面自己（官网登录入口改版后靠肉眼找不靠谱）
+                    try:
+                        links = page.evaluate(
+                            "() => Array.from(document.querySelectorAll('a'))"
+                            ".map(a => [a.innerText || '', a.href || ''])"
+                            ".filter(x => x[1])")
+                        keys = ('jinritemai', 'buyin', 'login', 'passport',
+                                'sso', 'douyinec')
+                        out['links'] = [x for x in links
+                                        if any(k in x[1].lower() for k in keys)]
+                        out['all_link_count'] = len(links)
+                        # 二维码/扫码触发元素候选（img alt/class、含 qr/scan 的节点）
+                        out['imgs'] = page.evaluate(
+                            "() => Array.from(document.querySelectorAll("
+                            "'img, [class*=qr], [class*=scan], [class*=Qr], "
+                            "[class*=Scan], [class*=code]'))"
+                            ".map(e => [e.tagName, e.alt || '', "
+                            "(e.className||'').toString().slice(0,60), "
+                            "(e.src||'').slice(-60)])")
+                        out['ok'] = True
+                    except Exception as e:
+                        out['error'] = f'倒链接失败: {e}'
+                    with _job_lock:
+                        STATE['captain_click'] = out
+                    log(f"[Control] 团长端倒链接: {len(out.get('links') or [])} 条命中")
+                    continue
+                csel = str(row.get('selector') or '').strip()
+                cx = row.get('x')
+                cy = row.get('y')
+                if cx is not None and cy is not None:
+                    # 坐标直点（图标类无语义元素的最后手段）：CSS 像素，viewport 原点
+                    try:
+                        page.mouse.click(float(cx), float(cy), delay=80)
+                        _human_sleep(cwait, cwait + 2.0)
+                        shot = SHOTS_DIR / f'captainclick_{int(time.time())}.png'
+                        page.screenshot(path=str(shot))
+                        out.update({'ok': True, 'shot': str(shot), 'url': page.url,
+                                    'matched': 1, 'by': 'xy'})
+                        try:
+                            out['body'] = page.evaluate(
+                                "() => (document.body ? document.body.innerText : '').slice(0, 2000)")
+                        except Exception:
+                            out['body'] = ''
+                    except Exception as e:
+                        out['error'] = f'坐标点击失败: {e}'
+                    with _job_lock:
+                        STATE['captain_click'] = out
+                    log(f"[Control] 团长端坐标点击 ({cx},{cy}): ok={out['ok']}")
+                    continue
+                if csel:
+                    # CSS 直点（登录图标/二维码切换按钮这类无语义文字的元素）
+                    try:
+                        sel_loc = page.locator(csel)
+                        out['matched'] = sel_loc.count()
+                        if out['matched']:
+                            sel_loc.nth(min(int(row.get('sel_nth') or 0),
+                                            out['matched'] - 1)).click(timeout=12000)
+                            _human_sleep(cwait, cwait + 2.0)
+                            shot = SHOTS_DIR / f'captainclick_{int(time.time())}.png'
+                            page.screenshot(path=str(shot))
+                            out['shot'] = str(shot)
+                            out['ok'] = True
+                            out['url'] = page.url
+                            try:
+                                out['body'] = page.evaluate(
+                                    "() => (document.body ? document.body.innerText : '').slice(0, 2000)")
+                            except Exception:
+                                out['body'] = ''
+                        else:
+                            out['error'] = f'selector 无命中: {csel}'
+                    except Exception as e:
+                        out['error'] = f'selector 点击失败: {e}'
+                    with _job_lock:
+                        STATE['captain_click'] = out
+                    log(f"[Control] 团长端 selector 点击: ok={out['ok']}")
+                    continue
+                loc = page.get_by_text(ctext, exact=False)
+                cnt = loc.count()
+                out['matched'] = cnt
+                if cnt == 0:
+                    if curl_ and buyin_auth.is_login_url(page.url):
+                        # 没找到文字但已落在登录墙 = 引导成功（扫码页就位）
+                        out['ok'] = True
+                        out['note'] = '已落在登录墙（passport），扫码页就位'
+                        shot = SHOTS_DIR / f'captainclick_{int(time.time())}.png'
+                        page.screenshot(path=str(shot))
+                        out['shot'] = str(shot)
+                        out['url'] = page.url
+                    else:
+                        out['error'] = f'页面上找不到文字「{ctext}」'
+                        # 失败也留现场：截图+URL+正文（登录引导排障全靠它）
+                        try:
+                            shot = SHOTS_DIR / f'captainclick_{int(time.time())}.png'
+                            page.screenshot(path=str(shot))
+                            out['shot'] = str(shot)
+                            out['url'] = page.url
+                            out['body'] = page.evaluate(
+                                "() => (document.body ? document.body.innerText : '').slice(0, 1500)")
+                        except Exception:
+                            pass
+                else:
+                    idx = min(cnth, cnt - 1)
+                    out['clicked'] = idx
+                    loc.nth(idx).click(timeout=12000)
+                    _human_sleep(cwait, cwait + 2.0)
+                    # 菜单项常 target=_blank 开新标签——取最新标签为落点
+                    tabs = BROWSER.ctx.pages
+                    out['tabs'] = len(tabs)
+                    target = tabs[-1] if len(tabs) > 1 else page
+                    if target is not page and not target.is_closed():
+                        try:
+                            target.bring_to_front()
+                        except Exception:
+                            pass
+                        page = target
+                        BROWSER.page = target   # 跟踪活跃标签，probe/health 不盯死旧页
+                        with _job_lock:
+                            STATE['browser_tabs'] = len(tabs)
+                    shot = SHOTS_DIR / f'captainclick_{int(time.time())}.png'
+                    page.screenshot(path=str(shot))
+                    out['shot'] = str(shot)
+                    out['ok'] = True
+                    out['url'] = page.url
+                    try:
+                        out['body'] = page.evaluate(
+                            "() => (document.body ? document.body.innerText : '').slice(0, 2000)")
+                    except Exception:
+                        out['body'] = ''
+                with _job_lock:
+                    STATE['captain_click'] = out
+                log(f"[Control] 团长端点击「{ctext}」: ok={out['ok']} matched={cnt}")
+            except Exception as e:
+                with _job_lock:
+                    STATE['captain_click'] = {'text': ctext, 'ok': False,
+                                              'error': str(e)}
+                log(f'[Control] 团长端点击失败: {e}')
             continue
         if row.get('_daren_click'):
             # ★ 达人端「按文字点元素 + 抓它触发的接口」（2026-10-24）
@@ -3228,6 +3409,22 @@ def _browser_loop():
                 log(f"[Control] probe: url={info['url']} cookies={len(info['cookies'])}")
             except Exception as e:
                 log(f'[Control] probe 失败: {e}')
+        if row.get('_probe_captain'):
+            # 团长端镜像 probe（P2-⑥ 前置）：只读——当前 URL + cookie 名，
+            # 不导航不点击。重登诊断「扫码页到底在不在/扫了没有」全靠它。
+            try:
+                info = {'up': BROWSER.up(), 'url': None, 'cookies': []}
+                if BROWSER.up() and BROWSER.page and not BROWSER.page.is_closed():
+                    info['url'] = BROWSER.page.url
+                    cs = BROWSER.ctx.cookies()
+                    info['cookies'] = sorted(
+                        {f"{c.get('domain','')}:{c.get('name')}" for c in cs})
+                with _job_lock:
+                    STATE['captain_probe'] = info
+                log(f"[Control] captain probe: url={info['url']} "
+                    f"cookies={len(info['cookies'])}")
+            except Exception as e:
+                log(f'[Control] captain probe 失败: {e}')
             continue
         try:
             # 顺手刷新登录态标记（供 /health 读取）
@@ -4876,6 +5073,9 @@ class ControlHandler(BaseHTTPRequestHandler):
                 'daren_browser_up': dup, 'daren_logged_in': dlogged,
                 'daren_probe': STATE.get('daren_probe'),
                 'daren_api_probe': STATE.get('daren_api_probe'),
+                'captain_probe': STATE.get('captain_probe'),
+                'captain_shot': STATE.get('captain_shot'),
+                'captain_click': STATE.get('captain_click'),
                 'queue_pending': len(db_pending()),
                 'jobs': jobs,
             })
@@ -4995,6 +5195,16 @@ class ControlHandler(BaseHTTPRequestHandler):
             JOB_Q.put({'_probe_daren': True})
             self._json(200, {'ok': True, 'msg': 'probe 已入队，结果见 GET /health 的 daren_probe'})
             return
+        if self.path == '/probe':
+            # 团长端只读探测（镜像 /probe-daren）：不导航不点击
+            JOB_Q.put({'_probe_captain': True})
+            self._json(200, {'ok': True, 'msg': 'probe 已入队，结果见 GET /health 的 captain_probe'})
+            return
+        if self.path == '/shot':
+            # 团长端截图（不切换浏览器）：结果见 GET /health 的 captain_shot
+            JOB_Q.put({'_captain_shot': True, 'name': str(body.get('name') or 'captain')})
+            self._json(200, {'ok': True, 'msg': '截图已入队，结果见 GET /health 的 captain_shot'})
+            return
         if self.path == '/daren-shot':
             JOB_Q.put({'_daren_shot': True, 'name': str(body.get('name') or 'daren')})
             self._json(200, {'ok': True, 'msg': '截图已入队，结果见 GET /daren-shot'})
@@ -5013,6 +5223,21 @@ class ControlHandler(BaseHTTPRequestHandler):
                        'url': target_url,
                        'urls': cand})
             self._json(200, {'ok': True, 'msg': '搜索已入队，结果见 GET /daren-search'})
+            return
+        if self.path == '/click':
+            # 团长端按文字点击 / 按 URL 导航（不切换浏览器）：
+            # 结果见 GET /health 的 captain_click。
+            # 登录引导用法：POST /click {"url": "https://buyin.jinritemai.com/dashboard/..."}
+            # ——未登录会被平台弹到 passport 登录墙（扫码页）。
+            JOB_Q.put({'_captain_click': True, 'text': str(body.get('text') or ''),
+                       'nth': int(body.get('nth') or 0),
+                       'wait': float(body.get('wait') or 4.0),
+                       'url': str(body.get('url') or ''),
+                       'selector': str(body.get('selector') or ''),
+                       'sel_nth': int(body.get('sel_nth') or 0),
+                       'x': body.get('x'), 'y': body.get('y'),
+                       'dump_links': bool(body.get('dump_links'))})
+            self._json(200, {'ok': True, 'msg': '点击已入队，结果见 GET /health 的 captain_click'})
             return
         if self.path == '/daren-click':
             # ★ 达人端「按文字点元素 + 抓它触发的接口」

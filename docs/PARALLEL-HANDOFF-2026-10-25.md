@@ -12719,3 +12719,24 @@ P1 清零（6 完成 + 1 作废 + ⑥待真机验）后，P2 四单按 ②→③
   判据=ecom_us_lt_buyin+sessionid 双 cookie。成功后脚本自动拉回达人端
   （互斥切换，盘上 cookie 自动恢复）。
 - 全量回归 **1960 passed**。
+
+## §181 团长端扫码页迷宫走通（2026-11-18 11:5x）
+
+**两轮 45 分钟零扫码的根因**：`/open` 只到抖店官网落地页，**那里没有二维码**
+（未登录 buyin 根路由重定向官网是 11 月平台新行为，§110 时代是弹登录墙）。
+老大盯着官网看了 45 分钟——不是人没扫，是**根本没有码**。
+
+**走通路径（截图逐步实证，已固化进 daren_relogin --end captain 的引导）**：
+1. 导航 `buyin.jinritemai.com/mpa/account/institution-role-select`
+   （官网链接 dump 自证——「不猜 URL，问页面自己」；登录菜单项 target=_blank
+   开新标签的坑：BROWSER.page 已改为跟踪最新标签）
+2. 点「招商团长」→ 登录表单（手机/邮箱验证码）
+3. 点「其他登录方式」抖音图标（selector `img[src*='-ecop']` 第一个）
+4. 落 `open.douyin.com/platform/oauth/pc/auth` —— **真二维码** ✅
+
+**配套新端点（buyin_worker，均不切换浏览器）**：
+`POST /probe`（团长端只读探测→health.captain_probe）、`POST /shot`（团长端截图
+→health.captain_shot）、`POST /click`（文字/selector(sel_nth)/坐标(x,y)/url导航/
+dump_links 倒链接+倒img，失败也留截图现场）。
+⚠️ 官网菜单「达人工作台」链接带 `log_out=1`（登出语义，§8.2 禁令再次实锤）。
+全量回归 1960 passed。第三轮重登（真扫码页）进行中。
