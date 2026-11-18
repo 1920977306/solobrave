@@ -12777,3 +12777,24 @@ dump_links 倒链接+倒img，失败也留截图现场）。
   run_id=ssq_1794978132907_deade8 真实回填）；日报 notif_63bda848baa0 落库+抄送主管。
 - 风控观测：13:02 后窗口 launchd.out.log 风控码（10001010A/11001）= 0；
   50 分钟后再复查一次收尾（今晨 09:39 的 10001010A 是旧 URL 重放实案，非本次路径）。
+
+## §183 P1-⑨ daren 侧浏览器态假阳性修复（2026-11-18 13:5x，A边当天闭环）
+
+- 病根：daren_login_watch 与 preflight ⑦ 判 /health daren_logged_in（浏览器态，
+  互斥切换/部署窗口必假死）。11-18 13:09 误报实案：dc_4278e5898529 立案+
+  [值班升级] 直推老大（notif_11e453c4f480），而盘上 cookie 活到 2027-01-16。
+- 施工（commit fa9be73）：
+  ① daren_login_watch：判死=盘上 cookie sid_ucp_sso_v1_daren @ .buyin-daren-sso
+    .jinritemai.com（profile_daren 独立库，copy 临时文件再查+Chrome 过期校验）；
+    维护窗抑制保留；log 加 flush；exit 1=设计告警语义（StartInterval 到点必重跑，
+    无 ThrottleInterval——13:41 后周期空档属正常轮询间隙，非异常）。
+  ② preflight ⑦：同改 cookie 语义；⑦红只提示达人端任务不可跑，
+    当班跳过与否绑需求端钥匙（小拓 9:30 班=团长端=看⑧）——⑦红≠误跳班。
+  ③ 日报 canonical 段标题「每日推荐」入 buyin_worker 任务书（补扫班格式偏差附项）。
+- 守卫×3：test_preflight_has_daren_probe_line（改 cookie 断言）、
+  test_daren_login_watch_cookie_truth（ast 剥 docstring 后代码区零
+  daren_logged_in 引用）、test_preflight_daren_red_not_skip_captain_class。
+- 验证：preflight 实跑 8/8 绿（修复前⑦红=截图级对比证据）；看门实跑
+  cookie_alive=True exit 0（13:09 死态 prev=False → 恢复沿静默，零新立案）。
+- 入队 dq_eb1094afecd7（priority=1，created_by=boss-20261118-查(A边代录)）。
+- 全量回归 1964 passed；双分支 fa9be73 已推送。
