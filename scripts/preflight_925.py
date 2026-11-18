@@ -2,7 +2,8 @@
 """明早 9:25 八行前置确认一键核（老大 11-13 22:37 铁律：现在就弄，不拖到明早）。
 
 自动核 6 行 + 人工报 2 行，输出全绿才允许开跑。退出码 0 = 全绿，1 = 有红行。
-⑦（P2-⑤ 三件套之①，11-17 加）= 达人端登录态班前探活：失效 → 当班跳过不烧积分，
+⑦（P1-⑨ 改，11-18）= 达人端登录态班前探活：盘上 cookie 真值（浏览器态是互斥
+假信号）；失效 → 达人端任务暂不可跑，当班跳过与否由⑧需求端钥匙决定。
 先跑 `python3 scripts/daren_relogin.py`（半自动重登，人 1 分钟）。
 ⑧（P2-⑥，11-18 加）= 团长端钥匙探活：只认盘上 cookie（ecom_us_lt_buyin），
 不认 /health browser_up（互斥语义：达人端在线时团长端 browser_up=false 是常态）。
@@ -17,6 +18,7 @@ import sqlite3
 import subprocess
 import sys
 import tempfile
+import time
 import urllib.request
 
 DB = '/Users/qichen/solobrave-prod/data/solobrave.db'
@@ -88,22 +90,59 @@ def main():
     line('⑥ 聊天 bug 处置结论', v.lower() in ('已修', 'revert已验', '根因定位'),
          v or '待人工报数', auto=False)
 
-    # ⑦ 达人端登录态班前探活（P2-⑤ 三件套之①，老大 11-17 19:46：
-    #    失效直接跳过当班不烧积分——探活入口挂 preflight 9:25 档）
-    #    注意：不能用 probe()——它 body 截断 [:200]，health JSON 会被切断。
+    # ⑦ 达人端登录态班前探活（P1-⑨ 2026-11-18 改盘上 cookie 语义）：
+    #    /health daren_logged_in 是浏览器态——互斥切换/部署窗口必假死
+    #    （13:09 误报实案：立案+升级直推老大，cookie 其实活到 2027-01）。
+    #    盘上 cookie 才是登录态真值。⑦红只提示达人端任务暂不可跑——
+    #    当班是否跳过由当班需求端钥匙决定（小拓 9:30 班=团长端=看⑧），
+    #    ⑦红 ≠ 跳过当班。
+    def _daren_cookie_alive():
+        dbp = os.path.join(PROD, 'data', 'buyin_browser', 'profile_daren',
+                           'Default', 'Cookies')
+        if not os.path.exists(dbp):
+            return False
+        tmp = None
+        try:
+            fd, tmp = tempfile.mkstemp(suffix='.sqlite')
+            os.close(fd)
+            shutil.copy(dbp, tmp)
+            cdb = sqlite3.connect(tmp)
+            row = cdb.execute(
+                "SELECT expires_utc FROM cookies WHERE name='sid_ucp_sso_v1_daren' "
+                "AND host_key LIKE '%buyin-daren-sso.jinritemai.com%' LIMIT 1"
+            ).fetchone()
+            cdb.close()
+            if not row:
+                return False
+            exp = int(row[0] or 0)
+            if exp == 0:
+                return True
+            now_us = int(time.time() * 1_000_000) + 11644473600_000_000
+            return exp > now_us
+        except Exception:
+            return False
+        finally:
+            if tmp and os.path.exists(tmp):
+                os.unlink(tmp)
+
     try:
         with urllib.request.urlopen('http://127.0.0.1:8095/health',
                                     timeout=5) as r7:
-            st = json.loads(r7.read().decode('utf-8', errors='ignore'))
-        up7 = bool(st.get('daren_browser_up')) and bool(st.get('daren_logged_in'))
-        line('⑦ 达人端登录态探活', up7,
-             'buyin_worker 在岗且 daren_logged_in=true' if up7 else
-             '🔴 登录态失效/浏览器未起——当班跳过不烧积分，'
-             '修：python3 scripts/daren_relogin.py（半自动重登，人 1 分钟）')
+            r7.read()
+        worker_up7 = True
     except Exception as e:
+        worker_up7 = False
+        err7 = str(e)
+    if worker_up7:
+        up7 = _daren_cookie_alive()
+        line('⑦ 达人端登录态探活', up7,
+             'worker 在岗且盘上 cookie 存活（真值）' if up7 else
+             '🔴 达人端 cookie 缺席/过期——达人端任务暂不可跑（当班是否跳过看⑧需求端钥匙），'
+             '修：python3 scripts/daren_relogin.py（半自动重登，人 1 分钟）')
+    else:
         line('⑦ 达人端登录态探活', False,
              f'buyin_worker 控制口不可达——launchctl kickstart -k '
-             f'gui/$(id -u)/com.solobrave.buyin-worker（{e}）')
+             f'gui/$(id -u)/com.solobrave.buyin-worker（{err7}）')
 
     # ⑧ 团长端钥匙探活（P2-⑥，11-18：9:25 全绿但 9:30 班中团长端登录死暴雷 0 产出的教训）
     #    只认盘上 cookie，不认 /health browser_up——达人端在线时团长端 browser_up=false

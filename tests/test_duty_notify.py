@@ -228,7 +228,14 @@ def test_preflight_has_daren_probe_line():
                encoding='utf-8').read()
     assert '⑦ 达人端登录态探活' in src
     assert 'daren_relogin.py' in src             # 红灯必须给出修复路径
-    assert 'daren_logged_in' in src              # 真信号 = health 探测
+    # P1-⑨（11-18）：真信号 = 盘上 cookie，不是 /health daren_logged_in
+    # （浏览器态是互斥假信号，13:09 误报实案）。注释里允许出现旧信号名，代码区不许。
+    body = src.split('def main()', 1)[1]
+    code_only = '\n'.join(l for l in body.splitlines()
+                           if not l.strip().startswith('#'))
+    assert 'daren_logged_in' not in code_only
+    assert 'sid_ucp_sso_v1_daren' in code_only
+    assert 'profile_daren' in code_only
     assert '--since=24.hours.ago' not in src     # 不是 git-log 代理
 
 
@@ -258,3 +265,37 @@ def test_risk_rule_in_taskbook_and_tools_md():
     tools = open(os.path.join(ROOT, 'TOOLS.md'), encoding='utf-8').read()
     assert '禁止页面外重放任何历史签名 URL' in tools   # TOOLS.md 同步
     assert '10001010A' in tools                      # 实案锚点
+
+
+def test_daren_login_watch_cookie_truth():
+    """P1-⑨ 守卫：看门立案判据=盘上 cookie 真值，浏览器态不再当登录态。"""
+    src = open(os.path.join(ROOT, 'scripts', 'daren_login_watch.py'),
+               encoding='utf-8').read()
+    assert 'sid_ucp_sso_v1_daren' in src
+    assert 'profile_daren' in src                  # 达人端独立 profile
+    assert 'buyin-daren-sso.jinritemai.com' in src  # host 锚定
+    assert 'shutil.copy' in src                    # 浏览器占用时 copy 再查
+    # 维护窗守卫仍在（kickstart 瞬断抑制立案）
+    assert '_in_maintenance_window' in src
+    # 代码区不得再用 daren_logged_in 当真值（注释与 docstring 除外）：
+    # ast 剥全部字符串字面量（含 docstring）后只剩真代码。
+    import ast as _ast
+    tree = _ast.parse(src)
+    for node in _ast.walk(tree):
+        if isinstance(node, (_ast.FunctionDef, _ast.AsyncFunctionDef,
+                             _ast.ClassDef, _ast.Module)):
+            if (node.body and isinstance(node.body[0], _ast.Expr)
+                    and isinstance(node.body[0].value, _ast.Constant)
+                    and isinstance(node.body[0].value.value, str)):
+                node.body = node.body[1:]
+    code = _ast.unparse(tree)
+    assert 'daren_logged_in' not in code
+
+
+def test_preflight_daren_red_not_skip_captain_class():
+    """P1-⑨ 守卫：⑦红 ≠ 跳过当班——跳过判定绑需求端钥匙（⑧团长端）。"""
+    src = open(os.path.join(ROOT, 'scripts', 'preflight_925.py'),
+               encoding='utf-8').read()
+    seg = src.split("line('⑦ 达人端登录态探活'", 1)[1].split("⑧ 团长端钥匙探活")[0]
+    assert '当班跳过不烧积分' not in seg.split('def _captain_cookie_present')[0]
+    assert '需求端钥匙' in seg or '看⑧' in seg
