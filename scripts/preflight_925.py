@@ -1,17 +1,22 @@
 #!/usr/bin/env python3
-"""明早 9:25 七行前置确认一键核（老大 11-13 22:37 铁律：现在就弄，不拖到明早）。
+"""明早 9:25 八行前置确认一键核（老大 11-13 22:37 铁律：现在就弄，不拖到明早）。
 
-自动核 5 行 + 人工报 2 行，输出全绿才允许开跑。退出码 0 = 全绿，1 = 有红行。
+自动核 6 行 + 人工报 2 行，输出全绿才允许开跑。退出码 0 = 全绿，1 = 有红行。
 ⑦（P2-⑤ 三件套之①，11-17 加）= 达人端登录态班前探活：失效 → 当班跳过不烧积分，
 先跑 `python3 scripts/daren_relogin.py`（半自动重登，人 1 分钟）。
+⑧（P2-⑥，11-18 加）= 团长端钥匙探活：只认盘上 cookie（ecom_us_lt_buyin），
+不认 /health browser_up（互斥语义：达人端在线时团长端 browser_up=false 是常态）。
+失效 → 红灯+跳过当班，修：python3 scripts/daren_relogin.py --end captain（请老大扫码）。
 用法：python3 preflight_925.py [--note "人工报：熔断验卷=未部署,聊天bug=revert不消失"]
 """
 import argparse
 import json
 import os
+import shutil
 import sqlite3
 import subprocess
 import sys
+import tempfile
 import urllib.request
 
 DB = '/Users/qichen/solobrave-prod/data/solobrave.db'
@@ -100,8 +105,41 @@ def main():
              f'buyin_worker 控制口不可达——launchctl kickstart -k '
              f'gui/$(id -u)/com.solobrave.buyin-worker（{e}）')
 
+    # ⑧ 团长端钥匙探活（P2-⑥，11-18：9:25 全绿但 9:30 班中团长端登录死暴雷 0 产出的教训）
+    #    只认盘上 cookie，不认 /health browser_up——达人端在线时团长端 browser_up=false
+    #    是互斥常态，不是病。浏览器占用 Cookies 库时先 copy 到临时文件再查。
+    def _captain_cookie_present():
+        dbp = os.path.join(PROD, 'data', 'buyin_browser', 'profile', 'Default',
+                           'Cookies')
+        if not os.path.exists(dbp):
+            return False
+        tmp = None
+        try:
+            fd, tmp = tempfile.mkstemp(suffix='.sqlite')
+            os.close(fd)
+            shutil.copy(dbp, tmp)
+            cdb = sqlite3.connect(tmp)
+            row = cdb.execute(
+                "SELECT 1 FROM cookies WHERE name='ecom_us_lt_buyin' "
+                "AND host_key LIKE '%buyin.jinritemai.com%' LIMIT 1"
+            ).fetchone()
+            cdb.close()
+            return row is not None
+        except Exception:
+            return False
+        finally:
+            if tmp and os.path.exists(tmp):
+                os.unlink(tmp)
+
+    cap_ok = _captain_cookie_present()
+    line('⑧ 团长端钥匙探活', cap_ok,
+         'cookie ecom_us_lt_buyin 在位（盘上真值）' if cap_ok else
+         '🔴 团长端 cookie 缺席——广场班跳过不烧积分，'
+         '修：python3 scripts/daren_relogin.py --end captain（请老大扫码）')
+
     reds = [r for r in results if not r[1]]
-    print(f'\n七行确认：{len(results) - len(reds)}/{len(results)} 绿'
+    n = len(results)
+    print(f'\n八行确认：{n - len(reds)}/{n} 绿'
           + (f'，🔴 {len(reds)} 行：' + '、'.join(r[0] for r in reds) if reds else '，可开跑'))
     sys.exit(1 if reds else 0)
 

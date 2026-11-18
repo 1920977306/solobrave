@@ -12,6 +12,11 @@ HTTP API，复用去重/归属逻辑）→ 回写队列 done/failed。
 
 运行：/Users/qichen/Library/Application\ Support/kimi-desktop/daimon-share/daimon/runtime/python/bin/python3 buyin_worker.py
 控制口：http://127.0.0.1:8095  (/health /open /collect /jobs/<id> /shots/ /square-scan /square-decide /square-report)
+
+风控纪律（P2-⑦，2026-11-18 起入任务书，老大总授权）：
+- 禁止页面外重放任何历史签名 URL（11-18 09:41 实案：模型重放 8 天前旧签名 URL
+  触发风控码 10001010A）。
+- 诊断/复盘只走当前页面内会话（scan 工具的正常翻页调用不受限）。
 """
 
 import json

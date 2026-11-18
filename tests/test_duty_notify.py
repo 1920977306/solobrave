@@ -230,3 +230,31 @@ def test_preflight_has_daren_probe_line():
     assert 'daren_relogin.py' in src             # 红灯必须给出修复路径
     assert 'daren_logged_in' in src              # 真信号 = health 探测
     assert '--since=24.hours.ago' not in src     # 不是 git-log 代理
+
+
+def test_preflight_has_captain_cookie_line():
+    """P2-⑥ 守卫：⑧行团长端钥匙探活——只认盘上 cookie，不认 browser_up（互斥常态）。"""
+    src = open(os.path.join(ROOT, 'scripts', 'preflight_925.py'),
+               encoding='utf-8').read()
+    assert '⑧ 团长端钥匙探活' in src
+    assert "ecom_us_lt_buyin" in src             # 团长端业务 cookie
+    assert 'buyin.jinritemai.com' in src         # host 锚定，防同名误中
+    assert 'shutil.copy' in src                  # 浏览器占用时 copy 临时文件再查
+    assert '--end captain' in src                # 红灯必须给出团长端修复路径
+    # 互斥语义硬断言：⑧行判定不得引用 browser_up（那是互斥常态假信号）
+    seg = src.split('⑧ 团长端钥匙探活', 1)[1].split('reds =')[0]
+    code_only = '\n'.join(l for l in seg.splitlines() if not l.strip().startswith('#'))
+    assert 'browser_up' not in code_only
+    assert '八行确认' in src                     # 汇总口径同步改
+
+
+def test_risk_rule_in_taskbook_and_tools_md():
+    """P2-⑦ 守卫：风控纪律双处写入（buyin_worker 任务书 + TOOLS.md）。"""
+    worker = open(os.path.join(ROOT, 'buyin_worker.py'),
+                  encoding='utf-8').read()
+    head = worker.split('"""', 2)[1] if '"""' in worker else ''
+    assert '禁止页面外重放任何历史签名 URL' in head   # 任务书文本
+    assert '页面内会话' in head
+    tools = open(os.path.join(ROOT, 'TOOLS.md'), encoding='utf-8').read()
+    assert '禁止页面外重放任何历史签名 URL' in tools   # TOOLS.md 同步
+    assert '10001010A' in tools                      # 实案锚点
