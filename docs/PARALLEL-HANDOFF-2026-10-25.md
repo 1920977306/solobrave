@@ -12805,3 +12805,18 @@ dump_links 倒链接+倒img，失败也留截图现场）。
 - 误报案卷 dc_4278e5898529 标注「[误报已判·不计入稳定性基数]」——不删行留审计；
   三机制（熔断/验卷/通知链）稳定性计数排除本案。
 - 风控封板：补扫班 13:02 后全窗口（修正 awk 口径后复验）0 个 10001010A/11001。
+
+## §184 P1-⑩ web 聊天「查询中无下文」修复（2026-11-18 17:0x，A边当天闭环）
+
+- 实证（协调边 16:32）：模型输出 keeper_ops tool-call（58 字符）→ sanitizer 剥成
+  占位（11 字符）→ 无第二回合 → 用户追问「结果呢」模型答「没有收到工具返回结果」。
+  根因：keeper_ops 是 AI 员工工作区脚本，web 聊天无工具运行时；系统 prompt 仍广告该工具。
+- 施工（commit 09ee1d9）：ChatPOST API 代理路径——清洗后整条回复只剩占位 → 纠错
+  重试一次（CollectTakeover 31314 行同款口径），重试结果再过 sanitizer；仍只有占位/
+  为空/重试异常 → 落库明示话术「该查询需要我在工作区跑体检脚本，日报里给你结果」。
+  不动 sanitizer 本体（泄漏修复已验）、不动 openclaw 路径。
+- 守卫×2：test_p1x_retry_logic_present（FakeToolRetry 链路+明示话术+重试再过
+  sanitizer 断言）、test_p1x_sanitizer_untouched（症状1 全断言+281 字长答回归）。
+- 全量回归 1966 passed；server 已 kickstart 生效（HTTP 200）；双分支 09ee1d9。
+- 入队 dq_9cbd457107f5（priority=1，created_by=boss-20261118-测(A边代录)）。
+- 待办：症状2 真机三步点击验收归老大；P1-⑥ 全单关闭以该验收+本案闭环为双门。
