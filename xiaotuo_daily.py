@@ -94,7 +94,11 @@ def build_task_message(duty, slot_label=None, class_no=None, class_total=None):
         'JSON 数组每项：{"talent_id","talent_name","matched_rules":[...],'
         '"reason_text","snapshot":{核心字段+判定依据字段}}。'
         'matched_rules 宁可空数组不可编造（没有命中的规则就存 []，编造的规则'
-        '三个月后反推全是假规律）；snapshot 只放候选里有的字段。'
+        '三个月后反推全是假规律）；snapshot 只放候选里有的字段。\n'
+        '★ 反调研铁律（11-18 1730 班实锤：模型读 worker 源码/翻历史通知做'
+        '「核实」，耗尽长度预算 → non_deliverable_terminal_turn 未交卷）：'
+        'scan/decide 工具的输出即全部依据，禁止读源码、禁止翻历史通知/日志/'
+        '台账做二次调研，拿到结果直接写日报交卷；存疑判据从简。'
     )
 
 

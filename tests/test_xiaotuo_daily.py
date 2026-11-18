@@ -255,6 +255,15 @@ def test_task_message_names_delivery_tool_and_bans_search_discovery():
     assert '赌博' in m                                # 后果定性
 
 
+# ── 5b. 反调研铁律（11-18 1730 班实锤：读源码/翻历史通知耗尽长度预算未交卷）──
+
+def test_task_message_bans_research_detours():
+    m = xd.build_task_message(DUTY)
+    assert '禁止读源码' in m and '禁止翻历史通知' in m
+    assert 'scan/decide' in m or 'scan' in m          # 依据锚点=工具输出
+    assert '直接写日报交卷' in m
+
+
 # ── 6. 外部 SIGTERM 自愈重试（§165，2026-11-15）──────────────────────────────
 # 11-14 09:37 实锤：CLI 被外部 kill（exit 143）→ 自请求 chat.abort，run 无病。
 # 闹钟必须立即换新会话键重试一次（而非等 45min 看门狗），且仅一次防双烧。
