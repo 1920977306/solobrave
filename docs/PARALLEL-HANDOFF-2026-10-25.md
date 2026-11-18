@@ -12740,3 +12740,40 @@ P1 清零（6 完成 + 1 作废 + ⑥待真机验）后，P2 四单按 ②→③
 dump_links 倒链接+倒img，失败也留截图现场）。
 ⚠️ 官网菜单「达人工作台」链接带 `log_out=1`（登出语义，§8.2 禁令再次实锤）。
 全量回归 1960 passed。第三轮重登（真扫码页）进行中。
+
+## §182 老大总授权三单当天闭环（2026-11-18 13:0x，A边）
+
+背景：老大 12:53 总授权「所有派单一律当天最大化，禁止明天再弄」，范围三单。
+
+### 一、P2-⑥/⑦ 代录入队
+- 鉴权卡点已解：api_tokens.json 全过期 → 改铸真人 admin JWT（secret=data/.secret，
+  payload pwd=2 即 users.json 里 user_7acb72ff 的当前 pwdVersion），5 分钟短命。
+- 入队：`dq_a25fc7e8974a`（P2-⑥ preflight 双端探活）、`dq_643708dc89a5`（P2-⑦ 风控纪律），
+  均 priority=2 / status=待领，读回验证通过（created_by 由服务器落 user_7acb72ff）。
+
+### 二、P2-⑥ preflight 双端探活施工（commit 0681b6f）
+- scripts/preflight_925.py 七行→八行：新增⑧行团长端钥匙探活——只认盘上 cookie
+  （data/buyin_browser/profile/Default/Cookies 里 name='ecom_us_lt_buyin' AND
+  host_key LIKE '%buyin.jinritemai.com%'，浏览器占用时 shutil.copy 临时文件再查），
+  **不认 /health browser_up**（互斥语义：达人端在线时团长端 browser_up=false 是常态）。
+- 判据：cookie 缺席=红灯+跳过当班，红灯自带修复路径（--end captain / 达人端 relogin）。
+- 守卫：test_preflight_has_captain_cookie_line（⑧行存在+cookie/host 锚+copy 姿势+
+  captain 路径+代码区无 browser_up 引用）；实跑 8/8 绿。
+
+### 三、P2-⑦ 风控纪律入任务书（commit 0681b6f）
+- buyin_worker.py 头部任务书 + 新建仓库根 TOOLS.md 双处写入「禁止页面外重放任何历史
+  签名 URL；诊断/复盘只走页面内会话；scan 正常翻页不受限」（11-18 09:41 10001010A 实案）。
+- 守卫：test_risk_rule_in_taskbook_and_tools_md。
+- 全量回归 1962 passed（基线 1960+2 新守卫）；secret_scan 干净；双分支已推送
+  （origin/main=origin/dev=0681b6f，ls-remote 验证零分叉）。
+
+### 四、下午受控补扫一班（✅ 已闭环）
+- run 标识 ssq_1794978132907_deade8；跑前双端探针全绿（daren_logged_in=true、
+  团长端 cookie 在位）；走官方 square-scan→jobs→decide→report 页面内路径，零 URL 重放。
+- 扫描 13:02:12 开始 / 13:08:39 完成：1 页、候选 5、入库 5（已在库滤掉 1）。
+- 逐人判定：值得联系 2（桐桐 tal_sq_93451fff6d / 洋洋与小熊熊 tal_sq_102192779c）、
+  存疑 2（幸运佳 / 温大宝.）、排除 1（Lucky&Summer的妈妈，记 square_rejects 审计）。
+- B 表今日落 2 行（rec_date=2026-11-18、pipeline_status=recommended、
+  run_id=ssq_1794978132907_deade8 真实回填）；日报 notif_63bda848baa0 落库+抄送主管。
+- 风控观测：13:02 后窗口 launchd.out.log 风控码（10001010A/11001）= 0；
+  50 分钟后再复查一次收尾（今晨 09:39 的 10001010A 是旧 URL 重放实案，非本次路径）。
