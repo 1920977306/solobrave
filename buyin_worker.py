@@ -2709,8 +2709,17 @@ def _browser_loop():
     """Playwright  sync API 要求对象只在创建它的线程使用——
     所有浏览器操作集中在这一条线程。"""
     log('[BrowserLoop] 浏览器工作线程启动')
+    _queue_mod = __import__('queue')
     while True:
-        row = JOB_Q.get()
+        try:
+            # 空闲超时 = 周期性 STATE 刷新窗口（P2-⑥ 前置：/health 登录态
+            # 只在 job 后刷新，job 之间是陈旧值——11-18 团长端扫码重登时
+            # 15 分钟轮询全程读到陈旧的 logged_in=false，扫码与否根本分不清。
+            # 每 60s 空闲刷新一次，watch/preflight/重登轮询的才是真信号）
+            row = JOB_Q.get(timeout=60)
+        except _queue_mod.Empty:
+            _refresh_browser_state()
+            continue
         if row is None:
             break
         if row.get('_open_browser'):

@@ -12704,3 +12704,18 @@ P1 清零（6 完成 + 1 作废 + ⑥待真机验）后，P2 四单按 ②→③
   若按「browser_up=false 即报 worker_thread_sick」施工会造误报风暴。
   worker_thread_sick 的真实检出口 = worker_sentry 签名扫描（§178），已落地。
 - 全量回归 **1960 passed**；双分支推送零分叉。
+
+## §180 团长端重登 + STATE 陈旧盲缝修复（2026-11-18 11:0x）
+
+- **事件**：11-18 早班 0 产出病根=团长端登录态死（达人端昨天扫过，两端是两把
+  独立钥匙）。重登脚本适配双端（`--end captain`，commit 随本批）。
+- **盲缝实锤**：`/health` 的 logged_in/daren_logged_in 只在**有 job 跑完**时刷新，
+  job 之间是陈旧值——10:44-10:59 重登轮询全程读陈旧 false，**扫码与否根本分不清**。
+  登录看门 120s 探活同走此 STATE，同样盲区（P2-⑥ 的核心坑提前暴露）。
+- **修复**：`_browser_loop` 空闲 60s 超时即 `_refresh_browser_state()`——
+  watch/preflight/重登轮询从此读真信号（11:02 重启 worker 后实测：
+  无 job 状态下 STATE 照常自刷新）。已按 §8.2 姿势重启（graceful-daren→kickstart）。
+- **重登第二轮**：11:05 推送「请扫码：团长端」双通道，30 分钟真信号轮询在跑；
+  判据=ecom_us_lt_buyin+sessionid 双 cookie。成功后脚本自动拉回达人端
+  （互斥切换，盘上 cookie 自动恢复）。
+- 全量回归 **1960 passed**。
