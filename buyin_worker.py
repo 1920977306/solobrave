@@ -3858,6 +3858,18 @@ def _square_write_report(summary, detail, agent_id=SQUARE_DUTY_AGENT, recommenda
         supervisor_id = (row[0] or '') if row else ''
         streak = int(row[1] or 0) if row else 0
         duty_name = (row[2] or duty_name) if row else duty_name
+        # 触达卡 v2（2026-11-18，dq_556ca64c241c）：日报正文追加「达人+匹配品+佣金」
+        # 三联卡——确定性组装（outreach_card 直读 DB），不靠模型自觉。
+        # 只认小拓（与 B 表同闸）：别的 agent 的日报不加卡。
+        if agent_id == SQUARE_DUTY_AGENT and recommendations:
+            try:
+                from daren_cockpit.tools import outreach_card as _oc
+                card = _oc.build_outreach_cards(conn, recommendations)
+                if card:
+                    detail = f'{detail}\n{card}'
+                    log('[SquareReport] 触达卡 v2 已组装（带品建议段）')
+            except Exception as _e:
+                log(f'[SquareReport] 触达卡组装失败（不阻断日报）: {_e}')
         m = re.search(r'值得联系\s*(\d+)', summary or '')
         worthy = int(m.group(1)) if m else None
         new_streak = streak + 1 if worthy == 0 else 0
