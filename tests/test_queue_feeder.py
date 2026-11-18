@@ -89,3 +89,34 @@ def test_feeder_round_outputs_contract():
         assert c['priority'] in ('P1', 'P2', 'P3')
         assert c['evidence'] and c['suggested_acceptance']
         assert 'anchors' in c and 'fingerprint' in c
+
+
+def test_feeder_archived_agents_excluded_from_balance_redline():
+    """守卫⑤（老大 11-18 18:29）：挂起员工（knowledge_admin 首例）余额恒 0，
+    5-1 必须排除——否则 P1 不受冷却，每 30 分钟直推老大桌面 = 告警疲劳。"""
+    import importlib.util as _il
+    spec = _il.spec_from_file_location('queue_feeder', FEEDER)
+    qf = _il.module_from_spec(spec)
+    spec.loader.exec_module(qf)
+    tmp = ROOT / 'data' / '.tmp_archived_test.json'
+    tmp.write_text(json.dumps([
+        {'id': 'emp_active', 'archived': False},
+        {'id': 'emp_arch', 'archived': True},
+        {'id': 'emp_no_flag'},          # 无字段 = 在岗
+    ]), encoding='utf-8')
+    try:
+        got = qf.load_archived_agent_ids(str(tmp))
+        assert got == {'emp_arch'}, f'归档集合错误: {got}'
+        # 空文件/坏 JSON ⇒ fail-open 空集（不排除，宁可多报）
+        bad = ROOT / 'data' / '.tmp_archived_bad.json'
+        bad.write_text('not json', encoding='utf-8')
+        assert qf.load_archived_agent_ids(str(bad)) == set()
+        missing = qf.load_archived_agent_ids(str(ROOT / 'data' / '.nope.json'))
+        assert missing == set()
+    finally:
+        tmp.unlink(missing_ok=True)
+        (ROOT / 'data' / '.tmp_archived_bad.json').unlink(missing_ok=True)
+    # collect_inputs 确实接上了排除（源码锚：bal_low 过滤 archived）
+    src = _src()
+    seg = src.split('bal_low =', 1)[1].split('burn_today', 1)[0]
+    assert 'not in archived' in seg and 'load_archived_agent_ids()' in src

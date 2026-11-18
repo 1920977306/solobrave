@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-小拓闹钟（修订2 2026-11-10 增量派单）—— 9:30 由 launchd 触发。
+小拓闹钟（修订2 2026-11-10 增量派单；班次加密 2026-11-18：每日 3 班）——
+9:30 / 13:30 / 17:30 由 launchd 触发。
 
-它只做一件事：把今日任务投进 emp_xiaotuo 的会话。活儿由小拓 agent 回路
+它只做一件事：把本班任务投进 emp_xiaotuo 的会话。活儿由小拓 agent 回路
 自己干（tools/xiaotuo_ops.py scan → 自己判定 → decide → report 交日报，
 流程见 workspace TOOLS.md）。
 
@@ -62,12 +63,19 @@ def load_duty():
         conn.close()
 
 
-def build_task_message(duty):
-    """今日任务书：只投递，不解释。流程细节让 TOOLS.md 说了算。"""
+def build_task_message(duty, slot_label=None, class_no=None, class_total=None):
+    """本班任务书：只投递，不解释。流程细节让 TOOLS.md 说了算。
+
+    班次加密（2026-11-18）：带本班标识（第 N/3 班 · HH:MM），让日报/审计/
+    B 表 run 能区分同一天的多班；模型侧也知道自己在跑哪一班。"""
     category = (duty.get('category') or '').strip() or '全部'
     quota = duty.get('quota') or 5
+    cls_line = ''
+    if slot_label:
+        cls_line = (f'\n本班为今日第 {class_no}/{class_total} 班（{slot_label[:2]}:'
+                    f'{slot_label[2:]} 班），流程与交付标准与平日一致。')
     return (
-        f'开始今日达人拓展：类目={category}，配额 {quota}。\n'
+        f'开始今日达人拓展：类目={category}，配额 {quota}。{cls_line}\n'
         '流程（细节见 TOOLS.md）：\n'
         '1. tools/xiaotuo_ops.py scan 收候选；\n'
         '2. 逐个按判定三关给「排除/存疑/值得联系 + 一句话理由」，'
@@ -90,13 +98,43 @@ def build_task_message(duty):
     )
 
 
-def daily_session_key():
-    """每日新会话键（2026-11-12）：默认会话 main 已 250+ 条消息，preflight
-    compaction 在投递前 summarize——今早实证该步 flaky 失败（summarization_failed，
-    CLI 直接退出码 1，9:30/11:22 两轮全灭）。每天一个干净会话让 preflight
-    永不触发；员工连续性由 workspace 的 SOUL.md/TOOLS.md 承载，不靠会话历史。
+# 班次加密（2026-11-18 老大 18:29 拍板）：每日 3 班，launchd 三个日历触发点
+# 与此表一一对应。稳定性口径同步：每天 3 个数据点，7 天观察期 = 21 个班。
+CLASS_SLOTS = ((9, 30), (13, 30), (17, 30))
+
+
+def class_slot(now=None):
+    """当前时刻所属班次。返回 (slot_start_dt, label)。
+
+    - now >= 某班次点 ⇒ 属于最近已过的那一班（09:30–13:29=0930 班，依此类推）；
+    - 早于首班（清晨手动跑）⇒ slot_start=今日 00:00、label=当前 HHMM——
+      保持旧「今日去重」语义，且每次清晨手动跑各得独立会话。
     """
-    return f'agent:{AGENT_ID}:daily-{datetime.now():%Y%m%d}'
+    now = now or datetime.now()
+    today_slots = [now.replace(hour=h, minute=m, second=0, microsecond=0)
+                   for h, m in CLASS_SLOTS]
+    for s in reversed(today_slots):
+        if now >= s:
+            return s, f'{s:%H%M}'
+    return (now.replace(hour=0, minute=0, second=0, microsecond=0),
+            f'{now:%H%M}')
+
+
+def class_ordinal(slot_label):
+    """班次序号（1 起）。清晨手动跑（label 不在排班表）返回 None。"""
+    labels = [f'{h:02d}{m:02d}' for h, m in CLASS_SLOTS]
+    return labels.index(slot_label) + 1 if slot_label in labels else None
+
+
+def daily_session_key(slot_label=None):
+    """每班新会话键（2026-11-12 首创：默认会话膨胀 → preflight compaction
+    flaky 失败直接退出码 1，实测 9:30/11:22 两轮全灭；2026-11-18 班次加密
+    修订为每班一键：daily-YYYYMMDD-HHMM）。每天/每班一个干净会话让 preflight
+    永不触发；员工连续性由 workspace 的 SOUL.md/TOOLS.md 承载，不靠会话历史。
+    同一天三班互不串会话——班级键不同，上一班的中断上下文不进下一班。
+    """
+    base = f'agent:{AGENT_ID}:daily-{datetime.now():%Y%m%d}'
+    return f'{base}-{slot_label}' if slot_label else base
 
 
 def deliver_task(message, session_key=None):
@@ -158,32 +196,40 @@ def _today_start_ms():
     return int(now.replace(hour=0, minute=0, second=0, microsecond=0).timestamp() * 1000)
 
 
-def already_reported_today():
-    """当日去重闸（派单二缺陷1，2026-11-12）：今日是否已有成功日报。
+def already_reported_today(now=None):
+    """当班去重闸（派单二缺陷1，2026-11-12；班次加密 2026-11-18 修订为
+    「当班」语义）：本班是否已有成功日报。
 
-    挡的是「手动重投」——18:43 实证：手动重投当日已完成的任务，小拓合理拒绝
-    （「09:30 的班已跑完交过日报」），但那一轮规划 token 白烧了。
-    9:30 自然跑一天一次天然不受影响；真要多跑一轮，先清 last_run_at。
+    挡的是「同班手动重投」——18:43 实证：手动重投当日已完成的任务，小拓
+    合理拒绝（「09:30 的班已跑完交过日报」），但那一轮规划 token 白烧了。
+    下界 = 本班开班时刻：9:30 班交付后 13:30 班照常投（三班互不当误）；
+    清晨手动跑（早于首班）保持旧「今日 00:00 起」语义。确需本班重跑，
+    先清 emp_duties.last_run_at。
     """
+    slot_start, _ = class_slot(now)
+    lower = int(slot_start.timestamp() * 1000)
     duty = load_duty()
     last = (duty or {}).get('last_run_at') or 0
-    return last >= _today_start_ms()
+    return last >= lower
 
 
-def report_notification_exists_today():
-    """看门狗复查（派单二缺陷2）：当日日报通知是否已落库。
+def report_notification_exists_today(since_ms=None):
+    """看门狗复查（派单二缺陷2）：本班日报通知是否已落库。
 
     竞态实证（11-11 20:46）：日报通知 20:45:47 落库，看门狗 20:46:05（晚 18 秒）
     仍推「未交日报」误报——判「未交」时读到的是报告落库前的快照。
-    ⇒ 告警落笔前必须双路复查：last_run_at + 当日日报通知，任一存在即静默跳过。
+    ⇒ 告警落笔前必须双路复查：last_run_at + 本班日报通知，任一存在即静默跳过。
+    班次加密（2026-11-18）：下界必须是本班投递时刻 since_ms——用「今日 00:00」
+    会让 13:30 班看到 9:30 班的通知而误收工（跨班串判）。
     """
+    lower = since_ms if since_ms is not None else _today_start_ms()
     try:
         conn = sqlite3.connect(str(DB), timeout=10)
         try:
             row = conn.execute(
                 "SELECT 1 FROM notifications WHERE agent_id = ? AND title LIKE '%日报%' "
                 "AND created_at >= ? LIMIT 1",
-                (AGENT_ID, _today_start_ms())).fetchone()
+                (AGENT_ID, lower)).fetchone()
             return bool(row)
         finally:
             conn.close()
@@ -192,8 +238,12 @@ def report_notification_exists_today():
         return False
 
 
-def alert_admin(note, run_id):
-    """小拓没交作业 ⇒ 管理员告警（旁路，失败只记日志）。"""
+def alert_admin(note, run_id, slot_label=None):
+    """小拓没交作业 ⇒ 管理员告警（旁路，失败只记日志）。
+
+    班次加密（2026-11-18）：标题带本班标识——一天最多 3 条未交告警，
+    班级可区分，也便于与当日日报通知对拍。"""
+    cls = f' {slot_label[:2]}:{slot_label[2:]}班' if slot_label else ''
     try:
         now_ms = int(time.time() * 1000)
         conn = sqlite3.connect(str(DB), timeout=15)
@@ -202,9 +252,10 @@ def alert_admin(note, run_id):
                 'INSERT INTO notifications (id, user_id, agent_id, type, title, '
                 'content, read, created_at) VALUES (?,?,?,?,?,?,0,?)',
                 ('notif_' + uuid.uuid4().hex[:12], ADMIN_ID, AGENT_ID,
-                 'task_reminder', f'小拓未交日报 · {datetime.now():%m月%d日}',
+                 'task_reminder', f'小拓未交日报 · {datetime.now():%m月%d日}{cls}',
                  f'闹钟已投任务（{note}' + (f'，runId={run_id}' if run_id else '')
-                 + '），45 分钟内未收到小拓的日报交付。请 @小拓 询问进度。',
+                 + f'），45 分钟内未收到小拓的日报交付（{cls.strip() or "本班"}）。'
+                   '请 @小拓 询问进度。',
                  now_ms))
             conn.commit()
         finally:
@@ -263,17 +314,21 @@ def main():
     if not duty:
         log('emp_duties 没有小拓职责行，不投任务（先 PUT /api/agents/emp_xiaotuo/duties）')
         return 0
-    # 当日去重闸（派单二缺陷1）：今日已交过日报 ⇒ 跳过手动重投，不白烧规划 token
+    # 本班标识（班次加密 2026-11-18）：会话键/任务书/告警/看门复查全挂它
+    slot_start, slot_label = class_slot()
+    class_no = class_ordinal(slot_label)
+    # 当班去重闸（派单二缺陷1）：本班已交过日报 ⇒ 跳过手动重投，不白烧规划 token
     if already_reported_today():
-        log('今日已交过日报（last_run_at 在今天 00:00 之后），跳过本次投递——'
-            '如确需重跑，先清 emp_duties.last_run_at')
+        log(f'本班（{slot_label} 班）已交过日报（last_run_at 在本班开班时刻之后），'
+            '跳过本次投递——如确需重跑，先清 emp_duties.last_run_at')
         return 0
-    message = build_task_message(duty)
-    log(f'投递今日任务：类目={message.split("类目=")[1].split("，")[0]} '
+    message = build_task_message(duty, slot_label=slot_label, class_no=class_no,
+                                 class_total=len(CLASS_SLOTS))
+    log(f'投递本班任务（{slot_label} 班）：类目={message.split("类目=")[1].split("，")[0]} '
         f'quota={duty.get("quota")}')
 
     dispatch_ms = int(time.time() * 1000)
-    note, run_id, rc = deliver_task(message)
+    note, run_id, rc = deliver_task(message, session_key=daily_session_key(slot_label))
     log(f'投递结果：{note}' + (f'（runId={run_id}）' if run_id else ''))
 
     # ★ 外部 SIGTERM 自愈重试（§165，2026-11-15）：11-14 09:37 实锤——CLI 被外部
@@ -285,10 +340,11 @@ def main():
     retried = False
     retry_first_key = None
     if rc in EXTERNAL_KILL_RCS:
-        if report_delivered(dispatch_ms) or report_notification_exists_today():
-            log('首投被外部中止（143），但作业已交付——无需重试，收工')
+        if report_delivered(dispatch_ms) or \
+                report_notification_exists_today(dispatch_ms):
+            log('首投被外部中止（143），但本班作业已交付——无需重试，收工')
             return 0
-        retry_first_key = daily_session_key()
+        retry_first_key = daily_session_key(slot_label)
         retry_key = retry_first_key + '-r2'
         _log_retry(retry_first_key, retry_key, rc, run_id)
         log('首投 CLI 被外部 SIGTERM（exit 143，§165 实锤形态）——换新会话键重试一次')
@@ -310,12 +366,14 @@ def main():
     # 看门狗竞态复查（派单二缺陷2）：落笔告警前最后确认一次——
     # 日报可能恰在最后一次轮询后、告警前落库（11-11 20:45:47 落库 vs
     # 20:46:05 误报，只差 18 秒）。双路任一命中即静默跳过。
-    if report_delivered(dispatch_ms) or report_notification_exists_today():
+    # 班次加密（2026-11-18）：复查下界=本班投递时刻——上一班的通知不算本班交付。
+    if report_delivered(dispatch_ms) or \
+            report_notification_exists_today(dispatch_ms):
         if retried:
             mark_retry_delivery(retry_first_key, dispatch_ms)
         log('复查命中：日报已交付（竞态窗口内落库），告警静默跳过')
         return 0
-    alert_admin(note, run_id)
+    alert_admin(note, run_id, slot_label=slot_label)
     return 0
 
 

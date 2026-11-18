@@ -49,9 +49,13 @@ def test_server_ddl_recdate_text():
 def test_check_script_criteria():
     src = (ROOT / 'scripts' / 'check_daily_recommendations.py').read_text(encoding='utf-8')
     assert "where rec_date=?" in src, '验收脚本未改 TEXT 直等口径'
-    assert '1 <= len(rows) <= 5' in src, '判据②未改宁缺毋滥口径'
-    assert 'len(rows) == len(entries)' in src, '缺 2b 落库数对拍'
+    # 班次加密（11-18 老大 18:29）：判据②改 per-run_id——日上界 15 = 3 班 × 5 人，
+    # 每 run 组行数 ∈ [1,5]（宁缺毋滥不变，粒度从「日」细化到「班」）
+    assert '1 <= len(rows) <= 15' in src, '日上界未随班次加密调整'
+    assert 'by_run' in src and '1 <= len(v) <= 5' in src, '判据②未改 per-run 口径'
+    assert 'section_entries' in src, '缺 2c 逐班对拍（canonical 段人数 == 落库行数）'
     assert 'len(entries) >= 1' in src, '检查1 下界未随判据②整改'
+    assert 'HEADING_RE' in src, '检查1 未锚 canonical 段标题（旧模板「值得联系」段须判负）'
 
 
 def test_migrated_rows_shape(test_data_dir):

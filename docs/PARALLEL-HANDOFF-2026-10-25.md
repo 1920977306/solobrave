@@ -12860,3 +12860,101 @@ P1-⑨ 误报根修 / P1-⑩ 聊天无下文）+ 1 起误报事件当天根修 +
 - v1 首跑实证产出 3 候选：5-1 余额红线 ×2（emp_1779430403964/knowledge_admin
   余额 0）、4-1 采集锚 63h（已知）——判据真 fire，非装饰。
 - 全量回归 1970 passed；守卫×4 同步升级。
+
+## §188 加速三决策当晚全落地（2026-11-18 18:29 老大「准」→ 当晚闭环）
+
+老大 18:29 三个拍板当晚全执行完：班次加密 / 积分处置 / 队列翻转 + P2 小修。
+**施工途中抓出并修复一个真事故：租户键路由串库**（详见下）。
+
+### 1. 班次加密（单1，老大 18:29 priority=1 今天闭环）✅
+
+- 小拓班每日 1 班 → **3 班：9:30 / 13:30 / 17:30**（launchd 三日历触发，
+  `launchctl print` 读回 3 个 calendarinterval 描述符确认在位）。
+- `xiaotuo_daily.py` 班次化修订：CLASS_SLOTS 表 + `class_slot()`（时刻→班次窗口
+  [09:30,13:30)/[13:30,17:30)/[17:30,∞)，早于首班=旧「今日」语义）；
+  会话键 `daily-YYYYMMDD-HHMM`（三班三会话互不串上下文）；
+  `already_reported_today()` 改**当班**去重闸（下界=本班开班时刻——9:30 班交了
+  不挡 13:30 班；同窗手动重投照挡）；看门复查 `report_notification_exists_today(since_ms)`
+  下界=本班投递时刻（修掉「13:30 班看到 9:30 班通知误收工」的真 bug）；
+  任务书带「本班为今日第 N/3 班（HH:MM 班）」；未交告警标题带班级。
+- 稳定性口径同步：每天 3 个数据点，7 天观察期 = 21 个班。**今日已是 day 1**
+  （今晨/补扫/即时三班 B 表 6 人），**明日 day 2 起三班自动跑**。
+- TOOLS.md（workspace-xiaotuo）同步 3 班措辞。
+- 守卫：test_xiaotuo_daily.py +6（slot 映射/序号/班级键/当班闸四场景/跨班复查
+  下界/plist 3 档实读）；plist 先备份 ~/.solobrave-backups 再 bootout/bootstrap。
+- ⚠️ 风控纪律不变：每班 1 页 5 扫、官方页面内路径、风控码即停即报。
+
+### 2. 积分处置（单2，老大 18:29 priority=1 今天执行）✅
+
+- emp_xiaotuo **+3000**（1999→4999；3 班/日约 1100/日，够跑一周）；
+  emp_1779430403964（Ray）**+500**（0→500，复活）；knowledge_admin **挂起不充**
+  （PUT /api/agents/knowledge_admin {archived:true} 200，读回 archived=true 首例）。
+- 路径：服务端管理接口 POST /api/credits/recharge（super_admin 闸，200 双响）+
+  credit_usage_log 补 admin_grant 流水 2 行（「老大 2026-11-18 18:29 批充值」，
+  沿袭 11-12/11-13 惯例）。先整库 .backup 到 ~/.solobrave-backups。
+- **配套修订**：queue_feeder 5-1 排除 archived 员工（`load_archived_agent_ids()`
+  读 agents.json，collect 过滤 bal_low）——不排则挂起员工恒 0，P1 不受冷却
+  每 30 分钟直推老大桌面 = 告警疲劳。守卫 test_queue_feeder.py ⑤。
+
+### 3. 队列翻转（单3，立刻）✅
+
+- dq_watchdog3_to_prod、dq_escalation_notify_fix → **完成**（API PUT 200，
+  根库读回 completed_at 在位；协调边 18:2x 终审证据：check-925 今晨 7/7、
+  dispatch-escalate 今日实跑扫描 14 单）。
+- dq_b_table_spec_fix 维持**待验**（等 P2 小修复核，见 §5）。
+- dq_empty_shell_policy 维持**待验**（不在本次翻转授权内，未动）。
+
+### 4. ★ 当晚事故：租户键路由串库（已修复 + 机制修正）
+
+- **现象**：首笔充值经 API 后 prod 主库余额纹丝不动，落进了
+  `data/tenants/default/solobrave.db`（12:58 才被首次请求创建的孤儿库）。
+- **根因**：`_tenant_db_path(tid)`——`t_default`→主库 `data/solobrave.db`；
+  其它 tid→`data/tenants/<tid>/`。A 边代录 JWT 的 `tid:'default'` ≠ `'t_default'`
+  ⇒ 主库之外另起炉灶。今日 12:58 后的队列写入（7 单）全落孤儿库，
+  老大 UI / preflight / 传送带读的全是主库 ⇒ **队列视觉分裂 5.5 小时**。
+- **处置**：① 正确 tid(t_default) 重放充值（小拓 4999/Ray 500 主库读回）；
+  ② 两单翻转用 t_default 落主库；③ 孤儿库 7 行（全部「完成」，与协调边
+  「default 租户库」验收读回一致）INSERT 同步进主库 dispatch_queue（schema
+  逐列一致，INSERT 前整库备份）；④ 孤儿库整体移存
+  `~/.solobrave-backups/tenants-default-orphan-20261118/`（不删，可回滚）；
+  ⑤ **机制修正：代录 JWT 一律 tid='t_default'**（写进 A 边操作手册）；
+  ⑥ urllib 不带 method='PUT' 会退化成 POST（本次 404 小坑，一并记）。
+- **未做**（需协调边知悉）：12:58 前若有其它 tid='default' 的写入未同步——
+  已全量比对（孤儿库仅 7 行队列 + 2 笔余额，全部处置完毕，无第三类残留）。
+
+### 5. P2 小修：check_daily_recommendations 班次化（今晚闭环）✅
+
+- **检查1 改锚**：canonical 段标题（行首「【每日推荐】/## 每日推荐/每日推荐」），
+  旧模板「值得联系」段判负（13:09 补扫班格式偏差锁形态）；逐行消费解析
+  （修掉旧正则惰性匹配只吃首行的 bug——真修：旧版在多行段上实跑只数 1 条）；
+  段内「- 存疑」附注行不计入推荐条目（对拍=落库推荐人数）。取「最新含段通知」
+  验收，零产出班如实另报不拖累。
+- **判据② per-run_id**：2a run_id 非空率 100%（回填锁形态）；2b 每 run 组
+  ∈[1,5]（每班宁缺毋滥）；2c 逐班对拍（通知头 run= 且含段者，段人数==落库行数）；
+  日上界 5→15（3 班×5）。无段班/旧模板班不参与对拍，warn 提示覆盖缺口。
+- 实跑今日数据 8 项全过（1f90b7 班 段4==库4；deade8 旧模板班 warn 附注）。
+- 守卫：新增 test_check_daily_recommendations.py 六象限（两班全对拍正例/
+  旧模板判负/run_id 空/单 run 越界/段库不一致/零候选如实红）；
+  test_b_table_spec_fix::test_check_script_criteria 同步新口径。
+
+### 6. 本轮文件占用登记（§188）
+
+| 文件 | 改动 | 状态 |
+|---|---|---|
+| xiaotuo_daily.py | 班次化（CLASS_SLOTS/class_slot/当班闸/班级键/看门复查下界/告警带班） | 已交付 |
+| tests/test_xiaotuo_daily.py | +6 班次守卫；竞态复查通知时戳对齐新语义 | 已交付 |
+| scripts/queue_feeder.py | 5-1 排除 archived（load_archived_agent_ids） | 已交付 |
+| tests/test_queue_feeder.py | ⑤ 归档排除守卫 | 已交付 |
+| scripts/check_daily_recommendations.py | canonical 锚 + per-run 判据② + 逐行段解析 | 已交付 |
+| tests/test_check_daily_recommendations.py | 新增六象限守卫 | 已交付 |
+| tests/test_b_table_spec_fix.py | test_check_script_criteria 同步 per-run 口径 | 已交付 |
+| ~/Library/LaunchAgents/com.solobrave.xiaotuo-daily.plist | 3 日历触发（已备份+print 读回） | 已部署 |
+| ~/.openclaw/workspace-xiaotuo/TOOLS.md | 3 班措辞同步 | 已交付 |
+| data/agents.json（knowledge_admin archived=true） | API PUT 挂起 | 已交付 |
+| data/tenants/default/ → ~/.solobrave-backups/ | 孤儿库隔离 | 已处置 |
+
+### 7. 队列全景（22 单全在主库，与 UI/preflight/传送带同视野）
+
+完成 18 / 已作废 2 / **待验 2**（dq_b_table_spec_fix = P2 小修归属单——
+本批已交付，等协调边第四方验后转完成；dq_empty_shell_policy = P2-①，
+不在本次授权内，维持待验）。P1 在途：**0**（队列无待领/施工单，全清）。

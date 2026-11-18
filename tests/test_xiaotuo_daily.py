@@ -221,7 +221,7 @@ def test_watchdog_recheck_silences_race_alert(tmp_path, monkeypatch, duty_db):
     conn.execute(
         "INSERT INTO notifications VALUES ('notif_race', 'user_7acb72ff', 'emp_xiaotuo', "
         "'task_reminder', '达人筛选专员日报 · 11月12日', '今日深看5', 0, ?)",
-        (int(__import__('time').time() * 1000),))
+        (int(__import__('time').time() * 1000) + 3600_000,))  # 班次加密修订：通知须晚于本班投递时刻
     conn.commit()
     conn.close()
     assert xd.main() == 0
@@ -278,7 +278,7 @@ def test_external_kill_retries_once_with_fresh_session_key(tmp_path, monkeypatch
         _gate['n'] += 1
         return _gate['n'] >= 2
     monkeypatch.setattr(xd, 'report_delivered', _rd)
-    monkeypatch.setattr(xd, 'report_notification_exists_today', lambda: False)
+    monkeypatch.setattr(xd, 'report_notification_exists_today', lambda *a, **k: False)
     future_ms = int(__import__('time').time() * 1000) + 3600_000
     conn = sqlite3.connect(str(duty_db))
     conn.execute("INSERT INTO emp_duties VALUES ('emp_xiaotuo', ?, '已交', 0)", (future_ms,))
@@ -355,7 +355,7 @@ def test_sigterm_retry_once_new_key_retried_from_and_notice_mark(tmp_path, monke
         return seen['n'] > 1   # 重试决策点=没交（触发重试）；看门轮询=已交（重试班交了）
 
     monkeypatch.setattr(xd, 'report_delivered', fake_delivered)
-    monkeypatch.setattr(xd, 'report_notification_exists_today', lambda: False)
+    monkeypatch.setattr(xd, 'report_notification_exists_today', lambda *a, **k: False)
     now_ms = int(__import__('time').time() * 1000)
     conn = sqlite3.connect(str(duty_db))
     conn.execute("INSERT INTO emp_duties VALUES ('emp_xiaotuo', 0, '', 0)")
@@ -428,3 +428,95 @@ def test_retry_delivery_uses_db_anchor_not_prompt_faith(tmp_path, monkeypatch, d
         "SELECT title FROM notifications WHERE id='notif_y'").fetchone()[0]
     conn.close()
     assert '重试班' in title and '20990102' in title
+
+
+# ── 7. 班次加密守卫（2026-11-18 老大 18:29 拍板：每日 3 班 9:30/13:30/17:30）──
+
+def test_class_slot_mapping():
+    """时刻→班次映射：09:30–13:29=0930 班；13:30–17:29=1330 班；17:30 起=1730 班；
+    早于首班=今日 00:00 下界（旧「今日」语义）+ 当前 HHMM 标签。"""
+    from datetime import datetime as dt
+    d = dt(2026, 11, 19)
+    s, lbl = xd.class_slot(d.replace(hour=8, minute=0))
+    assert lbl == '0800' and s == d.replace(hour=0, minute=0)
+    s, lbl = xd.class_slot(d.replace(hour=9, minute=30))
+    assert lbl == '0930' and s == d.replace(hour=9, minute=30)
+    s, lbl = xd.class_slot(d.replace(hour=12, minute=59))
+    assert lbl == '0930'
+    s, lbl = xd.class_slot(d.replace(hour=13, minute=30))
+    assert lbl == '1330'
+    s, lbl = xd.class_slot(d.replace(hour=23, minute=59))
+    assert lbl == '1730'
+
+
+def test_class_ordinal():
+    assert xd.class_ordinal('0930') == 1
+    assert xd.class_ordinal('1330') == 2
+    assert xd.class_ordinal('1730') == 3
+    assert xd.class_ordinal('0800') is None   # 清晨手动跑不在排班表
+
+
+def test_session_key_per_class():
+    """同一天三班三个不同会话键；班级后缀在位（班级隔离，上一班上下文不进下一班）。"""
+    assert xd.daily_session_key('0930').endswith('-0930')
+    assert xd.daily_session_key('1330').endswith('-1330')
+    assert xd.daily_session_key('1730').endswith('-1730')
+    # 无参形态保持旧契约（向后兼容）
+    from datetime import datetime as _dt
+    assert xd.daily_session_key().endswith(_dt.now().strftime('%Y%m%d'))
+
+
+def test_dedup_gate_class_aware_via_load_duty(monkeypatch):
+    """去重闸只挡本班：9:30 班已交 ⇒ 13:00（1330 班）照常（三班互不当误）；
+    本班已交 ⇒ 挡；清晨（早于首班）保持旧「今日 00:00」语义。显式 now 全时段确定。"""
+    from datetime import datetime as dt
+    d = dt(2026, 11, 19)
+    ms = lambda t: int(t.timestamp() * 1000)
+    # 场景1：9:30 班 10:00 交付，13:31 起属 1330 班 ⇒ 不挡（三班互不阻塞）。
+    # （13:00 仍属 0930 班窗口 [09:30,13:30)，那时段重投照挡——语义正确）
+    monkeypatch.setattr(xd, 'load_duty',
+                        lambda: {'last_run_at': ms(d.replace(hour=10, minute=0))})
+    assert xd.already_reported_today(now=d.replace(hour=13, minute=31)) is False
+    # 场景2：13:40 交付，13:45 同属 1330 班 ⇒ 挡
+    monkeypatch.setattr(xd, 'load_duty',
+                        lambda: {'last_run_at': ms(d.replace(hour=13, minute=40))})
+    assert xd.already_reported_today(now=d.replace(hour=13, minute=45)) is True
+    # 场景3：清晨 8:00（早于首班）旧「今日」语义——8:30 交付后 8:45 挡
+    monkeypatch.setattr(xd, 'load_duty',
+                        lambda: {'last_run_at': ms(d.replace(hour=8, minute=30))})
+    assert xd.already_reported_today(now=d.replace(hour=8, minute=45)) is True
+    # 场景4：昨天交付，今天任何班都不挡
+    monkeypatch.setattr(xd, 'load_duty',
+                        lambda: {'last_run_at': ms(d.replace(hour=10, minute=0)) - 86400_000})
+    assert xd.already_reported_today(now=d.replace(hour=9, minute=31)) is False
+
+
+def test_notification_recheck_class_lower_bound(duty_db):
+    """看门复查下界=本班投递时刻：9:30 班的通知不算 13:30 班的交付（跨班串判）。"""
+    import time as _t
+    day0 = xd._today_start_ms()
+    n0930 = day0 + 10 * 3600_000          # 今天 10:00（0930 班的日报通知）
+    conn = sqlite3.connect(str(duty_db))
+    conn.execute(
+        "INSERT INTO notifications VALUES ('n1', 'user_7acb72ff', 'emp_xiaotuo', "
+        "'task_reminder', '达人筛选专员日报 · 三班验证', 'x', 0, ?)", (n0930,))
+    conn.commit()
+    conn.close()
+    assert xd.report_notification_exists_today(n0930 - 1000) is True    # 本班窗口内
+    assert xd.report_notification_exists_today(n0930 + 1000) is False   # 下一班视角
+
+
+def test_plist_three_calendar_entries():
+    """排班表 3 档在位（launchd 部署工件守卫）：9:30 / 13:30 / 17:30。
+    plist 在本机用户域，文件缺失则跳过（其他环境）。"""
+    import plistlib
+    p = Path.home() / 'Library' / 'LaunchAgents' / 'com.solobrave.xiaotuo-daily.plist'
+    if not p.exists():
+        pytest.skip('launchd plist 不在本机')
+    with open(p, 'rb') as f:
+        pl = plistlib.load(f)
+    entries = pl.get('StartCalendarInterval')
+    if isinstance(entries, dict):
+        entries = [entries]
+    got = sorted((e.get('Hour'), e.get('Minute')) for e in entries)
+    assert got == [(9, 30), (13, 30), (17, 30)], f'排班表应为 3 档，实际 {got}'

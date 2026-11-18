@@ -39,6 +39,7 @@ MARKERS = os.path.join(ROOT, 'data', 'watchdog-markers')
 EMITTED = os.path.join(MARKERS, 'queue_feeder_emitted.json')
 WORKER_LOG = os.path.join(ROOT, 'data', 'buyin_browser', 'launchd.out.log')
 SERVER_LOG = os.path.join(ROOT, 'logs', 'server.log')
+AGENTS_FILE = os.path.join(ROOT, 'data', 'agents.json')
 COOLDOWN_MS = 24 * 3600 * 1000
 MAX_PER_ROUND = 5
 EXPECTED_LAUNCHD_JOBS = 12
@@ -400,6 +401,23 @@ def _tail(path, max_bytes=200_000):
         return []
 
 
+def load_archived_agent_ids(path=None):
+    """已挂起（archived）员工集合——5-1 余额红线排除它们。
+
+    老大 11-18 18:29 拍板 knowledge_admin 挂起不充：挂起员工余额恒 0，
+    不排除则 5-1 每 30 分钟 P1 直推老大桌面（P1 不受冷却）= 告警疲劳。
+    文件缺失/坏 JSON ⇒ 空集 = 不排除（fail-open：读不到档案就按全员在岗判，
+    宁可多报不可漏报——与 5-1 红线「宁可多查」同哲学）。
+    """
+    try:
+        with open(path or AGENTS_FILE, encoding='utf-8') as f:
+            agents = json.load(f)
+        return {a.get('id') for a in agents
+                if a.get('id') and a.get('archived')}
+    except Exception:
+        return set()
+
+
 def collect_inputs():
     now_ms = int(time.time() * 1000)
     today = datetime.now().strftime('%Y-%m-%d')
@@ -439,9 +457,10 @@ def collect_inputs():
         p_last = g("SELECT MAX(CAST(daren_synced_at AS INTEGER)) "
                    "FROM products")[0]
         p_age = ((now_ms - p_last) // 3600000) if p_last else None
+        archived = load_archived_agent_ids()
         bal_low = [(r[0], r[1]) for r in conn.execute(
             "SELECT agent_id, balance FROM credit_accounts "
-            "WHERE balance < 200")]
+            "WHERE balance < 200") if r[0] not in archived]
         burn_today = g("SELECT COALESCE(SUM(credits_used),0) FROM "
                        "credit_usage_log WHERE created_at>=?", (today,))[0]
         burn_yday = g("SELECT COALESCE(SUM(credits_used),0) FROM "
