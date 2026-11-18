@@ -26,7 +26,7 @@ def test_feeder_selftest_not_constant_true():
     r = subprocess.run([sys.executable, str(FEEDER), '--selftest'],
                        capture_output=True, text=True, timeout=60)
     assert r.returncode == 0, f'selftest 失败: {r.stdout}{r.stderr}'
-    assert '全检出' in r.stdout and '全阴性' in r.stdout
+    assert '全过' in r.stdout and '全覆盖' in r.stdout
 
 
 def test_feeder_judges_mechanical():
@@ -34,13 +34,30 @@ def test_feeder_judges_mechanical():
     src = _src()
     assert 'def judge_' in src
     # 判据函数签名可注入（rows/tail/counts 参数），不内联 collect_inputs
-    for fn in ('judge_db_hygiene', 'judge_log_anomalies',
-               'judge_mechanism_health', 'judge_data_freshness',
-               'judge_credit_curve'):
-        assert f'def {fn}(' in src
-    # 零积分纪律：发现层是纯代码（调 AI API / 烧积分的路径不许出现）
+    # v1 判据清单（协调边定稿）21 条全覆盖：1-1…5-4 编号函数在位
+    for no in ('1_1', '1_2', '1_3', '1_4', '1_5',
+               '2_1', '2_2', '2_3', '2_4', '2_5',
+               '3_1', '3_2', '3_3', '3_4', '3_5',
+               '4_1', '4_2', '4_3', '4_4', '4_5',
+               '5_1', '5_2', '5_3', '5_4'):
+        assert f'def judge_{no}(' in src
+    # 判据清单 v1 编号与 JUDGES 表一一对应
+    assert src.count("('1-1', judge_1_1)") == 1
+    assert src.count("('5-4', judge_5_4)") == 1
+    # 零积分纪律：发现层是纯代码——ast 剥全部 docstring/注释后不得出现
+    # AI/openclaw/代理调用路径
+    import ast as _ast
+    tree = _ast.parse(src)
+    for node in _ast.walk(tree):
+        if isinstance(node, (_ast.FunctionDef, _ast.AsyncFunctionDef,
+                             _ast.ClassDef, _ast.Module)):
+            if (node.body and isinstance(node.body[0], _ast.Expr)
+                    and isinstance(node.body[0].value, _ast.Constant)
+                    and isinstance(node.body[0].value.value, str)):
+                node.body = node.body[1:]
+    code_only = _ast.unparse(tree)
     for bad in ('_call_ai_api', 'openclaw', '/api/proxy'):
-        assert bad not in src
+        assert bad not in code_only
 
 
 def test_feeder_contract():
