@@ -470,3 +470,76 @@ def test_report_no_escalation_when_worthy_or_first_zero(tmp_path, monkeypatch):
                         "WHERE agent_id='emp_xiaotuo'").fetchone()[0] == 1
     conn.close()
     assert not [r for r in _notifs(db2) if r[1] == 'escalation']
+
+
+# ── run_id 锚定链守卫（11-19 口径统一：B 表只写 ssq_，永不写 turn UUID） ──
+# 判据②对拍第一天（11-19 首班）抓出口径分叉：日报头 run=ssq_…，B 表写
+# openclaw turn UUID（旧轨迹兜底 _square_latest_run_id 的锅）。锁三种形态：
+# ① 进程内有 done 的 ssq job ⇒ 无 payload 也锚它；② 没有 ssq job ⇒ NULL；
+# ③ payload 给 UUID（异锚）⇒ 拒绝，仍锚 ssq 或 NULL。
+
+def _rec_db(tmp_path):
+    db = tmp_path / 'rec.db'
+    conn = sqlite3.connect(str(db))
+    conn.execute('''CREATE TABLE notifications (id TEXT, user_id TEXT, agent_id,
+                    type TEXT, title TEXT, content TEXT, read INTEGER, created_at INTEGER)''')
+    conn.execute('''CREATE TABLE emp_duties (agent_id TEXT PRIMARY KEY,
+                    duty_name TEXT DEFAULT '达人筛选专员',
+                    supervisor_agent_id TEXT DEFAULT '', zero_streak INTEGER DEFAULT 0,
+                    last_run_at INTEGER DEFAULT 0, last_run_summary TEXT DEFAULT '',
+                    updated_at INTEGER)''')
+    conn.execute("INSERT INTO emp_duties VALUES ('emp_xiaotuo','小拓','',0,0,'',0)")
+    conn.execute('''CREATE TABLE talent_recommendations (
+        rec_id TEXT PRIMARY KEY, rec_date TEXT NOT NULL, talent_id TEXT NOT NULL,
+        talent_name TEXT NOT NULL DEFAULT '', matched_rules TEXT NOT NULL DEFAULT '[]',
+        reason_text TEXT NOT NULL DEFAULT '', snapshot_json TEXT,
+        pipeline_status TEXT NOT NULL DEFAULT 'pending', deal_pid TEXT, gmv REAL,
+        refund_flag INTEGER, run_id TEXT, created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL, UNIQUE(rec_date, talent_id))''')
+    conn.commit()
+    return db
+
+
+_RECS1 = [{'talent_id': 'tal_a', 'talent_name': '甲',
+           'matched_rules': [], 'reason_text': 'r', 'snapshot': {}}]
+
+
+def test_report_anchors_ssq_job_without_payload(tmp_path, monkeypatch):
+    db = _rec_db(tmp_path)
+    monkeypatch.setattr(bw, 'DB_PATH', db)
+    monkeypatch.setattr(bw, 'JOBS', {
+        'ssq_111_a1': {'status': 'done', 'started': 100},
+        'ssq_222_b2': {'status': 'done', 'started': 200},
+        'vjob_333': {'status': 'done', 'started': 300},   # 非扫描 job 不参与
+    })
+    bw._square_write_report('值得联系 1', 'x', 'emp_xiaotuo',
+                            recommendations=_RECS1, run_id='')
+    conn = sqlite3.connect(str(db))
+    rid = conn.execute('SELECT run_id FROM talent_recommendations').fetchone()[0]
+    conn.close()
+    assert rid == 'ssq_222_b2', '锚最近完成的 ssq 扫描 job'
+
+
+def test_report_run_id_null_when_no_scan_job(tmp_path, monkeypatch):
+    db = _rec_db(tmp_path)
+    monkeypatch.setattr(bw, 'DB_PATH', db)
+    monkeypatch.setattr(bw, 'JOBS', {'vjob_x': {'status': 'done', 'started': 1}})
+    bw._square_write_report('值得联系 1', 'x', 'emp_xiaotuo',
+                            recommendations=_RECS1, run_id='')
+    conn = sqlite3.connect(str(db))
+    rid = conn.execute('SELECT run_id FROM talent_recommendations').fetchone()[0]
+    conn.close()
+    assert rid is None, '无 ssq job ⇒ NULL，绝不编造（更不写 UUID）'
+
+
+def test_report_rejects_uuid_payload(tmp_path, monkeypatch):
+    db = _rec_db(tmp_path)
+    monkeypatch.setattr(bw, 'DB_PATH', db)
+    monkeypatch.setattr(bw, 'JOBS', {'ssq_9_z9': {'status': 'done', 'started': 5}})
+    bw._square_write_report('值得联系 1', 'x', 'emp_xiaotuo',
+                            recommendations=_RECS1,
+                            run_id='e30d2792-4cad-45d1-a41f-4379a70483ca')
+    conn = sqlite3.connect(str(db))
+    rid = conn.execute('SELECT run_id FROM talent_recommendations').fetchone()[0]
+    conn.close()
+    assert rid == 'ssq_9_z9', 'UUID 异锚被拒，回落到 ssq 锚'

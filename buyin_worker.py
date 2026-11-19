@@ -3813,28 +3813,27 @@ def _square_normalize_recs(recs, now_ms, run_id=''):
     return rows
 
 
-def _square_latest_run_id(agent_id):
-    """从 openclaw 轨迹库取该 agent 当天最近一次 run_id（run_id 兜底回填用）。
+def _square_latest_scan_job_id():
+    """本进程最近完成的 ssq_ 广场扫描 job id（B 表 run_id 锚，11-19 口径统一）。
 
-    只读；查不到返回 ''（落库仍走，run_id 留空——宁缺不编造）。
+    为什么不用 openclaw 轨迹 UUID（旧 _square_latest_run_id 的做法）：
+    日报头 run= 锚的是 scan job（ssq_ 系，判据②对拍锚点），B 表写 turn UUID
+    ⇒ 两侧「真实 run」口径分叉，11-19 首班对拍第一天就抓红。本进程 JOBS 表
+    是扫描 job 的唯一事实登记处（JOBS 随 worker 重启清空——重启后 scan 与
+    report 不跨进程，正常班内链路不受影响）。
+    查不到返回 ''（落 NULL——宁缺不编造，绝不再退化成 UUID）。
     """
-    import glob as _glob
     try:
-        pat = f'/Users/qichen/.openclaw/agents/*{agent_id}*/agent/openclaw-agent.sqlite'
-        dbs = _glob.glob(pat)
-        if not dbs:
-            return ''
-        conn = sqlite3.connect(dbs[0])
-        try:
-            row = conn.execute(
-                'SELECT run_id FROM trajectory_runtime_events ORDER BY created_at DESC LIMIT 1'
-            ).fetchone()
-            return (row[0] or '') if row else ''
-        finally:
-            conn.close()
-    except Exception as e:
-        log(f'[SquareReport] run_id 轨迹兜底失败（不影响落库）: {e}')
+        with _job_lock:
+            items = [(v.get('started') or 0, cid)
+                     for cid, v in JOBS.items()
+                     if str(cid).startswith('ssq_') and v.get('status') == 'done']
+    except Exception:
         return ''
+    if not items:
+        return ''
+    items.sort()
+    return items[-1][1]
 
 
 def _square_write_report(summary, detail, agent_id=SQUARE_DUTY_AGENT, recommendations=None, run_id=''):
@@ -3903,8 +3902,15 @@ def _square_write_report(summary, detail, agent_id=SQUARE_DUTY_AGENT, recommenda
         # ③号单：「每日推荐 5 人」落 B 表（与日报同事务——日报交了推荐才算交，
         # 防「推荐写了日报没交」的半吊子状态）。rec_id 含日期 ⇒ 同日重投幂等覆盖。
         # 只认小拓（SQUARE_DUTY_AGENT）——别的 agent 走 /square-report 不 contaminates B 表。
-        # P2-④: run_id 优先 payload 传入，缺省轨迹兜底（只读），仍空则落 NULL 不编造
-        rid = str(run_id or '').strip() or _square_latest_run_id(agent_id)
+        # P2-④: run_id 锚定链（11-19 口径统一修订，判据②对拍抓出口径分叉）：
+        #   payload run_id（须 ssq_ 前缀，防 turn UUID 等异锚混入）→ 本进程最近
+        #   完成的 ssq_ 扫描 job → 真没有则落 NULL。★ 永不写 openclaw turn UUID
+        #   （11-19 实锤：UUID 进 B 表导致日报头 ssq_ 与库 UUID 对拍红）。
+        rid = str(run_id or '').strip()
+        if rid and not rid.startswith('ssq_'):
+            rid = ''
+        if not rid:
+            rid = _square_latest_scan_job_id()
         rec_rows = (_square_normalize_recs(recommendations, now_ms, rid)
                     if agent_id == SQUARE_DUTY_AGENT else [])
         for row in rec_rows:
