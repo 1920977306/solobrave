@@ -13093,3 +13093,46 @@ P1-⑨ 误报根修 / P1-⑩ 聊天无下文）+ 1 起误报事件当天根修 +
 - preflight 复跑 7/8（⑥ 人工行照老）。
 - 终版 6 人卡直出（洋洋服饰双品 ¥169 佣20%，其余 5 人热销靴品——池缺口如实）。
 - 代码线 `af637b8` 双分支零分叉，回归 1995 全绿。
+
+## §190 run_id 锚定链统一 + 双病班 replay 定性 + 队列重翻补录（2026-11-19 13:0x–14:0x，A 边）
+
+协调边 11-19 13:22 四单指令包执行记录：
+
+**单2 P2 run_id 口径统一（当天闭环，commit `56fee29`）**
+- 根因：`xiaotuo_ops.py report` 从不传 run_id → worker `_square_write_report` 旧兜底
+  `_square_latest_run_id` 把 openclaw turn UUID 写进 B 表，与日报头 `ssq_` 锚分叉
+  （11-19 首班对拍判据②抓红——对拍的存在意义实证）。
+- 修复：`_square_latest_run_id` 删除，新增 `_square_latest_scan_job_id()` 锚定链：
+  payload run_id（须 `ssq_` 前缀，异锚拒收）→ 本进程 JOBS 内最近 status='done' 的
+  ssq_ job → NULL，**永不写 UUID**。
+- 守卫+3（`tests/test_square_scan.py` 尾部，`_rec_db`/`_RECS1`）：锚最近 done ssq /
+  无 ssq 落 NULL / UUID payload 拒收。全量回归 1998 全绿。
+- 今日数据修复：备份 `data/backups/pre_runid_repair_20261119_132456.db`，
+  11-19 五行 run_id 全改 `ssq_1795051850681_e7c236`；
+  `check_daily_recommendations.py --date 2026-11-19` 实跑 8/8 全过。
+- worker 已重启加载修复（13:2x，graceful 姿势）。注意：worker 内 JOBS 是内存态，
+  重启后 scan/report 不跨进程——重启后第一班若 payload 无 run_id 且无本进程 done
+  job，落 NULL 是设计行为，如实报。
+
+**单1 两单重翻（13:0x 完成，读回验证）**
+- `dq_8aa5f9433888`（商品建档战役）→ **已作废**（协调边 19:05 终裁：filing dry-run
+  实证 0 新建 0 回填、47/47 全覆盖，premise 过时）。
+- `dq_556ca64c241c`（触达卡 v2）→ **完成**（completed_at 落账）。
+
+**单3 双病班 replay 定性（fuse_core.py 回放，证据齐）**
+- 轨迹库 `/Users/qichen/.openclaw/agents/emp_xiaotuo/agent/openclaw-agent.sqlite`
+  （trajectory_runtime_events），replay 两班：
+  | run | 时长 | tool.calls | search占比 | 熔断判据 | 终态 | 交付 |
+  |---|---|---|---|---|---|---|
+  | 49641dd7… | 839s | 30 | 0% | 放行 | error / non_deliverable_terminal_turn / stopReason=**length** | 无 |
+  | 17051fb3… | 248s | 10 | 0% | 放行 | 同上 | 无 |
+- 铁证：两班 `lastCallUsage.output` 均顶 **8192 token**（r1 usage.output=46567、
+  r2=15549）。根因=**单轮输出 8192 上限截断**——非熔断域（熔断 replay 放行正确）、
+  非反调研绕路（r2 仅 10 calls 4 分钟）。r2 死前末 tool.result 为 exec 返回昨日
+  09:40 日报全文 → compose report 时超长 detail 塞单条响应 → 截断 → 命令残缺。
+- 已按协调边指令代录入队两笔 P2（13:4x，读回验证均 待领）：
+  - `dq_83e3e05ee394` 投递语义盲区（CLI 对终态 error 返 rc=0 → 带班告警延迟 45min，
+    修 terminalError 直判病班）；
+  - `dq_cbdf5e7376ec` 长度截断根因修复（`xiaotuo_ops.py report` 加 `--detail-file`，
+    长 detail 落盘、命令只传路径）。
+- 未逐帧核 r1 截断点（只实证 r2 形态），回报措辞已收窄。
