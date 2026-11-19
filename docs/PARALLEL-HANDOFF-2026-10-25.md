@@ -13158,3 +13158,29 @@ P1-⑨ 误报根修 / P1-⑩ 聊天无下文）+ 1 起误报事件当天根修 +
 **纪律沉淀**：worker 重启（含人操与哨兵自动）必须避开班级窗口——class_slot 机制
 知道当班窗，重启前先看 /health jobs 与当日排班；哨兵 kickstart 若必须班内发生，
 落盘桥已保证不断锚（本轮修复正是把「重启纪律」从人盯变成机制兜）。
+
+## §192 池外商品回源 apply 全量 100 品 + 一级类目反查锚（2026-11-19 15:0x–16:0x，A 边，单1 dq_f37b4b1538b1 完成）
+
+**授权**：老大 11-19 15:03「准」全量 100 品（dry-run 报告 `data/cat_backfill_dryrun_20261119.md`：判重零冲突、智能家居佣金中位 15% 最优）。
+**施工**（commit `09c91c0`，双分支零分叉）：
+- 备份：`data/products-backup-20261119-150825.csv` + `data/solobrave.bak-20261119-150825`。
+- `filing_products.py --category-apply` → **新建 100 / 幂等跳过 0 / 真值不全跳过 0**，
+  owner=user_7acb72ff（resolve_owner 存量最常见归属，§8.2 铁律 3）。
+- 回读四锚点全绿：新建=100、platform_product_id 100/100、价格非空 100/100、佣金非空 100/100。
+**一级类目问题（apply 后实证抓到，当天修）**：商品 category 原写「二/三级」
+（`居家日用/洗漱杯`），达人画像写一级 token（`智能家居/个护家清`），
+`_prod_cat_matches` 永不命中 → 永远热销回退。
+修法：`filing_products._first_level_name(tree, cat_id)`（树层级=
+industry_list[0].child_cate_list=18 个一级，各自 child=二级；**第一版只遍历一层
+反查 0 命中已修正**）+ apply 写库前反查一级替换 category_first；
+**存量 100 行已 UPDATE**。现库核验：100/100 在库、category 首段全部 ∈ 树一级集合
+（食品饮料 30/个护家清 20/智能家居 49/服饰内衣 1）。
+**触达卡链路验证**：唐森森/盘妮语物/胡阿力三人 Coolchap 热销回退 → 真贴合品
+（硅胶桌椅保护套 ¥9.8 佣50% / 小夜灯 ¥2.9 / 润肤脂 ¥9.99），source=fallback_cat；
+字段 rate/note 在位（早前 print 键名 cosmetic 错，非数据问题）。
+**守卫**（`tests/test_category_backfill.py` 5 条全绿）：幂等不双写 / 真值不全不建档 /
+归属取存量最常见 / **一级反查落首段 / 反查 miss 保留候选原值（只丢不造）**。
+apply 加 `tree` 注入参数——测试传 mini 树不触真实 data/（§1 铁律）。
+**回归** 2016 passed（2011+5），secret_scan 干净。
+**池构成**：apply 后商品池 164 品存量（鞋靴为主）+ 100 新品三大类齐全；
+新品 pay_gmv 恒空正常（§8.2 池外口径），挂载一周后按 pid 回验。
