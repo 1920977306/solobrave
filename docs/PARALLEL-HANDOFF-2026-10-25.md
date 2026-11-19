@@ -13136,3 +13136,25 @@ P1-⑨ 误报根修 / P1-⑩ 聊天无下文）+ 1 起误报事件当天根修 +
   - `dq_cbdf5e7376ec` 长度截断根因修复（`xiaotuo_ops.py report` 加 `--detail-file`，
     长 detail 落盘、命令只传路径）。
 - 未逐帧核 r1 截断点（只实证 r2 形态），回报措辞已收窄。
+
+## §191 13:30 班 run_id NULL 事件：班内重启断锚 + 跨重启桥修复（2026-11-19 14:0x，A 边当天闭环）
+
+**事件**：13:32:41 第二班日报 B 表 2 行 run_id=NULL（修复 `56fee29` 后首跑即触发）。
+**根因（launchd.out.log 逐秒实证）**：A 边加载修复的 worker 重启落在**班内**——
+13:30:16 scan `ssq_1795066216078_1f0778` 起于旧进程 → 13:31:00 旧进程内完成 →
+13:31:23 graceful-daren → 13:31:27 新进程起 → 13:32:17 /square-decide、13:32:41
+/square-report 落新进程 ⇒ 内存 JOBS 已无 scan job，锚定链 fallback 落空 → 宁缺落 NULL
+（设计行为如实发作；我重启时机不当是操作错误，认账）。
+**修复（commit `906a666`，双分支零分叉）**：扫描完成时把锚落盘
+`data/square_scan_anchor.json`（cid+日期）；`_square_latest_scan_job_id()` 优先级=
+内存 JOBS（最近 done ssq_）→ 落盘锚（**只信今天**，防前班污染）→ NULL。
+守卫+3（28 passed 全文件）：班内重启形态锁死 / 过期锚拒收 / 内存优先于落盘。
+全量回归 2001 全绿。
+**数据修复**：备份 `data/backups/pre_anchor_repair_20261119_*.db`，2 行 run_id 改
+`ssq_1795066216078_1f0778`（日志实证的真生产锚，非编造）；
+`check_daily_recommendations.py --date 2026-11-19` 复跑 **8/8 全过**
+（检查2a run_id 非空率 7/7、2c 两班对拍全过）。
+**worker 已重启加载**（14:0x 班间窗口，graceful 姿势，控制口 ok）。
+**纪律沉淀**：worker 重启（含人操与哨兵自动）必须避开班级窗口——class_slot 机制
+知道当班窗，重启前先看 /health jobs 与当日排班；哨兵 kickstart 若必须班内发生，
+落盘桥已保证不断锚（本轮修复正是把「重启纪律」从人盯变成机制兜）。
