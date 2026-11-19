@@ -543,3 +543,51 @@ def test_report_rejects_uuid_payload(tmp_path, monkeypatch):
     rid = conn.execute('SELECT run_id FROM talent_recommendations').fetchone()[0]
     conn.close()
     assert rid == 'ssq_9_z9', 'UUID 异锚被拒，回落到 ssq 锚'
+
+
+def test_report_anchor_survives_worker_restart(tmp_path, monkeypatch):
+    """班内重启断内存 JOBS ⇒ 落盘锚兜底（11-19 13:31 实证形态锁死：
+    scan 在旧进程完成、report 落新进程，run_id 不得 NULL）。"""
+    db = _rec_db(tmp_path)
+    monkeypatch.setattr(bw, 'DB_PATH', db)
+    monkeypatch.setattr(bw, 'JOBS', {})   # 重启后内存态
+    monkeypatch.setattr(bw, 'SQUARE_ANCHOR_FILE', tmp_path / 'anchor.json')
+    bw._square_anchor_save('ssq_1795066216078_1f0778')
+    bw._square_write_report('值得联系 1', 'x', 'emp_xiaotuo',
+                            recommendations=_RECS1, run_id='')
+    conn = sqlite3.connect(str(db))
+    rid = conn.execute('SELECT run_id FROM talent_recommendations').fetchone()[0]
+    conn.close()
+    assert rid == 'ssq_1795066216078_1f0778', '落盘锚兜底，班内重启不断锚'
+
+
+def test_report_stale_anchor_rejected(tmp_path, monkeypatch):
+    """非今日的落盘锚不作数（防前班/昨天的锚污染今天）。"""
+    db = _rec_db(tmp_path)
+    anchor = tmp_path / 'anchor.json'
+    anchor.write_text(__import__('json').dumps(
+        {'cid': 'ssq_old_1', 'date': '2020-01-01', 'ts': 0}))
+    monkeypatch.setattr(bw, 'DB_PATH', db)
+    monkeypatch.setattr(bw, 'JOBS', {})
+    monkeypatch.setattr(bw, 'SQUARE_ANCHOR_FILE', anchor)
+    bw._square_write_report('值得联系 1', 'x', 'emp_xiaotuo',
+                            recommendations=_RECS1, run_id='')
+    conn = sqlite3.connect(str(db))
+    rid = conn.execute('SELECT run_id FROM talent_recommendations').fetchone()[0]
+    conn.close()
+    assert rid is None, '过期锚拒绝 ⇒ 宁缺 NULL 不编造'
+
+
+def test_report_memory_jobs_take_precedence_over_anchor(tmp_path, monkeypatch):
+    """本进程 JOBS 永远优先于落盘锚（锚只是重启后备，不得喧宾夺主）。"""
+    db = _rec_db(tmp_path)
+    monkeypatch.setattr(bw, 'DB_PATH', db)
+    monkeypatch.setattr(bw, 'JOBS', {'ssq_mem_9': {'status': 'done', 'started': 9}})
+    monkeypatch.setattr(bw, 'SQUARE_ANCHOR_FILE', tmp_path / 'anchor.json')
+    bw._square_anchor_save('ssq_file_8')
+    bw._square_write_report('值得联系 1', 'x', 'emp_xiaotuo',
+                            recommendations=_RECS1, run_id='')
+    conn = sqlite3.connect(str(db))
+    rid = conn.execute('SELECT run_id FROM talent_recommendations').fetchone()[0]
+    conn.close()
+    assert rid == 'ssq_mem_9', '内存 JOBS 优先'

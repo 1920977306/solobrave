@@ -3813,15 +3813,42 @@ def _square_normalize_recs(recs, now_ms, run_id=''):
     return rows
 
 
+SQUARE_ANCHOR_FILE = PROD_DIR / 'data' / 'square_scan_anchor.json'
+
+
+def _square_anchor_save(cid):
+    """扫描完成锚落盘（跨重启桥，11-19 §191）：worker 重启/哨兵 kickstart 会清空
+    内存 JOBS——11-19 13:31 班内重启实证：scan 在旧进程完成、report 落新进程，
+    run_id 断锚落 NULL。落盘锚是本进程 JOBS 无 done ssq 时的唯一后备，带日期闸。"""
+    try:
+        SQUARE_ANCHOR_FILE.write_text(json.dumps({
+            'cid': cid, 'date': datetime.now().strftime('%Y-%m-%d'),
+            'ts': int(time.time() * 1000)}, ensure_ascii=False))
+    except Exception:
+        pass
+
+
+def _square_anchor_load():
+    """读落盘锚；非今日一律作废（防前班/昨天的锚污染今天的班）。"""
+    try:
+        d = json.loads(SQUARE_ANCHOR_FILE.read_text())
+        if d.get('date') == datetime.now().strftime('%Y-%m-%d'):
+            cid = str(d.get('cid') or '')
+            if cid.startswith('ssq_'):
+                return cid
+    except Exception:
+        pass
+    return ''
+
+
 def _square_latest_scan_job_id():
     """本进程最近完成的 ssq_ 广场扫描 job id（B 表 run_id 锚，11-19 口径统一）。
 
     为什么不用 openclaw 轨迹 UUID（旧 _square_latest_run_id 的做法）：
     日报头 run= 锚的是 scan job（ssq_ 系，判据②对拍锚点），B 表写 turn UUID
-    ⇒ 两侧「真实 run」口径分叉，11-19 首班对拍第一天就抓红。本进程 JOBS 表
-    是扫描 job 的唯一事实登记处（JOBS 随 worker 重启清空——重启后 scan 与
-    report 不跨进程，正常班内链路不受影响）。
-    查不到返回 ''（落 NULL——宁缺不编造，绝不再退化成 UUID）。
+    ⇒ 两侧「真实 run」口径分叉，11-19 首班对拍第一天就抓红。锚定优先级：
+    本进程 JOBS 表（done 的 ssq_，取最近 started）→ 落盘锚（跨重启桥，只信今天）
+    → ''（落 NULL——宁缺不编造，绝不再退化成 UUID）。
     """
     try:
         with _job_lock:
@@ -3829,9 +3856,9 @@ def _square_latest_scan_job_id():
                      for cid, v in JOBS.items()
                      if str(cid).startswith('ssq_') and v.get('status') == 'done']
     except Exception:
-        return ''
+        return _square_anchor_load()
     if not items:
-        return ''
+        return _square_anchor_load()
     items.sort()
     return items[-1][1]
 
@@ -4218,6 +4245,7 @@ def _run_square_scan_impl(row):
                   'client_side_filter': client_side_filter, 'items': items}
         _job_set(cid, status='done', stage='完成',
                  result=json.dumps(result, ensure_ascii=False))
+        _square_anchor_save(cid)   # §191 跨重启桥：report 可能在重启后的新进程里落库
         log(f'[SquareScan] {cid} 完成：翻{pages_used}页 / 深看 {result["scanned"]} '
             f'/ 新入库 {inserted} / 已在库滤掉 {pre_dups + dups} / 无抖音号 {pre_noid + skipped}')
     except SquareRiskBlocked as e:
