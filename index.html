@@ -16176,6 +16176,9 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
           <button class="sb2-talents-btn" id="sb2TalentsFilterBtn" onclick="sb2TalentsToggleFilter()">筛选 ▾</button>
           <!-- feat/recycle-bin: 回收站开关 — 点击看已归档达人，行内可还原 -->
           <button class="sb2-talents-btn" id="sb2TalentsArchiveBtn" onclick="sb2TalentsToggleArchive()">回收站</button>
+          <!-- feat/shell-quarantine 单4 2026-11-19: 空壳隔离区开关 — 空壳达人默认排除在正常列表外，
+               点击只看空壳（API shells=only 语义，计数来自响应 shell_count） -->
+          <button class="sb2-talents-btn" id="sb2TalentsShellsBtn" onclick="sb2TalentsToggleShells()">空壳区</button>
           <button class="sb2-talents-btn" onclick="sb2TalentsToast('导出功能在 MVP5')">导出</button>
           <!-- ★ fix/sb2-talents-full-restore (commit 1): 「+ 录入达人」改全角「＋ 录入达人」(原型 btn-brand line 580)
                 之前: 半角 + (ASCII), 跟原型 btn-brand 的全角＋ (U+FF0B) 不一致
@@ -19506,7 +19509,7 @@ i[class^="sb2-ico-"]{ display:inline-block; width:13px; height:13px; vertical-al
      v2 (202609241444): 初始破缓存 + skip-device 守卫
      v3 (202609241420): probe 误导文案澄清 (fingerprint fallback → token-only) -->
 <script src="openclaw-client.js?v=ocowner1a20261008"></script>
-<script src="js/inline-07.js?v=ptnfit3a20261102c"></script>
+<script src="js/inline-07.js?v=shellq1a20261119"></script>
 
 <!-- Match Result Modal -->
 <div class="product-modal-overlay" id="matchModalOverlay" onclick="closeMatchModal()">

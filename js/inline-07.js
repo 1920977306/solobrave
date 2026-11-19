@@ -2282,6 +2282,9 @@ var _sb2TalentsTotal = 0;
 var _sb2TalentsAll = [];
 /* feat/recycle-bin: 回收站开关 — true 时列表查 status=archived，行操作换「还原」 */
 var _sb2TalentsShowArchived = false;
+/* feat/shell-quarantine 单4 2026-11-19: 空壳隔离区模式（API shells=only，互斥回收站） */
+var _sb2TalentsShowShells = false;
+var _sb2ShellCount = null;
 /* fix/page-size-fit 批注② 老大 20:01「画面铺满下面空一大截」: 页尺寸按容器实测动态算
    (仿商品库 _sb2PdsPageSize 思路, 但达人走服务端分页, 改 limit 后需重新拉取)
    行高/表头从已渲染 DOM 实测, 兜底 57/41; clamp 6..30 */
@@ -2932,7 +2935,15 @@ function sb2TalentsPageItems(){
 function sb2TalentsRenderLocal(){
   sb2TalentsUpdateHeroTitle();
   var heroSub = document.getElementById('sb2TalentsHeroSub');
-  if (heroSub) heroSub.textContent = (_sb2TalentsShowArchived ? '已归档 · ' : '') + _sb2TalentsTotal + ' 位' + (_sb2TalentsShowArchived ? '' : '在库 · 按评级与类目分层');
+  if (heroSub) {
+    if (_sb2TalentsShowShells) {
+      heroSub.textContent = '空壳隔离区 · ' + _sb2TalentsTotal + ' 位（无抖音号/0粉/无结算，处置决策归人）';
+    } else {
+      /* feat/shell-quarantine: 空壳计数来自响应 shell_count，点击切隔离区 */
+      var _sc = (_sb2ShellCount == null) ? '' : ' · 空壳 ' + _sb2ShellCount + ' 条';
+      heroSub.textContent = (_sb2TalentsShowArchived ? '已归档 · ' : '') + _sb2TalentsTotal + ' 位' + (_sb2TalentsShowArchived ? '' : '在库 · 按评级与类目分层' + _sc);
+    }
+  }
   var pageItems = sb2TalentsPageItems();
   var pageIds = {};
   pageItems.forEach(function(t){ if (t.id) pageIds[t.id] = true; });
@@ -2993,6 +3004,8 @@ async function sb2TalentsLoad(){
   var params = ['limit=500'];
   // 回收站模式：服务端显式查 status=archived（默认不传=active，跟原行为一致）
   if (_sb2TalentsShowArchived) params.push('status=archived');
+  // feat/shell-quarantine: 空壳隔离区模式（与回收站互斥，开关处保证）
+  if (_sb2TalentsShowShells) params.push('shells=only');
   var url = '/api/talents?' + params.join('&');
   try {
     var resp = await apiFetch(url);
@@ -3004,6 +3017,8 @@ async function sb2TalentsLoad(){
     var data = await resp.json();
     var all = (data && Array.isArray(data.talents)) ? data.talents : [];
     _sb2TalentsAll = all;
+    /* feat/shell-quarantine: 空壳计数随响应来（服务端口径，前端不自己判） */
+    _sb2ShellCount = (data && typeof data.shell_count === 'number') ? data.shell_count : null;
     /* 本请求无过滤参数, 服务端 facets 恒为全量 GROUP BY → 无条件覆盖全局快照
        (旧 hasFilter 判断的前提已消失, 留旧逻辑反而让侧栏计数定格在首屏) */
     _sb2TalentsFacets = (data && data.facets) ? data.facets : null;
@@ -5611,6 +5626,24 @@ async function sb2PdsDelete(id, name){
     showToast('❌ 网络错误: ' + (e && e.message || e), 'error');
   }
 }
+/* feat/shell-quarantine 单4 2026-11-19: 空壳隔离区 — 开关切换（仿回收站，互斥） */
+function sb2TalentsToggleShells(){
+  _sb2TalentsShowShells = !_sb2TalentsShowShells;
+  if (_sb2TalentsShowShells) _sb2TalentsShowArchived = false;   // 互斥：回收站按钮状态同步
+  _sb2TalentsPage = 1;
+  var btn = document.getElementById('sb2TalentsShellsBtn');
+  if (btn) {
+    btn.textContent = _sb2TalentsShowShells ? '← 返回列表' : '空壳区';
+    btn.classList.toggle('sb2-archive-on', _sb2TalentsShowShells);
+  }
+  var abtn = document.getElementById('sb2TalentsArchiveBtn');
+  if (abtn && _sb2TalentsShowShells) {
+    abtn.textContent = '回收站';
+    abtn.classList.remove('sb2-archive-on');
+  }
+  sb2TalentsLoad();
+}
+window.sb2TalentsToggleShells = sb2TalentsToggleShells;
 window.sb2TalentsDelete = sb2TalentsDelete;
 window.sb2PdsDelete = sb2PdsDelete;
 /* feat/recycle-bin: 回收站 — 开关切换 + 还原 */
