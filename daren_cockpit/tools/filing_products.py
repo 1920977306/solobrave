@@ -407,6 +407,87 @@ def new_product_id(brand: str, pid: str, taken: set) -> str:
     return cand
 
 
+def _first_level_name(tree: dict, cat_id) -> str:
+    """二级 cate_id → 平台一级类目名（触达卡类目匹配锚：达人画像写一级，商品须带一级才匹配）。
+    树 = get_board_default_info 响应 {data:{industry_list:[{child_cate_list:[...]}]}}；反查不到返回 ''。"""
+    try:
+        for wrap in (tree.get('data') or {}).get('industry_list') or []:
+            for first in wrap.get('child_cate_list') or []:      # 一级（cate_level=0）
+                fname = (first.get('cate_name') or '').strip()
+                for second in first.get('child_cate_list') or []:  # 二级（level=1）
+                    if str(second.get('cate_id')) == str(cat_id):
+                        return fname
+    except Exception:
+        pass
+    return ''
+
+
+def apply_category_backfill(conn: sqlite3.Connection,
+                            candidates_path: str, owner: str = "",
+                            tree: dict | None = None) -> dict:
+    """池外类目回源 apply（单1 dq_f37b4b1538b1，老大 11-19 15:03「准」全量 100 品）。
+
+    输入 = --category-source dry-run 的候选 JSON（{enriched, failed, belong}）。
+    池外品无团长端出单行 ⇒ pr 适配为空 GMV（§8.2 池外口径：pay_gmv 空正常）；
+    只填 enrich 真值，不造。platform_product_id 幂等——重复 apply 不双写。
+    tree：类目树（get_board_default_info 响应），None=读 data/board_cate_tree_20261119.json；
+    测试必须显式传 mini 树（§1 数据隔离铁律：不读不写真实 data/）。
+    """
+    payload = json.loads(Path(candidates_path).read_text(encoding="utf-8"))
+    enriched = payload.get("enriched") or {}
+    # 一级类目反查（触达卡匹配锚）：达人画像写一级（智能家居/个护家清），
+    # 商品 category 只带二/三级时类目过滤永不命中、永远热销回退（11-19 apply 后实证）。
+    if tree is None:
+        tree_path = ROOT / 'data' / 'board_cate_tree_20261119.json'
+        tree = (json.loads(tree_path.read_text(encoding='utf-8'))
+                if tree_path.exists() else {})
+    enriched = {pid: (dict(d, category_first=_first_level_name(tree, d.get('category_first_id')) or d.get('category_first'))
+                      if _first_level_name(tree, d.get('category_first_id')) else d)
+                for pid, d in enriched.items()}
+    owner = owner or resolve_owner(conn)
+    ours = load_our_products(conn)
+    existing_pids = {r["platform_product_id"] for r in ours if r.get("platform_product_id")}
+    taken = {r["id"] for r in ours}
+    now = int(time.time() * 1000)
+    insert_cols = [
+        "id", "name", "subtitle", "main_image", "price", "price_range", "brand",
+        "category", "monthly_sales", "commission_rates", "commission_amount",
+        "influencer_count", "talent_count", "tags", "selling_points", "status",
+        "platform_product_id", "platform_pay_gmv", "platform_settle_gmv",
+        "platform_order_pay_num", "platform_order_daren_count", "platform_stat_date",
+        "created_by", "created_at", "updated_at",
+    ]
+    added, skipped_dup, skipped_bad = [], [], []
+    for pid, daren in enriched.items():
+        if pid in existing_pids:
+            skipped_dup.append(pid)
+            continue
+        price = _yuan(daren.get("price"))
+        rate = _pct(daren.get("commission_rate"))
+        if not price or not rate:
+            skipped_bad.append(pid)      # 价格/佣金真值缺一 ⇒ 不建档（不造数）
+            continue
+        pr = {"name": "", "platform_product_id": pid,
+              "pay_gmv": None, "settle_gmv": None,
+              "order_pay_num": None, "order_daren_count": None,
+              "stat_date": "", "avatar": ""}
+        row = build_row(pr, daren)
+        row["id"] = new_product_id(row["brand"], pid, taken)
+        row["created_by"] = owner
+        row["created_at"] = now
+        row["updated_at"] = now
+        conn.execute(
+            f"INSERT INTO products ({','.join(insert_cols)}) "
+            f"VALUES ({','.join('?' * len(insert_cols))})",
+            [row.get(c) for c in insert_cols])
+        existing_pids.add(pid)
+        added.append({"id": row["id"], "pid": pid, "name": row["name"],
+                      "price": price, "rate": rate, "category": row["category"]})
+    conn.commit()
+    return {"added": added, "skipped_dup": skipped_dup, "skipped_bad": skipped_bad,
+            "owner": owner}
+
+
 # ────────────────────────────── 主流程 ──────────────────────────────
 def main() -> int:
     ap = argparse.ArgumentParser(description="商品建档（团长端出单商品 → products 表）")
@@ -419,8 +500,33 @@ def main() -> int:
                     help="忽略达人端补数据缓存，强制重新抓")
     ap.add_argument("--owner", default="",
                     help="新建商品的 created_by（默认自动取存量里最常见的归属）")
+    ap.add_argument("--category-apply", metavar="JSON",
+                    help="池外类目回源 apply：读 --category-source dry-run 候选 JSON 写库")
     args = ap.parse_args()
     apply_mode = args.apply and not args.dry_run
+
+    if args.category_apply:
+        conn = sqlite3.connect(str(DB))
+        conn.row_factory = sqlite3.Row
+        ensure_schema(conn)
+        ts = time.strftime("%Y%m%d-%H%M%S")
+        bak = ROOT / "data" / f"products-backup-{ts}.csv"
+        cols = [r[1] for r in conn.execute("PRAGMA table_info(products)")]
+        with open(bak, "w", newline="", encoding="utf-8") as fh:
+            w = csv.writer(fh)
+            w.writerow(cols)
+            for r in conn.execute("SELECT * FROM products"):
+                w.writerow(list(r))
+        db_bak = DB.with_suffix(f".bak-{ts}")
+        shutil.copy2(DB, db_bak)
+        print(f"[备份] {bak.relative_to(ROOT)}  +  {db_bak.name}")
+        stats = apply_category_backfill(conn, args.category_apply, args.owner)
+        print(f"[apply] 新建 {len(stats['added'])} | 幂等跳过 {len(stats['skipped_dup'])} "
+              f"| 真值不全跳过 {len(stats['skipped_bad'])} | owner={stats['owner']}")
+        for a in stats['added'][:5]:
+            print(f"  例: {a['name'][:30]} ¥{a['price']:g} 佣{a['rate']:g}% [{a['category']}]")
+        conn.close()
+        return 0
 
     conn = sqlite3.connect(str(DB))
     conn.row_factory = sqlite3.Row
