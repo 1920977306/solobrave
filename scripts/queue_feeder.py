@@ -295,8 +295,21 @@ def judge_4_2(product_sync_age_h):
     return []
 
 
+# ── 2026-11-20 交付管道迁移止血 ──
+# 班级交付已切即时班管道（talents + square_judgment），B 表 talent_recommendations
+# 在 P2 迁移单（交付管道配套迁移）完成前停更。4-3 此刻必出假旗
+# （11-20 17:47 轮实证「B 表今日 0 推荐——班没交卷」，当班明明交了三班）。
+# 恢复条件（两处同时改，单改常量测试必红）：迁移单完成 + 本判据改锚
+# talents.created_at 当日行——判据强度一个不许松（验收网铁律）。
+JUDGE_4_3_PAUSED = True
+
+
 def judge_4_3(now_hour, rec_today, is_workday):
-    """4-3 P2 工作日 18:00 后 B 表当日 0 行（小拓班没交卷）。"""
+    """4-3 P2 工作日 18:00 后 B 表当日 0 行（小拓班没交卷）。
+    ⚠ 2026-11-20 起整条暂停：交付管道切即时班、B 表停更必假旗（见模块头
+    JUDGE_4_3_PAUSED）。解除暂停必须迁移单完成 + 判据改锚 talents。"""
+    if JUDGE_4_3_PAUSED:
+        return []
     if is_workday and now_hour >= 18 and rec_today == 0:
         return [_cand('4-3', 'fresh_no_rec', P2,
                       '工作日 18:00 后 B 表今日 0 推荐——班没交卷',
@@ -685,7 +698,6 @@ def selftest():
         ('3-5', (True,), (False,)),
         ('4-1', (63,), (10,)),
         ('4-2', (30,), (5,)),
-        ('4-3', (19, 0, True), (19, 3, True)),
         ('4-4', (1,), (0,)),
         ('4-5', (True,), (False,)),
         ('5-1', ([('emp_a', 150)],), ([('emp_a', 999)],)),
@@ -702,10 +714,17 @@ def selftest():
         if neg_out:
             fails.append(f'{no} 负例误报')
 
+    # 4-3 迁移期暂停锁（2026-11-20 止血）：正例条件成立也必须空（假旗不得复现），
+    # 且暂停常量必须钉 True——解除 = 迁移单完成 + 判据改锚 talents，两处同时改。
+    if not JUDGE_4_3_PAUSED:
+        fails.append('4-3 暂停锁被解除：恢复须迁移单完成 + 改锚 talents（判据强度不许松）')
+    if judge_4_3(19, 0, True):
+        fails.append('4-3 暂停期出单（B 表停更假旗复现）')
+
     if fails:
         print('SELFTEST FAIL: ' + '；'.join(fails))
         return 1
-    print(f'SELFTEST OK：{len(cases)} 判据组各 1 正 1 负全过（21 判据全覆盖）')
+    print(f'SELFTEST OK：{len(cases)} 判据组各 1 正 1 负全过 + 4-3 迁移期暂停锁在位（21 判据全覆盖）')
     return 0
 
 

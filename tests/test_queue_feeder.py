@@ -120,3 +120,29 @@ def test_feeder_archived_agents_excluded_from_balance_redline():
     src = _src()
     seg = src.split('bal_low =', 1)[1].split('burn_today', 1)[0]
     assert 'not in archived' in seg and 'load_archived_agent_ids()' in src
+
+
+def test_feeder_4_3_pause_lock():
+    """守卫⑥（11-20 交付管道迁移止血）：4-3（B 表当日 0 推荐）整条暂停。
+
+    班级交付已切即时班管道（talents + square_judgment），B 表停更期间 4-3 必出假旗
+    （11-20 17:47 轮实证）。恢复 = P2 迁移单完成 + 判据改锚 talents.created_at，
+    两处同时改；单解常量本测试必红（验收网铁律：判据强度一个不许松）。"""
+    import importlib.util as _il
+    spec = _il.spec_from_file_location('queue_feeder', FEEDER)
+    qf = _il.module_from_spec(spec)
+    spec.loader.exec_module(qf)
+    assert qf.JUDGE_4_3_PAUSED is True, \
+        '4-3 暂停锁被解除：恢复须迁移单完成 + 改锚 talents（判据强度不许松）'
+    # 正例条件全部成立（工作日 19 点、B 表 0 行）也必须空——假旗不得复现
+    assert qf.judge_4_3(19, 0, True) == []
+    # 解除路径的负向锁：pause 常量翻 False 时正例必须能出单（防止有人把暂停
+    # 做成恒空死代码——管道恢复后 4-3 必须能重新咬合）
+    qf.JUDGE_4_3_PAUSED = False
+    try:
+        out = qf.judge_4_3(19, 0, True)
+        assert out and out[0]['judge'] == '4-3'
+        assert qf.judge_4_3(19, 3, True) == []   # 负例语义不随暂停损坏
+        assert qf.judge_4_3(19, 0, False) == []  # 非工作日不出
+    finally:
+        qf.JUDGE_4_3_PAUSED = True
