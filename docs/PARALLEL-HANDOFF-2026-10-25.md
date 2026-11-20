@@ -13184,3 +13184,19 @@ apply 加 `tree` 注入参数——测试传 mini 树不触真实 data/（§1 �
 **回归** 2016 passed（2011+5），secret_scan 干净。
 **池构成**：apply 后商品池 164 品存量（鞋靴为主）+ 100 新品三大类齐全；
 新品 pay_gmv 恒空正常（§8.2 池外口径），挂载一周后按 pid 回验。
+
+## §193 理由单一出口部署 + 抖音号尾点排查 + 重启 label 近失（2026-11-20 14:2x，A 边）
+
+**单B（dq_e2413b13ebbc → 完成）**：canonical 理由组装（commit `1538d2e`）14:20 部署——
+graceful → kickstart → /open 团长端自动回登录（盘上 cookie，零扫码）。守卫 5 条+回归 2021。
+模型原文留痕 snapshot.model_reason；insight 真洞察位已进任务书，17:30 班首跑。
+**尾点排查（协调边 Rosie 案，14:2x 当天定性）**：采集层 `base.get('aweme_id')` 逐字直取、
+零加工；2026-09-30 真机 dump 实样含 `"LOVE.yifeifei"`（带点）⇒ **点是平台真值形态，
+非系统性 bug**。全库 213 人仅 7 个格式异常（2 已知脏值 + 4 合法带点真值 + Rosie 尾点 1），
+流行率 3/213。**残留风险 1 条**：尾点 ID 拼主页 URL 可能 404——触达/质检改走昵称搜索，
+已知事项非缺陷。**未立案**（协调边问句我以自查代答；若质检要追溯可补登记）。
+**近失自报（无损失，纪律沉淀）**：首次 kickstart 用了错误 label
+（`com.solobrave.buyinworker` 缺连字符，真名 `com.solobrave.buyin-worker`）⇒ 静默 no-op，
+旧进程（11-19 13:39 起）仍在答 /health，「worker up」假象。**纪律：重启验证必须看
+进程 birth time（ps lstart），不能只看 health 应答**——health 只证明「有个进程」，不证明
+「是新进程」。
