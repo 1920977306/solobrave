@@ -13239,3 +13239,28 @@ graceful → kickstart → /open 团长端自动回登录（盘上 cookie，零�
 **队列**：dq_83e3e05ee394 → 完成；判误报后续 P3 判据 4-1 双锚小修已代录入队
 （dq_fe64e2825cda，方向：MAX(talent_collects, talents 双锚)>48h，不选排班耦合方案，
 反向守卫「周三 talents 有写入不得出 4-1」）。
+
+## §195 闹钟 plist 升三班制（dict→list 结构变更，2026-11-20，A 边）
+
+`~/Library/LaunchAgents/com.solobrave.xiaotuo-daily.plist` 的
+`StartCalendarInterval` 由单 dict 改为 list，现为三班：
+**9:30 / 13:30 / 17:30**（此前 9:30 单班）。任何按老格式解析该 plist 的
+检查/看护代码必须兼容 list 形态，否则静默失锚（§196 即实战案例）。
+仅登记事实，排班语义归 A 边稳定性口径。
+
+## §196 巡检岗检查工具双形态兼容自修 + 商家号验收锚（2026-11-20 16:4x，巡检岗）
+
+**背景**：9:25 档判定 🔴，旗面 `plist读取失败：'list' object has no attribute 'get'`
+——§195 结构变更导致 `preflight_check.py` 闹钟检查按 dict 解析炸。
+「检查工具不许静默坏」设计投产后首次实战：告警如设计响起（本次是坏得响，
+不是好的响），当日自修闭环。
+
+**修法**：闹钟检查兼容 list/dict 双形态（`entries = interval if isinstance(list)`
++ `any(Hour==9 and Minute==30)`）。复跑 🟢 全绿，22:25 晚档按新逻辑自动复核。
+
+**同期实况**：11-18/19/20 三班正常流转，SIGTERM 日名单停在 11-13/14/17 未新增；
+11-20 13:30 班 retry 兜底第二次实战拦截（原始班非 SIGTERM，死因归 A 边稳定性口径）；
+余额 1999→4999（+3000 充值）。
+
+**交叉锚点（老大 16:23 拍）**：商家号隔离单（待「立」）验收守卫升级——
+隔离生效后，本岗 9:25 档复核当班推荐/触达链路无商家号即过（巡检岗与执行方双头验证）。
