@@ -13200,3 +13200,42 @@ graceful → kickstart → /open 团长端自动回登录（盘上 cookie，零�
 旧进程（11-19 13:39 起）仍在答 /health，「worker up」假象。**纪律：重启验证必须看
 进程 birth time（ps lstart），不能只看 health 应答**——health 只证明「有个进程」，不证明
 「是新进程」。
+
+
+## §194 投递语义 P2 闭环：CLI 终态直判病班（2026-11-20 16:3x，A 边，dq_83e3e05ee394 完成）
+
+**病灶（11-18 双病班实证）**：CLI 对终态 error turn 也返 rc=0（旧 deliver_task 只看 rc），
+病班 19:54 死、20:39 才告警——45min 发现延迟。
+
+**探针定 schema（2026-11-20 真机探针，两次一次性会话，cost≈0 无害遗留）**：
+`openclaw agent --json` 终态 = 顶层 `{runId, status:"ok", summary, result:{meta:{stopReason,error}}}`。
+★ **关键发现：现网 deliver_task 读的是 `output.get('ok')`，该 schema 根本没有 ok 字段**——
+旧「网关已接受」note 恒为真，rc=0 盲区由此而来。
+
+**修法（xiaotuo_daily.py，commit `88db5b2`，回归 2025 全绿）**：
+- `_cli_terminal_state(output)` 白名单判读：健康 = `status=='ok'` 且 `stopReason ∈ {None,'stop','end_turn'}`
+  且 `meta.error` 空；**其余一律判病**（含 `stopReason='length'`——11-18 双病班签名，注意此时 status 仍是 ok）；
+  无 status 且无 meta = 旧网关形态 → None 回落看门（向后兼容）。
+- `deliver_task` 改返 **4 元组** `(note, run_id, rc, terminal)`；main() 两处调用点 +
+  `scripts/retry_class_1730_r2.py:38` 解包同步改。
+- 直判分支在 main() 重试块**之后**、看门之前：terminal 非健康 → 即时 alert_admin + return，
+  病班发现延迟 45min→<1min。案卷仍由 run-watchdog 验卷层立（alert 即时推送，立案幂等不重复）。
+- **每班 launchd 新进程，无需重启 worker**——17:30 班自动吃新代码。
+
+**守卫 5 条（tests/test_xiaotuo_daily.py，32/32）**：①终态 error 直判即报（WATCHDOG_SEC=99999
+看门永不触发下告警必须先响）②status ok + stopReason=length 判病（双病班签名回归）
+③健康终态不误报、交卷照常 ④旧形态 `{'ok':true}` 回落看门不炸 ⑤4 元组契约解包。
+
+**断言教训（写进测试注释了）**：`alert_admin(note, run_id, slot)` 的**标题恒为
+「小拓未交日报 · XX班」格式，note 进 content**——守卫断言一度写错位置查 title 里的
+「终态异常」，实际 content 才是证据位（失败输出自证：告警已按直判发出）。
+
+**遗留登记（本单骨架允许「一并修或登记」，为保 17:30 前闭环选登记）**：
+`keeper_daily.py` 同款 rc=0 盲区**未动**——emp_talent_keeper / emp_goods_keeper 的
+投递判读疑似同病（函数名级未核实），建议另立 P2 同模式修。
+**未知项**：CLI 真 error 终态实样未采到（两次探针 turn 均健康完成），error 枚举值未知——
+判读用白名单兜底（非 ok 即病），首个真病班会带 status 原文留证。
+
+**队列**：dq_83e3e05ee394 → 完成；判误报后续 P3 判据 4-1 双锚小修已代录入队
+（dq_fe64e2825cda，方向：MAX(talent_collects, talents 双锚)>48h，不选排班耦合方案，
+反向守卫「周三 talents 有写入不得出 4-1」）。
