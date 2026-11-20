@@ -3779,9 +3779,67 @@ def _square_decide(payload):
     return ({'ok': True, 'inserted': True, 'talent_id': tid, 'verdict': verdict}, 200)
 
 
+def _wan(v) -> str:
+    """金额/粉丝数的万/元归一口径（≥1万 ⇒ X.X万，否则元；只格式化不造数）。"""
+    try:
+        v = float(v)
+    except (TypeError, ValueError):
+        return ''
+    if v <= 0:
+        return ''
+    if v >= 10000:
+        return f'{round(v / 10000, 1):g}万'
+    return f'{v:g}元'
+
+
+_REASON_NOISE_RE = re.compile(r'[；;]?\s*联系方式(来源)?=[^；;，,]*')
+
+
+def _square_strip_reason_noise(s: str) -> str:
+    """剥掉推荐理由噪音尾巴（「联系方式(来源)=未披露」——私信触达路径下这句话
+    对商务是减分项，11-20 协调边质检：13/13 全带）。"""
+    return _REASON_NOISE_RE.sub('', s or '').strip('；; ，,').strip()
+
+
+def _square_canonical_reason(rec: dict) -> str:
+    """推荐理由单一出口（单B 2026-11-20，dq 见交接单）：B 表 reason_text 由本函数
+    确定性组装，模型不再自由发挥（11-19/11-20 两班两套模板并存的根因就是直存原文）。
+
+    - 真值只从 snapshot 结构化字段取（主推类目/30天结算额/粉丝指数），只丢不造；
+    - 模型原文不再进 reason_text，留痕 snapshot['model_reason']（审计可溯）；
+    - 噪音（联系方式可得性）永不入正文（_square_strip_reason_noise）；
+    - 真洞察位接口：rec['insight'] 非空时追加「看点：…」（给「看出来的洞察」
+      留的位——11-20 质检 0/13 条真洞察，位先留、内容靠模型长出来）；
+    - snapshot 无任何结构化真值 ⇒ 回退去噪后的模型原文（不空发，也不编）。
+    """
+    snap = rec.get('snapshot') if isinstance(rec.get('snapshot'), dict) else {}
+    parts = []
+    cats = snap.get('主推类目')
+    if isinstance(cats, (list, tuple)) and [c for c in cats if c]:
+        parts.append('、'.join(str(c) for c in cats if c) + '主推')
+    settle = snap.get('30天结算额')
+    if isinstance(settle, (list, tuple)) and settle and settle[0]:
+        lo = _wan(settle[0])
+        hi = _wan(settle[1]) if len(settle) > 1 else ''
+        if lo:
+            parts.append(f'30天结算{lo}-{hi}' if hi and hi != lo
+                         else f'30天结算{lo}')
+    fol = _wan(snap.get('粉丝指数'))
+    if fol:
+        parts.append(f'粉丝{fol}')
+    base = '，'.join(parts)[:400]
+    insight = str(rec.get('insight') or '').strip()
+    if base and insight:
+        base = f'{base}；看点：{insight[:80]}'
+    if not base:
+        base = _square_strip_reason_noise(str(rec.get('reason_text') or '').strip())
+    return base[:500]
+
+
 def _square_normalize_recs(recs, now_ms, run_id=''):
-    """推荐条目归一化（③号单 2026-11-15；P2-④ 2026-11-16 口径整改）：
-    铁律（§143）：matched_rules 宁可少存不可编造；reason_text 原样存；
+    """推荐条目归一化（③号单 2026-11-15；P2-④ 2026-11-16 口径整改；单B 2026-11-20 理由单一出口）：
+    铁律（§143）：matched_rules 宁可少存不可编造；reason_text 由
+    _square_canonical_reason 确定性组装（模型原文留痕 snapshot['model_reason']）；
     snapshot_json 只保留 dict（勿全表快照）。
     P2-④ 整改：①rec_date 毫秒串 → 'YYYY-MM-DD'（同人读友好，验收脚本直等匹配）；
     ②run_id 从 payload/轨迹兜底回填（不再恒空——留空行反推时无法回溯交付班）。"""
@@ -3800,12 +3858,18 @@ def _square_normalize_recs(recs, now_ms, run_id=''):
         if not isinstance(rules, list):
             rules = []                               # 编造不如空存（审计探针视角）
         snap = r.get('snapshot')
+        if isinstance(snap, dict):
+            snap = dict(snap)
+            model_reason = str(r.get('reason_text') or '').strip()
+            if model_reason:
+                # 单B：模型原文不再直写 B 表，留痕 snapshot（审计可溯「它当时说了什么」）
+                snap['model_reason'] = model_reason[:300]
         rows.append((
             f'rec_{ymd}_{tid}',                      # rec_id：同日去重键的一半
             ymd_dash, tid,
             str(r.get('talent_name') or '').strip()[:100],
             json.dumps(rules, ensure_ascii=False)[:2000],
-            str(r.get('reason_text') or '').strip()[:500],
+            _square_canonical_reason(r),
             (json.dumps(snap, ensure_ascii=False)[:4000] if isinstance(snap, dict) else None),
             (str(run_id).strip() or None),
             now_ms, now_ms,

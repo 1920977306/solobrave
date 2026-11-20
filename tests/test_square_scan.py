@@ -524,6 +524,7 @@ def test_report_run_id_null_when_no_scan_job(tmp_path, monkeypatch):
     db = _rec_db(tmp_path)
     monkeypatch.setattr(bw, 'DB_PATH', db)
     monkeypatch.setattr(bw, 'JOBS', {'vjob_x': {'status': 'done', 'started': 1}})
+    monkeypatch.setattr(bw, 'SQUARE_ANCHOR_FILE', tmp_path / 'no_such_anchor.json')
     bw._square_write_report('值得联系 1', 'x', 'emp_xiaotuo',
                             recommendations=_RECS1, run_id='')
     conn = sqlite3.connect(str(db))

@@ -149,3 +149,52 @@ def test_non_xiaotuo_agent_does_not_touch_b_table(rec_db):
     n = conn.execute('SELECT COUNT(*) FROM talent_recommendations').fetchone()[0]
     conn.close()
     assert n == 0, 'B 表只认小拓——别的 agent 日报不得 contaminates 指标线'
+
+
+# ── 单B（2026-11-20）：理由组装单一出口守卫 ──────────────────────────
+_SNAP = {'抖音号': '0408255269.', '昵称': 'Rosie', '粉丝指数': 14209,
+         '30天结算额': [25000.0, 50000.0], '联系方式可得性': '未披露',
+         '主推类目': ['服饰内衣', '个护家清', '食品饮料'], 'verdict': '值得联系'}
+
+
+def test_canonical_reason_single_exit_format():
+    rows = bw._square_normalize_recs(
+        [{'talent_id': 't1', 'reason_text': '模型自由发挥的一段话',
+          'snapshot': dict(_SNAP)}], REAL_NOW_MS)
+    assert rows[0][5] == '服饰内衣、个护家清、食品饮料主推，30天结算2.5万-5万，粉丝1.4万', \
+        f'理由必须走 canonical 单一模板，实测 {rows[0][5]!r}'
+
+
+def test_canonical_reason_strips_contact_noise():
+    rows = bw._square_normalize_recs(
+        [{'talent_id': 't1',
+          'reason_text': '服饰内衣主推，30天结算1万-5万，粉丝指数93.5万；联系方式来源=未披露',
+          'snapshot': dict(_SNAP)}], REAL_NOW_MS)
+    assert '联系方式' not in rows[0][5] and '未披露' not in rows[0][5], \
+        '噪音尾巴（联系方式=未披露）永不入 B 表正文'
+    snap = json.loads(rows[0][6])
+    assert snap['model_reason'].startswith('服饰内衣主推'), \
+        '模型原文必须留痕 snapshot.model_reason（审计可溯）'
+
+
+def test_canonical_reason_insight_slot():
+    rows = bw._square_normalize_recs(
+        [{'talent_id': 't1', 'snapshot': dict(_SNAP),
+          'insight': '结算近7日环比腰斩，砍价空间在档期'}], REAL_NOW_MS)
+    assert '看点：结算近7日环比腰斩' in rows[0][5], '真洞察位接口必须生效'
+
+
+def test_canonical_reason_missing_truth_not_fabricated():
+    rows = bw._square_normalize_recs(
+        [{'talent_id': 't1', 'reason_text': '值得联系；联系方式=未披露',
+          'snapshot': {'联系方式可得性': '未披露'}}], REAL_NOW_MS)
+    assert rows[0][5] == '值得联系', \
+        'snapshot 无类目/结算/粉丝真值 ⇒ 回退去噪模型原文（不空发），噪音必须剥掉'
+    assert not re.search(r'\d', rows[0][5]), '无真值时正文不得出现任何数字（不编造）'
+
+
+def test_canonical_reason_fallback_stripped_model_text():
+    rows = bw._square_normalize_recs(
+        [{'talent_id': 't1', 'reason_text': '值得联系；联系方式=未披露',
+          'snapshot': None}], REAL_NOW_MS)
+    assert rows[0][5] == '值得联系', '无 snapshot 回退模型原文但必须先剥噪音'
