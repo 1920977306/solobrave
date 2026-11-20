@@ -35,7 +35,7 @@ def main():
     msg = xd.build_task_message(duty, slot_label=slot_label, class_no=class_no,
                                 class_total=len(xd.CLASS_SLOTS)) + HARD_LINE
     print(f'重投（key={key}）：类目={duty.get("category") or "见任务书"}')
-    note, run_id, rc = xd.deliver_task(msg, session_key=key)
+    note, run_id, rc, _terminal = xd.deliver_task(msg, session_key=key)
     print(f'重投结果：{note}' + (f'（runId={run_id}）' if run_id else ''))
     # 看到交卷为止（上限 35 分钟；旧看门 20:18 也会兜底告警）
     deadline = time.time() + 35 * 60

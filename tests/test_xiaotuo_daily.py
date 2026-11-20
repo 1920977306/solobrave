@@ -53,7 +53,7 @@ def test_deliver_passes_node_env_and_args(monkeypatch):
         captured['env'] = kw.get('env')
         return _fake_run(json.dumps({'ok': True, 'runId': 'r1'}))
     monkeypatch.setattr(xd.subprocess, 'run', fake_run)
-    note, run_id, rc = xd.deliver_task('干活')
+    note, run_id, rc, _t = xd.deliver_task('干活')
     assert run_id == 'r1' and note == 'turn 已结束'
     assert captured['args'][:4] == [xd.OPENCLAW_CLI, 'agent', '--agent', 'emp_xiaotuo']
     assert '--message' in captured['args'] and '干活' in captured['args']
@@ -72,11 +72,11 @@ def test_deliver_never_raises(monkeypatch):
     def boom(*a, **k):
         raise FileNotFoundError('no cli')
     monkeypatch.setattr(xd.subprocess, 'run', boom)
-    note, run_id, rc = xd.deliver_task('x')
+    note, run_id, rc, _t = xd.deliver_task('x')
     assert run_id is None and '失败' in note
 
     monkeypatch.setattr(xd.subprocess, 'run', lambda *a, **k: _fake_run(rc=127, stderr='node?'))
-    note, _, _rc = xd.deliver_task('x')
+    note, _, _rc, _t = xd.deliver_task('x')
     assert '127' in note
 
 
@@ -84,7 +84,7 @@ def test_deliver_gateway_accepted_keeps_runid(monkeypatch):
     out = json.dumps({'ok': False, 'runId': 'abc',
                       'error': {'message': 'gateway timeout'}})
     monkeypatch.setattr(xd.subprocess, 'run', lambda *a, **k: _fake_run(stdout=out))
-    note, run_id, rc = xd.deliver_task('x')
+    note, run_id, rc, _t = xd.deliver_task('x')
     assert run_id == 'abc' and '已接受' in note
 
 
@@ -529,3 +529,89 @@ def test_plist_three_calendar_entries():
         entries = [entries]
     got = sorted((e.get('Hour'), e.get('Minute')) for e in entries)
     assert got == [(9, 30), (13, 30), (17, 30)], f'排班表应为 3 档，实际 {got}'
+
+
+# ── 8. 投递语义 P2 守卫（dq_83e3e05ee394，2026-11-20 探针实样定字段）──────
+# CLI --json 终态 schema（真机探针两个会话实测）：
+#   健康  = {status:'ok', summary:'completed', result:{meta:{stopReason:'stop'}}}
+#   病签名 = 顶层 status 非 ok / meta.stopReason='length'（11-18 双病班）/ meta.error 非空。
+# 11-18 实证盲区：terminalError turn 返 rc=0，病班 19:54 死、20:39 才告警（45min）。
+
+def _cli_out(status='ok', stop='stop', err=None, summary='completed'):
+    meta = {'stopReason': stop}
+    if err:
+        meta['error'] = err
+    return json.dumps({'runId': 'run_x', 'status': status, 'summary': summary,
+                       'result': {'meta': meta, 'payloads': []}})
+
+
+def test_terminal_error_alerts_immediately_not_watchdog(tmp_path, monkeypatch, duty_db):
+    """守卫①：终态 error → 立即走直判告警（不等 45min 看门）。"""
+    _patch_common(monkeypatch, duty_db, _cli_out(status='error', stop='error',
+                                                 err={'message': 'model fallback exhausted'},
+                                                 summary='failed'))
+    monkeypatch.setattr(xd, 'WATCHDOG_SEC', 99999)   # 看门永不应触发——直判必须先响
+    conn = sqlite3.connect(str(duty_db))
+    conn.execute("INSERT INTO emp_duties VALUES ('emp_xiaotuo', 0, '', 0)")
+    conn.commit()
+    conn.close()
+    assert xd.main() == 0
+    conn = sqlite3.connect(str(duty_db))
+    rows = conn.execute("SELECT title, content FROM notifications "
+                        "WHERE agent_id='emp_xiaotuo'").fetchall()
+    conn.close()
+    # alert_admin 标题恒为「小拓未交日报」格式（note 进 content）——
+    # 直判证据（终态异常/run_x/error）必须落在 content，title 保留未交日报标识
+    assert len(rows) == 1 and '未交日报' in rows[0][0], '告警标题保留未交日报格式'
+    assert '终态异常' in rows[0][1] and 'error' in rows[0][1] and 'run_x' in rows[0][1]
+
+
+def test_terminal_length_truncation_is_sick(tmp_path, monkeypatch, duty_db):
+    """守卫④（11-18 病班签名）：status ok 但 stopReason='length' = 截断病班 ⇒ 直判。"""
+    _patch_common(monkeypatch, duty_db, _cli_out(status='ok', stop='length'))
+    monkeypatch.setattr(xd, 'WATCHDOG_SEC', 99999)
+    conn = sqlite3.connect(str(duty_db))
+    conn.execute("INSERT INTO emp_duties VALUES ('emp_xiaotuo', 0, '', 0)")
+    conn.commit()
+    conn.close()
+    assert xd.main() == 0
+    conn = sqlite3.connect(str(duty_db))
+    rows = conn.execute("SELECT title, content FROM notifications "
+                        "WHERE agent_id='emp_xiaotuo'").fetchall()
+    conn.close()
+    assert len(rows) == 1 and '未交日报' in rows[0][0]
+    assert '终态异常' in rows[0][1] and 'length' in rows[0][1]
+
+
+def test_healthy_turn_keeps_watchdog_path(tmp_path, monkeypatch, duty_db):
+    """守卫②：健康终态（status ok + stopReason stop）→ 不看门直判，交卷照常收工。"""
+    _patch_common(monkeypatch, duty_db, _cli_out())
+    future_ms = int(__import__('time').time() * 1000) + 3600_000
+    conn = sqlite3.connect(str(duty_db))
+    conn.execute("INSERT INTO emp_duties VALUES ('emp_xiaotuo', ?, '已交', 0)", (future_ms,))
+    conn.commit()
+    conn.close()
+    assert xd.main() == 0
+    conn = sqlite3.connect(str(duty_db))
+    rows = conn.execute("SELECT title FROM notifications "
+                        "WHERE agent_id='emp_xiaotuo'").fetchall()
+    conn.close()
+    assert rows == [], '健康 turn 不得误报终态异常'
+
+
+def test_legacy_shape_falls_back_to_watchdog(tmp_path, monkeypatch, duty_db):
+    """守卫③（向后兼容锁）：旧网关形态 {'ok':true,runId} 无 status/meta
+    ⇒ terminal=None 回落看门行为——不炸、不误报。"""
+    _patch_common(monkeypatch, duty_db, json.dumps({'ok': True, 'runId': 'r'}))
+    monkeypatch.setattr(xd, 'WATCHDOG_SEC', 0)
+    conn = sqlite3.connect(str(duty_db))
+    conn.execute("INSERT INTO emp_duties VALUES ('emp_xiaotuo', 0, '', 0)")
+    conn.commit()
+    conn.close()
+    assert xd.main() == 0
+    conn = sqlite3.connect(str(duty_db))
+    rows = conn.execute("SELECT title FROM notifications "
+                        "WHERE agent_id='emp_xiaotuo'").fetchall()
+    conn.close()
+    assert len(rows) == 1 and '未交日报' in rows[0][0], \
+        '旧形态必须回落看门告警（未交日报），不得出终态异常误报'

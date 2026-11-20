@@ -145,11 +145,34 @@ def daily_session_key(slot_label=None):
     return f'{base}-{slot_label}' if slot_label else base
 
 
+def _cli_terminal_state(output):
+    """CLI --json 终态判读（投递语义 P2，dq_83e3e05ee394，2026-11-20 探针实样定字段）：
+    {runId, status, summary, result:{...,meta:{stopReason,error,...}}}——
+    健康只放行见过的形态：status=='ok' 且 stopReason ∈ {None,'stop','end_turn'} 且 error 空。
+    白名单哲学：timeout/error/failed/length 截断（11-18 双病班签名）一律判终态异常。
+    旧网关形态（无 status 且无 result.meta）→ None：无从判读，回落旧看门行为（向后兼容）。"""
+    if not isinstance(output, dict):
+        return None
+    status = output.get('status')
+    meta = (output.get('result') or {}).get('meta') or {}
+    stop = meta.get('stopReason')
+    err = meta.get('error')
+    if status is None and not meta:
+        return None
+    if status == 'ok' and stop in (None, 'stop', 'end_turn') and not err:
+        return {'healthy': True}
+    return {'healthy': False, 'status': status, 'summary': output.get('summary'),
+            'stop_reason': stop, 'error': (str(err)[:300] if err else None)}
+
+
 def deliver_task(message, session_key=None):
-    """投任务到 emp_xiaotuo 会话。返回 (exit_note, accepted_run_id, returncode)。
+    """投任务到 emp_xiaotuo 会话。返回 (exit_note, accepted_run_id, returncode, terminal)。
 
     2026-11-15（§165）：加 session_key 参数——exit 143 外部 SIGTERM 重试时
-    必须换新会话键（同一退化会话重试会重蹈漫游，11-13 红线）。"""
+    必须换新会话键（同一退化会话重试会重蹈漫游，11-13 红线）。
+    2026-11-20（投递语义 P2）：terminal = _cli_terminal_state(stdout JSON)——
+    CLI 对终态 error turn 也返 rc=0（11-18 病班 45min 才发现的元凶），
+    终态必须显式判读；无法判读（旧形态）为 None，回落旧看门。"""
     args = [OPENCLAW_CLI, 'agent', '--agent', AGENT_ID, '--message', message,
             '--session-key', session_key or daily_session_key(),
             '--json', '--timeout', str(TURN_TIMEOUT)]
@@ -158,22 +181,25 @@ def deliver_task(message, session_key=None):
                                 encoding='utf-8', errors='replace',
                                 timeout=TURN_TIMEOUT + 120, env=_subprocess_env())
     except subprocess.TimeoutExpired:
-        return ('CLI 等待超时（turn 可能仍在跑）', None, None)
+        return ('CLI 等待超时（turn 可能仍在跑）', None, None, None)
     except Exception as e:
-        return (f'CLI 调用失败：{e}', None, None)
+        return (f'CLI 调用失败：{e}', None, None, None)
     if result.returncode != 0:
         return (f'CLI 退出码 {result.returncode}：{(result.stderr or "")[:200]}', None,
-                result.returncode)
+                result.returncode, None)
     try:
         output = json.loads(result.stdout)
     except Exception:
-        return (f'CLI 输出非 JSON：{(result.stdout or "")[:200]}', None, result.returncode)
+        return (f'CLI 输出非 JSON：{(result.stdout or "")[:200]}', None,
+                result.returncode, None)
+    terminal = _cli_terminal_state(output)
     run_id = output.get('runId') if isinstance(output, dict) else None
     if output.get('ok') is False and not run_id:
         return (f'网关拒绝：{json.dumps(output, ensure_ascii=False)[:200]}', None,
-                result.returncode)
-    return ('turn 已结束' if output.get('ok') else '网关已接受（turn 可能仍在跑）',
-            run_id, result.returncode)
+                result.returncode, terminal)
+    note = ('turn 已结束' if output.get('ok') or (terminal or {}).get('healthy')
+            else '网关已接受（turn 可能仍在跑）')
+    return (note, run_id, result.returncode, terminal)
 
 
 # 外部 SIGTERM 的退出码形态（11-14 09:37 实锤：CLI 被外部 kill → 优雅 chat.abort
@@ -336,7 +362,7 @@ def main():
         f'quota={duty.get("quota")}')
 
     dispatch_ms = int(time.time() * 1000)
-    note, run_id, rc = deliver_task(message, session_key=daily_session_key(slot_label))
+    note, run_id, rc, terminal = deliver_task(message, session_key=daily_session_key(slot_label))
     log(f'投递结果：{note}' + (f'（runId={run_id}）' if run_id else ''))
 
     # ★ 外部 SIGTERM 自愈重试（§165，2026-11-15）：11-14 09:37 实锤——CLI 被外部
@@ -358,9 +384,23 @@ def main():
         log('首投 CLI 被外部 SIGTERM（exit 143，§165 实锤形态）——换新会话键重试一次')
         retry_msg = message + (
             '\n★ 本班为重试班：首投被外部信号中止（exit 143），流程照常跑完交日报。')
-        note, run_id, rc = deliver_task(retry_msg, session_key=retry_key)
+        note, run_id, rc, terminal = deliver_task(retry_msg, session_key=retry_key)
         retried = True
         log(f'重投结果：{note}' + (f'（runId={run_id}）' if run_id else ''))
+
+    # ★ 投递语义 P2（dq_83e3e05ee394，2026-11-20）：CLI 终态直判病班。
+    # 11-18 实证：terminalError turn 也返 rc=0，病班 19:54 死、20:39 才告警（45min 延迟）。
+    # 探针实样定字段（顶层 status + result.meta.stopReason/error）；terminal=None
+    # = 旧网关形态无从判读，回落下面看门（向后兼容）。直判只发即时告警，
+    # 案卷仍由 run-watchdog 验卷层立（alert 是即时推送，立案幂等不重复）。
+    if terminal and not terminal.get('healthy'):
+        alert_admin(
+            f'本班 turn 终态异常（投递语义直判，病班发现延迟 45min→<1min）：'
+            f'status={terminal.get("status")} summary={terminal.get("summary")} '
+            f'stopReason={terminal.get("stop_reason")} error={terminal.get("error")}；'
+            f'note={note}（runId={run_id}，rc={rc}）',
+            run_id, slot_label=slot_label)
+        return 0
 
     # 看门：turn 结束后（或早退）等它交作业
     deadline = time.time() + WATCHDOG_SEC
