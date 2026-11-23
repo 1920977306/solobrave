@@ -3459,6 +3459,8 @@ def _browser_loop():
                 _run_daren_api_impl(row)
             elif row.get('_square_scan'):
                 _run_square_scan_impl(row)
+            elif row.get('_square_contact'):
+                _run_square_contact_impl(row)
             else:
                 _run_collect_impl(row)
         except BrowserLoopPoisoned:
@@ -3801,6 +3803,155 @@ def _square_strip_reason_noise(s: str) -> str:
     return _REASON_NOISE_RE.sub('', s or '').strip('；; ，,').strip()
 
 
+_SQ_REC_HEAD_RE = re.compile(r'每日推荐\s*(\d+)\s*人')
+_SQ_REC_LINE_RE = re.compile(
+    r'^\s*\d+\s*[.、)]\s*(?P<name>.+?)[（(](?P<tid>tal_[A-Za-z0-9_]+)[）)]'
+    r'\s*[｜|]\s*(?P<reason>.+?)\s*$')
+_SQ_TODO_LINE_RE = re.compile(r'待触达清单[^：:]*[：:]\s*(?P<body>.+?)\s*$')
+_SQ_ITEM_NUM_RE = re.compile(r'^\s*\d+\s*[.、)]\s*(?P<body>.+?)\s*$')
+_SQ_ITEM_TID_RE = re.compile(r'[（(]\s*(tal_[A-Za-z0-9_]+)\s*[）)]')
+# 累积清单日期锚（「11-20及以前6位」「11-21 09:30班4位」）：出现即整段拒解析
+_SQ_CUM_MARK_RE = re.compile(r'\d{2}-\d{2}\s*及以前|\d{2}-\d{2}(\s+\d{2}:\d{2})?\s*班')
+
+
+def _square_talent_verdict(conn, tid):
+    """读 talents.remark.square_judgment.verdict（台账单一真源）；无台账/解析失败 ⇒ ''。"""
+    try:
+        row = conn.execute('SELECT remark FROM talents WHERE id = ?', (tid,)).fetchone()
+        if not row or not row[0]:
+            return ''
+        rm = json.loads(row[0])
+        sj = rm.get('square_judgment')
+        return str(sj.get('verdict') or '').strip() if isinstance(sj, dict) else ''
+    except Exception:
+        return ''
+
+
+def _square_resolve_talent_id(conn, name):
+    """待触达清单按名定位达人：精确名 → 唯一前缀（报告名可能是库名截断，如
+    「元宝团子」← 库名「元宝团子（品牌绑链接先看简介～」）。多义/无命中 ⇒ ''
+    （宁可漏挂不可错挂，同名歧义直接跳过交日志）。"""
+    name = (name or '').strip()
+    if not name:
+        return ''
+    try:
+        row = conn.execute('SELECT id FROM talents WHERE name = ?', (name,)).fetchone()
+        if row:
+            return row[0]
+        rows = conn.execute(
+            'SELECT id FROM talents WHERE name LIKE ? ORDER BY created_at DESC LIMIT 2',
+            (name + '%',)).fetchall()
+        if len(rows) == 1:
+            return rows[0][0]
+        if len(rows) > 1:
+            log(f'[SquareReport] 达人名前缀多义，跳过: {name}')
+    except Exception as e:
+        log(f'[SquareReport] 达人名反查失败: {name}: {e}')
+    return ''
+
+
+def _square_recs_from_report_text(detail, conn):
+    """落库兜底解析器（①号单 2026-11-23，协调边派单包）：payload recommendations
+    为空数组时，从日报正文 canonical 段解析推荐名单，走同一 _square_normalize_recs
+    落 B 表——修「AI 不传数组 ⇒ B 表恒空」的投递语义盲区（11-20~11-23 四天实证）。
+
+    解析优先级（都是确定性文本结构，不猜散文）：
+    1.「每日推荐 N 人」编号段（N>0）：`1. 名字（tal_sq_xxx）｜理由` 逐行直取
+      （tal id 自带自证，无需查库）；
+    2.「待触达清单」（编号项或顿号名单）：id 缺失的按名反查 talents；判定以
+      talents.remark.square_judgment.verdict 为准（库是单一真源）——非「值得联系」
+      跳过；累积清单（含「11-20及以前」「今日累计」等日期锚）一律不解析，防把
+      跨班汇总当本班名单（11-22 18:03 实证）；
+    3. 都没有 ⇒ []（零人守卫：正文无推荐段 ⇒ 零行，不造数）。
+    """
+    if not detail or conn is None:
+        return []
+    lines = str(detail).splitlines()
+    # 路径 1：每日推荐编号段
+    recs = []
+    in_section = False
+    for ln in lines:
+        if not in_section:
+            if _SQ_REC_HEAD_RE.search(ln):
+                in_section = True
+            continue
+        if not ln.strip():
+            break
+        lm = _SQ_REC_LINE_RE.match(ln)
+        if not lm:
+            break
+        recs.append({
+            'talent_id': lm.group('tid'),
+            'talent_name': lm.group('name').strip(),
+            'reason_text': lm.group('reason').strip(),
+            'snapshot': {},
+        })
+    if recs:
+        return recs
+    # 路径 2：待触达清单（「每日推荐 0 人」或无定段时的本班名单）
+    for ln in lines:
+        tm = _SQ_TODO_LINE_RE.search(ln)
+        if not tm:
+            continue
+        body = tm.group('body')
+        items = [raw.strip().rstrip('。').strip()
+                 for raw in re.split(r'[；;]', body) if raw.strip()]
+        if any(_SQ_CUM_MARK_RE.search(it) for it in items):
+            return []                       # 累积清单不是本班名单（11-22 实证）
+        out = []
+        for item in items:
+            if '今日累计' in item:           # 同线尾巴（11-20 17:30 班实证），只取本班
+                continue
+            nm = _SQ_ITEM_NUM_RE.match(item)
+            if nm:
+                item = nm.group('body').strip()
+            head = re.split(r'[（(｜|]', item)[0]
+            if not _SQ_ITEM_TID_RE.search(item) and '、' in head:
+                # 顿号名单：一个分项多人（11-20 两班改档版格式），逐名解析。
+                # 判定限名字头部——理由里的顿号（如「下沿1万、粉丝3.1万」）不拆
+                for name in item.split('、'):
+                    rec = _square_todo_rec(conn, name.strip(), '')
+                    if rec:
+                        out.append(rec)
+                continue
+            tk = _SQ_ITEM_TID_RE.search(item)
+            tid = tk.group(1) if tk else ''
+            name = (item[:tk.start()].strip() if tk
+                    else re.split(r'[（(｜|]', item)[0].strip())
+            reason = re.split(r'[｜|]', item, 1)[1].strip() if re.search(r'[｜|]', item) else ''
+            rec = _square_todo_rec(conn, name, reason, tid)
+            if rec:
+                out.append(rec)
+        return out
+    return []
+
+
+def _square_todo_rec(conn, name, reason, tid=''):
+    """待触达清单单项 → rec dict；定位失败或台账 verdict 非「值得联系」 ⇒ None
+    （跳过并记日志，宁可漏挂不可错挂）。"""
+    if not tid:
+        tid = _square_resolve_talent_id(conn, name)
+    if not tid:
+        log(f'[SquareReport] 待触达清单跳过（无法定位达人）: {name}')
+        return None
+    verdict = _square_talent_verdict(conn, tid)
+    if verdict != '值得联系':
+        log(f'[SquareReport] 待触达清单跳过（台账 verdict={verdict or "无"}）: {name}')
+        return None
+    return {'talent_id': tid, 'talent_name': name,
+            'reason_text': reason, 'snapshot': {}}
+
+
+def _square_report_rec_source(recommendations, detail, conn):
+    """落库来源裁决（①号单 2026-11-23）：payload 优先（原语义不动）；空数组时
+    从日报正文解析；都不命中 ⇒ ([], 'none')——保证「正文有推荐 ⇒ B 表有行」。
+    """
+    if recommendations:
+        return list(recommendations), 'payload'
+    recs = _square_recs_from_report_text(detail, conn)
+    return recs, ('report_text' if recs else 'none')
+
+
 def _square_canonical_reason(rec: dict) -> str:
     """推荐理由单一出口（单B 2026-11-20，dq 见交接单）：B 表 reason_text 由本函数
     确定性组装，模型不再自由发挥（11-19/11-20 两班两套模板并存的根因就是直存原文）。
@@ -3948,13 +4099,22 @@ def _square_write_report(summary, detail, agent_id=SQUARE_DUTY_AGENT, recommenda
         supervisor_id = (row[0] or '') if row else ''
         streak = int(row[1] or 0) if row else 0
         duty_name = (row[2] or duty_name) if row else duty_name
+        # 落库来源裁决（①号单 2026-11-23）：payload 空数组时从日报正文解析推荐
+        # 名单——「AI 不传数组 ⇒ B 表恒空」的投递语义盲区修复。须在触达卡组装与
+        # 落库之前解析（此时 detail 还未拼接触达卡段，正文是干净的 canonical 段）。
+        rec_source = 'payload'
+        recs_for_db = list(recommendations) if recommendations else []
+        if agent_id == SQUARE_DUTY_AGENT:
+            recs_for_db, rec_source = _square_report_rec_source(recommendations, detail, conn)
+            if rec_source == 'report_text':
+                log(f'[SquareReport] 推荐来源=正文解析（payload 空，兜底解析器 {len(recs_for_db)} 人）')
         # 触达卡 v2（2026-11-18，dq_556ca64c241c）：日报正文追加「达人+匹配品+佣金」
         # 三联卡——确定性组装（outreach_card 直读 DB），不靠模型自觉。
         # 只认小拓（与 B 表同闸）：别的 agent 的日报不加卡。
-        if agent_id == SQUARE_DUTY_AGENT and recommendations:
+        if agent_id == SQUARE_DUTY_AGENT and recs_for_db:
             try:
                 from daren_cockpit.tools import outreach_card as _oc
-                card = _oc.build_outreach_cards(conn, recommendations)
+                card = _oc.build_outreach_cards(conn, recs_for_db)
                 if card:
                     detail = f'{detail}\n{card}'
                     log('[SquareReport] 触达卡 v2 已组装（带品建议段）')
@@ -4002,7 +4162,7 @@ def _square_write_report(summary, detail, agent_id=SQUARE_DUTY_AGENT, recommenda
             rid = ''
         if not rid:
             rid = _square_latest_scan_job_id()
-        rec_rows = (_square_normalize_recs(recommendations, now_ms, rid)
+        rec_rows = (_square_normalize_recs(recs_for_db, now_ms, rid)
                     if agent_id == SQUARE_DUTY_AGENT else [])
         for row in rec_rows:
             conn.execute(
@@ -4150,6 +4310,126 @@ def _square_collect_new_candidates(page_lists, exists_fn, category, quota,
                         'noid_skipped': noid_skipped, 'pages_used': pages_used}
     return {'picked': picked, 'dup_skipped': dup_skipped,
             'noid_skipped': noid_skipped, 'pages_used': pages_used}
+
+
+# ───────────── 广场详情页「小眼睛」取联系方式（主管 2026-11-21 授权） ─────────────
+# 只读动作：达人广场 → 搜抖音号 → 点开达人主页 → 点「小眼睛」查看联系方式 → 回填 contact。
+# 边界：不联系达人、不谈佣金、不加好友、不发消息；遇风控(10001010A/验证码/滑块)立即停手不重试。
+SQUARE_CONTACT_MAX = 5          # 单次任务最多取几个（别长时间占浏览器队列）
+SQUARE_CONTACT_GAP = (30, 120)   # 条间真人化节奏（同 square_scan 铁律）
+
+
+def _square_contact_pick(page):
+    """从当前页可见文本里挑联系方式：手机/微信/QQ/邮箱（只认明文，不猜不编）。"""
+    try:
+        txt = page.inner_text('body')[:40000]
+    except Exception:
+        txt = ''
+    out = {'phone': '', 'wechat': '', 'qq': '', 'email': ''}
+    m = re.search(r'(?<!\d)(1[3-9]\d{9})(?!\d)', txt)
+    if m:
+        out['phone'] = m.group(1)
+    m = re.search(r'(?:微信|微信号|VX|V信)\s*[:：]?\s*([A-Za-z][A-Za-z0-9_-]{4,24})', txt, re.I)
+    if m:
+        out['wechat'] = m.group(1)
+    m = re.search(r'(?:QQ)\s*[:：]?\s*([1-9]\d{4,11})', txt)
+    if m:
+        out['qq'] = m.group(1)
+    m = re.search(r'([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})', txt)
+    if m:
+        out['email'] = m.group(1)
+    return out
+
+
+def _square_click_eye(page):
+    """点「小眼睛」查看联系方式。返回 (是否点了, 用的选择器)。"""
+    sels = [
+        '[class*="eye"]:visible', '[data-testid*="eye"]:visible',
+        'svg[class*="eye"]', 'img[src*="eye"]', '[class*="yanjing"]',
+        '[title*="联系方式"]', '[aria-label*="联系方式"]',
+        'text=查看联系方式', 'text=未看过联系方式',
+    ]
+    for sel in sels:
+        try:
+            loc = page.locator(sel)
+            n = loc.count()
+        except Exception:
+            continue
+        for i in range(min(n, 4)):
+            try:
+                el = loc.nth(i)
+                if not el.is_visible(timeout=800):
+                    continue
+                el.click(timeout=3000)
+                _human_sleep(1.2, 2.2)
+                return True, sel
+            except Exception:
+                continue
+    return False, ''
+
+
+def _run_square_contact_impl(row):
+    """广场详情页点小眼睛取联系方式（只读取回填 contact）。
+
+    row = {'id': cid, 'items': [{'达人ID', '抖音号', '昵称'}]}
+    result = {contacted, available, items:[{抖音号,昵称,contact_available,phone,wechat,qq,email,method,note}]}
+    """
+    cid = row['id']
+    items = (row.get('items') or [])[:SQUARE_CONTACT_MAX]
+    _job_set(cid, status='collecting', stage='检查工作时段', started=time.time())
+    if not _square_work_hours_ok():
+        err = (f'广场取联系方式仅在工作时段 {SQUARE_WORK_HOUR_START}:00-'
+               f'{SQUARE_WORK_HOUR_END}:00 执行（真人化节奏铁律）')
+        log(f'[SquareContact] {cid} 拒绝：{err}')
+        _job_set(cid, status='refused', error=err)
+        return
+    out_items = []
+    try:
+        page = _switch_to(BROWSER, DAREN_BROWSER)
+        for idx, it in enumerate(items):
+            if idx:
+                _human_sleep(*SQUARE_CONTACT_GAP)
+            did = str(it.get('抖音号') or it.get('douyin_id') or '').strip()
+            name = str(it.get('昵称') or it.get('name') or '').strip()
+            rec = {'达人ID': it.get('达人ID') or '', '抖音号': did, '昵称': name,
+                   'contact_available': False, 'phone': '', 'wechat': '',
+                   'qq': '', 'email': '', 'method': '', 'note': ''}
+            try:
+                if _square_risk_dom(page):
+                    raise SquareRiskBlocked('页面出现验证码/滑块')
+                profile, _picked = _search_and_open(page, name, did, cid)
+                if _square_risk_dom(profile):
+                    raise SquareRiskBlocked('达人主页出现验证码/滑块')
+                clicked, sel = _square_click_eye(profile)
+                rec['method'] = ('小眼睛已点:' + sel) if clicked else '未找到小眼睛入口'
+                got = _square_contact_pick(profile)
+                for k, v in got.items():
+                    if v:
+                        rec[k] = v
+                rec['contact_available'] = any(got.values())
+                rec['note'] = ('已从达人主页明文回填' if rec['contact_available']
+                               else '点过小眼睛但页面无明文联系方式（平台侧可能未开放/需权限）')
+                try:
+                    profile.close()
+                except Exception:
+                    pass
+            except SquareRiskBlocked:
+                raise
+            except Exception as e:
+                rec['note'] = f'取联系方式失败：{e}'
+            out_items.append(rec)
+            log(f'[SquareContact] {cid} {did} {name} → available={rec["contact_available"]} '
+                f'phone={bool(rec["phone"])} wechat={bool(rec["wechat"])}')
+        _job_set(cid, status='done', stage='完成', result=json.dumps(
+            {'contacted': len(out_items),
+             'available': sum(1 for r in out_items if r['contact_available']),
+             'items': out_items}, ensure_ascii=False))
+    except SquareRiskBlocked as e:
+        log(f'[SquareContact] {cid} 风控拦截，停止不重试：{e}')
+        _job_set(cid, status='blocked_risk', error=str(e))
+    except Exception as e:
+        log(f'[SquareContact] {cid} 失败：{e}')
+        _job_set(cid, status='failed', error=str(e))
 
 
 def _run_square_scan_impl(row):
@@ -5524,6 +5804,23 @@ class ControlHandler(BaseHTTPRequestHandler):
                 self._json(500, {'ok': False, 'error': str(e)})
                 return
             self._json(200, {'ok': True})
+            return
+        if self.path == '/square-contact':
+            # 主管 2026-11-21 授权：广场详情页点「小眼睛」取联系方式（只读回填 contact）
+            # {items: [{达人ID, 抖音号, 昵称}]} → collect_id（轮询 /jobs/<id>）
+            items = (body or {}).get('items') or []
+            if not isinstance(items, list) or not items:
+                self._json(400, {'ok': False, 'error': 'items 必填（非空数组）'})
+                return
+            if not _square_work_hours_ok():
+                self._json(200, {'ok': False, 'status': 'refused',
+                                 'error': (f'工作时段外（铁律 {SQUARE_WORK_HOUR_START}:00-'
+                                           f'{SQUARE_WORK_HOUR_END}:00），本次未执行')})
+                return
+            cid = f"sqc_{int(time.time()*1000)}_{secrets.token_hex(3)}"
+            submit_collect({'_square_contact': True, 'id': cid,
+                            'items': items[:5]})
+            self._json(200, {'ok': True, 'collect_id': cid})
             return
         if self.path == '/teardown':
             # 视频拆解：{talent_id?|name?, douyin_id?, top_n?} → 建 job 入队，worker 逐条抓+分析
