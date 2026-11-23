@@ -4308,13 +4308,35 @@ def _square_select_category(page, category):
 def _square_search_by_name(page, name):
     """按昵称回搜达人（单2 2026-11-23 抖音号回填 dry-run 通路）。
 
-    与类目搜索同一个输入框（placeholder「主推类目」的检索框接受任意关键词，
-    平台按相关度返回 search_feed_author）——名字搜索天然带 a_bogus 签名，
-    裸 fetch 必被风控（§8.3），必须走页面真实交互。
+    ⚠️ 交互教训（13:43 现场实证）：搜索框是 aurora **combobox 联想组件**
+    （aria-haspopup=listbox）——`fill()` 只设 value、不发完整键盘事件链，
+    Enter 后平台**不发** search_feed_author；必须 `press_sequentially` 真人
+    逐键输入。联想下拉出现后：有归一化相等的选项⇒点它（页面自己发请求）；
+    否则 Enter 直接搜。
     返回 (list, has_more)；失败 → ([], False)。只采集不判定，结果由调用方对拍。"""
     try:
         inp = page.locator('input[placeholder*="主推类目"]').first
-        inp.fill(name, timeout=5000)
+        inp.click(timeout=5000)
+        inp.press_sequentially(name, delay=80)
+        try:
+            page.wait_for_timeout(1200)   # 等联想下拉渲染
+            drop = page.locator(
+                '[class*="select"] [class*="option"], [role="option"]')
+            n_opt = min(drop.count(), 8)
+            for i in range(n_opt):
+                if _norm_lookup_name(drop.nth(i).inner_text()) == \
+                        _norm_lookup_name(name):
+                    drop.nth(i).click(timeout=5000)
+                    with page.expect_response(
+                            lambda r: 'search_feed_author' in r.url,
+                            timeout=30000) as ri:
+                        pass
+                    payload = ri.value.json()
+                    _square_assert_not_risk(payload)
+                    data = payload.get('data') or {}
+                    return data.get('list') or [], bool(data.get('has_more'))
+        except Exception:
+            pass   # 下拉没出现/没匹配项 ⇒ 回落 Enter 直搜
         with page.expect_response(lambda r: 'search_feed_author' in r.url,
                                   timeout=30000) as ri:
             inp.press('Enter')
@@ -4323,8 +4345,21 @@ def _square_search_by_name(page, name):
         data = payload.get('data') or {}
         return data.get('list') or [], bool(data.get('has_more'))
     except Exception as e:
+        # 诊断留痕：失败时拍现场——区分「没发请求」vs「发了没匹配」vs「响应异常」
+        try:
+            _dump_page(page, f'lookup_{int(time.time()*1000)}', 'squarelookup')
+            log(f'[SquareLookup] 诊断 url={page.url}')
+        except Exception:
+            pass
         log(f'[SquareLookup] 名字「{name}」搜索失败: {str(e)[:120]}')
         return [], False
+
+
+def _norm_lookup_name(s):
+    """联想选项对拍的昵称归一化（与回填工具 _norm_name 同口径的本地副本——
+    worker 控制口不 import 工具层，保持自包含）。"""
+    import re as _re
+    return _re.sub(r'[\s·•.@#]+', '', str(s or '')).lower()
 
 
 SQUARE_MAX_PAGES = 5   # ★ 必修①（2026-11-10 验收返工）：翻页找新面孔的上限

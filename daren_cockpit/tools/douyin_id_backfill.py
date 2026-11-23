@@ -110,16 +110,25 @@ def _worker_lookup(names, timeout_s=900):
     return {'status': 'timeout', 'collect_id': cid}
 
 
-def _pick_candidate(name, cands, platform_id=''):
-    """候选对拍（确定性，不评分不猜）：达人ID 精确 > 昵称归一化相等 > 单向包含。"""
+def _pick_candidate(name, cands, platform_id='', ref_followers=0):
+    """候选对拍（确定性，不评分不猜）：达人ID 精确 > 昵称归一化相等 > 单向包含。
+    同名多人（真实歧义，7 月姐姐实证 3 个同名）⇒ followers 最接近库内值的优先，
+    仍标注 match_how='name_exact_multi' 供人工终选——只提议，不硬配。"""
     target = _norm_name(name)
     if platform_id:
         for c in cands:
             if str(c.get('达人ID') or '') == str(platform_id):
                 return c, 'uid_exact'
-    for c in cands:
-        if _norm_name(c.get('昵称')) == target:
-            return c, 'name_exact'
+    exact = [c for c in cands if _norm_name(c.get('昵称')) == target]
+    if len(exact) == 1:
+        return exact[0], 'name_exact'
+    if len(exact) > 1:
+        def _dist(c):
+            try:
+                return abs(int(c.get('粉丝') or 0) - int(ref_followers or 0))
+            except (TypeError, ValueError):
+                return 0
+        return min(exact, key=_dist), 'name_exact_multi（同名多人，按粉丝最近取，人工终选）'
     for c in cands:
         cn = _norm_name(c.get('昵称'))
         if target and cn and (target in cn or cn in target):
@@ -159,7 +168,9 @@ def cmd_dry_run(args):
             entry = dict(item)
             got = per_name.get(item['name']) or {}
             cands = got.get('candidates') or []
-            pick, how = _pick_candidate(item['name'], cands, item['platform_id'])
+            pick, how = _pick_candidate(item['name'], cands,
+                                        item['platform_id'],
+                                        item.get('followers', 0))
             entry['candidates'] = cands
             entry['proposed'] = pick['抖音号'] if pick else ''
             entry['match_how'] = how
