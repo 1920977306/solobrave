@@ -4317,6 +4317,14 @@ def _square_search_by_name(page, name):
     try:
         inp = page.locator('input[placeholder*="主推类目"]').first
         inp.click(timeout=5000)
+        # 批跑稳态（14:07 实证）：连搜时输入框可能残留上词选中态/部分值，
+        # press_sequentially 是 append ⇒ 词被拼脏 ⇒ 平台 keyword 异常返回默认榜。
+        # 输入前确定性清空：全选+退格。
+        try:
+            inp.press('ControlOrMeta+a', timeout=2000)
+            inp.press('Backspace', timeout=2000)
+        except Exception:
+            pass
         inp.press_sequentially(name, delay=80)
         try:
             page.wait_for_timeout(1200)   # 等联想下拉渲染
