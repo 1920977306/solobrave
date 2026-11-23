@@ -13526,3 +13526,40 @@ canonical 段 + 同一归一化双写，优先级 payload > 正文解析 > 本�
 
 **教训（入机制）**：历史回填类工具必须自带「封账边界」——默认范围永不含在飞日，
 且 apply 期再闸一道；「回填」和「修复」是两个词，补今天叫修复、走单独派单。
+
+## §205 今晚两单施工完毕：rec 来源第三层 + 前端错误回采（2026-11-23 22:5x，A 边）
+
+### 一、dq_46a10c818b8e 第三层（P2）——已施工+已部署
+
+`_square_recs_from_shift_judgments(conn, run_id)`：payload > 正文解析 > **本班
+square_judgment 判定数据**（verdict=值得联系，judged_at ≥ max(本班 job started,
+今日00:00)，判定时间序 top 5，不跨班捞人，matched_rules 宁空勿编）。判定数据走
+同一 `_square_normalize_recs` 归一化 + canonical 兜底段自动组段——明早 agent 不传
+--rec 时日报天生带段，「检查1红」这类格式欠账从此不出。
+
+- 守卫 +4（tests/test_square_double_write.py：三层优先级/ snapshot 形态含
+  matched_rules=[]/ 17:30 班掉链场景端到端复现（payload 空+正文无可解析→段
+  出现+B 表双写对拍）/ 本班无判定不造数）
+- 施工插曲（真实守护价值）：test_square_scan 的临时库没有 talents 表，第三层全表
+  扫直接炸——已包 try 兜底（第三层是旁路兜底，绝不阻断日报主交付，同触达卡哲学）
+- run_id 锚定计算提前到 rec 来源裁决前（原在落库段，两处合一）
+- 已部署：worker 重启生效（22:5x），/health browser_up+logged_in 绿
+
+### 二、dq_b8cd14fde7d8 前端错误回采（P3）——已施工+已部署+已活体验收
+
+- 服务端：`POST /api/frontend-error`（不鉴权在 rate limit 后——登录页白屏也要能
+  回采；空体 400 拒绝+字段截断防日志炸弹；只写 server.log 不进库）
+- 前端：`js/front-err.js`（window.onerror capture 段 + unhandledrejection +
+  资源加载失败；钩子自身 try 全兜底零侵入；限频 2s 防风暴；sendBeacon 优先），
+  index.html / reco.html head 注入
+- **活体验收双锚**（22:54）：①POST 测试错误 → server.log 见
+  `[FrontErr] page= src=acceptance.js:1:2 ua=curl/8.7.1 msg=… stack=…` 带全栈 ✅
+  ②正常页面请求后 FrontErr 计数不变（零噪音）✅
+- server 已重启（22:5x），钩子文件供给 200
+- 待老大动作：正常打开一次达人库/商品库——「加载中」若再犯，红字自己飞回
+  server.log，`grep FrontErr server.log` 即取证，F12 依赖永久拆除
+
+### 三、基点
+
+回归 2092 passed（+4 新守卫）。代码未提交时点：buyin_worker.py /
+solobrave-server.py / js/front-err.js / index.html / reco.html / 交接单。

@@ -4069,14 +4069,75 @@ def _square_todo_rec(conn, name, reason, tid=''):
             'reason_text': reason, 'snapshot': {}}
 
 
-def _square_report_rec_source(recommendations, detail, conn):
-    """落库来源裁决（①号单 2026-11-23）：payload 优先（原语义不动）；空数组时
-    从日报正文解析；都不命中 ⇒ ([], 'none')——保证「正文有推荐 ⇒ B 表有行」。
+def _square_recs_from_shift_judgments(conn, run_id):
+    """rec 来源第三层（dq_46a10c818b8e，2026-11-23 晚）：读本班 square_judgment
+    判定数据（decide 双写真源）组装推荐名单。17:30 班掉链实证：agent 未传
+    --rec + 判定人正文「无法定位达人」被解析器全跳 ⇒ 日报无段、B 表零行，
+    而判定数据（verdict=值得联系）早已落库——只是日报/B 表链没读它。
+
+    「本班」窗口：judged_at ≥ max(本班 job started, 今日 00:00)——不跨班捞人
+    （早班判定不会塞进晚班日报）；跨重启 job 不在内存时下界退化为今日 00:00
+    （同日约束仍在，最多捞今天的跨班判定，诚实可溯）。matched_rules 不 set
+    （宁空勿编，归一化层会置 []）。
+    """
+    if not str(run_id or '').startswith('ssq_'):
+        return []
+    import datetime as _dt
+    try:
+        with _job_lock:
+            started = (JOBS.get(run_id) or {}).get('started') or 0
+    except Exception:
+        started = 0
+    day0_ms = int(_dt.datetime.combine(
+        _dt.date.today(), _dt.time()).timestamp() * 1000)
+    lower = max(int(started), day0_ms)
+    out = []
+    try:
+        talent_rows = conn.execute(
+            'SELECT id, name, followers, category, remark FROM talents'
+        ).fetchall()
+    except Exception as _e:
+        log(f'[SquareReport] 第三层判定数据读取失败（不阻断日报）: {_e}')
+        return []
+    for tid, name, followers, category, remark in talent_rows:
+        try:
+            sj = (json.loads(remark or '{}') or {}).get('square_judgment') or {}
+        except Exception:
+            continue
+        if sj.get('verdict') != '值得联系':
+            continue
+        if int(sj.get('judged_at') or 0) < lower:
+            continue
+        rm = {}
+        try:
+            rm = json.loads(remark or '{}') or {}
+        except Exception:
+            pass
+        out.append((int(sj.get('judged_at') or 0), {
+            'talent_id': tid, 'talent_name': name,
+            'reason_text': str(sj.get('reason') or '').strip(),
+            'snapshot': {
+                'sale_d30': rm.get('sale_d30'),
+                'tags': [category] if category else [],
+                'followers': followers,
+            },
+        }))
+    out.sort(key=lambda x: x[0])            # 判定时间序：先判先得（确定性）
+    return [r for _, r in out[:5]]          # 规格钉死 5 人（归一化层还有一道闸）
+
+
+def _square_report_rec_source(recommendations, detail, conn, run_id=''):
+    """落库来源裁决（①号单 2026-11-23 + 第三层 dq_46a10c818b8e 11-23 晚）：
+    优先级 payload > 正文解析 > 本班 square_judgment 判定数据（第三层）；三层
+    全空 ⇒ ([], 'none')——保证「正文有推荐 ⇒ B 表有行」，且不造数。
     """
     if recommendations:
         return list(recommendations), 'payload'
     recs = _square_recs_from_report_text(detail, conn)
-    return recs, ('report_text' if recs else 'none')
+    if recs:
+        return recs, 'report_text'
+    recs = _square_recs_from_shift_judgments(conn, run_id)
+    return recs, ('shift_judgments' if recs else 'none')
 
 
 def _square_canonical_reason(rec: dict) -> str:
@@ -4226,15 +4287,27 @@ def _square_write_report(summary, detail, agent_id=SQUARE_DUTY_AGENT, recommenda
         supervisor_id = (row[0] or '') if row else ''
         streak = int(row[1] or 0) if row else 0
         duty_name = (row[2] or duty_name) if row else duty_name
-        # 落库来源裁决（①号单 2026-11-23）：payload 空数组时从日报正文解析推荐
-        # 名单——「AI 不传数组 ⇒ B 表恒空」的投递语义盲区修复。须在触达卡组装与
-        # 落库之前解析（此时 detail 还未拼接触达卡段，正文是干净的 canonical 段）。
+        # run_id 锚定（P2-④ 口径不变）提前算：rec 来源第三层需要本班 job
+        # 窗口下界（JOBS[run_id].started），且原计算块在落库段——两处合一。
+        rid = str(run_id or '').strip()
+        if rid and not rid.startswith('ssq_'):
+            rid = ''
+        if not rid:
+            rid = _square_latest_scan_job_id()
+        # 落库来源裁决（①号单 2026-11-23 + 第三层 dq_46a10c818b8e）：payload >
+        # 正文解析 > 本班判定数据——「AI 不传数组 ⇒ B 表恒空」的投递语义盲区修复。
+        # 须在触达卡组装与落库之前解析（此时 detail 还未拼接触达卡段，正文是干净
+        # 的 canonical 段）。
         rec_source = 'payload'
         recs_for_db = list(recommendations) if recommendations else []
         if agent_id == SQUARE_DUTY_AGENT:
-            recs_for_db, rec_source = _square_report_rec_source(recommendations, detail, conn)
+            recs_for_db, rec_source = _square_report_rec_source(
+                recommendations, detail, conn, rid)
             if rec_source == 'report_text':
                 log(f'[SquareReport] 推荐来源=正文解析（payload 空，兜底解析器 {len(recs_for_db)} 人）')
+            elif rec_source == 'shift_judgments':
+                log(f'[SquareReport] 推荐来源=本班判定数据（payload 空+正文无可解析，'
+                    f'第三层 {len(recs_for_db)} 人）')
         # canonical「每日推荐」段系统兜底（dq_ab39888f5c49，11-23）：正文缺段时
         # 按名单确定性组装——验收检查1/对拍2c 的锚不许靠模型自觉。须在触达卡
         # 组装之前（段要贴着正文，卡片是另一段）。
@@ -4293,11 +4366,7 @@ def _square_write_report(summary, detail, agent_id=SQUARE_DUTY_AGENT, recommenda
         #   payload run_id（须 ssq_ 前缀，防 turn UUID 等异锚混入）→ 本进程最近
         #   完成的 ssq_ 扫描 job → 真没有则落 NULL。★ 永不写 openclaw turn UUID
         #   （11-19 实锤：UUID 进 B 表导致日报头 ssq_ 与库 UUID 对拍红）。
-        rid = str(run_id or '').strip()
-        if rid and not rid.startswith('ssq_'):
-            rid = ''
-        if not rid:
-            rid = _square_latest_scan_job_id()
+        #   （rid 已在上方 rec 来源裁决前算好，此处直接用。）
         rec_rows = (_square_normalize_recs(recs_for_db, now_ms, rid)
                     if agent_id == SQUARE_DUTY_AGENT else [])
         for row in rec_rows:

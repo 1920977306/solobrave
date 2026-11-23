@@ -9999,6 +9999,25 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         self.cached_body = None
         return None
 
+    def _handle_frontend_error(self):
+        """[FrontErr] 前端错误回采（dq_b8cd14fde7d8，11-23 晚，拆「等老大 F12」
+        依赖）：window.onerror / unhandledrejection 钩子 POST 到这里，落
+        server.log 带锚——商品库/达人库「加载中」故障的疑点在浏览器运行时，
+        老大打开页面异常即自动回采，不用 F12。只写日志不进库；字段截断防刷；
+        空体拒绝（防噪音端点被刷成日志炸弹）。"""
+        body = self._read_body() or {}
+        msg = str(body.get('msg') or '')[:300]
+        stack = str(body.get('stack') or '')[:1500]
+        if not msg and not stack:
+            self._send_json_error(400, '空错误体')
+            return
+        page = str(body.get('page') or '')[:200]
+        src = str(body.get('src') or '')[:200]
+        ua = (self.headers.get('User-Agent') or '')[:120]
+        logger.error(f'[FrontErr] page={page} src={src}:{body.get("line") or 0}:'
+                     f'{body.get("col") or 0} ua={ua} msg={msg} stack={stack}')
+        self._send_json(200, {'ok': True})
+
     # ─── 路由 ──────────────────────────────────────────
     def _normalize_path(self, path):
         """统一处理路径：去掉 query string 和末尾斜杠（根路径除外）
@@ -10764,6 +10783,12 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         path = self._normalize_path(self.path)
         if path is None:
             self._send_json_error(400, '非法请求路径')
+            return
+
+        # ★ P3 前端错误回采（dq_b8cd14fde7d8）：不鉴权、在 rate limit 之后——
+        # 异常态（含登录页白屏）也要能回采；截断+空体拒绝已防日志炸弹。
+        if path == '/api/frontend-error':
+            self._handle_frontend_error()
             return
 
         # Auth routes
