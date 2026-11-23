@@ -1010,6 +1010,8 @@ class Browser:
           ⚠️ 注意与采集前的 `_check_login_state()` **不是分叉，是分层**：
             健康检查只回答「登录态还在不在」（要宽松，别误报）；
             采集前只回答「这次访问通不通」（要严格，页面在登录页就得拦）。
+          ★ 2026-11-23：登录态之外另有**身份态**（`identity()`）——
+            登录≠身份正确，两者分开报，ready = up ∧ logged ∧ captain。
         """
         if not self.up():
             return False, False
@@ -1021,6 +1023,19 @@ class Browser:
             return True, logged
         except Exception:
             return True, False
+
+    def identity(self):
+        """身份探测（仅团长端语义；dq_bbcb24792baa）→ 'captain'|'daren'|'unknown'。
+        漂成达人版时 cookie 仍在（logged_in 假就绪），本探针读页面真值补位。
+        页面不可读/异常 → 'unknown'，不猜。"""
+        if not self.up():
+            return 'unknown'
+        try:
+            body = self.page.evaluate(
+                "() => document.body ? document.body.innerText.slice(0, 3000) : ''")
+            return buyin_auth.classify_identity(self.page.url, body or '')
+        except Exception:
+            return 'unknown'
 
 
 BROWSER = Browser(PROFILE_DIR, '团长端')
@@ -2624,7 +2639,8 @@ JOB_Q = __import__('queue').Queue()
 _ENQUEUED = set()
 _ENQUEUED_LOCK = threading.Lock()
 STATE = {'browser_up': False, 'logged_in': False,
-         'daren_browser_up': False, 'daren_logged_in': False}   # 浏览器线程维护，HTTP线程只读
+         'daren_browser_up': False, 'daren_logged_in': False,
+         'captain_identity': 'unknown'}   # 浏览器线程维护，HTTP线程只读
 
 
 def _job_set(cid, **kw):
@@ -2648,7 +2664,8 @@ def _refresh_browser_state():
     try:
         up, logged = BROWSER.health()
         dup, dlogged = DAREN_BROWSER.health()
-        _state_set(browser_up=up, logged_in=logged,
+        ident = BROWSER.identity() if up else 'unknown'
+        _state_set(browser_up=up, logged_in=logged, captain_identity=ident,
                    daren_browser_up=dup, daren_logged_in=dlogged)
     except Exception:
         pass
@@ -5672,11 +5689,14 @@ class ControlHandler(BaseHTTPRequestHandler):
             with _job_lock:
                 up, logged_in = STATE.get('browser_up'), STATE.get('logged_in')
                 dup, dlogged = STATE.get('daren_browser_up'), STATE.get('daren_logged_in')
+                ident = STATE.get('captain_identity', 'unknown')
                 jobs = {k: {kk: vv for kk, vv in v.items() if kk != 'shots'}
                         for k, v in JOBS.items()}
             self._json(200, {
                 'ok': True, 'browser_up': up, 'logged_in': logged_in,
                 'daren_browser_up': dup, 'daren_logged_in': dlogged,
+                'identity': ident,
+                'ready': bool(up and logged_in and ident == 'captain'),
                 'daren_probe': STATE.get('daren_probe'),
                 'daren_api_probe': STATE.get('daren_api_probe'),
                 'captain_probe': STATE.get('captain_probe'),

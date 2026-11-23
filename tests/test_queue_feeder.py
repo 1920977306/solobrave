@@ -123,29 +123,25 @@ def test_feeder_archived_agents_excluded_from_balance_redline():
 
 
 def test_feeder_4_3_pause_lock():
-    """守卫⑥（11-20 交付管道迁移止血）：4-3（B 表当日 0 推荐）整条暂停。
+    """守卫⑥（11-23 解锁版）：4-3（B 表当日 0 推荐）恢复咬合。
 
-    班级交付已切即时班管道（talents + square_judgment），B 表停更期间 4-3 必出假旗
-    （11-20 17:47 轮实证）。恢复 = P2 迁移单完成 + 判据改锚 talents.created_at，
-    两处同时改；单解常量本测试必红（验收网铁律：判据强度一个不许松）。"""
+    11-20 曾因交付管道切即时班、B 表停更而整条暂停（17:47 轮假旗实证）；
+    11-23 B 表双写上线（decide 直写，13:30 班 3 行实证）+ 对拍绿 → 协调边
+    14:0x 指令解锁（dq_9e5618bf3cf9）。锚维持 rec_date=今日不迁移，强度不松。
+    负向锁：谁擅自把 JUDGE_4_3_PAUSED 翻回 True，本测试必红。"""
     import importlib.util as _il
     spec = _il.spec_from_file_location('queue_feeder', FEEDER)
     qf = _il.module_from_spec(spec)
     spec.loader.exec_module(qf)
-    assert qf.JUDGE_4_3_PAUSED is True, \
-        '4-3 暂停锁被解除：恢复须迁移单完成 + 改锚 talents（判据强度不许松）'
-    # 正例条件全部成立（工作日 19 点、B 表 0 行）也必须空——假旗不得复现
-    assert qf.judge_4_3(19, 0, True) == []
-    # 解除路径的负向锁：pause 常量翻 False 时正例必须能出单（防止有人把暂停
-    # 做成恒空死代码——管道恢复后 4-3 必须能重新咬合）
-    qf.JUDGE_4_3_PAUSED = False
-    try:
-        out = qf.judge_4_3(19, 0, True)
-        assert out and out[0]['judge'] == '4-3'
-        assert qf.judge_4_3(19, 3, True) == []   # 负例语义不随暂停损坏
-        assert qf.judge_4_3(19, 0, False) == []  # 非工作日不出
-    finally:
-        qf.JUDGE_4_3_PAUSED = True
+    assert qf.JUDGE_4_3_PAUSED is False, \
+        '4-3 被重新暂停：B 表双写已上线，无暂停理由（恢复须协调边明示）'
+    # 正例必须咬合：工作日 19 点 B 表 0 行 → P2 出单
+    out = qf.judge_4_3(19, 0, True)
+    assert out and out[0]['judge'] == '4-3'
+    # 负例语义完整：有行不出 / 未到 18 点不出 / 非工作日不出
+    assert qf.judge_4_3(19, 3, True) == []
+    assert qf.judge_4_3(17, 0, True) == []
+    assert qf.judge_4_3(19, 0, False) == []
 
 
 def test_feeder_4_1_dual_anchor():

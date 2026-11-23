@@ -101,6 +101,7 @@ from daren_cockpit.tools import reco_source
 from daren_cockpit.tools import product_plan as plan
 # 商品事实解析（佣金率/到手价口径）—— 和推荐器、排品器共用同一份（单一真源）
 from daren_cockpit.tools import product_facts as facts
+from daren_cockpit.tools import product_category_tree
 
 # 进排品池的合作单状态：已接/在谈的都算「达人手里接的品」
 # ⚠️ 不含 pending（刚提还没答应）和 live/completed（已推过）
@@ -10546,6 +10547,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         #   必须排在 startswith('/api/products/') 前面，否则会被当成 product_id='recommend'
         if path == '/api/products/recommend':
             self._handle_get_product_recommendations()
+            return
+        # ★ 商品类目分层树（dq_9c4dee912a5b，老大 11-20 提）：一级→二级→三级
+        #   折叠树数据源，节点带计数。同样须排在 startswith('/api/products/') 前。
+        if path == '/api/products/category-tree':
+            self._handle_get_products_category_tree()
             return
         if path == '/api/dashboard/linkage':
             self._handle_get_dashboard_linkage()
@@ -21742,6 +21748,36 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             '品牌类型': d.get('brand_type') or d.get('品牌类型') or '白牌/无品牌',
             '月销量': float(d.get('monthly_sales') or 0),
         }
+
+    def _handle_get_products_category_tree(self):
+        """GET /api/products/category-tree — 商品库类目分层树（dq_9c4dee912a5b）。
+
+        左侧折叠树数据源：一级→二级→三级，节点带池内计数。
+        纯统计（SELECT category），与平台类目树快照是两口径：
+        本树回答「我们池子里实际有什么」，快照是类目真名参考。"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'products'): return
+        conn = _db_conn()
+        try:
+            cats = [r[0] for r in conn.execute(
+                'SELECT category FROM products')]
+        finally:
+            conn.close()
+        result = product_category_tree.build_category_tree(cats)
+        # 类目真名参考：平台树快照在场则带文件名，缺席如实 null 不造
+        snap = None
+        try:
+            snaps = sorted(_glob.glob(os.path.join(
+                os.path.dirname(DB_PATH), 'board_cate_tree_*.json')))
+            if snaps:
+                snap = os.path.basename(snaps[-1])
+        except Exception:
+            snap = None
+        result['platform_snapshot'] = snap
+        self._send_json(200, result)
 
     def _handle_get_product_recommendations(self):
         """GET /api/products/recommend?talent_id=xxx&top_n=6

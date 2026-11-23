@@ -248,11 +248,12 @@ def test_preflight_has_captain_cookie_line():
     assert 'buyin.jinritemai.com' in src         # host 锚定，防同名误中
     assert 'shutil.copy' in src                  # 浏览器占用时 copy 临时文件再查
     assert '--end captain' in src                # 红灯必须给出团长端修复路径
-    # 互斥语义硬断言：⑧行判定不得引用 browser_up（那是互斥常态假信号）
-    seg = src.split('⑧ 团长端钥匙探活', 1)[1].split('reds =')[0]
+    # 互斥语义硬断言：⑧行判定不得引用 browser_up（那是互斥常态假信号）。
+    # ⑨ 身份探针的 br_up 免验是同一条互斥语义的正确用法，不在本断言范围。
+    seg = src.split('⑧ 团长端钥匙探活', 1)[1].split('⑨ 团长端身份探针', 1)[0]
     code_only = '\n'.join(l for l in seg.splitlines() if not l.strip().startswith('#'))
     assert 'browser_up' not in code_only
-    assert '八行确认' in src                     # 汇总口径同步改
+    assert '行确认' in src                       # 汇总口径同步改（行数动态）
 
 
 def test_risk_rule_in_taskbook_and_tools_md():

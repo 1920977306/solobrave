@@ -83,3 +83,25 @@ def judge_login_state(url: str, cookie_names, label: str = "团长端",
     if page_says_login:
         return False, "页面在登录页且无登录 cookie"
     return False, "登录 cookie 缺失"
+
+
+# ── 身份探测（dq_bbcb24792baa，2026-11-23）──
+# 「登录态 ≠ 身份态」：身份漂成达人版时登录 cookie 照样有效，
+# logged_in=true 是假就绪（11-23 09:30 班白挂实证）。身份判定独立成纯函数，
+# worker /health 与消费者（preflight/传送带）共用这一份。
+
+def classify_identity(url: str, body_text: str) -> str:
+    """团长端页面 → 'captain' | 'daren' | 'unknown'。只读信号，不猜：
+      ① URL 落在达人罗盘/作者路径（compass/author，§8.1 实锤）
+         ⇒ 'daren'（最强信号，身份漂移后访问机构页会被平台重定向到罗盘）
+      ② DOM 全局态：页面含「达人版」角标 ⇒ 'daren'；含「团长工作台」⇒ 'captain'
+      ③ 都判不出 ⇒ 'unknown'（页面可能停在加载/异常页——不当 captain 也不当 daren）"""
+    low = (url or '').lower()
+    if 'compass' in low or '/author' in low:
+        return 'daren'
+    text = body_text or ''
+    if '达人版' in text:
+        return 'daren'
+    if '团长工作台' in text:
+        return 'captain'
+    return 'unknown'

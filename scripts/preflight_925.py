@@ -176,9 +176,39 @@ def main():
          '🔴 团长端 cookie 缺席——广场班跳过不烧积分，'
          '修：python3 scripts/daren_relogin.py --end captain（请老大扫码）')
 
+    # ⑨ 团长端身份探针（dq_bbcb24792baa，11-23）：登录态≠身份态——
+    #    身份漂成达人版时 ⑧ 的 cookie 照样在位（09:30 班白挂实证）。
+    #    浏览器未起（互斥常态：达人端在线时团长端必关）→ 免验；
+    #    daren → 红；unknown 且在线 → 红（需人工目验）；
+    #    identity 字段缺席（worker 待重启）→ 信息行不拦班。
+    ident, br_up = None, False
+    if worker_up7:
+        try:
+            with urllib.request.urlopen('http://127.0.0.1:8095/health',
+                                        timeout=5) as r9:
+                h9 = json.loads(r9.read().decode('utf-8'))
+                ident = h9.get('identity')
+                br_up = bool(h9.get('browser_up'))
+        except Exception:
+            ident = None
+    if ident is None:
+        line('⑨ 团长端身份探针', True,
+             'identity 字段未上线（worker 待重启）——上线后漂成达人版将在此行报红')
+    elif not br_up:
+        line('⑨ 团长端身份探针', True,
+             '团长端浏览器未起（互斥常态/待拉）——身份免验')
+    elif ident == 'captain':
+        line('⑨ 团长端身份探针', True, '身份=团长（真值）')
+    elif ident == 'daren':
+        line('⑨ 团长端身份探针', False,
+             '🔴 身份漂成达人版（09:30 班白挂同款）——先切回团长再开跑')
+    else:
+        line('⑨ 团长端身份探针', False,
+             '🔴 浏览器在线但身份判不出（页面异常/加载中）——班前人工目验顶栏身份')
+
     reds = [r for r in results if not r[1]]
     n = len(results)
-    print(f'\n八行确认：{n - len(reds)}/{n} 绿'
+    print(f'\n{n} 行确认：{n - len(reds)}/{n} 绿'
           + (f'，🔴 {len(reds)} 行：' + '、'.join(r[0] for r in reds) if reds else '，可开跑'))
     sys.exit(1 if reds else 0)
 
