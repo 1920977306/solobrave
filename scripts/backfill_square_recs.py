@@ -54,16 +54,29 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--db', default=str(DB))
     ap.add_argument('--apply', action='store_true', help='实际写库（默认 dry-run）')
+    ap.add_argument('--through', default=None,
+                    help='回填截止日（含），默认昨天；在飞日不许填')
     args = ap.parse_args()
 
     conn = sqlite3.connect(args.db)
     conn.row_factory = sqlite3.Row
+    # ★ 边界铁律（11-23 事故实证）：历史回填是「封账」工具，绝不许碰在飞日——
+    # 在飞日的真源是 decide 双写/日报交付链，回填脚本只从「日报正文」一个口径
+    # 解析，先删后插会把当班活数据整体冲掉（今晚 11-23 五行被冲空实锤）。
+    # 范围硬顶到昨天；要补今天就叫「修复」不叫「回填」，走单独派单。
+    import datetime as _dt
+    through = (_dt.date.fromisoformat(args.through)
+               if args.through else _dt.date.today() - _dt.timedelta(days=1))
+    through_ms = int(_dt.datetime.combine(
+        through + _dt.timedelta(days=1), _dt.time()).timestamp() * 1000)
+    from_ms = int(_dt.datetime.combine(
+        through - _dt.timedelta(days=8), _dt.time()).timestamp() * 1000)
     rows = conn.execute(
         "SELECT id, title, content, created_at FROM notifications "
         "WHERE agent_id = 'emp_xiaotuo' AND type = 'task_reminder' "
         "AND title LIKE '达人筛选专员日报%' "
-        "AND created_at BETWEEN strftime('%s','2026-11-20')*1000 "
-        "AND strftime('%s','2026-11-24')*1000 ORDER BY created_at").fetchall()
+        "AND created_at BETWEEN ? AND ? ORDER BY created_at",
+        (from_ms, through_ms)).fetchall()
     if not rows:
         print('!! 范围内无小拓日报通知'); sys.exit(1)
 
@@ -113,7 +126,14 @@ def main():
     if not ok:
         print('\n对拍不符，拒绝写库。'); sys.exit(1)
 
+    # ★ apply 期第二道闸（双保险，防 --through 被显式传成在飞日）：
+    # 任何 d >= 今天 一律跳过——历史回填绝不许碰在飞日（11-23 事故实证）。
+    import datetime as _dt2
+    today_str = _dt2.date.today().isoformat()
     for d, nrow in sorted(day_rows.items()):
+        if d >= today_str:
+            print(f'!! {d} 为在飞日，按铁律跳过（回填不碰今天）')
+            continue
         with conn:
             conn.execute('DELETE FROM talent_recommendations WHERE rec_date = ?', (d,))
             conn.executemany(

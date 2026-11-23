@@ -13488,3 +13488,41 @@ _square_ensure_canonical_section——agent 正文缺段时按 --rec 名单确�
 兼容，段尾注记天然截断零幻条目）。任务书补「兜底不是免检」。守卫 +5（含
 临时库端到端），回归 2084 passed。worker 已重启（15:2x）生效——**17:30 班
 日报检查1/对拍2c 是第一道活体验收**。
+
+## §204 历史回填冲掉当日 B 表事故：根因、处置、P2 第三层（2026-11-23 21:2x，A 边）
+
+**事故**：17:30 班验收时发现今日 B 表 5 行被整体冲空。实锤根因：①号单历史回填
+（`scripts/backfill_square_recs.py --apply`，另一边缘执行）的日期范围含 **11-20~11-24
+（含在飞的今天）**，apply 路径「先 DELETE 该日全部行再 INSERT」——而今日从日报正文
+只解析出 0~1 人（17:30 班日报无 canonical 段、待触达清单「无法定位达人」全跳），
+于是一删一插之间，decide 双写的 5 行活数据（13:30 班 3 + 17:30 班 2）被抹掉。
+
+**处置（已全部落地）**：
+
+1. **边界硬顶**（查询闸）：日期范围默认硬顶到昨天，`--through` 可显式传但注释
+   钉死「在飞日不许填」。
+2. **apply 期第二道闸**：apply 循环内 `d >= today` 一律跳过并显式打印——双保险，
+   防 `--through` 被显式传成在飞日。
+3. **守卫**（tests/test_backfill_boundary.py，4 条）：源码锚×3（--through 在位/
+   apply 闸在 DELETE 之前/双闸注释）+ 行为锚×1（dry-run 对含今日通知的库，输出
+   里今日日期不得出现）。dry-run 复现验证：11-20=9✅/11-21=8✅/11-22=0✅，
+   11-23 从范围消失。
+4. **恢复今日 5 行**（未跑回填脚本，走真源）：逐人读 talents.remark.square_judgment，
+   调 `_square_normalize_recs` 按**分班 run_id 显式传参**（13:30 班
+   ssq_1795411813733_0ca91d×3、17:30 班 ssq_1795426219105_7de9ce×2），INSERT OR
+   REPLACE 恢复；恢复前备份 /tmp/solobrave.db.bak-20261123-212x；回读验证 5/5
+   （run_id 落对列、snapshot 含 sale_d30/tags/followers）。
+5. **验收现状**（check_daily_recommendations --date 2026-11-23）：检查2=5✅、2a✅、
+   2b✅、2c 对拍 0 班（无段可拍）、检查1 **红如实**——三班日报确实都无 canonical 段
+   （17:30 班根因见下），不修史。matched_rules 空数组 = 第五观察项基线（已立观察）。
+
+**更深一层根因（已立 P2 `dq_46a10c818b8e`）**：17:30 班掉链不是因为兜底没上线，
+而是 **rec 名单只有两个来源**——①agent payload --rec ②正文 canonical 段兜底
+（dq_ab39888f5c49，今日已上线）——两个都缺时（agent 未传 --rec + 判定人正文
+「无法定位达人」被解析器全跳）日报无段、B 表该班零行。判定数据其实早已落库
+（decide 双写 square_judgment，verdict=值得联系 即推荐依据），只是日报/B 表链
+没读它。第三层 = 本班（班次窗口内 judged_at）square_judgment 判定数据组装
+canonical 段 + 同一归一化双写，优先级 payload > 正文解析 > 本班判定数据。
+
+**教训（入机制）**：历史回填类工具必须自带「封账边界」——默认范围永不含在飞日，
+且 apply 期再闸一道；「回填」和「修复」是两个词，补今天叫修复、走单独派单。
