@@ -88,3 +88,55 @@ def test_gap_list_classifies(tmp_path):
     assert len(g['at_strip']) == 1 and g['at_strip'][0]['proposed'] == 'keboda'
     names = [r['name'] for r in g['need_search']]
     assert names == ['无号达人', '脏中文'], '脏中文与无号都进回搜名单'
+
+
+def test_source_marker_fanmatch_locked():
+    """老大 11-23 apply 纪律：同名多人必须带 name_search_fanmatch 锚名（锁死不可漂移）。
+
+    触达启动前人工扫标记列过滤错配风险集中带——锚名改了过滤就失效。"""
+    e_multi = {'talent_id': 't1', 'name': '七月姐姐', 'proposed': 'hwyx007',
+               'match_how': 'name_exact_multi（同名多人，按粉丝最近取，人工终选）'}
+    e_exact = {'talent_id': 't2', 'name': '方也Vicky', 'proposed': 'x',
+               'match_how': 'name_exact'}
+    e_contain = {'talent_id': 't3', 'name': '仙女不是先生', 'proposed': 'y',
+                 'match_how': 'name_contain'}
+    e_strip = {'talent_id': 't4', 'name': '李馒头', 'proposed': 'z',
+               'source': 'at_strip'}
+    assert bib._source_marker(e_multi) == 'name_search_fanmatch'
+    assert bib._source_marker(e_exact) == 'name_search_exact'
+    assert bib._source_marker(e_contain) == 'name_search_contain'
+    assert bib._source_marker(e_strip) == 'at_strip'
+    assert bib._source_marker({'match_how': ''}) == 'name_search'
+
+
+def test_apply_writes_marker_and_preserves_remark(tmp_path, monkeypatch):
+    """apply 落库：remark 合并写来源标记，不覆盖既有键（merchant/square_judgment）。"""
+    import json as _json
+    db = tmp_path / 'a.db'
+    conn = sqlite3.connect(str(db))
+    conn.execute("CREATE TABLE talents (id TEXT, name TEXT, douyin_id TEXT, "
+                 "remark TEXT, updated_at INTEGER)")
+    conn.execute("INSERT INTO talents VALUES ('t1','七月姐姐','',"
+                 "'{\"merchant\": true, \"square_judgment\": {\"verdict\": \"值得联系\"}}',0)")
+    conn.commit()
+    conn.close()
+    monkeypatch.setattr(bib, 'DB', db)
+    rep = tmp_path / 'rep.json'
+    rep.write_text(_json.dumps({
+        'gap_total': 1,
+        'at_strip': [],
+        'searched': [{'talent_id': 't1', 'name': '七月姐姐', 'proposed': 'hwyx007',
+                      'match_how': 'name_exact_multi（同名多人，按粉丝最近取，人工终选）',
+                      'candidates': []}],
+        'summary': {}}, ensure_ascii=False), encoding='utf-8')
+    class A: report_file = str(rep)
+    assert bib.cmd_apply(A()) == 0
+    conn = sqlite3.connect(str(db))
+    did, remark = conn.execute("SELECT douyin_id, remark FROM talents WHERE id='t1'").fetchone()
+    meta = _json.loads(remark)
+    conn.close()
+    assert did == 'hwyx007'
+    assert meta['douyin_id_source'] == 'name_search_fanmatch'
+    assert meta['merchant'] is True                      # 既有键不覆盖
+    assert meta['square_judgment']['verdict'] == '值得联系'
+    assert meta['douyin_id_backfilled_at'] > 0

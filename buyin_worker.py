@@ -3905,6 +3905,32 @@ def _square_strip_reason_noise(s: str) -> str:
 
 
 _SQ_REC_HEAD_RE = re.compile(r'每日推荐\s*(\d+)\s*人')
+_CANON_HEAD_RE = re.compile(r'^[#>\s]*【?每日推荐】?', re.M)
+
+
+def _square_ensure_canonical_section(detail, recs):
+    """正文缺 canonical「每日推荐」段时按 --rec 名单确定性补齐（dq_ab39888f5c49）。
+
+    11-20 任务书改版后 agent 正文丢段（11-23 13:30 班实证）→ 验收检查1红/对拍2c
+    空转。修法 = 系统组装兜底（单一出口，同「理由由系统组装」原则）：
+    段形态与任务书钉死的一致——序号. 昵称（talent_id）｜一句话理由；
+    与验收 extract_section 的行形态/对拍口径逐字兼容（条目行=序号行）。
+    段尾注记行是非条目行，天然截断收集，不产生幻条目。"""
+    if _CANON_HEAD_RE.search(detail or ''):
+        return detail
+    lines = []
+    for i, r in enumerate(list(recs or [])[:15], 1):
+        name = str(r.get('talent_name') or r.get('昵称') or '').strip()
+        tid = str(r.get('talent_id') or '').strip()
+        reason = str(r.get('reason_text') or '').strip()
+        lines.append(f'{i}. {name}（{tid}）｜{reason}' if reason
+                     else f'{i}. {name}（{tid}）')
+    if not lines:
+        return detail
+    sec = ('【每日推荐】\n' + '\n'.join(lines)
+           + '\n（本段由系统按 --rec 名单确定性组装：agent 原文缺 canonical 段，'
+             '验收对拍锚补齐）')
+    return f'{detail}\n{sec}' if detail else sec
 _SQ_REC_LINE_RE = re.compile(
     r'^\s*\d+\s*[.、)]\s*(?P<name>.+?)[（(](?P<tid>tal_[A-Za-z0-9_]+)[）)]'
     r'\s*[｜|]\s*(?P<reason>.+?)\s*$')
@@ -4209,6 +4235,15 @@ def _square_write_report(summary, detail, agent_id=SQUARE_DUTY_AGENT, recommenda
             recs_for_db, rec_source = _square_report_rec_source(recommendations, detail, conn)
             if rec_source == 'report_text':
                 log(f'[SquareReport] 推荐来源=正文解析（payload 空，兜底解析器 {len(recs_for_db)} 人）')
+        # canonical「每日推荐」段系统兜底（dq_ab39888f5c49，11-23）：正文缺段时
+        # 按名单确定性组装——验收检查1/对拍2c 的锚不许靠模型自觉。须在触达卡
+        # 组装之前（段要贴着正文，卡片是另一段）。
+        if agent_id == SQUARE_DUTY_AGENT and recs_for_db:
+            new_detail = _square_ensure_canonical_section(detail, recs_for_db)
+            if new_detail != detail:
+                log(f'[SquareReport] canonical「每日推荐」段系统补齐 {len(recs_for_db)} 人'
+                    f'（agent 原文缺段）')
+                detail = new_detail
         # 触达卡 v2（2026-11-18，dq_556ca64c241c）：日报正文追加「达人+匹配品+佣金」
         # 三联卡——确定性组装（outreach_card 直读 DB），不靠模型自觉。
         # 只认小拓（与 B 表同闸）：别的 agent 的日报不加卡。

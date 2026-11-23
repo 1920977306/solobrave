@@ -143,3 +143,82 @@ def test_double_write_failure_never_blocks_decide(tmp_path, monkeypatch):
     out, code = bw._square_decide({'candidate': _CAND, 'verdict': '值得联系',
                                    'reason': 'r'})
     assert code == 200 and out['ok'] and out['inserted']
+
+
+# ── canonical「每日推荐」段系统兜底（dq_ab39888f5c49，11-23）──
+
+_RECS = [
+    {'talent_id': 'tal_sq_aaa111', 'talent_name': '挖宝小泽🌟',
+     'reason_text': '个护家清主推命中，30天结算额下沿1万元'},
+    {'talent_id': 'tal_sq_bbb222', 'talent_name': '小新大王',
+     'reason_text': '个护家清主推命中，30天结算额下沿2.5万元'},
+]
+
+
+def test_canonical_section_passthrough_when_present():
+    body = '导语\n【每日推荐】\n1. 旧格式某人（tal_x）｜理由\n\n别的段'
+    assert bw._square_ensure_canonical_section(body, _RECS) == body
+
+
+def test_canonical_section_appended_and_acceptance_parseable():
+    """与验收脚本 extract_section 跨模块对拍：补齐段必须被识别为恰好 N 条目。"""
+    import importlib.util as _il
+    spec = _il.spec_from_file_location(
+        'check_daily',
+        __file__.replace('tests/test_square_double_write.py',
+                         'scripts/check_daily_recommendations.py'))
+    chk = _il.module_from_spec(spec)
+    spec.loader.exec_module(chk)
+    out = bw._square_ensure_canonical_section('今日深看5 | 新增3 | 排除2', _RECS)
+    entries, heading = chk.extract_section(out)
+    assert heading.startswith('【每日推荐】')
+    assert len(entries) == 2          # 段尾注记行不得产生幻条目
+    assert all(chk.RECO_RE.match(e.strip()) for e in entries)
+    assert '挖宝小泽🌟' in entries[0] and '小新大王' in entries[1]
+
+
+def test_canonical_section_empty_reason_and_empty_recs():
+    out = bw._square_ensure_canonical_section('正文', [
+        {'talent_id': 'tal_sq_ccc333', 'talent_name': '某人'}])
+    assert '1. 某人（tal_sq_ccc333）' in out and '｜' not in out.splitlines()[2]
+    # 零名单不造段
+    assert bw._square_ensure_canonical_section('正文', []) == '正文'
+    assert bw._square_ensure_canonical_section('正文', None) == '正文'
+
+
+def test_canonical_section_capped_at_15():
+    recs = [{'talent_id': f'tal_sq_x{i:03d}', 'talent_name': f'达人{i}'}
+            for i in range(20)]
+    out = bw._square_ensure_canonical_section('', recs)
+    assert '15. 达人14' in out and '16.' not in out
+
+
+def test_write_report_wires_canonical_repair(tmp_path, monkeypatch):
+    """端到端：_square_write_report 对缺段正文自动补齐（临时库，不碰 data/）。"""
+    db = tmp_path / 'w.db'
+    conn = sqlite3.connect(str(db))
+    conn.execute("CREATE TABLE notifications (id TEXT, user_id TEXT, agent_id TEXT, "
+                 "type TEXT, title TEXT, content TEXT, read INTEGER, created_at INTEGER)")
+    conn.execute("CREATE TABLE emp_duties (agent_id TEXT, supervisor_agent_id TEXT, "
+                 "zero_streak INTEGER, duty_name TEXT, last_run_at INTEGER, "
+                 "last_run_summary TEXT, updated_at INTEGER)")
+    conn.execute("INSERT INTO emp_duties VALUES ('emp_xiaotuo','',0,'达人筛选专员',0,'',0)")
+    conn.execute("CREATE TABLE talent_recommendations (rec_id TEXT PRIMARY KEY, "
+                 "rec_date TEXT, talent_id TEXT, talent_name TEXT, matched_rules TEXT, "
+                 "reason_text TEXT, snapshot_json TEXT, pipeline_status TEXT, "
+                 "deal_pid TEXT, gmv REAL, refund_flag INTEGER, run_id TEXT, "
+                 "created_at INTEGER, updated_at INTEGER)")
+    conn.commit()
+    conn.close()
+    monkeypatch.setattr(bw, 'DB_PATH', db)
+    bw._square_write_report(
+        '今日深看5 | 新增2 | 排除3 | 建议人工过目：甲、乙',
+        '今日深看5 | 新增2 | 排除3（主因重复）',  # 正文无 canonical 段
+        agent_id=bw.SQUARE_DUTY_AGENT, recommendations=_RECS,
+        run_id='ssq_testrun_1')
+    conn = sqlite3.connect(str(db))
+    row = conn.execute("SELECT content FROM notifications WHERE agent_id='emp_xiaotuo' "
+                       "AND title NOT LIKE '%抄送%' ORDER BY created_at DESC LIMIT 1").fetchone()
+    conn.close()
+    assert '【每日推荐】' in row[0]
+    assert '1. 挖宝小泽🌟（tal_sq_aaa111）' in row[0]

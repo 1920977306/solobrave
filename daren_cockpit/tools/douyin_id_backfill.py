@@ -194,8 +194,24 @@ def cmd_dry_run(args):
     return 0
 
 
+def _source_marker(e):
+    """落库来源标记（老大 11-23 拍板纪律：同名多人带必须可过滤，不许与精确名混同无标）。
+
+    锚名锁死 name_search_fanmatch——触达启动前人工扫标记列即可过滤错配风险集中带。"""
+    if e.get('source') == 'at_strip':
+        return 'at_strip'
+    how = str(e.get('match_how') or '')
+    if how.startswith('name_exact_multi'):
+        return 'name_search_fanmatch'
+    if how == 'name_exact':
+        return 'name_search_exact'
+    if how == 'name_contain':
+        return 'name_search_contain'
+    return 'name_search'
+
+
 def cmd_apply(args):
-    """写库：必须带 dry-run 报告；自动备份 + 回读验证 + 逐行留痕。"""
+    """写库：必须带 dry-run 报告；自动备份 + 回读验证 + 逐行留痕 + 来源标记。"""
     rf = Path(args.report_file)
     if not rf.exists():
         print(f"--apply 必须有 --dry-run 报告文件（可复核账）: {rf}", file=sys.stderr)
@@ -207,6 +223,8 @@ def cmd_apply(args):
     conn = sqlite3.connect(str(DB))
     now = int(time.time() * 1000)
     applied, skipped = 0, []
+    applied_rows = []
+    src_counts = {}
     for e in rep.get('at_strip', []) + rep.get('searched', []):
         prop = (e.get('proposed') or '').strip()
         if not prop or not _usable(prop):
@@ -217,24 +235,47 @@ def cmd_apply(args):
         if dup:
             skipped.append((e.get('name'), f'撞号 {prop} 已被 {dup[0]} 占用'))
             continue
-        conn.execute('UPDATE talents SET douyin_id = ?, updated_at = ? WHERE id = ?',
-                     (prop, now, e['talent_id']))
-        applied += 1
-    conn.commit()
-    # 回读验证
-    bad = 0
-    for e in rep.get('at_strip', []) + rep.get('searched', []):
-        prop = (e.get('proposed') or '').strip()
-        if not prop or not _usable(prop):
-            continue
-        got = conn.execute('SELECT douyin_id FROM talents WHERE id = ?',
+        # 来源标记进 remark JSON（合并写，不覆盖既有键如 merchant/square_judgment）
+        marker = _source_marker(e)
+        row = conn.execute('SELECT remark FROM talents WHERE id = ?',
                            (e['talent_id'],)).fetchone()
-        if not got or got[0] != prop:
+        try:
+            meta = json.loads(row[0]) if row and row[0] else {}
+            if not isinstance(meta, dict):
+                meta = {'_unparsed_remark': row[0] or ''}
+        except (TypeError, ValueError):
+            meta = {'_unparsed_remark': row[0] or ''}
+        meta['douyin_id_source'] = marker
+        meta['douyin_id_backfilled_at'] = now
+        conn.execute('UPDATE talents SET douyin_id = ?, remark = ?, updated_at = ? WHERE id = ?',
+                     (prop, json.dumps(meta, ensure_ascii=False), now, e['talent_id']))
+        applied += 1
+        applied_rows.append(e)
+        src_counts[marker] = src_counts.get(marker, 0) + 1
+    conn.commit()
+    # 回读验证（值+标记双验）——只验实际写库的行（撞号/无值跳过的不算不一致）
+    bad = 0
+    for e in applied_rows:
+        prop = (e.get('proposed') or '').strip()
+        got = conn.execute('SELECT douyin_id, remark FROM talents WHERE id = ?',
+                           (e['talent_id'],)).fetchone()
+        marker = _source_marker(e)
+        ok = bool(got and got[0] == prop and marker in (got[1] or ''))
+        if not ok:
             bad += 1
+    # 非空率（回填后全库口径）
+    n_all = conn.execute('SELECT COUNT(*) FROM talents').fetchone()[0]
+    n_fill = conn.execute(
+        "SELECT COUNT(*) FROM talents WHERE douyin_id IS NOT NULL AND douyin_id != ''").fetchone()[0]
+    n_mark = conn.execute(
+        "SELECT COUNT(*) FROM talents WHERE remark LIKE '%douyin_id_source%'").fetchone()[0]
     conn.close()
     print(f"[apply] 备份 {bak}")
     print(f"[apply] 写库 {applied} 行，跳过 {len(skipped)}（撞号/无值不强行），"
           f"回读不一致 {bad}")
+    print(f"[apply] 来源分布 {json.dumps(src_counts, ensure_ascii=False, sort_keys=True)}")
+    print(f"[apply] 回读验证：全库抖音号非空 {n_fill}/{n_all}（{n_fill*100//max(1,n_all)}%），"
+          f"带来源标记 {n_mark} 行")
     for nm, why in skipped[:20]:
         print(f"  跳过: {nm} — {why}")
     return 0 if bad == 0 else 1
