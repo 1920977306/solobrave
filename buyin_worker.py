@@ -56,6 +56,11 @@ import buyin_auth  # noqa: E402  ★ 登录态判定的**单一真源**（见 bu
 from daren_bot import llm_channels  # noqa: E402
 from daren_bot import llm_text  # noqa: E402
 from daren_bot import llm_usage  # noqa: E402
+try:
+    from tools import talent_merchant as _talent_merchant  # noqa: E402
+    # ★ 商家号谓词单一真源（P2 隔离 2026-11-23）：形态学词表，decide 硬闸+入库打标
+except Exception:                                               # pragma: no cover
+    _talent_merchant = None
 
 # ─────────────────────────────── 配置 ───────────────────────────────
 PROD_DIR = Path('/Users/qichen/solobrave-prod')
@@ -3809,6 +3814,10 @@ def _square_decide(payload):
     snapshot = {'主推类目': main_cate, '30天结算额': [settle_low, settle_high],
                 '粉丝指数': followers}
     tid_existing = _square_talent_id_by_douyin(did)
+    # ★ 商家号硬闸（P2 隔离 2026-11-23，谓词单一真源 tools/talent_merchant）：
+    # 名字是公司/店名形态 ⇒ 永不进 B 表推荐位（老大口径「公司名或店名直接 pass」）。
+    # 不丢弃：入库照入、remark 打标；返回 merchant:true 让 agent 改判排除。
+    _is_merchant = bool(_talent_merchant and _talent_merchant.is_merchant_name(name))
     if verdict == '排除':
         try:
             with open(SQUARE_REJECTS_LOG, 'a', encoding='utf-8') as fp:
@@ -3818,10 +3827,12 @@ def _square_decide(payload):
             log(f'[SquareDecide] 排除审计日志失败（不阻断）: {e}')
         if tid_existing:
             _square_double_write_rec(tid_existing, name, None, 'delete')
-        return ({'ok': True, 'inserted': False, 'verdict': verdict}, 200)
+        return ({'ok': True, 'inserted': False, 'verdict': verdict,
+                 'merchant': _is_merchant}, 200)
     if tid_existing:
         if verdict == '值得联系':
-            _square_double_write_rec(tid_existing, name, snapshot, 'upsert')
+            if not _is_merchant:
+                _square_double_write_rec(tid_existing, name, snapshot, 'upsert')
         else:   # 存疑改判：当日推荐位撤下（B 表=当日值得联系集合）
             _square_double_write_rec(tid_existing, name, None, 'delete')
         return ({'ok': True, 'inserted': False, 'duplicate': True,
@@ -3832,6 +3843,8 @@ def _square_decide(payload):
         'square_judgment': {'verdict': verdict, 'reason': reason,
                             'judged_at': now_ms, 'judged_by': SQUARE_DUTY_AGENT},
     }
+    if _is_merchant:
+        remark['merchant'] = True   # 商家号标记（不删只标，默认排除推荐/触达/匹配池）
     f = {
         'name': name, 'avatar': '', 'douyin_id': did,
         'douyin_uid': str(cand.get('达人ID') or ''),
@@ -3843,10 +3856,13 @@ def _square_decide(payload):
         'remark': json.dumps(remark, ensure_ascii=False),
     }
     tid = _square_insert_talent(f, 'square_scan_' + datetime.now().strftime('%Y%m%d'))
-    if verdict == '值得联系':
+    if verdict == '值得联系' and not _is_merchant:
         _square_double_write_rec(tid, name, snapshot, 'upsert')
     log(f'[SquareDecide] 入库 {name}（{did}）← {verdict}：{reason[:40]}')
-    return ({'ok': True, 'inserted': True, 'talent_id': tid, 'verdict': verdict}, 200)
+    if _is_merchant:
+        log(f'[SquareDecide] 商家号标记 {name}（{did}）← 不入推荐位')
+    return ({'ok': True, 'inserted': True, 'talent_id': tid,
+             'verdict': verdict, 'merchant': _is_merchant}, 200)
 
 
 def _wan(v) -> str:

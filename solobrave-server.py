@@ -6113,6 +6113,22 @@ def _load_talent_shell():
 _talent_shell = _load_talent_shell()
 
 
+def _load_talent_merchant():
+    try:
+        p = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                         'tools', 'talent_merchant.py')
+        spec = importlib.util.spec_from_file_location('talent_merchant', p)
+        m = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(m)
+        return m
+    except Exception as e:
+        logger.warning(f'[talent_merchant] 加载失败，匹配池不排商家号: {e}')
+        return None
+
+
+_talent_merchant = _load_talent_merchant()
+
+
 def _talent_row_to_dict(row):
     if not row:
         return None
@@ -21780,6 +21796,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
         if not trow:
             self._send_json_error(404, 'Talent not found')
+            return
+        # ★ 商家号隔离闸（dq_36f8a1236e79）：公司名/店名/工厂词表命中的账号
+        #   不进选品匹配池——源头拦截，与 worker 侧 _square_decide 判定同一份词表。
+        if _talent_merchant and _talent_merchant.is_merchant(dict(trow)):
+            self._send_json_error(409, '商家号已隔离，不在匹配池（dq_36f8a1236e79）')
             return
         # ★ DB 路径要跟着租户路由走（多租户下每个租户一个库）
         chain = reco_source.build_chain(
