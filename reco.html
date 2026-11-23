@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head>
+<meta charset="UTF-8">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>今日推荐 · 达人筛选</title>
+<style>
+/* ====== V2.1 设计 token（与 office-v3.html 同源）====== */
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --color-primary:#007AFF; --color-primary-hover:#0066D6; --color-primary-soft:rgba(0,122,255,0.10);
+  --color-ai-accent:#5E5CE6;
+  --color-rating-a:#34C759; --color-rating-b:#007AFF; --color-rating-c:#FFCC00; --color-rating-d:#8E8E93;
+  --color-text-1:#1C1C1E; --color-text-2:#3A3A3C; --color-text-3:#8E8E93;
+  --color-bg-1:#FFFFFF; --color-bg-2:#F5F5F7; --color-bg-3:#E5E5EA;
+  --color-border:rgba(60,60,67,0.12);
+  --shadow-card:0 1px 3px rgba(0,0,0,0.06),0 4px 16px rgba(0,0,0,0.06);
+  --radius-lg:14px; --radius-md:10px;
+}
+body{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Helvetica Neue",sans-serif;
+  background:var(--color-bg-2);color:var(--color-text-1);min-height:100vh}
+.wrap{max-width:1080px;margin:0 auto;padding:24px 20px 60px}
+header{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:20px}
+h1{font-size:22px;font-weight:700;display:flex;align-items:center;gap:10px}
+h1 .dot{width:10px;height:10px;border-radius:50%;background:var(--color-ai-accent);box-shadow:0 0 0 4px rgba(94,92,230,0.15)}
+.datebar{display:flex;align-items:center;gap:8px;background:var(--color-bg-1);border:1px solid var(--color-border);
+  border-radius:var(--radius-md);padding:6px 10px;box-shadow:var(--shadow-card)}
+.datebar button{border:none;background:var(--color-bg-2);color:var(--color-text-2);width:30px;height:30px;
+  border-radius:8px;font-size:15px;cursor:pointer}
+.datebar button:hover{background:var(--color-primary-soft);color:var(--color-primary)}
+.datebar input{border:none;outline:none;font-size:14px;color:var(--color-text-1);background:transparent;font-family:inherit}
+.meta{font-size:13px;color:var(--color-text-3);margin-bottom:14px}
+.meta b{color:var(--color-text-2)}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:14px}
+.card{background:var(--color-bg-1);border:1px solid var(--color-border);border-radius:var(--radius-lg);
+  padding:16px;box-shadow:var(--shadow-card);display:flex;flex-direction:column;gap:10px}
+.card .top{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}
+.name{font-size:16px;font-weight:600;word-break:break-all}
+.badge{font-size:11px;padding:3px 8px;border-radius:999px;white-space:nowrap;font-weight:500}
+.b-recommended{background:rgba(0,122,255,0.12);color:var(--color-primary)}
+.b-contacted{background:rgba(52,199,89,0.14);color:#248A3D}
+.b-negotiating{background:rgba(94,92,230,0.12);color:var(--color-ai-accent)}
+.b-sample_sent{background:rgba(255,159,10,0.14);color:#C93400}
+.b-completed{background:rgba(52,199,89,0.2);color:#1E7A34}
+.b-rejected{background:rgba(255,69,58,0.12);color:#D70015}
+.b-invalid{background:var(--color-bg-3);color:var(--color-text-3)}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{font-size:12px;color:var(--color-text-2);background:var(--color-bg-2);border-radius:6px;padding:3px 8px}
+.chip b{color:var(--color-text-1);font-weight:600}
+.reason{font-size:13px;color:var(--color-text-2);line-height:1.55;background:var(--color-bg-2);
+  border-radius:8px;padding:8px 10px}
+.cardline{font-size:13px;color:var(--color-text-1);line-height:1.6;background:rgba(94,92,230,0.06);
+  border-left:3px solid var(--color-ai-accent);border-radius:0 8px 8px 0;padding:8px 10px}
+.cardline .cl-head{font-size:11px;color:var(--color-ai-accent);font-weight:600;margin-bottom:2px}
+.verdict-now{font-size:12px;color:var(--color-text-3)}
+.verdict-now.warn{color:#C93400;font-weight:600}
+.actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:auto}
+.actions button{border:1px solid var(--color-border);background:var(--color-bg-1);color:var(--color-text-2);
+  font-size:12px;padding:5px 10px;border-radius:8px;cursor:pointer;font-family:inherit}
+.actions button:hover{border-color:var(--color-primary);color:var(--color-primary)}
+.actions button.cur{background:var(--color-primary);border-color:var(--color-primary);color:#fff}
+.empty{background:var(--color-bg-1);border:1px dashed var(--color-border);border-radius:var(--radius-lg);
+  padding:48px 20px;text-align:center;color:var(--color-text-3);font-size:14px}
+.toast{position:fixed;top:18px;left:50%;transform:translateX(-50%);background:rgba(28,28,30,0.92);color:#fff;
+  font-size:13px;padding:9px 16px;border-radius:999px;opacity:0;transition:opacity .25s;pointer-events:none;z-index:99}
+.toast.show{opacity:1}
+.err{color:#D70015;font-size:13px;margin-top:8px}
+</style></head>
+<body>
+<div class="wrap">
+  <header>
+    <h1><span class="dot"></span>今日推荐</h1>
+    <div class="datebar">
+      <button onclick="shiftDate(-1)" title="前一天">‹</button>
+      <input type="date" id="dateInput" onchange="loadRecos()">
+      <button onclick="shiftDate(1)" title="后一天">›</button>
+    </div>
+  </header>
+  <div class="meta" id="meta"></div>
+  <div class="grid" id="grid"></div>
+  <div class="empty" id="empty" style="display:none"></div>
+</div>
+<div class="toast" id="toast"></div>
+<script>
+/* 今日推荐页（单1③ 2026-11-23）：B 表直读 + 状态流转。
+   鉴权：复用主站同源 localStorage token（office-v3.html 同款口径）。 */
+var STATUS = [
+  ['recommended','待触达'],['contacted','已触达'],['negotiating','洽谈中'],
+  ['sample_sent','已寄样'],['completed','已成交'],['rejected','已拒绝'],['invalid','无效']
+];
+function tok(){ return localStorage.getItem('sb_auth_token') || ''; }
+function headers(){ var t = tok(); return t ? {'Authorization':'Bearer '+t} : {}; }
+function toast(msg){ var el=document.getElementById('toast'); el.textContent=msg; el.classList.add('show');
+  setTimeout(function(){ el.classList.remove('show'); }, 2200); }
+function todayStr(){ var d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+function shiftDate(n){ var inp=document.getElementById('dateInput'); var d=new Date(inp.value+'T00:00:00');
+  d.setDate(d.getDate()+n); inp.value=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+  loadRecos(); }
+function statusLabel(s){ for (var i=0;i<STATUS.length;i++) if (STATUS[i][0]===s) return STATUS[i][1]; return s||'—'; }
+function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g, function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
+
+function loadRecos(){
+  var date = document.getElementById('dateInput').value || todayStr();
+  var grid = document.getElementById('grid'), empty = document.getElementById('empty'), meta = document.getElementById('meta');
+  grid.innerHTML=''; empty.style.display='none';
+  meta.innerHTML = date + ' · 加载中…';
+  fetch('/api/recommendations?date='+encodeURIComponent(date), {headers:headers()})
+    .then(function(r){
+      if (r.status===401||r.status===403){ meta.innerHTML=''; empty.style.display='block';
+        empty.innerHTML='<div class="err">登录态无效（'+r.status+'）——请从主站打开本页</div>'; return null; }
+      return r.json();
+    })
+    .then(function(data){
+      if (!data) return;
+      meta.innerHTML = '共 <b>'+data.total+'</b> 人推荐' + (date===todayStr()?'':'（非今日，历史对账）');
+      if (!data.items || !data.items.length){
+        empty.style.display='block';
+        empty.textContent = data.total===0 ? '当日无推荐——班未交卷或本班零推荐（看日报判定）' : '空';
+        return;
+      }
+      data.items.forEach(function(it){ grid.appendChild(renderCard(it, date)); });
+    })
+    .catch(function(e){ meta.innerHTML=''; empty.style.display='block';
+      empty.innerHTML='<div class="err">加载失败：'+esc(e.message||e)+'</div>'; });
+}
+
+function renderCard(it, date){
+  var el = document.createElement('div'); el.className='card';
+  var snap = it.snapshot || {};
+  var cats = snap['主推类目'] || [];
+  var settle = snap['30天结算额'] || [];
+  var fol = snap['粉丝指数'] || it.followers || 0;
+  var chips = '';
+  if (cats.length) chips += '<span class="chip">主推 <b>'+esc(cats.join('/'))+'</b></span>';
+  if (settle.length && settle[0]) chips += '<span class="chip">30天结算 <b>'+esc(String(settle[0]))+(settle[1]?'-'+esc(String(settle[1])):'')+'</b></span>';
+  if (fol) chips += '<span class="chip">粉丝 <b>'+esc(String(fol))+'</b></span>';
+  if (it.douyin_id) chips += '<span class="chip">抖音号 <b>'+esc(it.douyin_id)+'</b></span>';
+  var verdictWarn = (it.verdict_now && it.verdict_now!=='值得联系')
+    ? '<div class="verdict-now warn">⚠️ 台账当前判定已改：'+esc(it.verdict_now)+'（当日推荐口径以本卡为准，改判留痕见台账）</div>' : '';
+  var cardHtml = it.card
+    ? '<div class="cardline"><div class="cl-head">带品建议</div>'+esc(it.card)+'</div>' : '';
+  var btns = STATUS.map(function(p){
+    var cur = p[0]===it.pipeline_status ? ' cur' : '';
+    return '<button class="'+cur+'" onclick="setStatus(\''+esc(it.rec_id)+'\',\''+p[0]+'\',this)">'+p[1]+'</button>';
+  }).join('');
+  el.innerHTML =
+    '<div class="top"><div class="name">'+esc(it.talent_name)+'</div>'+
+    '<span class="badge b-'+esc(it.pipeline_status)+'">'+statusLabel(it.pipeline_status)+'</span></div>'+
+    (chips?'<div class="chips">'+chips+'</div>':'')+
+    (it.reason_text?'<div class="reason">'+esc(it.reason_text)+'</div>':'')+
+    cardHtml + verdictWarn +
+    '<div class="actions">'+btns+'</div>';
+  return el;
+}
+
+function setStatus(recId, status, btn){
+  fetch('/api/recommendations/'+encodeURIComponent(recId)+'/status', {
+    method:'POST', headers:Object.assign({'Content-Type':'application/json'}, headers()),
+    body:JSON.stringify({status:status})
+  }).then(function(r){ return r.json().then(function(d){ return {ok:r.ok, d:d}; }); })
+    .then(function(res){
+      if (res.ok && res.d && res.d.ok){ toast('状态已流转 → '+statusLabel(status)); loadRecos(); }
+      else toast('流转失败：'+((res.d&&res.d.error)||res.d||'unknown'));
+    })
+    .catch(function(e){ toast('流转失败：'+e.message); });
+}
+
+document.getElementById('dateInput').value = todayStr();
+loadRecos();
+</script>
+</body></html>

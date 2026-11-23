@@ -273,15 +273,32 @@ def judge_3_5(kick_recent):
     return []
 
 
+def dual_anchor_age(now_ms, c_last, t_last):
+    """4-1 双锚合成（单3 2026-11-23）：停摆小时 = MAX(talent_collects 最后成功,
+    talents 最后写入) 距今。square-scan 直写 talents 不经过 talent_collects，
+    单锚会把「周四距 weekly 窗 87h」的设计态误报成停摆（11-20 判误报实证）。
+    两锚全空 ⇒ None（宁缺不编造）。"""
+    last = None
+    for x in (c_last, t_last):
+        if x and (last is None or x > last):
+            last = x
+    return ((now_ms - last) // 3600000) if last else None
+
+
 # ═════════════════ Lane 4 数据新鲜度 ═════════════════
 
 def judge_4_1(collect_age_h):
-    """4-1 P2 talent_collects 锚>48h。"""
+    """4-1 P2 达人采集双锚停摆 >48h（单3 2026-11-23 双锚口径）。
+
+    双锚 = MAX(talent_collects 最后成功, talents 最后写入)——square-scan 直写
+    talents 不经过 talent_collects（11-20 实证），周四距 weekly 窗 87h 是设计态
+    不是停摆。入参为双锚合成后的停摆小时数（合成在 scan 主流程，纯函数
+    dual_anchor_age，守卫在 tests/test_queue_feeder.py）。"""
     if collect_age_h is not None and collect_age_h > 48:
         return [_cand('4-1', 'fresh_collect', P2,
-                      f'达人采集锚停摆 {collect_age_h}h+',
-                      f'talent_collects 最后成功距今 {collect_age_h}h',
-                      '采集锚出现当日成功记录')]
+                      f'达人采集双锚停摆 {collect_age_h}h+',
+                      f'talent_collects/talents 双锚最后成功距今 {collect_age_h}h',
+                      '任一采集锚出现当日成功记录')]
     return []
 
 
@@ -466,7 +483,8 @@ def collect_inputs():
         null_rid = g("SELECT COUNT(*) FROM talent_recommendations WHERE "
                      "run_id IS NULL OR run_id=''")[0]
         c_last = g("SELECT MAX(created_at) FROM talent_collects")[0]
-        c_age = ((now_ms - c_last) // 3600000) if c_last else None
+        t_last = g("SELECT MAX(updated_at) FROM talents")[0]
+        c_age = dual_anchor_age(now_ms, c_last, t_last)
         p_last = g("SELECT MAX(CAST(daren_synced_at AS INTEGER)) "
                    "FROM products")[0]
         p_age = ((now_ms - p_last) // 3600000) if p_last else None

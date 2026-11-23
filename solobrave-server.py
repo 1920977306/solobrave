@@ -10335,6 +10335,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if path == '/api/dispatch-queue':
             self._handle_get_dispatch_queue()
             return
+        # ★ 单1②（2026-11-23）: 今日推荐读 API——B 表直读 + 台账合并, 登录即可见
+        #   （内部推荐池无租户隔离, 与 /api/dispatch-queue 同口径）
+        if path == '/api/recommendations':
+            self._handle_get_recommendations()
+            return
         if path == '/api/deals/plan':
             # ★ 排品表预览（GET）/ 落库（POST）
             #   必须排在 startswith('/api/deals/') 前面，否则会被当成 deal_id='plan'
@@ -11391,6 +11396,14 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if path == '/api/notifications/read-all':
             self._handle_notifications_read_all()
             return
+        # ★ 单1③（2026-11-23）: 推荐位状态流转按钮（今日推荐页）
+        if path.startswith('/api/recommendations/'):
+            sub = path[len('/api/recommendations/'):]
+            if sub.endswith('/status'):
+                rec_id = sub[:-len('/status')].strip('/')
+                if rec_id:
+                    self._handle_update_recommendation_status(rec_id)
+                    return
         if path == '/api/notification-settings':
             self._handle_put_notification_settings()
             return
@@ -19629,6 +19642,130 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         except Exception as e:
             logger.error(f'  [DispatchQueue] list failed: {e}')
             self._send_json_error(500, 'List failed')
+
+    def _handle_get_recommendations(self):
+        """GET /api/recommendations?date=YYYY-MM-DD（单1② 2026-11-23，P2 推荐链出口）。
+        B 表（talent_recommendations）直读 + talents 台账合并（抖音号/粉丝/当前判定），
+        每人附确定性带品卡（与日报同一份 outreach_card，逐人组装按名回配）。
+        登录即可见（内部推荐池，无租户隔离）。date 缺省今天。"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        qs = parse_qs(urlparse(self.path).query)
+        date = (qs.get('date', [''])[0] or '').strip()
+        if date and not re.match(r'^\d{4}-\d{2}-\d{2}$', date):
+            self._send_json_error(400, 'date 须为 YYYY-MM-DD')
+            return
+        if not date:
+            date = datetime.now().strftime('%Y-%m-%d')
+        try:
+            conn = _db_conn()
+            try:
+                rows = conn.execute(
+                    'SELECT r.*, t.douyin_id AS t_douyin_id, '
+                    't.followers AS t_followers, t.remark AS t_remark '
+                    'FROM talent_recommendations r '
+                    'LEFT JOIN talents t ON t.id = r.talent_id '
+                    'WHERE r.rec_date = ? ORDER BY r.created_at, r.talent_id',
+                    (date,)).fetchall()
+            finally:
+                conn.close()
+            items = []
+            for r in rows:
+                d = dict(r)
+                try:
+                    snap = json.loads(d.get('snapshot_json') or '{}') or {}
+                except Exception:
+                    snap = {}
+                verdict = ''
+                try:
+                    rm = json.loads(d.get('t_remark') or '{}') or {}
+                    sj = rm.get('square_judgment') or {}
+                    verdict = str(sj.get('verdict') or '')
+                except Exception:
+                    pass
+                try:
+                    rules = json.loads(d.get('matched_rules') or '[]')
+                except Exception:
+                    rules = []
+                items.append({
+                    'rec_id': d['rec_id'], 'talent_id': d['talent_id'],
+                    'talent_name': d['talent_name'],
+                    'reason_text': d['reason_text'] or '',
+                    'matched_rules': rules if isinstance(rules, list) else [],
+                    'snapshot': snap,
+                    'pipeline_status': d['pipeline_status'] or '',
+                    'run_id': d['run_id'] or '',
+                    'created_at': d['created_at'] or 0,
+                    'douyin_id': d.get('t_douyin_id') or '',
+                    'followers': d.get('t_followers') or 0,
+                    'verdict_now': verdict,   # 台账当前判定（改判后可能与当日推荐口径不同）
+                })
+            # 带品卡：确定性组装（与日报同一 outreach_card），逐人取行、失败不阻断
+            try:
+                from daren_cockpit.tools import outreach_card as _oc
+                conn2 = _db_conn()
+                try:
+                    for it in items:
+                        seg = _oc.build_outreach_cards(conn2, [{
+                            'talent_id': it['talent_id'],
+                            'talent_name': it['talent_name']}])
+                        card = ''
+                        for ln in (seg or '').splitlines():
+                            if ln.startswith('·'):
+                                card = ln.split('→', 1)[1].strip() if '→' in ln else ''
+                                break
+                        it['card'] = card
+                finally:
+                    conn2.close()
+            except Exception as e:
+                logger.error(f'  [RecoAPI] 带品卡组装失败（不阻断）: {e}')
+            self._send_json(200, {'date': date, 'total': len(items), 'items': items})
+        except Exception as e:
+            logger.error(f'  [RecoAPI] list failed: {e}')
+            self._send_json_error(500, 'List failed')
+
+    _RECO_STATUS_WHITELIST = ('recommended', 'contacted', 'negotiating',
+                              'sample_sent', 'completed', 'rejected', 'invalid')
+
+    def _handle_update_recommendation_status(self, rec_id):
+        """POST /api/recommendations/:rec_id/status — 推荐位状态流转（单1③页面按钮）。
+        白名单制；每次流转留审计日志（谁/何时/从哪到哪）。"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        try:
+            body = self._read_body() or {}
+            status = str(body.get('status') or '').strip()
+            if status not in self._RECO_STATUS_WHITELIST:
+                self._send_json_error(400,
+                                      f'status 须为 {" / ".join(self._RECO_STATUS_WHITELIST)}')
+                return
+            uid = auth.user_info.get('userId', '') if auth.user_info else ''
+            conn = _db_conn()
+            try:
+                row = conn.execute(
+                    'SELECT pipeline_status FROM talent_recommendations WHERE rec_id = ?',
+                    (rec_id,)).fetchone()
+                if not row:
+                    self._send_json_error(404, '推荐记录不存在')
+                    return
+                old = row[0]
+                conn.execute(
+                    'UPDATE talent_recommendations SET pipeline_status = ?, '
+                    'updated_at = ? WHERE rec_id = ?',
+                    (status, int(time.time() * 1000), rec_id))
+                conn.commit()
+            finally:
+                conn.close()
+            logger.info(f'  [RecoAPI] 状态流转 {rec_id}: {old} → {status} by {uid}')
+            self._send_json(200, {'ok': True, 'rec_id': rec_id,
+                                  'from': old, 'to': status})
+        except Exception as e:
+            logger.error(f'  [RecoAPI] status update failed: {e}')
+            self._send_json_error(500, 'Update failed')
 
     def _handle_post_dispatch_queue(self):
         """POST /api/dispatch-queue — 创建派单 {summary, priority?}

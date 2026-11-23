@@ -146,3 +146,38 @@ def test_feeder_4_3_pause_lock():
         assert qf.judge_4_3(19, 0, False) == []  # 非工作日不出
     finally:
         qf.JUDGE_4_3_PAUSED = True
+
+
+def test_feeder_4_1_dual_anchor():
+    """守卫⑦（单3 2026-11-23，dq_fe64e2825cda）：4-1 改双锚——
+    MAX(talent_collects 最后成功, talents 最后写入) > 48h 才报。
+
+    实证背景：square-scan 直写 talents 不经过 talent_collects，周四距 weekly
+    采集窗 87h 是设计态（11-20 判误报实证）——单锚必假旗，判据锚错了表。"""
+    import importlib.util as _il
+    spec = _il.spec_from_file_location('queue_feeder', FEEDER)
+    qf = _il.module_from_spec(spec)
+    spec.loader.exec_module(qf)
+    now = 1_800_000_000_000
+    H = 3600_000
+    # ① 设计态复现：collects 停摆 87h、talents 4h 前有写入（square-scan 直写）
+    #    ⇒ 双锚取 talents，age=4 ⇒ 不出 4-1（当初 11-20 的误报形态被锁死）
+    age = qf.dual_anchor_age(now, now - 87 * H, now - 4 * H)
+    assert age == 4 and qf.judge_4_1(age) == []
+    # ② 周三（weekly 窗内）talents 有写入但距窗尾 >48h 的边界：仍不出
+    age = qf.dual_anchor_age(now, now - 90 * H, now - 50 * H)
+    assert age == 50, '取较新锚'
+    # ③ 真停摆：两锚都 >48h ⇒ 出单
+    age = qf.dual_anchor_age(now, now - 100 * H, now - 63 * H)
+    assert qf.judge_4_1(age), '双锚停摆必须出 4-1'
+    # ④ 宁缺不编造：两锚全空 ⇒ None ⇒ 不出
+    assert qf.dual_anchor_age(now, None, None) is None
+    assert qf.dual_anchor_age(now, 0, None) is None
+    # ⑤ 边界 48h 本身不报（>48 才报，与旧语义一致）
+    assert qf.judge_4_1(48) == []
+    assert qf.judge_4_1(49), '49h 必须报'
+    # ⑥ scan 主流程确实接了双锚（源码锚：不再出现单锚 c_age 算法）
+    src = _src()
+    assert 'c_age = dual_anchor_age(now_ms, c_last, t_last)' in src, \
+        '主流程必须调用双锚合成，回退单锚即打回'
+    assert 'MAX(updated_at) FROM talents' in src

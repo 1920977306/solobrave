@@ -3461,6 +3461,8 @@ def _browser_loop():
                 _run_square_scan_impl(row)
             elif row.get('_square_contact'):
                 _run_square_contact_impl(row)
+            elif row.get('_square_lookup'):
+                _run_square_lookup_impl(row)
             else:
                 _run_collect_impl(row)
         except BrowserLoopPoisoned:
@@ -3703,6 +3705,61 @@ def _square_insert_talent(f, source):
     return tid
 
 
+def _square_talent_id_by_douyin(douyin_id):
+    """按抖音号取 talents.id；无命中 ⇒ ''（双写/改判定位用，不动查重语义）。"""
+    conn = sqlite3.connect(str(DB_PATH), timeout=10)
+    try:
+        row = conn.execute('SELECT id FROM talents WHERE douyin_id = ? LIMIT 1',
+                           (douyin_id,)).fetchone()
+        return row[0] if row else ''
+    finally:
+        conn.close()
+
+
+def _square_double_write_rec(tid, name, snapshot, mode):
+    """decide 时双写 B 表（单1① 2026-11-23）：判定即结构化落库，不依赖日报交付
+    （与 report 时兜底解析器两层互补——源头写 + 交付时防线）。
+
+    mode='upsert'（verdict=值得联系）：INSERT OR REPLACE，rec_id=rec_{ymd}_{tid}
+      同日同人幂等；reason_text 走 _square_canonical_reason 单一出口；
+      run_id 锚本班最近完成的 ssq_ 扫描 job（判据②口径）。
+    mode='delete'（verdict=存疑/排除改判）：删当日行，保「B 表=当日值得联系集合」。
+    任何失败只记日志——判定主流程不被 B 表写阻断。
+    """
+    try:
+        now_ms = int(time.time() * 1000)
+        import datetime as _dt
+        ymd = _dt.datetime.now().strftime('%Y%m%d')
+        ymd_dash = _dt.datetime.now().strftime('%Y-%m-%d')
+        conn = sqlite3.connect(str(DB_PATH), timeout=10)
+        try:
+            if mode == 'delete':
+                conn.execute('DELETE FROM talent_recommendations WHERE rec_id = ?',
+                             (f'rec_{ymd}_{tid}',))
+                conn.commit()
+                return
+            rid = _square_latest_scan_job_id()
+            rec = {'talent_id': tid, 'talent_name': name,
+                   'reason_text': '', 'snapshot': snapshot or {}}
+            rows = _square_normalize_recs([rec], now_ms, rid)
+            if not rows:
+                return
+            conn.execute(
+                'INSERT OR REPLACE INTO talent_recommendations '
+                '(rec_id, rec_date, talent_id, talent_name, matched_rules, reason_text, '
+                ' snapshot_json, pipeline_status, run_id, created_at, updated_at) '
+                'VALUES (?,?,?,?,?,?,?,?,?,?,?)',
+                (rows[0][0], rows[0][1], rows[0][2], rows[0][3], rows[0][4],
+                 rows[0][5], rows[0][6], 'recommended', rows[0][7],
+                 rows[0][8], rows[0][9]))
+            conn.commit()
+            log(f'[SquareDecide] 双写B表 {name}（{tid}）← {ymd_dash} rid={rid or "NULL"}')
+        finally:
+            conn.close()
+    except Exception as e:
+        log(f'[SquareDecide] 双写B表失败（不阻断判定）: {tid}: {e}')
+
+
 def _square_notify_admin(title, content):
     """风控告警 → notifications 表（管理员），失败只记日志不阻塞主流程。"""
     try:
@@ -3740,17 +3797,6 @@ def _square_decide(payload):
     if not did or not name:
         return ({'ok': False, 'error': 'candidate 缺抖音号或昵称（缺一不入库）'}, 400)
     now_ms = int(time.time() * 1000)
-    if verdict == '排除':
-        try:
-            with open(SQUARE_REJECTS_LOG, 'a', encoding='utf-8') as fp:
-                fp.write(json.dumps({'at': now_ms, 'verdict': verdict, 'reason': reason,
-                                     'candidate': cand}, ensure_ascii=False) + '\n')
-        except Exception as e:
-            log(f'[SquareDecide] 排除审计日志失败（不阻断）: {e}')
-        return ({'ok': True, 'inserted': False, 'verdict': verdict}, 200)
-    if _square_talent_exists(did):
-        return ({'ok': True, 'inserted': False, 'duplicate': True,
-                 'verdict': verdict}, 200)
     settle = cand.get('30天结算额')
     settle_low = float(settle[0]) if isinstance(settle, list) and len(settle) == 2 else 0.0
     settle_high = float(settle[1]) if isinstance(settle, list) and len(settle) == 2 else 0.0
@@ -3760,6 +3806,26 @@ def _square_decide(payload):
         followers = int(cand.get('粉丝指数') or 0)
     except (TypeError, ValueError):
         followers = 0
+    snapshot = {'主推类目': main_cate, '30天结算额': [settle_low, settle_high],
+                '粉丝指数': followers}
+    tid_existing = _square_talent_id_by_douyin(did)
+    if verdict == '排除':
+        try:
+            with open(SQUARE_REJECTS_LOG, 'a', encoding='utf-8') as fp:
+                fp.write(json.dumps({'at': now_ms, 'verdict': verdict, 'reason': reason,
+                                     'candidate': cand}, ensure_ascii=False) + '\n')
+        except Exception as e:
+            log(f'[SquareDecide] 排除审计日志失败（不阻断）: {e}')
+        if tid_existing:
+            _square_double_write_rec(tid_existing, name, None, 'delete')
+        return ({'ok': True, 'inserted': False, 'verdict': verdict}, 200)
+    if tid_existing:
+        if verdict == '值得联系':
+            _square_double_write_rec(tid_existing, name, snapshot, 'upsert')
+        else:   # 存疑改判：当日推荐位撤下（B 表=当日值得联系集合）
+            _square_double_write_rec(tid_existing, name, None, 'delete')
+        return ({'ok': True, 'inserted': False, 'duplicate': True,
+                 'verdict': verdict}, 200)
     # 只丢不造：候选 item 里只有摘要字段，remark 不带平台明细（scan 全量模式才有）
     remark = {
         'sale_d30': [settle_low, settle_high],
@@ -3777,6 +3843,8 @@ def _square_decide(payload):
         'remark': json.dumps(remark, ensure_ascii=False),
     }
     tid = _square_insert_talent(f, 'square_scan_' + datetime.now().strftime('%Y%m%d'))
+    if verdict == '值得联系':
+        _square_double_write_rec(tid, name, snapshot, 'upsert')
     log(f'[SquareDecide] 入库 {name}（{did}）← {verdict}：{reason[:40]}')
     return ({'ok': True, 'inserted': True, 'talent_id': tid, 'verdict': verdict}, 200)
 
@@ -4237,6 +4305,28 @@ def _square_select_category(page, category):
         return None
 
 
+def _square_search_by_name(page, name):
+    """按昵称回搜达人（单2 2026-11-23 抖音号回填 dry-run 通路）。
+
+    与类目搜索同一个输入框（placeholder「主推类目」的检索框接受任意关键词，
+    平台按相关度返回 search_feed_author）——名字搜索天然带 a_bogus 签名，
+    裸 fetch 必被风控（§8.3），必须走页面真实交互。
+    返回 (list, has_more)；失败 → ([], False)。只采集不判定，结果由调用方对拍。"""
+    try:
+        inp = page.locator('input[placeholder*="主推类目"]').first
+        inp.fill(name, timeout=5000)
+        with page.expect_response(lambda r: 'search_feed_author' in r.url,
+                                  timeout=30000) as ri:
+            inp.press('Enter')
+        payload = ri.value.json()
+        _square_assert_not_risk(payload)
+        data = payload.get('data') or {}
+        return data.get('list') or [], bool(data.get('has_more'))
+    except Exception as e:
+        log(f'[SquareLookup] 名字「{name}」搜索失败: {str(e)[:120]}')
+        return [], False
+
+
 SQUARE_MAX_PAGES = 5   # ★ 必修①（2026-11-10 验收返工）：翻页找新面孔的上限
 
 
@@ -4366,6 +4456,63 @@ def _square_click_eye(page):
             except Exception:
                 continue
     return False, ''
+
+
+def _run_square_lookup_impl(row):
+    """按名回搜达人拿抖音号（单2 2026-11-23 抖音号回填 dry-run 通路）。
+
+    row = {'id': cid, 'names': [昵称, ...]（≤10）}
+    result = {searched: N, per_name: {昵称: {'candidates': [{昵称,抖音号,达人ID,
+             粉丝,城市,主推类目}], 'has_more': bool}}}
+    ★ 只采集不写库：回填写库由 dry-run 报告经老大拍批量后走工具 --apply
+    （自动备份+回读验证，本函数零 DB 写）。真人化节奏：名间 4-8s。
+    """
+    cid = row['id']
+    names = [str(n or '').strip() for n in (row.get('names') or []) if str(n or '').strip()][:10]
+    _job_set(cid, status='collecting', stage='检查工作时段', started=time.time())
+    if not _square_work_hours_ok():
+        err = (f'按名回搜仅在工作时段 {SQUARE_WORK_HOUR_START}:00-'
+               f'{SQUARE_WORK_HOUR_END}:00 执行（真人化节奏铁律）')
+        log(f'[SquareLookup] {cid} 拒绝：{err}')
+        _job_set(cid, status='refused', error=err)
+        return
+    per_name = {}
+    try:
+        page = _switch_to(BROWSER, DAREN_BROWSER)
+        _job_set(cid, stage='打开达人广场')
+        _square_wait_initial_list(page)
+        page.wait_for_load_state('domcontentloaded')
+        _human_sleep(3, 6)
+        _check_login_state(page)
+        if _square_risk_dom(page):
+            raise SquareRiskBlocked('页面出现验证码/滑块')
+        for i, name in enumerate(names):
+            _job_set(cid, stage=f'回搜「{name}」（{i+1}/{len(names)}）')
+            lst, has_more = _square_search_by_name(page, name)
+            cands = []
+            for a in lst[:8]:
+                f = _square_scan_author_to_fields(a)
+                cands.append({'昵称': f['name'], '抖音号': f['douyin_id'],
+                              '达人ID': f['douyin_uid'], '粉丝': f['followers'],
+                              '城市': f['city'], '主推类目': f['main_cate']})
+            per_name[name] = {'candidates': cands, 'has_more': has_more}
+            log(f'[SquareLookup] 「{name}」候选 {len(cands)} 条')
+            if i < len(names) - 1:
+                _human_sleep(4, 8)
+        result = {'searched': len(names), 'per_name': per_name}
+        _job_set(cid, status='done', stage='完成',
+                 result=json.dumps(result, ensure_ascii=False))
+        log(f'[SquareLookup] {cid} 完成：{len(names)} 个名字')
+    except SquareRiskBlocked as e:
+        _job_set(cid, status='risk_blocked', error=str(e),
+                 result=json.dumps({'searched': len(per_name),
+                                    'per_name': per_name}, ensure_ascii=False))
+        log(f'[SquareLookup] {cid} 风控熔断（已有 {len(per_name)} 个名字的结果保留）')
+    except Exception as e:
+        _job_set(cid, status='error', error=str(e)[:300],
+                 result=json.dumps({'searched': len(per_name),
+                                    'per_name': per_name}, ensure_ascii=False))
+        log(f'[SquareLookup] {cid} 失败: {e}')
 
 
 def _run_square_contact_impl(row):
@@ -5804,6 +5951,20 @@ class ControlHandler(BaseHTTPRequestHandler):
                 self._json(500, {'ok': False, 'error': str(e)})
                 return
             self._json(200, {'ok': True})
+            return
+        if self.path == '/square-lookup':
+            # 单2 2026-11-23：按名回搜拿抖音号（dry-run 通路）——{names: [...] ≤10}
+            # → collect_id（轮询 /jobs/<id>）。只采集不写库。
+            names = (body or {}).get('names') or []
+            if not isinstance(names, list) or not names:
+                self._json(400, {'error': 'names 必填（非空数组，≤10 个名字）'})
+                return
+            if len(names) > 10:
+                self._json(400, {'error': '单次最多 10 个名字（真人化节奏）'})
+                return
+            cid = f"sql_{int(time.time()*1000)}_{secrets.token_hex(3)}"
+            submit_collect({'_square_lookup': True, 'id': cid, 'names': names})
+            self._json(200, {'ok': True, 'collect_id': cid})
             return
         if self.path == '/square-contact':
             # 主管 2026-11-21 授权：广场详情页点「小眼睛」取联系方式（只读回填 contact）
