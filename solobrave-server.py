@@ -11265,6 +11265,15 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 self._handle_post_chat(sub)
                 return
 
+        # ★ 单1③（2026-11-23）: 推荐位状态流转按钮（今日推荐页，POST 与页面 fetch 一致）
+        if path.startswith('/api/recommendations/'):
+            sub = path[len('/api/recommendations/'):]
+            if sub.endswith('/status'):
+                rec_id = sub[:-len('/status')].strip('/')
+                if rec_id:
+                    self._handle_update_recommendation_status(rec_id)
+                    return
+
         self._send_json_error(404, 'Not found')
 
     def do_PUT(self):
@@ -11396,14 +11405,6 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if path == '/api/notifications/read-all':
             self._handle_notifications_read_all()
             return
-        # ★ 单1③（2026-11-23）: 推荐位状态流转按钮（今日推荐页）
-        if path.startswith('/api/recommendations/'):
-            sub = path[len('/api/recommendations/'):]
-            if sub.endswith('/status'):
-                rec_id = sub[:-len('/status')].strip('/')
-                if rec_id:
-                    self._handle_update_recommendation_status(rec_id)
-                    return
         if path == '/api/notification-settings':
             self._handle_put_notification_settings()
             return
