@@ -13399,3 +13399,75 @@ index.html 15551 行加 navReco 导航项。★ 这是老大唯一能「看见�
 **待办（等外部条件）**：单2 实测 dry-run 需团长端在线（登录墙 11-22 起未解，
 需老大扫码）；--apply 须老大拍批量。充值（Ray/keeper +500）无授权未动。
 server 重启后 curl 实测 GET /api/recommendations?date=2026-11-20（有 9 行数据）。
+
+## §201 商家号隔离全量落地（2026-11-23 14:4x，A 边，dq_36f8a1236e79 关账前）
+
+**谓词单一真源** `tools/talent_merchant.py`：形态学 v1 词表（有限公司/集团/实业/商贸/
+贸易公司/鞋业/皮具/工厂/厂$/店$/清仓），SQL 谓词与 Python 判定同口径（守卫对拍锁死；
+初版 SQL 误把子串词写成后缀锚——「工厂直发吗」分叉被对拍当场抓住已修，教训：
+LIKE 转写正则时 `$` 才是后缀锚，无 `$` 的词是任意子串）。
+实测 10/227 全中与协调边名单逐字对上，12 真达人负样例零误杀。
+
+**三处闸**：① worker `_square_decide` merchant 硬闸（值得联系+merchant 不 upsert
+B 表，返回体带 merchant 标记）；② worker 增量入库 remark 打 `merchant:true`
+（只标不丢）；③ server `/api/products/recommend` 409 不进匹配池。
+
+**存量清理已 apply**（`tools/merchant_quarantine.py`，dry-run 默认/--apply 执行）：
+整库备份 `/tmp/solobrave-merchant-backup-20261123-142908.db`；10 人 remark 打标；
+product_talent_match 解挂 **9 行/8 人**（先建备份表 `product_talent_match_backup_
+20261123-142908` 273 行，再删）——比单上预估 7 行多 2 行（佳佳箱包工厂 11-20 又被
+挂过一次）；B 表历史行 1 行（11-16 乐姐箱包工厂店10）标注不删：reason_text 前缀
+【商家号已隔离】+ snapshot_json.merchant_quarantined=true + pipeline_status=
+quarantined。回读验证：商家残留挂载 0、打标 10、幂等复跑全跳过。工具可重放。
+
+**测试**：test_talent_merchant.py 6 条（10 正/12 负/空名安全/SQL-Python 对拍/
+worker 源码锚）+ double_write + reco_api 共 17 条；全量回归 **2063 passed**。
+commit `b5d5b51`，main/dev 零分叉（fetch 验 1）。
+
+**待办**：活机验收（worker+server 重启后 /square-decide 对海贸箱包有限公司验
+merchant:true 不进 B 表 + /api/products/recommend 409）——**须等后台全量 dry-run
+（pid 64835，14:07 起）跑完再重启**，重启即杀浏览器任务。巡检锚：明早 9:25
+档商家号不在当班触达链路（§196）。
+
+## §202 队列 4 单全施工 + 活机验收 + dry-run 干净账（2026-11-23 15:0x，A 边）
+
+**单2 判据 4-3 解锁 + 验收值守**（`7a978b4`，dq_9e5618bf3cf9）：JUDGE_4_3_PAUSED=False
+（解锁依据=B 表双写上线 13:30 班 3 行实证+对拍绿，协调边 14:0x 指令；守卫⑥改
+「解锁咬合」形态——谁再挂回无人跟的单必红）。`scripts/acceptance_watch.py` +
+launchd `com.solobrave.acceptance-watch`（工作日 18:30，失败桌面推送+落
+data/acceptance_watch.log）已加载。**首跑即实证**：检查1红——11-20 任务书改版后
+日报丢了 canonical「每日推荐」段（13:30 班日报只有「建议人工过目」导语），对拍 2c
+0 班空转 → 已立 P2 `dq_ab39888f5c49`（canonical 段恢复，判据不许松）。
+附注：今日 09:30 班白挂（身份墙）值班链已自报 [未交卷]，13:30 班 3 人
+matched_rules 全空=11-19 起第五观察项基线延续（warn 级）。
+
+**单3 身份探针**（dq_bbcb24792baa）：`buyin_auth.classify_identity` 纯函数
+（罗盘 URL/「达人版」角标→daren；「团长工作台」→captain；判不出→unknown）；
+Browser.identity()；/health 增 `identity`+`ready`（ready=up∧logged∧captain）；
+preflight ⑨消费真值。**语义三态实证**：浏览器停在官网落地页（/open 首跳常态）
+时 innerText 无工作台标记 → unknown → **不拦班**（拦了就是狼来了——15:0x 活机
+亲证）；真漂移到业务页必出 daren 硬信号必拦；no_delivery 值班链兜底双保险。
+浏览器态≠登录态≠身份态三态分离入档。
+
+**单4 商品类目树 API**（dq_9c4dee912a5b）：GET /api/products/category-tree
+（纯函数 build_category_tree：一级→二级→三级+节点计数，未分类如实桶；
+路由在 startswith 通用前缀前）。活机实测 total=158、智能家居 49/鞋靴 44/
+食品 30、platform_snapshot 指向 11-19 快照。**前端折叠树等老大 F12 红字后
+与「加载中」故障同一窗口合做**（dq 原文错峰纪律）。
+
+**单1 商家号隔离活机验收全绿**（b5d5b51 部署后）：/api/products/recommend 对
+海贸箱包有限公司 → **409**（对照真达人 200 零误杀）；/square-decide 对商家
+下「值得联系」→ 返回 ok、**今日 B 表 0 行**（探针前后各查一次）。存量清理
+见 §201。巡检锚：明早 9:25 preflight ⑨ + 商家号不在当班链路。
+
+**dry-run 干净账**（污染修复后全量 116 人重跑）：**可补 124/125（99.2%）**
+= @直剥 9 + 回搜命中 115/116（name_exact 73 + 同名多人按粉丝最近取 34 +
+name_contain 8），未命中仅「富尧一家」1 人。报告
+`data/douyin-id-backfill-report-20261123-1437.json`（可复核账）。
+**分支建议：全量 --apply**（99.2% 命中率远超 50% 拍板线；34 条同名多人已在
+报告按「按粉丝最近取」预填 proposed、apply 撞号跳过+回读验证兜底）。
+等老大拍 --apply。
+
+**队列状态**：dq_36f8a1236e79 / dq_9e5618bf3cf9 / dq_bbcb24792baa → 完成；
+dq_9c4dee912a5b → 待验（后端交付，前端等 F12）。回归 2076+ passed。
+基点 `7a978b4` 双分支零分叉。

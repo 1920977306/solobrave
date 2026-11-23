@@ -178,8 +178,10 @@ def main():
 
     # ⑨ 团长端身份探针（dq_bbcb24792baa，11-23）：登录态≠身份态——
     #    身份漂成达人版时 ⑧ 的 cookie 照样在位（09:30 班白挂实证）。
-    #    浏览器未起（互斥常态：达人端在线时团长端必关）→ 免验；
-    #    daren → 红；unknown 且在线 → 红（需人工目验）；
+    #    语义三态：captain→绿；daren→红（硬信号：罗盘URL/达人版角标）；
+    #    unknown→绿但注明「页面非工作台未判定」——浏览器停在官网落地页
+    #    （/open 首跳常态）时判不出，不能因此狼来了；真漂移到工作台页必出
+    #    daren 硬信号，再配合 no_delivery 值班链兜底双保险。
     #    identity 字段缺席（worker 待重启）→ 信息行不拦班。
     ident, br_up = None, False
     if worker_up7:
@@ -203,8 +205,9 @@ def main():
         line('⑨ 团长端身份探针', False,
              '🔴 身份漂成达人版（09:30 班白挂同款）——先切回团长再开跑')
     else:
-        line('⑨ 团长端身份探针', False,
-             '🔴 浏览器在线但身份判不出（页面异常/加载中）——班前人工目验顶栏身份')
+        line('⑨ 团长端身份探针', True,
+             '页面非工作台未判定身份（官网落地页常态）——daren 硬信号必拦，'
+             '漂移到业务页即现形；no_delivery 值班链兜底')
 
     reds = [r for r in results if not r[1]]
     n = len(results)
