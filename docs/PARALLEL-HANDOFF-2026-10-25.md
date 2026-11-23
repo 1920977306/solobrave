@@ -13358,3 +13358,44 @@ cookie 锚，两者互补不重叠）。
 解锁 + 验收脚本挂 launchd 18:30，2h）③号单（读 API + 「今日推荐」前端页，1 天）待领。
 另：团长端登录墙 11-22 17:30 起未解（ecom_us_lt_buyin 缺失），11-23 09:30 班已因此
 失败（2 起 no_delivery 立案、P1-⑧ 已推）；13:30 班是活测试，再红需老大扫码。
+
+## §200 推荐链出口三件套 + 4-1 双锚 + 抖音号回填 dry-run（2026-11-23 12:5x，A 边，四单全施工）
+
+老大 12:24「立」→ 派单包四单当天全施工，`29f07eb`（main/dev 同指，零分叉）。
+全量回归 2051 passed + 新增守卫 20 条（6+6+7+1）。
+
+**单1① decide 双写 B 表**（buyin_worker.py）：判定即结构化落库，与 report 时兜底
+解析器两层互补。值得联系→INSERT OR REPLACE（rec_id=rec_{ymd}_{tid} 幂等）；
+存疑/排除改判→delete 当日行（B 表=当日值得联系集合）；reason_text 走 canonical
+单一出口；run_id 锚 `_square_latest_scan_job_id()`（ssq_ 判据②口径）；任何失败
+只 log 不阻断判定。守卫 tests/test_square_double_write.py 6 条。
+
+**单1② 读 API + 状态流转**（solobrave-server.py）：GET /api/recommendations?date=
+（登录即可见，B 表 LEFT JOIN talents 合并 douyin_id/followers/verdict_now，逐人附
+outreach_card 带品卡文本，组装失败不阻断）；POST /api/recommendations/:rec_id/status
+（白名单 recommended/contacted/negotiating/sample_sent/completed/rejected/invalid +
+审计日志）。守卫 tests/test_reco_api.py 6 条。
+
+**单1③ reco.html「今日推荐」页**：V2.1 token 风格单文件页（日期切换/人卡/带品卡/
+状态流转按钮），token 读 localStorage `sb_auth_token`（office-v3.html 同款口径）；
+index.html 15551 行加 navReco 导航项。★ 这是老大唯一能「看见」效果的出口。
+
+**单3 判据 4-1 双锚**（scripts/queue_feeder.py，dq_fe64e2825cda）：停摆小时 =
+`dual_anchor_age` = MAX(talent_collects 最后成功, talents 最后写入) 距今（>48h 报）。
+根因：square-scan 直写 talents 不经过 talent_collects，周四距 weekly 窗 87h 是
+设计态非停摆（11-20 判误报实证）。选双锚而非「对齐 weekly 窗+24h」（后者把判据
+和排班表耦死，排班一改判据又漂）。守卫 test_queue_feeder.py 守卫⑦ 6 断言；
+`--selftest` 全绿。
+
+**单2 抖音号回填 dry-run 通路**：缺口实况 224 人可用仅 99，缺口 125 = @直剥 9 +
+按名回搜 116（55 人有平台ID 辅助对拍）。worker 新控制口 POST /square-lookup
+{names≤10} → `_run_square_lookup_impl`（页面真请求带 a_bogus，名间 4-8s，
+工作时段闸，**只采集不写库**，风控熔断保留已得结果）。工具
+`daren_cockpit/tools/douyin_id_backfill.py`：--report 缺口清单 / --dry-run 出
+「可补 N」实测报告（不写库）/ --apply 须带 dry-run 报告+自动备份+撞号跳过+回读
+验证。对拍优先级：达人ID 精确 > 昵称归一化相等 > 单向包含；无匹配不编造。
+守卫 tests/test_douyin_id_backfill.py 7 条。
+
+**待办（等外部条件）**：单2 实测 dry-run 需团长端在线（登录墙 11-22 起未解，
+需老大扫码）；--apply 须老大拍批量。充值（Ray/keeper +500）无授权未动。
+server 重启后 curl 实测 GET /api/recommendations?date=2026-11-20（有 9 行数据）。
