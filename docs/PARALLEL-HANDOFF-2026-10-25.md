@@ -13328,3 +13328,33 @@ browser_up = 达人端（抖店工作台），两者互斥（buyin_worker._switc
 
 **注意**：此锚查的是**浏览器开着哪端**，不判登录态死活（登录判死归 §183 的
 cookie 锚，两者互补不重叠）。
+
+## §199 B 表落库兜底解析器 + 11-20~23 历史回填（2026-11-23 12:1x，A 边，协调边派单包①号单）
+
+**根因**（协调边 11:52 验毕）：`buyin_worker._square_write_report` 落库分支只信 payload
+`recommendations`（原 4007 行 gate），小拓 `--rec` 传空数组 ⇒ B 表恒空。11-20 起「联系方式
+可得」gate 让 payload 恒空 ⇒ **11-20~11-23 四天 B 表零行**（投递语义盲区，验收红被看见
+但三天没人跟，周五 18:2x 协调边已认账）。
+
+**施工**（`7891d85`，main+dev 双分支零分叉）：
+- `_square_recs_from_report_text(detail, conn)`：payload 空时从日报正文解析——
+  ①「每日推荐 N 人」编号段直取（tal id 自证，名字可带全角括号）；
+  ②「每日推荐 0 人」+ 待触达清单：编号项/顿号名单双形态，id 缺失按名反查
+  （精确 → 唯一前缀，多义跳过），判定以 `talents.remark.square_judgment.verdict`
+  为准（非「值得联系」跳过）；**累积清单拒解析**（日期锚 `11-20及以前`/`11-21 09:30班`，
+  11-22 18:03 实证防跨班汇总冒充本班）；`今日累计` 同线尾巴只取本班；
+  ③ 无段 ⇒ 零行不造数。
+- `_square_report_rec_source(recommendations, detail, conn)`：payload 优先（原语义
+  不动）→ 正文兜底 → none。`_square_write_report` 两处接线（触达卡 gate + 落库）
+  同用裁决结果，解析在拼接触达卡**之前**（正文是干净 canonical 段）。
+- 守卫 `tests/test_square_report_fallback.py` 13 条；全量回归 **2038 passed**。
+- 历史回填 `scripts/backfill_square_recs.py`：通知按（日期,班次）分组取**末版**（改档版
+  为准），逐日对拍 **11-20=9 / 11-21=8 / 11-22=0 全绿**，先清后插幂等，整库备份在
+  `/tmp/solobrave-backfill-backup-20261123-121*.db`。
+- worker 12:10:57 已 graceful 重启加载新码（graceful-daren → kickstart → /health 通）。
+
+**注意**：①号单不在 dispatch_queue（协调边说「协调边落单」实际未落；A 边 JWT 过期 +
+焊点 403 拦 P2 代录）——按派单包显式授权直接开工，本 § 即登记。剩余②号单（判据 4-3
+解锁 + 验收脚本挂 launchd 18:30，2h）③号单（读 API + 「今日推荐」前端页，1 天）待领。
+另：团长端登录墙 11-22 17:30 起未解（ecom_us_lt_buyin 缺失），11-23 09:30 班已因此
+失败（2 起 no_delivery 立案、P1-⑧ 已推）；13:30 班是活测试，再红需老大扫码。
