@@ -13648,3 +13648,44 @@ GitHub 已恢复。`main = dev = origin/main = origin/dev = 60efd6d`（11-23 22:
 2. **P3 插空**：dq_3733edc03e03（类目+粉丝写回，先 --dry-run 出分布报告）→ dq_e9f85f176589（判据 N=350）。
 3. **09:25 前**只做准备不碰 worker；09:30 班是第三层首跑，**班前不要 restart worker**（毁浏览器登录态）。
 4. 班后按七节五锚出晨报，⑤ 质量抽查协调边来做终审。
+
+## §207 晨批四单施工账（2026-11-24 09:2x，A 边，基点 b416712 远端零分叉已验）
+
+协调边 06:x 施工序执行完（P2 优先 → P3 插空），四单全部挂「待验」：
+
+### P2-① dq_4d41045a5af9 撮合余额前置快失败 ✅ 已部署
+`_ai_match_candidates` 入口闸（唯一推理调用点 `_call_ai_for_json` 之前）：
+`_check_credit_balance(agent.id)` 无余额 ⇒ 一次日志 `[MatchFastFail]` 跳整批、
+degrade_reason='insufficient_credits'、零 AI 调用。降级路径现成（ai_scores 空 ⇒
+阶段3 按 rule_score 落 product_talent_match ⇒ 触达卡热销兜底）。白名单经
+_check_credit_balance 自然豁免；余额恢复下一轮自动恢复（无需人工解隔离）。
+守卫 3 条（零调用断言/自动恢复/白名单不拦）。**活体**：权限缝同 commit 旁证
+server 已生效；撮合端点需登录态未直打，逻辑由守卫覆盖。
+插曲：扫描器对 `proxy_<agent>` 形态系统性过敏（本项目 key 格式约定），
+allowlist 登记指纹 0f46ec5c5877（格式说明在册）。
+
+### P2-② dq_b47546016b45 代理免费转发权限缝 ✅ 已部署已活体
+无身份（agent_id=None）请求：house key 池不再兜底——自带 key 用 caller 自持
+key（它自己的额度、上游鉴权），无 key 一律 401。**活体验收**：无 key POST
+`/api/proxy/kimi/v1/messages` → 401 authentication_error ✅（09:2x 亲验）。
+守卫 4 条（401+零 house 调用/自持 key 不碰池/proxy_ 原路径 429 语义不破）。
+
+### P3-③ dq_e9f85f176589 孤儿循环判据 5-5 ✅ 已注册
+`judge_5_5`：滑窗 30min 内同 agent 调用≥350（N 经质询压紧）+ input 恒定
+（CV<5%）+ session 全空 + 密度恒定（间隔 CV<30%）四签名齐 ⇒ P1。collect 层
+滑窗统计（HAVING≥350 初筛再算 CV）。**selftest 补样**（24 组正/负全过——
+判据上线必须进自检样本，原 cases 手写不含新判据属半吊子，已堵）；守卫 +3
+（贴线 349 静默/四签名缺一不可/Helen 签名齐报）。
+
+### P3-④ dq_3733edc03e03 类目+粉丝写回工具 ✅ dry-run 已出，apply 待拍
+`scripts/backfill_category_followers.py`（--dry-run 默认/--apply 备份+回读）。
+**分布报告**：无类目 73→可补 53；followers=0 80→可补 78（分桶：回填标记
+仍 0 有 77、自然零 3）；不可补 14 人（报告无命中候选，登记不造值）；来源
+分布 exact 55 / 同名多人 19 / contain 5。**真 bug 一枚（守卫立功）**：空串
+候选 [''] join 出 '' 会被当值写库（8 人同名多人平台真无类目）——join 前
+过滤空串，过滤后为空即「真没有」不造值。INTEGER 口径纪律锚死（followers
+=0 判缺口、remark 分桶、禁 IS NULL）。**apply 等协调边拍板**。
+
+### 基点账
+6184947（P2 双单）+ b416712（5-5+写回工具）两批已推，远端 main==dev
+零分叉已验（GitHub 网络曾瘫 30 分钟，恢复后重试即通）。回归 2102 passed。
