@@ -39,11 +39,12 @@ def test_feeder_judges_mechanical():
                '2_1', '2_2', '2_3', '2_4', '2_5',
                '3_1', '3_2', '3_3', '3_4', '3_5',
                '4_1', '4_2', '4_3', '4_4', '4_5',
-               '5_1', '5_2', '5_3', '5_4'):
+               '5_1', '5_2', '5_3', '5_4', '5_5'):
         assert f'def judge_{no}(' in src
     # 判据清单 v1 编号与 JUDGES 表一一对应
     assert src.count("('1-1', judge_1_1)") == 1
     assert src.count("('5-4', judge_5_4)") == 1
+    assert src.count("('5-5', judge_5_5)") == 1
     # 零积分纪律：发现层是纯代码——ast 剥全部 docstring/注释后不得出现
     # AI/openclaw/代理调用路径
     import ast as _ast
@@ -177,3 +178,37 @@ def test_feeder_4_1_dual_anchor():
     assert 'c_age = dual_anchor_age(now_ms, c_last, t_last)' in src, \
         '主流程必须调用双锚合成，回退单锚即打回'
     assert 'MAX(updated_at) FROM talents' in src
+
+
+# ── 5-5 孤儿循环判据守卫（dq_e9f85f176589，N=350/30min 质询压紧）──
+
+def _feeder_mod():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location('queue_feeder', str(FEEDER))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_judge_5_5_helens_signature_fires():
+    """Helen 法证签名齐（N≥350 + input 恒定 + session 空 + 密度稳）⇒ P1。"""
+    qf = _feeder_mod()
+    out = qf.judge_5_5([('emp_helen', 350, 0.0, True, True)])
+    assert len(out) == 1 and out[0]['priority'] == qf.P1
+    assert 'orphan' in out[0]['key'] and out[0]['judge'] == '5-5'
+
+
+def test_judge_5_5_boundary_349_quiet():
+    """贴线纪律：N=349（阈值下 1）必静默——阈值是质询压紧的，不许边界滑移。"""
+    qf = _feeder_mod()
+    assert qf.judge_5_5([('emp_x', 349, 0.0, True, True)]) == []
+
+
+def test_judge_5_5_each_signature_independently_required():
+    """四签名缺一不可（防把正常班批冲误报）：逐个破坏必静默。"""
+    qf = _feeder_mod()
+    base = ('emp_x', 400, 0.0, True, True)
+    assert qf.judge_5_5([(base[0], base[1], 0.5, True, True)]) == [], 'input 波动⇒不报'
+    assert qf.judge_5_5([(base[0], base[1], 0.0, False, True)]) == [], 'session 非空⇒不报'
+    assert qf.judge_5_5([(base[0], base[1], 0.0, True, False)]) == [], '密度不稳⇒不报'
+    assert qf.judge_5_5([]) == []

@@ -401,6 +401,25 @@ def judge_5_4(search_share, calls):
     return []
 
 
+def judge_5_5(orphan_windows):
+    """5-5 P1 孤儿循环（dq_e9f85f176589，Helen 40h 案法证签名，阈值经质询压紧
+    N=350/30min——原 1500 太松）：同 agent 滑窗内调用≥350 且 input 恒定
+    （CV<5%）且 session 全空且密度恒定（相邻间隔 CV<30%）⇒ P1 自动隔离。
+    orphan_windows = [(agent, n_calls, input_cv, session_empty, density_stable)]。
+    法证：11-14~15 Helen emp_1780199176680 连跑 40h/27,584 次/29,421 分，
+    A 流 input=1 → B 流 input=208 两循环 2.5 分钟无缝交接。"""
+    out = []
+    for agent, n, cv_i, sess_empty, dense_stable in (orphan_windows or []):
+        if n >= 350 and cv_i < 0.05 and sess_empty and dense_stable:
+            out.append(_cand(
+                '5-5', f'orphan_{agent}', P1,
+                f'{agent} 疑似孤儿循环：{n} 次/30min，input 恒定（CV={cv_i:.1%}），'
+                f'session 全空，密度恒定',
+                'Helen 40h 法证签名（27,584 次/29,421 分，两流无缝交接）',
+                '自动隔离拒转 + 老大桌面通知（dq_e9f85f176589）'))
+    return out
+
+
 JUDGES = [
     ('1-1', judge_1_1), ('1-2', judge_1_2), ('1-3', judge_1_3),
     ('1-4', judge_1_4), ('1-5', judge_1_5),
@@ -411,7 +430,7 @@ JUDGES = [
     ('4-1', judge_4_1), ('4-2', judge_4_2), ('4-3', judge_4_3),
     ('4-4', judge_4_4), ('4-5', judge_4_5),
     ('5-1', judge_5_1), ('5-2', judge_5_2), ('5-3', judge_5_3),
-    ('5-4', judge_5_4),
+    ('5-4', judge_5_4), ('5-5', judge_5_5),
 ]
 
 PRIORITY_ORDER = {P1: 0, P2: 1, P3: 2}
@@ -504,6 +523,40 @@ def collect_inputs():
             "SELECT agent_id, SUM(credits_used) FROM credit_usage_log "
             "WHERE created_at>=? GROUP BY agent_id HAVING SUM(credits_used)>300",
             (since_h,))]
+        # 5-5 孤儿循环滑窗（dq_e9f85f176589，N=350/30min，Helen 法证签名）：
+        # 同 agent 30min 内调用≥350 + input 恒定（CV<5%）+ session 全空
+        # + 密度恒定（相邻间隔 CV<30%）——四签名齐才报，防把正常班批冲误报。
+        since_30m = datetime.fromtimestamp(
+            time.time() - 1800).strftime('%Y-%m-%d %H:%M:%S')
+        orphan_rows = []
+        for _a, _n in conn.execute(
+                "SELECT agent_id, COUNT(*) FROM credit_usage_log "
+                "WHERE created_at>=? GROUP BY agent_id HAVING COUNT(*)>=350",
+                (since_30m,)):
+            _recs = conn.execute(
+                "SELECT input_tokens, session_id, created_at "
+                "FROM credit_usage_log WHERE agent_id=? AND created_at>=? "
+                "ORDER BY created_at", (_a, since_30m)).fetchall()
+            _inputs = [r[0] or 0 for r in _recs]
+            _mean_i = sum(_inputs) / len(_inputs)
+            _cv_i = ((sum((x - _mean_i) ** 2 for x in _inputs) / len(_inputs))
+                     ** 0.5 / _mean_i) if _mean_i else 1.0
+            _sess_empty = all(not (r[1] or '').strip() for r in _recs)
+            _ts = []
+            for r in _recs:
+                try:
+                    _ts.append(datetime.strptime(
+                        r[2], '%Y-%m-%d %H:%M:%S').timestamp())
+                except Exception:
+                    pass
+            _dense = False
+            if len(_ts) >= 2:
+                _gaps = [b - a for a, b in zip(_ts, _ts[1:])]
+                _mg = sum(_gaps) / len(_gaps)
+                _cv_g = ((sum((x - _mg) ** 2 for x in _gaps) / len(_gaps))
+                         ** 0.5 / _mg) if _mg else 9.9
+                _dense = _cv_g < 0.3
+            orphan_rows.append((_a, len(_recs), _cv_i, _sess_empty, _dense))
         # 2-5 单班烧分：今日 vs 近 7 日日均（简化：今日 total / 当天已过小时 ×24
         # 太噪，用「今日总消耗 vs 前 7 天日均总消耗」）
         week_ago = (datetime.now().fromtimestamp(
@@ -606,6 +659,7 @@ def collect_inputs():
             'judge_5_2': (burn_today, burn_yday),
             'judge_5_3': (emp_hour,),
             'judge_5_4': (None, None),  # 轨迹探针默认不可用
+            'judge_5_5': (orphan_rows,),
         },
     }
 
@@ -721,6 +775,10 @@ def selftest():
         ('5-2', (300, 100), (120, 100)),
         ('5-3', ([('emp_a', 450)],), ([('emp_a', 100)],)),
         ('5-4', (0.35, 50), (0.1, 50)),
+        # 5-5 孤儿循环：正例 Helen 法证签名齐（N≥350+input 恒定+session 空+
+        # 密度稳）；负例 N 不足（贴线纪律的另一侧在 tests/test_queue_feeder.py）
+        ('5-5', ([('emp_loop', 400, 0.0, True, True)],),
+                ([('emp_loop', 100, 0.0, True, True)],)),
     ]
     fn_map = dict(JUDGES)
     for no, pos, neg in cases:
@@ -744,7 +802,7 @@ def selftest():
     if fails:
         print('SELFTEST FAIL: ' + '；'.join(fails))
         return 1
-    print(f'SELFTEST OK：{len(cases)} 判据组各 1 正 1 负全过 + 4-3 解锁咬合守卫在位（21 判据全覆盖）')
+    print(f'SELFTEST OK：{len(cases)} 判据组各 1 正 1 负全过 + 4-3 解锁咬合守卫在位（22 判据全覆盖）')
     return 0
 
 
