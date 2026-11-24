@@ -13722,3 +13722,35 @@ key（它自己的额度、上游鉴权），无 key 一律 401。**活体验收
 
 - 「本月额度用完啦，下个月再续上～」第三次出现在 A 边成文末尾——A 边今早交付正常，疑似其上游通道月度配额的固定签名；已三次提示老大确认，未答复前不计入事故。
 - 撮合快失败首跑未实战（今日无 Ray-context 撮合发起），观察锚已挂。
+
+## §209 SIGTERM 专项排查报告（dq_9607ef855a4a，2026-11-24 18:3x–19:0x，巡检岗认领施工）
+
+**精确被掐时刻**（轨迹库 trajectory_runtime_events `externalAbort:true` 的 session.ended，本地时间）：
+11-13 12:17:19 · 11-14 09:37:02 · 11-17 10:00:56 · 11-23 09:42:52（-r2 重投 09:48:43 再被掐）。
+
+**已破案 1/4：11-17 10:00:56 = 自家熔断**。fuse_events 铁证：`fuse|次数腿(126>100)|acted=1`
+（run 8a48349f）——run_watchdog 按 11-13 拍板的复合判据正常履职，非外部力量。
+
+**其余 3 日（11-13/14/23）排除清单（均为正面证据，非缺席推断）**：
+① run_watchdog 无罪：其自身日志在 11-23 09:40:55 / 09:45:55 两 tick 均记
+「run …活跃 calls=30/46 search=0 → **放行**」，kill 时刻前后无 SIGTERM 行；
+② 30 个 solobrave launchd plist 无 ResourceLimits/MemoryLimit，唯一杀进程者即
+run_watchdog（仅熔断路径）；wrapper plist 干净；
+③ 用户 crontab 全清白——**协调边点名的 Desktop/solobrave-test 三条 cron 已逐条读码**：
+backup.sh（3:00 拷库）/ cleanup_trajectory.sh（4:00 gzip 旧轨迹）/ wal_checkpoint（:05），
+均无 kill 逻辑、时间窗全不命中；
+④ prod 全库 grep：除 run_watchdog 无任何 os.kill/SIGTERM/pkill（queue_feeder 仅注释）；
+⑤ wrapper xiaotuo_daily.py 无自杀逻辑（subprocess timeout=42min，被杀仅 7–18min）；
+⑥ zsh_history 仅 server 重启类 kill（9 月旧账）；⑦ Kimi daimon 自动化无杀码；
+⑧ jetsam 日志只有例行 noise（且系统内存杀用 SIGKILL，我们是 143=SIGTERM）；
+⑨ macOS 统一日志对 CLI 进程不记信号发送者（平台限制，二次实证）。
+
+**未破 3 日的画像**：exit 143 = 同 UID 用户态进程**有意优雅杀**；全部命中 xiaotuo 班
+（11-23 原班与自动重试班**先后**被杀——杀手不认会话键，目标是 CLI 进程本身）；
+时间聚在 09:30 班开局后 6–18 分钟 + 11-13 中午一点档。**剩余嫌疑域**：
+SoloBrave 工具链之外的本机用户态进程（Kimi 桌面运行时内部治理 / openclaw 网关内部 /
+人工或其他 agent 会话的瞬时操作）——现有日志无法回溯定位。
+
+**下一步建议（等拍板）**：下次 09:25–09:50 窗口上 `sudo dtrace -n 'proc:::signal-send
+/args[2]==15/ {printf(...)}'` 现场捕发送者（唯一可靠手段，需 sudo 一次）；
+或给 wrapper 加 PID 同伴快照（轻量、可常驻）。dtrace 抓到前，retry 兜底维持唯一防线。
