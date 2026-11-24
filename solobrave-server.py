@@ -25109,6 +25109,22 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not agent:
             return ({}, 'no_agent')
 
+        # ★ P2 余额前置快失败（dq_4d41045a5af9，11-20 风暴实证：余额 0 后每达人
+        # 90s×120+ 次拒转空转，靠自动隔离才压住）。闸在批量推理的**唯一调用点**
+        # 之前：余额 0 ⇒ 一次日志直接跳整批，零 openclaw 调用；拒转不计费，余额
+        # 恢复后下一轮撮合自动恢复（无需人工解隔离）。白名单
+        # （super_admin/platform_internal）经 _check_credit_balance 自然豁免。
+        # 降级路径（现成）：ai_scores 空 ⇒ 阶段3 按 rule_score 排序落
+        # product_talent_match ⇒ 触达卡热销兜底照常可用。
+        _quota_agent_id = (agent or {}).get('id') or ''
+        if _quota_agent_id:
+            _bal, _has = _check_credit_balance(_quota_agent_id)
+            if not _has:
+                logger.warning(
+                    f'  [MatchFastFail] agent={_quota_agent_id} 余额{_bal}，'
+                    f'撮合批量推理快失败跳整批（{len(candidates)} 候选，零 AI 调用）')
+                return ({}, 'insufficient_credits')
+
         source_label = '达人' if target_type == 'products' else '商品'
         target_label = '商品' if target_type == 'products' else '达人'
 
@@ -38011,7 +38027,24 @@ def _handle_proxy_kimi(self):
 
     # 2.5 优先使用该员工在 agents.json 中配置的 apiKey 转发，未配置则从 key 池轮询取一个
     agent_api_key = _get_agent_api_key(agent_id) if agent_id else None
-    if not agent_api_key:
+    # ★ P2 权限缝收紧（dq_b47546016b45，协调边 11-24 实证）：非 proxy_<agent>
+    # 形态的请求 agent_id=None，旧逻辑无条件取 house key 池兜底转发——无身份
+    # 请求 200 成功、零记账，任何本地进程可无归因烧 house 额度（Helen 孤儿
+    # 循环同款形态）。收紧：house 池只服务有身份的代理请求；无身份请求
+    # 要么自带真 key（旧配置向后兼容，用它自己的额度，被上游鉴权），要么 401。
+    if not agent_id:
+        if not proxy_key:
+            logger.warning(
+                f'[KimiProxy] 401 无身份无key拒转: path={self.path} '
+                f'client={self.client_address[0]} '
+                f'（house key 不再兜底无身份请求；healthcheck 请用 OPTIONS 探测）')
+            self._send_json(401, {'type': 'error', 'error': {
+                'type': 'authentication_error',
+                'message': '代理请求必须携带 proxy_<agent_id> key 或有效 API key；'
+                           'house key 不再对无身份请求兜底（dq_b47546016b45）。'}})
+            return
+        agent_api_key = proxy_key   # caller 自持 key：它自己的额度，上游鉴权
+    elif not agent_api_key:
         agent_api_key = KIMI_KEY_POOL.get_key()
     if agent_api_key is None and PROXY_ENGINE == 'chain':
         # ★★ 2026-10-26 修（真故障，木木 15:12 那条直接空回复就是这个）：
